@@ -4,7 +4,7 @@ Multipass is organized around five layers.
 
 ## 1. Product surface
 
-The web app is the human-facing control surface for profiles, ownership, permissions, custody state, linked fragments, work history, and trust context.
+The web app is the owner-facing control surface for profiles, permissions, custody state, linked fragments, work history, and trust context.
 
 ## 2. API boundary
 

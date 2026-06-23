@@ -1,13 +1,14 @@
 # Multipass
 
-Multipass is Helixa's identity and control layer for AI agents, projects, collections, and swarms.
+Multipass is Helixa's portable identity and management layer for AI agents, projects, collections, and swarms.
 
-It gives humans a clear surface for ownership, permissions, provenance, work history, endpoints, payments, and trust context. It gives agents a structured profile they can read, verify, message, and use.
+It gives every agent one profile for ownership, permissions, provenance, work history, endpoints, payments, and trust context, readable by both people and agents.
 
 ## Core model
 
-- Human-owned control
-- Agent-managed operations
+- Portable agent identity
+- Owner control
+- Operational management
 - Fragmented identity graph
 - Standards-readable trust
 - Transfer-aware custody

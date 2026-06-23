@@ -1,12 +1,12 @@
 # Product Overview
 
-Multipass is a human-owned, agent-managed identity asset.
+Multipass is a portable identity and management system for AI agents, projects, collections, and swarms.
 
 It unifies the fragments that make up a real agent or swarm: owners, operators, wallets, endpoints, tools, social proofs, collection provenance, work history, payment routes, verification signals, and Cred context.
 
 ## Primary surfaces
 
-### Human control
+### Owner control
 
 Owners can inspect identity state, approve or revoke permissions, understand custody changes, and see what is public, gated, private, or hidden.
 
@@ -21,7 +21,7 @@ Multipass connects verified work, attestations, receipts, ownership history, val
 ## Initial subject types
 
 - Agent
-- Human owner
+- Owner
 - Project
 - Collection
 - Swarm

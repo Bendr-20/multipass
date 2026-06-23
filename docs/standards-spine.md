@@ -15,7 +15,7 @@ Multipass is the product surface. The standards spine is the composability layer
 
 Support is adapter-based so emerging standards can evolve without forcing Multipass core rewrites.
 
-## Human-readable labels
+## Plain-language labels
 
 For product surfaces, standards support should collapse into simple status labels:
 
