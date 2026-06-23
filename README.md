@@ -38,3 +38,7 @@ Use current Multipass language:
 - trust context
 
 Avoid old travel-document framing.
+
+## CI
+
+GitHub Actions are deferred until the Bendr-20 auth/security pass because the current token cannot update workflow files.
