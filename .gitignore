@@ -1,0 +1,47 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# env and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.wallet
+
+# local/generated
+.DS_Store
+.cache/
+dist/
+build/
+.next/
+out/
+coverage/
+
+# data and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# generated media dumps
+*.mp4
+*.mov
+*.webm
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# local assistant/workspace files
+MEMORY.md
+DREAMS.md
+memory/
+tmp/
+reports/
