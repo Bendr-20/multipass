@@ -21,5 +21,5 @@ Multipass is a human-owned, agent-managed identity asset.
 - Not just an NFT marketplace
 - Not just a profile page
 - Not just an ERC-8004 record
-- Not a way to purchase reputation
+- Not a paid shortcut to Cred score
 - Not a blind transfer of keys, secrets, memory, or production authority
