@@ -37,4 +37,4 @@ Use current Multipass language:
 - custody epochs
 - trust context
 
-Avoid old passport framing.
+Avoid old travel-document framing.
