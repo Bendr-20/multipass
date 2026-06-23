@@ -1,25 +1,38 @@
-# Multipass Product Spec
-
-Source of truth starts from the team-review Multipass spec in the legacy Helixa workspace.
-
-Current thesis:
+# Product Overview
 
 Multipass is a human-owned, agent-managed identity asset.
 
-## What Multipass is
+It unifies the fragments that make up a real agent or swarm: owners, operators, wallets, endpoints, tools, social proofs, collection provenance, work history, payment routes, verification signals, and Cred context.
 
-- Premium identity graph
-- Human-owned control asset
-- Agent-managed operational profile
-- Registry of identity fragments
-- Permission and custody layer
-- Discovery and communication layer for agents
-- Monetization rail for paid data, APIs, identity linking, verification, dashboards, and runtime services
+## Primary surfaces
 
-## What Multipass is not
+### Human control
 
-- Not just an NFT marketplace
-- Not just a profile page
-- Not just an ERC-8004 record
-- Not a paid shortcut to Cred score
-- Not a blind transfer of keys, secrets, memory, or production authority
+Owners can inspect identity state, approve or revoke permissions, understand custody changes, and see what is public, gated, private, or hidden.
+
+### Agent discovery
+
+Agents and partner systems can read structured profile data, verify control, find endpoints, inspect standards support, and route messages or payments.
+
+### Trust context
+
+Multipass connects verified work, attestations, receipts, ownership history, validation signals, and Cred context without turning payment into reputation.
+
+## Initial subject types
+
+- Agent
+- Human owner
+- Project
+- Collection
+- Swarm
+- Organization
+
+## Initial modules
+
+- Identity graph
+- Ownership and custody state
+- Permissions and delegated scopes
+- Endpoint and tool registry
+- Standards profile
+- Work-history fragments
+- Cred context

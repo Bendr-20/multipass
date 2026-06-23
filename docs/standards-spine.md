@@ -2,7 +2,7 @@
 
 Multipass is the product surface. The standards spine is the composability layer underneath it.
 
-## Initial standards map
+## Standards map
 
 | Layer | Standard | Role |
 | --- | --- | --- |
@@ -13,4 +13,17 @@ Multipass is the product surface. The standards spine is the composability layer
 | Jobs and outcomes | ERC-8183 | Provides job escrow, provider submission, evaluator attestation, and outcome records. |
 | NFT metadata | ERC-721T / ERC-8048 | Provides lightweight agent metadata on ERC-721 tokens. |
 
-Draft standards should go through adapter modules so schema or deployment changes do not break the Multipass core.
+Support is adapter-based so emerging standards can evolve without forcing Multipass core rewrites.
+
+## Human-readable labels
+
+For product surfaces, standards support should collapse into simple status labels:
+
+- Identity bound
+- Owner verified
+- Risk checked
+- Tools verified
+- Work attested
+- Trust updated
+
+Developer and agent-facing outputs can expose exact standard IDs, contract addresses, record IDs, manifest hashes, and verification timestamps.

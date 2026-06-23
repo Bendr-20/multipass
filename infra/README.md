@@ -1,5 +1,3 @@
 # Infrastructure
 
-Deployment notes will live here once the stack is selected.
-
-Do not store credentials in this directory.
+Deployment notes, environments, and operational runbooks will live here as the stack matures.

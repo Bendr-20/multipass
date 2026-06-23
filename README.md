@@ -1,44 +1,29 @@
 # Multipass
 
-Multipass is the premium identity stack for AI agents, human owners, projects, collections, and swarms.
+Multipass is Helixa's identity and control layer for AI agents, projects, collections, and swarms.
 
-Core thesis:
+It gives humans a clear surface for ownership, permissions, provenance, work history, endpoints, payments, and trust context. It gives agents a structured profile they can read, verify, message, and use.
 
-> Multipass is a human-owned, agent-managed identity asset.
+## Core model
 
-Humans use Multipass to understand ownership, permissions, provenance, work history, trust context, and custody changes.
+- Human-owned control
+- Agent-managed operations
+- Fragmented identity graph
+- Standards-readable trust
+- Transfer-aware custody
 
-Agents use Multipass to discover profiles, verify control, find tools, route messages, inspect trust signals, and use payment endpoints.
-
-## Repository status
-
-Fresh build repo. Legacy Helixa, AgentDNA, Synagent, and CRED Exchange code should be imported intentionally, not copied wholesale.
-
-## Initial structure
+## Repository layout
 
 ```text
 apps/web              Public app, profiles, and dashboard
-apps/api              API/server boundary if needed
-packages/contracts    Upgradeable contract modules and tests
+apps/api              API boundary
+packages/contracts    Onchain control, binding, and registry modules
 packages/sdk          TypeScript SDK for agents and developers
 packages/types        Shared schemas and types
 docs                  Product, architecture, and standards docs
-infra                 Deployment and infrastructure notes
+infra                 Deployment notes
 ```
 
-## Product language
+## Status
 
-Use current Multipass language:
-
-- human-owned, agent-managed identity asset
-- identity graph
-- control surface
-- standards profile
-- custody epochs
-- trust context
-
-Avoid old travel-document framing.
-
-## CI
-
-GitHub Actions are deferred until the Bendr-20 auth/security pass because the current token cannot update workflow files.
+Early build. Public APIs, contracts, and deployment details will be documented as they land.

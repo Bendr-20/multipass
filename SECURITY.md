@@ -1,12 +1,5 @@
 # Security
 
-Do not commit secrets, private keys, wallets, raw logs, local memory files, database files, `.env` files, generated media dumps, or private drafts.
+If you discover a vulnerability, please report it privately through GitHub's private vulnerability reporting when available, or contact the maintainers through an established Helixa team channel.
 
-Security hardening is intentionally staged. Before production launch, this repo should have:
-
-- secret scanning
-- dependency scanning
-- branch protection
-- reviewed deployment credentials
-- contract upgrade and pause policy review
-- storage layout checks for upgradeable contracts
+Please do not open public issues for exploitable bugs, leaked credentials, or contract safety concerns.

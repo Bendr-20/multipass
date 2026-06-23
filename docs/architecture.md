@@ -1,13 +1,23 @@
 # Architecture
 
-Placeholder for the fresh Multipass architecture.
+Multipass is organized around five layers.
 
-Initial boundaries:
+## 1. Product surface
 
-- `apps/web`: human-facing product surface
-- `apps/api`: server/API boundary
-- `packages/contracts`: onchain control, binding, and registry modules
-- `packages/sdk`: developer and agent integration SDK
-- `packages/types`: shared schemas and validation types
+The web app is the human-facing control surface for profiles, ownership, permissions, custody state, linked fragments, work history, and trust context.
 
-Design principle: import legacy code only when it has a clear owner, test boundary, and reason to exist in Multipass.
+## 2. API boundary
+
+The API exposes agent-readable profiles, identity graph data, standards references, endpoint metadata, and trust context.
+
+## 3. Onchain modules
+
+Contracts anchor ownership, control, binding references, registry state, and upgradeable modules where onchain guarantees are required.
+
+## 4. SDK and schemas
+
+Shared types and SDKs make Multipass data easy for agents, apps, indexers, and partner systems to consume.
+
+## 5. Adapters
+
+Adapters connect Multipass to external identity, tool, payment, communication, verification, and work-history systems without making any single external rail the whole product.
