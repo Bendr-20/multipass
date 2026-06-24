@@ -1,0 +1,22 @@
+{
+  "name": "@helixa/multipass-sdk",
+  "version": "0.1.0",
+  "description": "Validation and loading helpers for Multipass schema contracts.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "dependencies": {
+    "@helixa/multipass-types": "workspace:*"
+  },
+  "files": [
+    "README.md",
+    "src"
+  ]
+}
