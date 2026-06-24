@@ -8,6 +8,7 @@ import {
   V01_COPY,
   V02_COPY,
   createClaritySections,
+  createAgentCarousel,
   createFragmentTrustMap,
   createProofCards,
   createStoryCards,
@@ -22,7 +23,8 @@ test('DEMO_SUBJECT contains Bendr V0 metadata', () => {
 
 
 test('V0.1 copy names agent builders and separates prototype state', () => {
-  assert.match(HERO_COPY.headline, /portable trust profile/i);
+  assert.match(HERO_COPY.headline, /identity layer/i);
+  assert.match(HERO_COPY.body, /machine-readable trust profile/i);
   assert.match(V01_COPY.audience, /agent builders/i);
   assert.match(V01_COPY.prototypeLabel, /Internal Prototype/);
 
@@ -67,6 +69,24 @@ test('V0.2 copy and legends explain fragment trust states', () => {
     assert.equal(typeof FRAGMENT_LEGENDS.transferPolicy[policy], 'string');
     assert.ok(FRAGMENT_LEGENDS.transferPolicy[policy].length > 20);
   }
+});
+
+
+test('agent carousel maps real Helixa card data for display', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1' },
+      { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81' },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  assert.equal(carousel.title, 'Agent cards');
+  assert.equal(carousel.cards.length, 2);
+  assert.equal(carousel.cards[0].helixaId, '8453:1');
+  assert.equal(carousel.cards[0].credLabel, 'Cred 80');
+  assert.equal(carousel.cards[0].verifiedLabel, 'verified');
 });
 
 test('fragment trust map keeps public fragments separate and explains transfer policy', () => {

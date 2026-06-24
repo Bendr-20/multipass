@@ -7,23 +7,41 @@
     {
       "capability_id": "profile_lookup",
       "label": "Profile lookup",
-      "description": "Read public Multipass profile data from the local API.",
+      "description": "Read public Multipass profile data for Bendr 2.0.",
+      "visibility": "public"
+    },
+    {
+      "capability_id": "agent_card_resolution",
+      "label": "Agent card resolution",
+      "description": "Resolve compact agent card fields for discovery and trust checks.",
       "visibility": "public"
     }
   ],
   "message_routes": [
     {
-      "route_id": "local_api",
+      "route_id": "web_profile",
       "channel": "api",
-      "address": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "address": "https://helixa.xyz/agent/1",
+      "visibility": "public"
+    },
+    {
+      "route_id": "telegram",
+      "channel": "chat",
+      "address": "@bendr2bot",
       "visibility": "public"
     }
   ],
   "service_endpoints": [
     {
-      "endpoint_id": "lookup",
-      "url": "http://127.0.0.1:8787/api/multipass/bendr-2",
-      "description": "Local profile lookup endpoint.",
+      "endpoint_id": "helixa_profile",
+      "url": "https://api.helixa.xyz/api/v2/agent/1",
+      "description": "Public Helixa AgentDNA profile for Bendr 2.0.",
+      "visibility": "public"
+    },
+    {
+      "endpoint_id": "multipass_preview",
+      "url": "https://helixa.xyz/multipass/",
+      "description": "Hidden Multipass prototype preview.",
       "visibility": "public"
     }
   ],
@@ -35,9 +53,9 @@
     }
   ],
   "trust_summary": {
-    "identity_status": "unverified",
-    "assurance_level": "unverified",
-    "last_updated_at": null
+    "identity_status": "verified",
+    "assurance_level": "onchain_verified",
+    "last_updated_at": "2026-06-24T22:49:52Z"
   },
   "rate_limits": {
     "requests": 60,

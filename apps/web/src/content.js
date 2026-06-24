@@ -25,6 +25,8 @@ export const FRAGMENT_LEGENDS = {
     standard_ref: 'Standard reference fragments connect the profile to external standards without implying every adapter is live.',
     verification_result: 'Verification result fragments record review outcomes, risk context, or disputed checks.',
     custody_record: 'Custody record fragments describe owner or controller epochs without transferring private authority.',
+    risk_summary: 'Risk summary fragments carry imported Cred or safety context without collapsing identity into a single score.',
+    social: 'Social fragments connect public handles to an agent profile through a named source or verification path.',
   },
   visibility: {
     public: 'Visible to anyone and safe for profile cards, indexers, and partner systems.',
@@ -54,6 +56,40 @@ export const FRAGMENT_LEGENDS = {
     never_transfer: 'Never transfer means the fragment is bound to the prior controller or context and must not move.',
   },
 };
+
+
+export function createAgentCarousel(data) {
+  const fallback = {
+    name: data.profile.display_name,
+    tokenId: data.profile.slug ?? data.profile.multipass_id,
+    helixaId: data.profile.slug ?? data.profile.multipass_id,
+    framework: 'unknown',
+    credScore: null,
+    credTier: data.profile.cred_summary?.trust_state ?? 'none',
+    verified: data.card.trust_summary?.identity_status === 'verified',
+    profileUrl: null,
+  };
+
+  const cards = (data['agentCards']?.length ? data['agentCards'] : [fallback]).map((card) => ({
+    name: card.name,
+    tokenId: card.tokenId,
+    helixaId: card.helixaId ?? String(card.tokenId ?? card.name),
+    framework: card.framework ?? 'unknown',
+    credScore: card.credScore ?? null,
+    credTier: card.credTier ?? 'Unrated',
+    credLabel: card.credScore === null || card.credScore === undefined ? 'Cred pending' : `Cred ${card.credScore}`,
+    verified: Boolean(card.verified),
+    verifiedLabel: card.verified ? 'verified' : 'unverified',
+    profileUrl: card.profileUrl ?? null,
+  }));
+
+  return {
+    eyebrow: 'AGENT CARD CAROUSEL',
+    title: 'Agent cards',
+    body: 'Agent cards are the compact view apps can scan first. Pick one, then inspect the profile and fragments below.',
+    cards,
+  };
+}
 
 export function createFragmentTrustMap(data) {
   const fragments = filterPublicFragments(data.fragments);
@@ -102,8 +138,8 @@ function formatEnumLabel(value) {
 
 export const HERO_COPY = {
   eyebrow: 'MULTIPASS RECORD',
-  headline: 'Portable trust profiles for agents.',
-  body: V01_COPY.productSentence,
+  headline: 'The identity layer for agents people need to inspect before they trust.',
+  body: 'Multipass turns agent identity, AgentDNA records, Cred signals, routes, standards, and receipts into one machine-readable trust profile.',
   note: 'Internal prototype reading the Bendr 2.0 fixture.',
 };
 

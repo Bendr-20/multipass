@@ -44,17 +44,41 @@
       "assurance_level": "unverified",
       "visibility": "public",
       "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_bendr_helixa_identity",
+      "fragment_type": "attestation",
+      "status": "verified",
+      "assurance_level": "onchain_verified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T22:49:52Z"
+    },
+    {
+      "fragment_id": "frag_bendr_cred_score",
+      "fragment_type": "risk_summary",
+      "status": "verified",
+      "assurance_level": "platform_verified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T22:49:52Z"
+    },
+    {
+      "fragment_id": "frag_bendr_social_x",
+      "fragment_type": "social",
+      "status": "verified",
+      "assurance_level": "platform_verified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T22:49:52Z"
     }
   ],
   "cred_summary": {
-    "trust_state": "none",
-    "attestation_count": 0,
+    "trust_state": "established",
+    "attestation_count": 4,
     "receipt_count": 1,
-    "last_updated_at": null,
-    "public_note": "Sample local data only."
+    "last_updated_at": "2026-06-24T22:49:52Z",
+    "public_note": "Cred score 80 imported from Helixa API. Cred is a signal, not something bought or raised by payment."
   },
   "discovery_profile": {
-    "summary": "Bendr 2.0 is a Helixa and Multipass demo agent for local API development and integration testing.",
+    "summary": "Bendr 2.0 is the Helixa lead agent with AgentDNA token #1, imported Cred context, public routes, and machine-readable Multipass records.",
     "tags": [
       "bendr",
       "helixa",
@@ -84,5 +108,5 @@
     "x402_manifest_url": "http://127.0.0.1:8787/api/multipass/bendr-2/x402",
     "paid_endpoints_enabled": false
   },
-  "updated_at": "2026-06-24T00:00:00Z"
+  "updated_at": "2026-06-24T22:49:52Z"
 }

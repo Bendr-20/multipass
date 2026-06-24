@@ -140,5 +140,78 @@
     "proof_reference": null,
     "created_at": "2026-06-24T00:00:00Z",
     "updated_at": "2026-06-24T00:00:00Z"
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_helixa_identity",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "attestation",
+    "status": "verified",
+    "assurance_level": "onchain_verified",
+    "visibility": "public",
+    "transfer_policy": "historical_on_transfer",
+    "source": {
+      "source_type": "contract_read",
+      "source_id": "helixa_agentdna_1",
+      "issuer": "Helixa",
+      "observed_at": "2026-06-24T22:49:52Z",
+      "reference_url": "https://api.helixa.xyz/api/v2/agent/1"
+    },
+    "public_value": "Helixa AgentDNA token #1 on Base, contract 0x2e3B541C59D38b84E3Bc54e977200230A204Fe60.",
+    "proof_reference": "base:8453:0x2e3B541C59D38b84E3Bc54e977200230A204Fe60:1",
+    "created_at": "2026-06-24T22:49:52Z",
+    "updated_at": "2026-06-24T22:49:52Z",
+    "verified_at": "2026-06-24T22:49:52Z"
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_cred_score",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "risk_summary",
+    "status": "verified",
+    "assurance_level": "platform_verified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "registry_import",
+      "source_id": "helixa_cred_score_1",
+      "issuer": "Helixa",
+      "observed_at": "2026-06-24T22:49:52Z",
+      "reference_url": "https://api.helixa.xyz/api/v2/agent/1"
+    },
+    "public_value": "Cred score 80, Preferred tier, imported from Helixa API.",
+    "proof_reference": "helixa-api:agent:1:credScore",
+    "created_at": "2026-06-24T22:49:52Z",
+    "updated_at": "2026-06-24T22:49:52Z",
+    "verified_at": "2026-06-24T22:49:52Z",
+    "verification_ref": {
+      "verification_type": "cred_import",
+      "result": "passed",
+      "issuer": "Helixa",
+      "risk_level": "low",
+      "score": 80
+    }
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_social_x",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "social",
+    "status": "verified",
+    "assurance_level": "platform_verified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "platform_check",
+      "source_id": "bendr_x_handle",
+      "issuer": "Helixa",
+      "observed_at": "2026-06-24T22:49:52Z",
+      "reference_url": "https://api.helixa.xyz/api/v2/agent/1"
+    },
+    "public_value": "X handle @BendrAI_eth imported from Helixa API.",
+    "proof_reference": "helixa-api:agent:1:socials.x",
+    "created_at": "2026-06-24T22:49:52Z",
+    "updated_at": "2026-06-24T22:49:52Z",
+    "verified_at": "2026-06-24T22:49:52Z"
   }
 ]

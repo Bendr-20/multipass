@@ -1,10 +1,10 @@
 import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
-import { createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
+import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 export function createApp({ root, loadDemo = defaultLoadDemo }) {
   if (!root) throw new Error('createApp requires a root element');
 
-  let state = { expandedCard: null };
+  let state = { expandedCard: null, selectedAgentCard: 0 };
 
   async function start() {
     renderLoading(root);
@@ -54,6 +54,8 @@ function render(root, state) {
   const { data } = state;
   const storyCards = createStoryCards(data);
   const claritySections = createClaritySections(data);
+  const agentCarousel = createAgentCarousel(data);
+  const selectedAgent = agentCarousel.cards[state.selectedAgentCard] ?? agentCarousel.cards[0];
   const fragmentTrustMap = createFragmentTrustMap(data);
   const proofCards = createProofCards(data);
   root.innerHTML = `
@@ -99,6 +101,8 @@ function render(root, state) {
 
       <section class="clarity-grid">${claritySections.map(renderClarityCard).join('')}</section>
 
+      ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
+
       ${renderFragmentTrustMap(fragmentTrustMap)}
 
       <section class="proof-ledger">
@@ -109,6 +113,14 @@ function render(root, state) {
       <footer class="footer-note">This is a static public demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
     </div>
   `;
+
+  root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedAgentCard = Number(button.dataset.index);
+      render(root, state);
+      root.querySelector(`[data-action="select-agent-card"][data-index="${state.selectedAgentCard}"]`)?.focus();
+    });
+  });
 
   root.querySelectorAll('[data-action="toggle-json"]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -127,6 +139,53 @@ function renderField(label, value, className = '') {
       <span>${escapeHtml(label)}</span>
       <strong class="mono${extraClass}">${escapeHtml(value)}</strong>
     </div>
+  `;
+}
+
+
+function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
+  return `
+    <section class="card-carousel">
+      <div class="card-carousel-head">
+        <p class="eyebrow">${escapeHtml(carousel.eyebrow)}</p>
+        <h2>${escapeHtml(carousel.title)}</h2>
+        <p>${escapeHtml(carousel.body)}</p>
+      </div>
+      <div class="card-track" role="tablist" aria-label="Agent cards">
+        ${carousel.cards.map((card, index) => renderAgentCardButton(card, index, selectedIndex)).join('')}
+      </div>
+      ${renderAgentCardDetail(selectedAgent)}
+    </section>
+  `;
+}
+
+function renderAgentCardButton(card, index, selectedIndex) {
+  const selected = index === selectedIndex;
+  return `
+    <button class="card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
+      <span class="card-name">${escapeHtml(card.name)}</span>
+      <span>${escapeHtml(card.helixaId)}</span>
+      <strong>${escapeHtml(card.credLabel)}</strong>
+    </button>
+  `;
+}
+
+function renderAgentCardDetail(card) {
+  return `
+    <article class="card-detail">
+      <div>
+        <p class="card-label">Selected agent card</p>
+        <h3>${escapeHtml(card.name)}</h3>
+        <p>Machine-readable identity card for routing, trust checks, and profile discovery.</p>
+      </div>
+      <div class="card-fields">
+        ${renderField('Helixa ID', card.helixaId)}
+        ${renderField('Framework', card.framework)}
+        ${renderField('Cred', card.credScore === null ? card.credLabel : `${card.credLabel} (${card.credTier})`)}
+        ${renderField('Identity', card.verifiedLabel)}
+        ${renderField('Profile', card.profileUrl ?? 'Not linked')}
+      </div>
+    </article>
   `;
 }
 

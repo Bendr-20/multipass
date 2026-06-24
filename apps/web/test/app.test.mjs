@@ -12,7 +12,7 @@ function sampleData() {
       slug: 'bendr-2',
       status: 'link_ready',
       subject_type: 'agent',
-      cred_summary: { trust_state: 'building' },
+      cred_summary: { trust_state: 'established', public_note: 'Cred score 80 imported from Helixa API.' },
     },
     fragments: {
       subject_id: 'bendr-2',
@@ -69,10 +69,35 @@ function sampleData() {
           source: { source_type: 'platform_check', issuer: 'Helixa' },
           public_value: 'Route claim intentionally marked disputed in the fixture.',
         },
+        {
+          fragment_id: 'frag_bendr_helixa_identity',
+          fragment_type: 'attestation',
+          status: 'verified',
+          assurance_level: 'onchain_verified',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          source: { source_type: 'contract_read', issuer: 'Helixa' },
+          public_value: 'Helixa AgentDNA token #1 on Base, contract 0x2e3B541C59D38b84E3Bc54e977200230A204Fe60.',
+        },
+        {
+          fragment_id: 'frag_bendr_cred_score',
+          fragment_type: 'risk_summary',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'registry_import', issuer: 'Helixa' },
+          public_value: 'Cred score 80, Preferred tier, imported from Helixa API.',
+        },
         { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
       ],
     },
-    card: { capabilities: [{}], service_endpoints: [{}] },
+    card: { capabilities: [{}], service_endpoints: [{}], trust_summary: { identity_status: 'verified', assurance_level: 'onchain_verified', last_updated_at: '2026-06-24T22:49:52Z' } },
+    agentCards: [
+      { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1' },
+      { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81' },
+      { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0' },
+    ],
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
     receipt: { receipt_id: 'receipt_bendr_lookup', status: 'settled', response_class: 'success' },
@@ -101,7 +126,9 @@ test('initial render shows loading state then Protocol Artifact record', async (
   resolveLoad(sampleData());
   await ready;
 
-  assert.match(root.textContent, /Portable trust profiles for agents/);
+  assert.match(root.textContent, /identity layer/i);
+  assert.match(root.textContent, /agent builders/i);
+  assert.match(root.textContent, /machine-readable/i);
   assert.match(root.textContent, /Internal Prototype/);
   assert.match(root.textContent, /agent builders/i);
   assert.match(root.textContent, /What this record proves/);
@@ -119,6 +146,11 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /Public proof only/);
   assert.match(root.textContent, /Proof ledger/);
   assert.match(root.textContent, /Identity Graph/);
+  assert.match(root.textContent, /Agent cards/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+  assert.match(root.textContent, /Quigbot/);
+  assert.match(root.textContent, /Cred 80/);
+  assert.match(root.textContent, /8453:1/);
   assert.match(root.textContent, /Identity fragments/);
   assert.match(root.textContent, /not a score/i);
   assert.match(root.textContent, /Status legend/);
@@ -136,11 +168,31 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.ok(root.querySelector('.prototype-ribbon'));
   assert.ok(root.querySelector('.clarity-grid'));
   assert.equal(root.querySelectorAll('.clarity-card').length, 3);
-  assert.equal(root.querySelectorAll('.fragment-card').length, 5);
+  assert.ok(root.querySelector('.card-carousel'));
+  assert.equal(root.querySelectorAll('.card-button').length, 3);
+  assert.match(root.querySelector('.card-detail').textContent, /Helixa ID/);
+  assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
+  assert.match(root.textContent, /Helixa AgentDNA token #1/);
+  assert.match(root.textContent, /Cred score 80/);
   assert.ok(root.querySelector('.fragment-legend'));
   assert.ok(root.querySelector('.proof-ledger'));
-  assert.equal(root.querySelectorAll('.field').length, 7);
+  assert.equal(root.querySelectorAll('.record-sheet .field').length, 7);
   assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
+});
+
+
+test('agent card carousel switches selected card detail', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.match(root.querySelector('.card-detail').textContent, /Bendr 2\.0/);
+  assert.match(root.querySelector('.card-detail').textContent, /Cred 80/);
+
+  root.querySelectorAll('.card-button')[1].click();
+
+  assert.match(root.querySelector('.card-detail').textContent, /Quigbot/);
+  assert.match(root.querySelector('.card-detail').textContent, /8453:81/);
+  assert.match(root.querySelector('.card-detail').textContent, /Cred 75/);
 });
 
 test('proof ledger renders all six document types and JSON toggles open and close', async () => {
@@ -186,7 +238,7 @@ test('proof ledger uses neutral badges for counts and green only for settled sta
   const neutralBadgesAll = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
   assert.deepEqual(verifiedBadges, ['settled']);
   assert.ok(neutralBadgesAll.includes('link_ready'));
-  assert.ok(neutralBadgesAll.includes('5 public'));
+  assert.ok(neutralBadgesAll.includes('7 public'));
 });
 
 test('default loader uses safe api query override from window location', async () => {
@@ -235,7 +287,9 @@ test('static /multipass/ page loads bundled fixture without calling API', async 
   assert.match(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
   assert.match(root.textContent, /mp_bendr_2/);
-  assert.equal(root.querySelectorAll('.fragment-card').length, 5);
+  assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
+  assert.match(root.textContent, /Helixa AgentDNA token #1/);
+  assert.match(root.textContent, /Cred score 80/);
   for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
     assert.match(root.textContent, new RegExp(state, 'i'));
   }
