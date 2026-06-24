@@ -1,0 +1,22 @@
+{
+  "name": "@helixa/multipass-api",
+  "version": "0.1.0",
+  "description": "Memory-backed API boundary primitives for Multipass profiles and agent-readable documents.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "dependencies": {
+    "@helixa/multipass-sdk": "workspace:*"
+  },
+  "files": [
+    "README.md",
+    "src"
+  ]
+}

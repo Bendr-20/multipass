@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test \"packages/*/test/*.test.mjs\"",
+    "test": "node --test \"packages/*/test/*.test.mjs\" \"apps/*/test/*.test.mjs\"",
     "test:types": "node --test packages/types/test/schema-contract.test.mjs"
   },
   "workspaces": [

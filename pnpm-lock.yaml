@@ -8,6 +8,12 @@ importers:
 
   .: {}
 
+  apps/api:
+    dependencies:
+      '@helixa/multipass-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   packages/sdk:
     dependencies:
       '@helixa/multipass-types':
