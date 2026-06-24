@@ -3,14 +3,14 @@
 ## Purpose
 Define what must be true before Multipass moves from hidden prototype to a discoverable product surface.
 
-The current `/multipass/` route is a working artifact demo. It is useful for internal review, but it does not yet explain the product clearly enough for public release.
+The current `/multipass/` route is a working artifact demo. It is useful for internal review, but it does not yet explain the product clearly enough to make the route discoverable.
 
 ## Current state
 - Live hidden route: `https://helixa.xyz/multipass/`
 - Status: internal prototype only
 - Data mode: bundled static Bendr fixture
 - Design mode: Protocol Artifact direction
-- Public discovery: none planned
+- Discovery: none planned
 
 ## Core problem
 The prototype shows a record, proof ledger, standards references, and receipt evidence, but it does not yet answer the most important product questions:
@@ -21,7 +21,7 @@ The prototype shows a record, proof ledger, standards references, and receipt ev
 4. What is live today versus simulated fixture data?
 5. Why should an agent builder, collection, marketplace, or infra partner care?
 
-Until those answers are crisp, the page should stay unlinked.
+Until those answers are crisp, the page should stay unlinked. Unlinked is not access control: treat `/multipass/` as publicly accessible and keep secrets, private user data, internal endpoints, auth material, live tokens, and unredacted proof data out of the route.
 
 ## Positioning work required
 
@@ -75,7 +75,7 @@ Required labels or sections:
 - A clear note that there is no live auth, settlement, contract read, or editing in this route.
 
 ## Product story gaps
-Before public discovery, resolve these gaps:
+Before broader discovery, resolve these gaps:
 
 ### 1. Multipass versus Helixa
 Explain the relationship without making the product hierarchy muddy.
@@ -108,8 +108,8 @@ Before making `/multipass/` discoverable:
 - No private data or internal-only claims appear in expanded JSON.
 - Page has a clear next action only if the team wants one.
 
-## Launch readiness gates
-Do not add homepage navigation, public links, X posts, Telegram announcements, or SEO work until all gates pass:
+## Prototype discovery gates
+Keep the route unlinked unless all gates pass and the team separately approves broader discovery:
 
 1. Product sentence approved.
 2. First audience approved.
@@ -122,9 +122,9 @@ Do not add homepage navigation, public links, X posts, Telegram announcements, o
 - No new auth flow.
 - No wallet connection.
 - No contract reads.
-- No announcement copy.
+- No promotional copy.
 - No homepage nav.
-- No public release plan.
+- No broader discovery plan.
 
 ## Acceptance criteria
 This readiness spec is useful when it gives the team a clear checklist for why `/multipass/` is hidden today and what needs to improve before it becomes discoverable.

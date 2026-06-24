@@ -1,9 +1,9 @@
 # Multipass Internal Prototype Deploy Spec
 
 ## Goal
-Host the current Multipass Protocol Artifact demo at `https://helixa.xyz/multipass/` as an unlinked internal prototype for team review.
+Host the current Multipass Protocol Artifact demo at `https://helixa.xyz/multipass/` as an unlinked team-review prototype.
 
-This is not a public release, launch surface, homepage feature, or announcement target.
+This is not ready for broader discovery.
 
 ## Deployment shape
 - Build the Multipass web app as a static bundle.
@@ -12,7 +12,7 @@ This is not a public release, launch surface, homepage feature, or announcement 
 - Keep `helixa.xyz` root unchanged.
 - Keep `api.helixa.xyz` unchanged.
 - Do not require Cloudflare quick tunnels.
-- Do not add homepage navigation, public links, or announcement copy.
+- Do not add discoverability paths or promotional copy.
 
 ## Source of truth notes
 The Helixa repo commit is the historical deploy artifact, but it is not enough to update live `helixa.xyz` by itself.
@@ -40,7 +40,9 @@ The `/multipass/` prototype must not require a live Multipass API server. It sho
 ## Prototype status
 This route is intentionally unlinked and should stay that way until product readiness improves.
 
-Do not treat this route as launch-ready until a separate product readiness review says:
+Treat `/multipass/` as publicly accessible despite being unlinked. Do not include secrets, private user data, internal endpoints, auth material, live tokens, or unredacted proof data.
+
+Do not treat this route as ready for broader discovery until a separate product readiness review says:
 - the one-sentence Multipass positioning is clear;
 - the first audience is chosen;
 - the demo explains what is real, what is fixture data, and what is future intent;
@@ -61,7 +63,7 @@ In scope:
 Out of scope:
 - Replacing the Helixa homepage.
 - Adding navigation or public links.
-- Writing launch posts.
+- Writing promotional posts.
 - Deploying a new backend.
 - Wallet/auth/contract reads.
 - DNS changes.
