@@ -1,0 +1,119 @@
+[
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_profile",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "attestation",
+    "status": "pending",
+    "assurance_level": "unverified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "owner_submission",
+      "source_id": "bendr_profile",
+      "issuer": null,
+      "observed_at": "2026-06-24T00:00:00Z",
+      "reference_url": null
+    },
+    "public_value": "Bendr 2.0 Helixa demo profile fragment.",
+    "proof_reference": null,
+    "created_at": "2026-06-24T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z"
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_endpoint",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "endpoint",
+    "status": "pending",
+    "assurance_level": "unverified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "owner_submission",
+      "source_id": "bendr_endpoint",
+      "issuer": null,
+      "observed_at": "2026-06-24T00:00:00Z",
+      "reference_url": null
+    },
+    "public_value": "Bendr local API endpoint.",
+    "proof_reference": null,
+    "created_at": "2026-06-24T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z",
+    "endpoint_ref": {
+      "endpoint_id": "lookup",
+      "url": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "protocol": "api",
+      "manifest_url": "http://127.0.0.1:8787/api/multipass/bendr-2/x402"
+    }
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_standard_ref",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "standard_ref",
+    "status": "pending",
+    "assurance_level": "unverified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "owner_submission",
+      "source_id": "bendr_standard",
+      "issuer": null,
+      "observed_at": "2026-06-24T00:00:00Z",
+      "reference_url": null
+    },
+    "public_value": "ERC-8004 adapter reference, not a live identity claim.",
+    "proof_reference": null,
+    "created_at": "2026-06-24T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z"
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_x402_route",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "endpoint",
+    "status": "pending",
+    "assurance_level": "unverified",
+    "visibility": "public",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "owner_submission",
+      "source_id": "bendr_x402",
+      "issuer": null,
+      "observed_at": "2026-06-24T00:00:00Z",
+      "reference_url": null
+    },
+    "public_value": "Sample CRED-gated x402 route for local development.",
+    "proof_reference": null,
+    "created_at": "2026-06-24T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z",
+    "endpoint_ref": {
+      "endpoint_id": "lookup",
+      "url": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "protocol": "x402",
+      "manifest_url": "http://127.0.0.1:8787/api/multipass/bendr-2/x402"
+    }
+  },
+  {
+    "schema_version": "0.1.0",
+    "fragment_id": "frag_bendr_private_placeholder",
+    "multipass_id": "mp_bendr_2",
+    "fragment_type": "attestation",
+    "status": "pending",
+    "assurance_level": "unverified",
+    "visibility": "private",
+    "transfer_policy": "reverify_on_transfer",
+    "source": {
+      "source_type": "owner_submission",
+      "source_id": "bendr_private",
+      "issuer": null,
+      "observed_at": "2026-06-24T00:00:00Z",
+      "reference_url": null
+    },
+    "public_value": null,
+    "proof_reference": null,
+    "created_at": "2026-06-24T00:00:00Z",
+    "updated_at": "2026-06-24T00:00:00Z"
+  }
+]

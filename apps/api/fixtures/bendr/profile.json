@@ -1,0 +1,88 @@
+{
+  "schema_version": "0.1.0",
+  "multipass_id": "mp_bendr_2",
+  "subject_type": "agent",
+  "display_name": "Bendr 2.0",
+  "slug": "bendr-2",
+  "status": "link_ready",
+  "owner_summary": {
+    "owner_state": "unclaimed",
+    "verification_status": "none",
+    "visibility": "public",
+    "summary": "Demo ownership state for local development."
+  },
+  "custody_epoch": null,
+  "public_fragments": [
+    {
+      "fragment_id": "frag_bendr_profile",
+      "fragment_type": "attestation",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_bendr_endpoint",
+      "fragment_type": "endpoint",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_bendr_standard_ref",
+      "fragment_type": "standard_ref",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_bendr_x402_route",
+      "fragment_type": "endpoint",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    }
+  ],
+  "cred_summary": {
+    "trust_state": "none",
+    "attestation_count": 0,
+    "receipt_count": 1,
+    "last_updated_at": null,
+    "public_note": "Sample local data only."
+  },
+  "discovery_profile": {
+    "summary": "Bendr 2.0 is a Helixa and Multipass demo agent for local API development and integration testing.",
+    "tags": [
+      "bendr",
+      "helixa",
+      "multipass"
+    ],
+    "avatar_url": null,
+    "visibility": "public"
+  },
+  "standards_profile": {
+    "standards_profile_id": "sp_bendr_2",
+    "supported_standard_ids": [
+      "ERC-8004",
+      "ERC-8217",
+      "ERC-8126",
+      "ERC-8257",
+      "ERC-8183"
+    ],
+    "last_verified_at": null
+  },
+  "payment_profile": {
+    "accepted_assets": [
+      {
+        "asset": "CRED",
+        "chain_id": 8453
+      }
+    ],
+    "x402_manifest_url": "http://127.0.0.1:8787/api/multipass/bendr-2/x402",
+    "paid_endpoints_enabled": false
+  },
+  "updated_at": "2026-06-24T00:00:00Z"
+}

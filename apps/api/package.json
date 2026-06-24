@@ -17,6 +17,10 @@
   },
   "files": [
     "README.md",
-    "src"
-  ]
+    "src",
+    "fixtures"
+  ],
+  "scripts": {
+    "start": "node src/server.js"
+  }
 }

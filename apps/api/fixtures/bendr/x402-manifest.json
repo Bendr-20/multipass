@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.1.0",
+  "multipass_id": "mp_bendr_2",
+  "endpoints": [
+    {
+      "endpoint_id": "lookup",
+      "url": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "method": "GET",
+      "description": "Sample CRED-gated profile lookup route for local development.",
+      "price": {
+        "amount": "1",
+        "decimals": 18
+      },
+      "asset": "CRED",
+      "chain_id": 8453,
+      "provider": "bankr_x402_cloud",
+      "settlement_reference_policy": "provider_receipt",
+      "rate_limit": {
+        "requests": 10,
+        "window_seconds": 60,
+        "burst": 2
+      },
+      "visibility": "public",
+      "requires_owner_approval": false
+    }
+  ]
+}

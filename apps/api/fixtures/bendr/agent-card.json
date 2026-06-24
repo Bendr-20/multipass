@@ -1,0 +1,64 @@
+{
+  "schema_version": "0.1.0",
+  "multipass_id": "mp_bendr_2",
+  "name": "Bendr 2.0",
+  "subject_type": "agent",
+  "capabilities": [
+    {
+      "capability_id": "profile_lookup",
+      "label": "Profile lookup",
+      "description": "Read public Multipass profile data from the local API.",
+      "visibility": "public"
+    }
+  ],
+  "message_routes": [
+    {
+      "route_id": "local_api",
+      "channel": "api",
+      "address": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "visibility": "public"
+    }
+  ],
+  "service_endpoints": [
+    {
+      "endpoint_id": "lookup",
+      "url": "http://127.0.0.1:8787/api/multipass/bendr-2",
+      "description": "Local profile lookup endpoint.",
+      "visibility": "public"
+    }
+  ],
+  "x402_manifest_url": "http://127.0.0.1:8787/api/multipass/bendr-2/x402",
+  "accepted_assets": [
+    {
+      "asset": "CRED",
+      "chain_id": 8453
+    }
+  ],
+  "trust_summary": {
+    "identity_status": "unverified",
+    "assurance_level": "unverified",
+    "last_updated_at": null
+  },
+  "rate_limits": {
+    "requests": 60,
+    "window_seconds": 60,
+    "burst": 10
+  },
+  "contact_policy": {
+    "mode": "approval_required",
+    "requires_owner_approval": true,
+    "policy_note": "Local demo only."
+  },
+  "standards_refs": [
+    {
+      "standard_id": "ERC-8004",
+      "support_status": "adapter_ready",
+      "record_id": null
+    },
+    {
+      "standard_id": "ERC-8217",
+      "support_status": "pending",
+      "record_id": null
+    }
+  ]
+}

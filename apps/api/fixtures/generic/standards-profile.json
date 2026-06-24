@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1.0",
+  "standards_profile_id": "sp_demo_agent",
+  "multipass_id": "mp_demo_agent",
+  "primary_refs": {
+    "erc8004_identity": null,
+    "controller_asset": null,
+    "x402_manifest": "mp_demo_agent:x402"
+  },
+  "standard_refs": [
+    {
+      "standard_id": "ERC-8004",
+      "status": "adapter_ready",
+      "chain_id": 8453,
+      "contract_address": null,
+      "record_id": null,
+      "adapter_version": "0.1.0",
+      "last_verified_at": null,
+      "assurance_level": "unverified"
+    },
+    {
+      "standard_id": "ERC-8217",
+      "status": "pending",
+      "chain_id": 8453,
+      "contract_address": null,
+      "record_id": null,
+      "adapter_version": "0.1.0",
+      "last_verified_at": null,
+      "assurance_level": "unverified"
+    },
+    {
+      "standard_id": "ERC-8257",
+      "status": "pending",
+      "chain_id": null,
+      "contract_address": null,
+      "record_id": null,
+      "adapter_version": "0.1.0",
+      "last_verified_at": null,
+      "assurance_level": "unverified"
+    }
+  ],
+  "compatibility_summary": {
+    "identity_bound": false,
+    "owner_verified": false,
+    "risk_checked": false,
+    "tools_verified": false,
+    "work_attested": false,
+    "trust_updated": false
+  },
+  "adapter_versions": {
+    "ERC-8004": "0.1.0",
+    "ERC-8217": "0.1.0",
+    "ERC-8257": "0.1.0"
+  },
+  "last_verified_at": null
+}

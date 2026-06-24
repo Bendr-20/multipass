@@ -1,0 +1,80 @@
+{
+  "schema_version": "0.1.0",
+  "multipass_id": "mp_demo_agent",
+  "subject_type": "agent",
+  "display_name": "Demo Agent",
+  "slug": "demo-agent",
+  "status": "draft",
+  "owner_summary": {
+    "owner_state": "unclaimed",
+    "verification_status": "none",
+    "visibility": "public",
+    "summary": "Demo ownership state for local development."
+  },
+  "custody_epoch": null,
+  "public_fragments": [
+    {
+      "fragment_id": "frag_demo_wallet",
+      "fragment_type": "wallet",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_demo_endpoint",
+      "fragment_type": "endpoint",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    },
+    {
+      "fragment_id": "frag_demo_standard_ref",
+      "fragment_type": "standard_ref",
+      "status": "pending",
+      "assurance_level": "unverified",
+      "visibility": "public",
+      "updated_at": "2026-06-24T00:00:00Z"
+    }
+  ],
+  "cred_summary": {
+    "trust_state": "none",
+    "attestation_count": 0,
+    "receipt_count": 1,
+    "last_updated_at": null,
+    "public_note": "Sample local data only."
+  },
+  "discovery_profile": {
+    "summary": "Public-neutral Multipass sample for local API development.",
+    "tags": [
+      "demo",
+      "local",
+      "multipass"
+    ],
+    "avatar_url": null,
+    "visibility": "public"
+  },
+  "standards_profile": {
+    "standards_profile_id": "sp_demo_agent",
+    "supported_standard_ids": [
+      "ERC-8004",
+      "ERC-8217",
+      "ERC-8126",
+      "ERC-8257",
+      "ERC-8183"
+    ],
+    "last_verified_at": null
+  },
+  "payment_profile": {
+    "accepted_assets": [
+      {
+        "asset": "CRED",
+        "chain_id": 8453
+      }
+    ],
+    "x402_manifest_url": "http://127.0.0.1:8787/api/multipass/demo-agent/x402",
+    "paid_endpoints_enabled": false
+  },
+  "updated_at": "2026-06-24T00:00:00Z"
+}

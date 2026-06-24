@@ -1,0 +1,17 @@
+[
+  {
+    "schema_version": "0.1.0",
+    "receipt_id": "receipt_bendr_lookup",
+    "multipass_id": "mp_bendr_2",
+    "endpoint_id": "lookup",
+    "provider": "bankr_x402_cloud",
+    "amount": "1",
+    "asset": "CRED",
+    "chain_id": 8453,
+    "status": "settled",
+    "created_at": "2026-06-24T00:00:00Z",
+    "response_class": "success",
+    "settlement_reference": null,
+    "redaction_note": "Sample local receipt. No private request or response payload is included."
+  }
+]
