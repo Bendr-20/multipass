@@ -13,14 +13,16 @@ Publish the current Multipass Protocol Artifact demo at `https://helixa.xyz/mult
 ## Runtime data
 The public `/multipass/` demo must not require a live Multipass API server. It should load a bundled Bendr fixture when running as a static page, while preserving the current local dev behavior:
 - local dev keeps `/multipass-api` loading and safe `?api=` override;
-- public static deployment can use bundled fixture data;
+- public static deployment can use bundled public API-shaped fixture data;
 - JSON toggles, private field redaction, wording guard, and error/setup state remain covered by tests.
 
 ## Scope
 In scope:
 - Minimal static fixture loader for the web app.
+- Sanitized public fixture documents that mirror API responses, not raw fixture source files.
 - Vite base/path support for `/multipass/`.
 - Build/deploy copy into `helixa/docs/multipass/`.
+- Static/public mode copy labels the source accurately instead of calling bundled data a local API.
 - Tests for static fixture fallback and `/multipass/` build assumptions.
 - Verification against local static preview.
 
@@ -38,6 +40,8 @@ Out of scope:
 
 ## Success criteria
 - `https://helixa.xyz/multipass/` serves the Protocol Artifact demo after GitHub Pages updates.
-- Local verification can preview the static route and see the hero, proof ledger, `mp_bendr_2`, and Source field.
+- Local verification can preview the static route from the Helixa `docs/` root and see the hero, proof ledger, `mp_bendr_2`, and Source field.
+- Static preview verifies `/multipass/` asset paths return 200, do not point to root `/assets/`, and do not require `/multipass-api`.
+- Static mode labels bundled fixture data accurately, for example `Static Demo` and `Source: bundled fixture`, while local dev can keep local API wording.
 - Multipass tests/build pass.
 - Helixa worktree still contains only pre-existing unrelated dirty files plus the intended `docs/multipass/` deployment before commit.
