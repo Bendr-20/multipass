@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/x402-manifest.schema.json",
+  "title": "x402 Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "multipass_id",
+    "endpoints"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endpoint_id",
+          "url",
+          "method",
+          "description",
+          "price",
+          "asset",
+          "chain_id",
+          "provider",
+          "settlement_reference_policy",
+          "rate_limit",
+          "visibility",
+          "requires_owner_approval"
+        ],
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "price": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "amount",
+              "decimals"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string",
+                "pattern": "^[0-9]+(\\.[0-9]+)?$"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            }
+          },
+          "asset": {
+            "type": "string",
+            "minLength": 1
+          },
+          "chain_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "bankr_x402_cloud",
+              "self_hosted",
+              "partner"
+            ]
+          },
+          "settlement_reference_policy": {
+            "type": "string",
+            "enum": [
+              "provider_receipt",
+              "transaction_hash",
+              "receipt_fragment",
+              "none"
+            ]
+          },
+          "rate_limit": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requests",
+              "window_seconds"
+            ],
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "window_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "burst": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "gated"
+            ]
+          },
+          "requires_owner_approval": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

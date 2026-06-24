@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/identity-fragment.schema.json",
+  "title": "Identity Fragment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fragment_id",
+    "multipass_id",
+    "fragment_type",
+    "status",
+    "assurance_level",
+    "visibility",
+    "transfer_policy",
+    "source",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "fragment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fragment_type": {
+      "type": "string",
+      "enum": [
+        "wallet",
+        "social",
+        "domain",
+        "project",
+        "collection",
+        "endpoint",
+        "attestation",
+        "receipt",
+        "standard_ref",
+        "risk_summary",
+        "tool_manifest",
+        "work_record",
+        "custody_record",
+        "verification_result"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "verified",
+        "stale",
+        "revoked",
+        "disputed",
+        "historical"
+      ]
+    },
+    "assurance_level": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "self_attested",
+        "platform_verified",
+        "cryptographic",
+        "issuer_attested",
+        "onchain_verified"
+      ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "gated",
+        "private",
+        "hidden"
+      ]
+    },
+    "transfer_policy": {
+      "type": "string",
+      "enum": [
+        "reverify_on_transfer",
+        "pause_on_transfer",
+        "historical_on_transfer",
+        "never_transfer"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "source_id",
+        "issuer",
+        "observed_at"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "owner_submission",
+            "platform_check",
+            "issuer_attestation",
+            "contract_read",
+            "registry_import",
+            "payment_receipt"
+          ]
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issuer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reference_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "redaction_note": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "public_value": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    },
+    "proof_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 500
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "content_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Hash or commitment for content that should not be returned raw."
+    },
+    "issuer": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Issuer or attester associated with the fragment when applicable."
+    },
+    "verifier": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Verifier associated with the fragment when applicable."
+    },
+    "verified_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "revoked_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "endpoint_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Endpoint-specific fields for endpoint fragments.",
+      "additionalProperties": false,
+      "required": [
+        "endpoint_id",
+        "url",
+        "protocol"
+      ],
+      "properties": {
+        "endpoint_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "web",
+            "api",
+            "mcp",
+            "a2a",
+            "x402"
+          ]
+        },
+        "manifest_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        }
+      }
+    },
+    "custody_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Custody-specific fields for custody record fragments.",
+      "additionalProperties": false,
+      "required": [
+        "custody_epoch_id",
+        "owner_controller_id",
+        "status"
+      ],
+      "properties": {
+        "custody_epoch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_controller_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "active",
+            "historical",
+            "transferred"
+          ]
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "verification_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Verification-specific fields for verification result fragments.",
+      "additionalProperties": false,
+      "required": [
+        "verification_type",
+        "result",
+        "issuer"
+      ],
+      "properties": {
+        "verification_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "inconclusive",
+            "expired"
+          ]
+        },
+        "issuer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "risk_level": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical",
+            null
+          ]
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

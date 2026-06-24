@@ -1,0 +1,26 @@
+{
+  "name": "@helixa/multipass-types",
+  "version": "0.1.0",
+  "description": "Shared Multipass schema contracts, enums, and type declarations.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./schemas/agent-card.schema.json": "./schemas/agent-card.schema.json",
+    "./schemas/identity-fragment.schema.json": "./schemas/identity-fragment.schema.json",
+    "./schemas/multipass-profile.schema.json": "./schemas/multipass-profile.schema.json",
+    "./schemas/receipt-fragment.schema.json": "./schemas/receipt-fragment.schema.json",
+    "./schemas/standards-profile.schema.json": "./schemas/standards-profile.schema.json",
+    "./schemas/x402-manifest.schema.json": "./schemas/x402-manifest.schema.json"
+  },
+  "files": [
+    "README.md",
+    "schemas",
+    "src"
+  ]
+}

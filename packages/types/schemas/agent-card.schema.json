@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/agent-card.schema.json",
+  "title": "Agent Card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "multipass_id",
+    "name",
+    "subject_type",
+    "capabilities",
+    "message_routes",
+    "service_endpoints",
+    "x402_manifest_url",
+    "accepted_assets",
+    "trust_summary",
+    "rate_limits",
+    "contact_policy",
+    "standards_refs"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "subject_type": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "human",
+        "swarm",
+        "collection",
+        "project",
+        "organization"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability_id",
+          "label",
+          "visibility"
+        ],
+        "properties": {
+          "capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "gated"
+            ]
+          }
+        }
+      }
+    },
+    "message_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "route_id",
+          "channel",
+          "address",
+          "visibility"
+        ],
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "webhook",
+              "api",
+              "chat",
+              "onchain"
+            ]
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "gated"
+            ]
+          }
+        }
+      }
+    },
+    "service_endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endpoint_id",
+          "url",
+          "description",
+          "visibility"
+        ],
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "gated"
+            ]
+          }
+        }
+      }
+    },
+    "x402_manifest_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri"
+    },
+    "accepted_assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asset",
+          "chain_id"
+        ],
+        "properties": {
+          "asset": {
+            "type": "string",
+            "minLength": 1
+          },
+          "chain_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "trust_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_status",
+        "assurance_level",
+        "last_updated_at"
+      ],
+      "properties": {
+        "identity_status": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "pending",
+            "verified",
+            "stale",
+            "disputed"
+          ]
+        },
+        "assurance_level": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "self_attested",
+            "platform_verified",
+            "cryptographic",
+            "issuer_attested",
+            "onchain_verified"
+          ]
+        },
+        "last_updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "rate_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "window_seconds"
+      ],
+      "properties": {
+        "requests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "burst": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "contact_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "requires_owner_approval"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "open",
+            "gated",
+            "approval_required",
+            "closed"
+          ]
+        },
+        "requires_owner_approval": {
+          "type": "boolean"
+        },
+        "policy_note": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "standards_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "standard_id",
+          "support_status",
+          "record_id"
+        ],
+        "properties": {
+          "standard_id": {
+            "type": "string"
+          },
+          "support_status": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
