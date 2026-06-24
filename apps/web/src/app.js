@@ -165,6 +165,9 @@ function renderAgentCardButton(card, index, selectedIndex) {
     <button class="card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
       <span class="card-name">${escapeHtml(card.name)}</span>
       <span>${escapeHtml(card.helixaId)}</span>
+      <span>${escapeHtml(card.subjectLabel)} · ${escapeHtml(card.memberLabel)}</span>
+      <span>${escapeHtml(card.role)}</span>
+      <span>${escapeHtml(card.custody)}</span>
       <strong>${escapeHtml(card.credLabel)}</strong>
     </button>
   `;
@@ -176,13 +179,17 @@ function renderAgentCardDetail(card) {
       <div>
         <p class="card-label">Selected agent card</p>
         <h3>${escapeHtml(card.name)}</h3>
-        <p>Machine-readable identity card for routing, trust checks, and profile discovery.</p>
+        <p>Machine-readable identity card for routing, trust checks, roster context, and profile discovery.</p>
       </div>
       <div class="card-fields">
         ${renderField('Helixa ID', card.helixaId)}
         ${renderField('Framework', card.framework)}
         ${renderField('Cred', card.credScore === null ? card.credLabel : `${card.credLabel} (${card.credTier})`)}
         ${renderField('Identity', card.verifiedLabel)}
+        ${renderField('Subject', card.subjectLabel)}
+        ${renderField('Roster', card.memberLabel)}
+        ${renderField('Role', card.role)}
+        ${renderField('Custody', card.custody)}
         ${renderField('Profile', card.profileUrl ?? 'Not linked')}
       </div>
     </article>

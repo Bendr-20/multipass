@@ -317,6 +317,85 @@ export const STATIC_DEMO_DATA = {
         "created_at": "2026-06-24T22:49:52Z",
         "updated_at": "2026-06-24T22:49:52Z",
         "verified_at": "2026-06-24T22:49:52Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_helixa_swarm_roster",
+        "multipass_id": "mp_helixa_swarm",
+        "fragment_type": "custody_record",
+        "status": "verified",
+        "assurance_level": "platform_verified",
+        "visibility": "public",
+        "transfer_policy": "pause_on_transfer",
+        "source": {
+          "source_type": "platform_check",
+          "source_id": "helixa_swarm_roster",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:38:00Z",
+          "reference_url": "https://helixa.xyz/multipass/"
+        },
+        "public_value": "Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents as one collection roster.",
+        "proof_reference": "fixture:helixa-swarm-roster",
+        "created_at": "2026-06-24T23:38:00Z",
+        "updated_at": "2026-06-24T23:38:00Z",
+        "verified_at": "2026-06-24T23:38:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_helixa_swarm_tools",
+        "multipass_id": "mp_helixa_swarm",
+        "fragment_type": "endpoint",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "transfer_policy": "pause_on_transfer",
+        "source": {
+          "source_type": "owner_submission",
+          "source_id": "helixa_swarm_tools",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:38:00Z",
+          "reference_url": "https://helixa.xyz/multipass/"
+        },
+        "public_value": "Shared tool policy preview for routes, permissions, and approvals across the swarm.",
+        "proof_reference": "fixture:helixa-swarm-tools",
+        "created_at": "2026-06-24T23:38:00Z",
+        "updated_at": "2026-06-24T23:38:00Z",
+        "endpoint_ref": {
+          "endpoint_id": "swarm_policy",
+          "url": "https://helixa.xyz/multipass/",
+          "protocol": "api",
+          "manifest_url": "/multipass/static/x402-manifest.json"
+        }
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_helixa_swarm_cred",
+        "multipass_id": "mp_helixa_swarm",
+        "fragment_type": "risk_summary",
+        "status": "verified",
+        "assurance_level": "platform_verified",
+        "visibility": "public",
+        "transfer_policy": "reverify_on_transfer",
+        "source": {
+          "source_type": "registry_import",
+          "source_id": "helixa_swarm_cred",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:38:00Z",
+          "reference_url": "https://helixa.xyz/multipass/"
+        },
+        "public_value": "Aggregate Cred context summarizes the roster without erasing each agent's individual profile.",
+        "proof_reference": "fixture:helixa-swarm-cred",
+        "created_at": "2026-06-24T23:38:00Z",
+        "updated_at": "2026-06-24T23:38:00Z",
+        "verified_at": "2026-06-24T23:38:00Z",
+        "verification_ref": {
+          "verification_type": "swarm_cred_summary",
+          "result": "passed",
+          "issuer": "Helixa",
+          "risk_level": "medium",
+          "score": 78
+        }
+
       }
     ]
   },
@@ -531,6 +610,20 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Marginal",
       "verified": false,
       "profileUrl": "https://helixa.xyz/agent/0"
+    },
+    {
+      "name": "Helixa Swarm",
+      "tokenId": "swarm:helixa",
+      "helixaId": "8453:swarm:helixa",
+      "framework": "multi-agent",
+      "credScore": 78,
+      "credTier": "Prime",
+      "verified": true,
+      "profileUrl": "https://helixa.xyz/swarm/helixa",
+      "subjectType": "swarm",
+      "members": 3,
+      "role": "Parent Multipass",
+      "custody": "Custody epoch ready"
     }
   ]
 };

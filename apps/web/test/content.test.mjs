@@ -88,6 +88,35 @@ test('agent carousel maps real Helixa card data for display', () => {
 });
 
 
+
+test('agent carousel includes collection swarm cards with roster and custody context', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      {
+        name: 'Helixa Swarm',
+        tokenId: 'swarm:helixa',
+        helixaId: '8453:swarm:helixa',
+        framework: 'multi-agent',
+        credScore: 78,
+        credTier: 'Prime',
+        verified: true,
+        profileUrl: 'https://helixa.xyz/swarm/helixa',
+        subjectType: 'swarm',
+        members: 3,
+        role: 'Parent Multipass',
+        custody: 'Custody epoch ready',
+      },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  assert.equal(carousel.cards[0].subjectLabel, 'swarm');
+  assert.equal(carousel.cards[0].memberLabel, '3 agents');
+  assert.equal(carousel.cards[0].role, 'Parent Multipass');
+  assert.equal(carousel.cards[0].custody, 'Custody epoch ready');
+});
+
 test('fragment trust map turns raw fragment ids into readable proof cards', () => {
   const map = createFragmentTrustMap({
     fragments: {
@@ -109,6 +138,30 @@ test('fragment trust map turns raw fragment ids into readable proof cards', () =
   assert.equal(map.title, 'Inspect proof');
   assert.equal(map.cards[0].title, 'Helixa AgentDNA identity');
   assert.equal(map.cards[0].id, 'frag_bendr_helixa_identity');
+});
+
+
+test('fragment trust map names swarm proof signals without raw ids as titles', () => {
+  const map = createFragmentTrustMap({
+    fragments: {
+      fragments: [
+        {
+          fragment_id: 'frag_helixa_swarm_roster',
+          fragment_type: 'custody_record',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents.',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+        },
+      ],
+    },
+  });
+
+  assert.equal(map.cards[0].title, 'Swarm roster');
+  assert.equal(map.cards[0].id, 'frag_helixa_swarm_roster');
+  assert.notEqual(map.cards[0].title, map.cards[0].id);
 });
 
 test('fragment trust map keeps public fragments separate and explains transfer policy', () => {

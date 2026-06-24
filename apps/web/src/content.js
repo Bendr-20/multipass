@@ -81,6 +81,10 @@ export function createAgentCarousel(data) {
     verified: Boolean(card.verified),
     verifiedLabel: card.verified ? 'verified' : 'unverified',
     profileUrl: card.profileUrl ?? null,
+    subjectLabel: card.subjectType ?? 'agent',
+    memberLabel: formatMemberLabel(card.members),
+    role: card.role ?? 'Agent Multipass',
+    custody: card.custody ?? 'Owner verified',
   }));
 
   return {
@@ -132,6 +136,11 @@ function createFragmentCard(fragment) {
 }
 
 
+function formatMemberLabel(members) {
+  if (members === null || members === undefined) return '1 agent';
+  return `${members} ${Number(members) === 1 ? 'agent' : 'agents'}`;
+}
+
 function formatFragmentTitle(fragment) {
   const known = {
     frag_bendr_profile: 'Bendr profile check',
@@ -142,6 +151,9 @@ function formatFragmentTitle(fragment) {
     frag_bendr_helixa_identity: 'Helixa AgentDNA identity',
     frag_bendr_cred_score: 'Cred score import',
     frag_bendr_social_x: 'Social handle check',
+    frag_helixa_swarm_roster: 'Swarm roster',
+    frag_helixa_swarm_tools: 'Shared tool policy',
+    frag_helixa_swarm_cred: 'Aggregate Cred context',
   };
   if (known[fragment.fragment_id]) return known[fragment.fragment_id];
   return formatEnumLabel(fragment.fragment_type);

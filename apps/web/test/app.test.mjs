@@ -89,6 +89,37 @@ function sampleData() {
           source: { source_type: 'registry_import', issuer: 'Helixa' },
           public_value: 'Cred score 80, Preferred tier, imported from Helixa API.',
         },
+        {
+          fragment_id: 'frag_helixa_swarm_roster',
+          fragment_type: 'custody_record',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents as one collection roster.',
+        },
+        {
+          fragment_id: 'frag_helixa_swarm_tools',
+          fragment_type: 'endpoint',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'owner_submission', issuer: 'Helixa' },
+          public_value: 'Shared tool policy preview for routes, permissions, and approvals across the swarm.',
+          endpoint_ref: { protocol: 'api' },
+        },
+        {
+          fragment_id: 'frag_helixa_swarm_cred',
+          fragment_type: 'risk_summary',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'registry_import', issuer: 'Helixa' },
+          public_value: "Aggregate Cred context summarizes the roster without erasing each agent's individual profile.",
+        },
         { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
       ],
     },
@@ -97,6 +128,7 @@ function sampleData() {
       { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1' },
       { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81' },
       { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0' },
+      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready' },
     ],
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
@@ -169,7 +201,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.ok(root.querySelector('.clarity-grid'));
   assert.equal(root.querySelectorAll('.clarity-card').length, 3);
   assert.ok(root.querySelector('.card-carousel'));
-  assert.equal(root.querySelectorAll('.card-button').length, 3);
+  assert.equal(root.querySelectorAll('.card-button').length, 4);
   assert.match(root.querySelector('.card-detail').textContent, /Helixa ID/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
@@ -195,6 +227,22 @@ test('agent card carousel switches selected card detail', async () => {
   assert.match(root.querySelector('.card-detail').textContent, /Cred 75/);
 });
 
+
+
+test('landing page presents Helixa Swarm as a parent collection card', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelectorAll('.card-button').length, 4);
+  assert.match(root.textContent, /Helixa Swarm/);
+  assert.match(root.textContent, /Parent Multipass/);
+  assert.match(root.textContent, /3 agents/);
+  assert.match(root.textContent, /Custody epoch ready/);
+  assert.match(root.textContent, /Swarm roster/);
+  assert.match(root.textContent, /Shared tool policy/);
+  assert.match(root.textContent, /Aggregate Cred context/);
+  assert.equal(root.textContent.includes('frag_helixa_swarm_'), false);
+});
 
 test('landing page leads with product explanation and keeps raw fragment ids out of default view', async () => {
   const root = setupDom();
@@ -253,7 +301,7 @@ test('proof ledger uses neutral badges for counts and green only for settled sta
   const neutralBadgesAll = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
   assert.deepEqual(verifiedBadges, ['settled']);
   assert.ok(neutralBadgesAll.includes('link_ready'));
-  assert.ok(neutralBadgesAll.includes('7 public'));
+  assert.ok(neutralBadgesAll.includes('10 public'));
 });
 
 test('default loader uses safe api query override from window location', async () => {
