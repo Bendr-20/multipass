@@ -16,6 +16,8 @@ Multipass currently has:
 
 The prototype works technically, but the product story is still too broad.
 
+Unlinked is not access control: treat `/multipass/` as publicly accessible and keep secrets, private data, internal endpoints, auth material, live tokens, and unredacted proof data out of the route.
+
 ## Product decision
 V0 should start with **agent builders** as the first audience.
 
