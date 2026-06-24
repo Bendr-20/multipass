@@ -10,9 +10,13 @@ const repoRoot = join(webRoot, '../..');
 const checkedFiles = [
   join(webRoot, 'src/content.js'),
   join(webRoot, 'src/app.js'),
+  join(webRoot, 'src/api.js'),
+  join(webRoot, 'src/static-demo-data.js'),
   join(webRoot, 'src/styles.css'),
   join(repoRoot, 'docs/superpowers/specs/2026-06-24-multipass-protocol-artifact-visual-redesign.md'),
+  join(repoRoot, 'docs/superpowers/specs/2026-06-24-multipass-helixa-static-demo-deploy.md'),
   join(repoRoot, 'docs/superpowers/plans/2026-06-24-multipass-protocol-artifact-redesign.md'),
+  join(repoRoot, 'docs/superpowers/plans/2026-06-24-multipass-helixa-static-demo-deploy.md'),
 ];
 
 const bannedTerms = [

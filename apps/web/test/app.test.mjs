@@ -137,6 +137,28 @@ test('default loader uses safe api query override from window location', async (
   assert.match(root.textContent, /Bendr 2\.0/);
 });
 
+
+test('static /multipass/ page loads bundled fixture without calling API', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  globalThis.fetch = async (route) => {
+    calls.push(route);
+    throw new Error(`unexpected fetch ${route}`);
+  };
+
+  try {
+    await createApp({ root }).start();
+  } finally {
+    delete globalThis.fetch;
+  }
+
+  assert.deepEqual(calls, []);
+  assert.match(root.textContent, /Static Demo/);
+  assert.match(root.textContent, /bundled fixture/);
+  assert.match(root.textContent, /mp_bendr_2/);
+  assert.equal(root.innerHTML.includes('/multipass-api'), false);
+});
+
 test('API failure renders setup message', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => { throw new Error('GET /multipass-api failed with 502'); } }).start();

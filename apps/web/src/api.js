@@ -1,3 +1,5 @@
+import { STATIC_DEMO_DATA } from './static-demo-data.js';
+
 const DEFAULT_API_BASE = '/multipass-api';
 
 export function getApiBaseFromLocation(locationUrl) {
@@ -51,7 +53,16 @@ export async function loadMultipassDemo({ apiBase = DEFAULT_API_BASE, subject, f
     loadJson(routes.receipt, fetchImpl),
   ]);
 
-  return { profile, fragments, card, standards, x402, receipt, routes };
+  return { profile, fragments, card, standards, x402, receipt, routes, modeLabel: 'Local API Demo', sourceLabel: 'local API' };
+}
+
+export function shouldUseStaticDemo(locationUrl) {
+  const path = locationUrl.pathname;
+  return !locationUrl.searchParams.has('api') && (path === '/multipass' || path.startsWith('/multipass/'));
+}
+
+export async function loadStaticMultipassDemo() {
+  return structuredClone(STATIC_DEMO_DATA);
 }
 
 function stripTrailingSlash(value) {

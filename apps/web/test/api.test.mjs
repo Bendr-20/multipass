@@ -6,6 +6,8 @@ import {
   getApiBaseFromLocation,
   loadJson,
   loadMultipassDemo,
+  shouldUseStaticDemo,
+  loadStaticMultipassDemo,
 } from '../src/api.js';
 
 const subject = { slug: 'bendr-2', receiptId: 'receipt_bendr_lookup' };
@@ -30,6 +32,23 @@ test('getApiBaseFromLocation accepts only safe http URLs and falls back otherwis
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=https://api.example.test/base/')), 'https://api.example.test/base');
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=javascript:alert(1)')), '/multipass-api');
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=not-a-url')), '/multipass-api');
+});
+
+
+test('static demo mode is used for /multipass/ unless api override is present', () => {
+  assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/')), true);
+  assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=http://127.0.0.1:9999')), false);
+  assert.equal(shouldUseStaticDemo(new URL('http://localhost/')), false);
+});
+
+test('static demo data is public API shaped and sanitized', async () => {
+  const data = await loadStaticMultipassDemo();
+  assert.equal(data.profile.multipass_id, 'mp_bendr_2');
+  assert.equal(data.fragments.fragments.every((fragment) => fragment.visibility === 'public'), true);
+  assert.equal(JSON.stringify(data).includes('frag_bendr_private_placeholder'), false);
+  assert.equal(JSON.stringify(data).includes('private_fragments'), false);
+  assert.equal(data.sourceLabel, 'bundled fixture');
+  assert.equal(data.modeLabel, 'Static Demo');
 });
 
 test('loadJson throws clear errors for failed routes and invalid JSON', async () => {

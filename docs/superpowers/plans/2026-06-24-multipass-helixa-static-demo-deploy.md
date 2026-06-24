@@ -20,10 +20,10 @@
 - Modify: `apps/web/test/app.test.mjs`
 - Modify: `apps/web/test/wording.test.mjs`
 
-- [ ] Write failing tests for `/multipass/` static mode, safe `?api=` override preserving API mode, no `/multipass-api` fetch in static mode, and static labels.
-- [ ] Add sanitized public API-shaped static data.
-- [ ] Add static mode loader and source labels.
-- [ ] Run targeted web tests until green.
+- [x] Write failing tests for `/multipass/` static mode, safe `?api=` override preserving API mode, no `/multipass-api` fetch in static mode, and static labels.
+- [x] Add sanitized public API-shaped static data.
+- [x] Add static mode loader and source labels.
+- [x] Run targeted web tests until green.
 
 ## Task 2: Build base and deployment artifacts
 
@@ -32,9 +32,9 @@
 - Modify: `apps/web/test/api.test.mjs` or add build config assertion test if useful.
 - Create/update: `docs/superpowers/plans/2026-06-24-multipass-helixa-static-demo-deploy.md`
 
-- [ ] Make Vite base configurable via `MULTIPASS_BASE`, default `/`.
-- [ ] Verify `MULTIPASS_BASE=/multipass/ pnpm --filter @helixa/multipass-web build` emits `/multipass/assets/...` paths.
-- [ ] Run full Multipass test/build gates.
+- [x] Make Vite base configurable via `MULTIPASS_BASE`, default `/`.
+- [x] Verify `MULTIPASS_BASE=/multipass/ pnpm --filter @helixa/multipass-web build` emits `/multipass/assets/...` paths.
+- [x] Run full Multipass test/build gates.
 
 ## Task 3: Copy to Helixa docs and verify static preview
 
@@ -42,9 +42,9 @@
 - Modify only: `/home/ubuntu/helixa/docs/multipass/**`
 - Do not stage: `/home/ubuntu/helixa/api/v2-server.js`, `.gitmodules`, `foundry.lock`
 
-- [ ] Remove/recreate `helixa/docs/multipass/` from Multipass build output.
-- [ ] Serve `/home/ubuntu/helixa/docs` locally and verify `/multipass/` loads.
-- [ ] Verify built index has `/multipass/assets/` paths, no root `/assets/` paths, and rendered app does not call `/multipass-api`.
-- [ ] Commit and push Multipass implementation.
-- [ ] Commit and push Helixa docs route only.
+- [x] Remove/recreate `helixa/docs/multipass/` from Multipass build output.
+- [x] Serve `/home/ubuntu/helixa/docs` locally and verify `/multipass/` loads.
+- [x] Verify built index has `/multipass/assets/` paths, no root `/assets/` paths, and rendered app does not call `/multipass-api`.
+- [x] Commit and push Multipass implementation.
+- [x] Commit and push Helixa docs route only.
 - [ ] Verify remote commits and, if available, live `https://helixa.xyz/multipass/`.

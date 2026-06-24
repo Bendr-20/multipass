@@ -1,4 +1,4 @@
-import { getApiBaseFromLocation, loadMultipassDemo } from './api.js';
+import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY } from './content.js';
 
 export function createApp({ root, loadDemo = defaultLoadDemo }) {
@@ -21,8 +21,11 @@ export function createApp({ root, loadDemo = defaultLoadDemo }) {
 }
 
 function defaultLoadDemo() {
+  const locationUrl = new URL(window.location.href);
+  if (shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
+
   return loadMultipassDemo({
-    apiBase: getApiBaseFromLocation(new URL(window.location.href)),
+    apiBase: getApiBaseFromLocation(locationUrl),
     subject: DEMO_SUBJECT,
   });
 }
@@ -55,7 +58,7 @@ function render(root, state) {
     <div class="record-shell">
       <header class="record-header">
         <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
-        <div class="header-meta"><span>Protocol Artifact</span><span>Local API Demo</span></div>
+        <div class="header-meta"><span>Protocol Artifact</span><span>${escapeHtml(data.modeLabel ?? 'Local API Demo')}</span></div>
       </header>
 
       <section class="hero-record">
@@ -80,7 +83,7 @@ function render(root, state) {
             ${renderField('Slug', data.profile.slug ?? DEMO_SUBJECT.slug)}
             ${renderField('Status', data.profile.status, 'status')}
             ${renderField('Trust State', data.profile.cred_summary?.trust_state ?? 'none')}
-            ${renderField('Source', 'local API')}
+            ${renderField('Source', data.sourceLabel ?? 'local API')}
             ${renderField('Receipt', data.receipt.receipt_id)}
           </div>
         </article>
@@ -93,7 +96,7 @@ function render(root, state) {
         ${proofCards.map((card, index) => renderProofRow(card, index, state.expandedCard)).join('')}
       </section>
 
-      <footer class="footer-note">This is a local development demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
+      <footer class="footer-note">This is a static public demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
     </div>
   `;
 
