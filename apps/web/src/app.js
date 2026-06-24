@@ -28,16 +28,21 @@ function defaultLoadDemo() {
 }
 
 function renderLoading(root) {
-  root.innerHTML = `<section class="shell"><p class="eyebrow">${HERO_COPY.eyebrow}</p><h1>Loading Bendr 2.0...</h1></section>`;
+  root.innerHTML = `
+    <section class="record-shell loading-shell">
+      <p class="eyebrow">${HERO_COPY.eyebrow}</p>
+      <h1>Loading Bendr 2.0...</h1>
+    </section>
+  `;
 }
 
 function renderError(root, error) {
   root.innerHTML = `
-    <section class="shell error-shell">
-      <p class="eyebrow">MULTIPASS DEMO</p>
+    <section class="record-shell error-shell">
+      <p class="eyebrow">${HERO_COPY.eyebrow}</p>
       <h1>Could not load Multipass API data.</h1>
       <p>Run <code>pnpm api:bendr</code> in the Multipass repo, then reload this page.</p>
-      <pre>${escapeHtml(error.message)}</pre>
+      <pre class="json-panel">${escapeHtml(error.message)}</pre>
     </section>
   `;
 }
@@ -47,29 +52,48 @@ function render(root, state) {
   const storyCards = createStoryCards(data);
   const proofCards = createProofCards(data);
   root.innerHTML = `
-    <div class="shell">
-      <nav class="nav"><strong>MULTIPASS</strong><span>Local API demo</span></nav>
-      <section class="hero">
+    <div class="record-shell">
+      <header class="record-header">
+        <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
+        <div class="header-meta"><span>Protocol Artifact</span><span>Local API Demo</span></div>
+      </header>
+
+      <section class="hero-record">
         <div>
           <p class="eyebrow">${HERO_COPY.eyebrow}</p>
           <h1>${HERO_COPY.headline}</h1>
-          <p class="hero-copy">${HERO_COPY.body}</p>
-          <p class="note">${HERO_COPY.note}</p>
+          <p class="lead">${HERO_COPY.body}</p>
+          <div class="note">${HERO_COPY.note}</div>
         </div>
-        <aside class="command-card">
-          <p class="eyebrow">Profile Command Center</p>
-          <h2>${escapeHtml(data.profile.display_name)}</h2>
-          <dl>
-            <div><dt>Status</dt><dd>${escapeHtml(data.profile.status)}</dd></div>
-            <div><dt>Subject</dt><dd>${escapeHtml(data.profile.subject_type)}</dd></div>
-            <div><dt>Trust</dt><dd>${escapeHtml(data.profile.cred_summary?.trust_state ?? 'none')}</dd></div>
-            <div><dt>API</dt><dd>local</dd></div>
-          </dl>
-        </aside>
+
+        <article class="record-sheet">
+          <div class="sheet-top">
+            <div>
+              <h2>${escapeHtml(data.profile.display_name)}</h2>
+              <p>Agent profile with public identity fragments, standards references, x402 route metadata, and receipt evidence.</p>
+            </div>
+            <div class="stamp">Public proof only</div>
+          </div>
+          <div class="field-grid">
+            ${renderField('Record', data.profile.multipass_id ?? DEMO_SUBJECT.slug)}
+            ${renderField('Subject', data.profile.subject_type)}
+            ${renderField('Slug', data.profile.slug ?? DEMO_SUBJECT.slug)}
+            ${renderField('Status', data.profile.status, 'status')}
+            ${renderField('Trust State', data.profile.cred_summary?.trust_state ?? 'none')}
+            ${renderField('Source', 'local API')}
+            ${renderField('Receipt', data.receipt.receipt_id)}
+          </div>
+        </article>
       </section>
-      <section class="story-grid">${storyCards.map(renderStoryCard).join('')}</section>
-      <section class="proof-grid">${proofCards.map((card, index) => renderProofCard(card, index, state.expandedCard)).join('')}</section>
-      <footer>This is a local development demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
+
+      <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
+
+      <section class="proof-ledger">
+        <div class="ledger-title"><h2>Proof ledger</h2><span>Expandable API records</span></div>
+        ${proofCards.map((card, index) => renderProofRow(card, index, state.expandedCard)).join('')}
+      </section>
+
+      <footer class="footer-note">This is a local development demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
     </div>
   `;
 
@@ -78,13 +102,25 @@ function render(root, state) {
       const cardIndex = Number(button.dataset.index);
       state.expandedCard = state.expandedCard === cardIndex ? null : cardIndex;
       render(root, state);
+      root.querySelector(`[data-action="toggle-json"][data-index="${cardIndex}"]`)?.focus();
     });
   });
 }
 
-function renderStoryCard(card) {
+function renderField(label, value, className = '') {
+  const extraClass = className ? ` ${className}` : '';
   return `
-    <article class="story-card">
+    <div class="field">
+      <span>${escapeHtml(label)}</span>
+      <strong class="mono${extraClass}">${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderStoryCard(card, index) {
+  return `
+    <article class="story">
+      <span class="story-num">${String(index + 1).padStart(2, '0')}</span>
       <p class="card-label">${escapeHtml(card.label)}</p>
       <h3>${escapeHtml(card.title)}</h3>
       <p>${escapeHtml(card.body)}</p>
@@ -92,16 +128,24 @@ function renderStoryCard(card) {
   `;
 }
 
-function renderProofCard(card, index, expandedCard) {
+function renderProofRow(card, index, expandedCard) {
   const expanded = expandedCard === index;
   return `
-    <article class="proof-card">
-      <div class="proof-head"><h3>${escapeHtml(card.title)}</h3><span>${escapeHtml(card.status)}</span></div>
-      <p>${escapeHtml(card.summary)}</p>
-      <button data-action="toggle-json" data-index="${index}">${expanded ? 'Hide JSON' : 'Show JSON'}</button>
-      ${expanded ? `<pre>${escapeHtml(JSON.stringify(card.json, null, 2))}</pre>` : ''}
+    <article class="ledger-entry">
+      <div class="ledger-row">
+        <div class="doc">${escapeHtml(card.title)}</div>
+        <div class="badge ${getBadgeTone(card)}">${escapeHtml(card.status)}</div>
+        <div class="summary">${escapeHtml(card.summary)}</div>
+        <button data-action="toggle-json" data-index="${index}" aria-expanded="${expanded}" aria-controls="proof-json-${index}">${expanded ? 'Hide JSON' : 'Show JSON'}</button>
+      </div>
+      ${expanded ? `<pre id="proof-json-${index}" class="json-panel">${escapeHtml(JSON.stringify(card.json, null, 2))}</pre>` : ''}
     </article>
   `;
+}
+
+
+function getBadgeTone(card) {
+  return ['settled', 'passed', 'filtered'].includes(String(card.status).toLowerCase()) ? 'verified' : 'neutral';
 }
 
 function escapeHtml(value) {

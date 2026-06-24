@@ -30,21 +30,30 @@ test('summary helpers produce display strings from fixture-shaped documents', ()
 test('story and proof cards cover the intended demo sections', () => {
   const data = {
     profile: { display_name: 'Bendr 2.0', status: 'link_ready', subject_type: 'agent', cred_summary: { trust_state: 'building' } },
-    fragments: { fragments: [
-      { fragment_id: 'frag_public', visibility: 'public' },
-      { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
-    ] },
+    fragments: {
+      subject_id: 'bendr-2',
+      private_fragments: [{ fragment_id: 'frag_bendr_unexpected_private_field', visibility: 'private' }],
+      fragments: [
+        { fragment_id: 'frag_public', visibility: 'public' },
+        { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
+      ],
+    },
     card: { capabilities: [{}], service_endpoints: [{}] },
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
     receipt: { receipt_id: 'receipt_bendr_lookup', status: 'settled' },
   };
 
-  assert.deepEqual(createStoryCards(data).map((card) => card.title), [
+  const storyCards = createStoryCards(data);
+  assert.deepEqual(storyCards.map((card) => card.title), [
     'Identity Graph',
     'Standards Spine',
     'Access and Receipts',
   ]);
+  const storyText = JSON.stringify(storyCards);
+  assert.match(storyText, /public fragments/i);
+  assert.match(storyText, /standards references/i);
+  assert.match(storyText, /receipt evidence/i);
   assert.deepEqual(createProofCards(data).map((card) => card.title), [
     'Profile',
     'Public Fragments',
@@ -58,10 +67,14 @@ test('story and proof cards cover the intended demo sections', () => {
 test('proof card summaries and JSON do not include private fragment ids', () => {
   const cards = createProofCards({
     profile: { display_name: 'Bendr 2.0', status: 'link_ready', subject_type: 'agent', cred_summary: { trust_state: 'building' } },
-    fragments: { fragments: [
-      { fragment_id: 'frag_public', visibility: 'public' },
-      { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
-    ] },
+    fragments: {
+      subject_id: 'bendr-2',
+      private_fragments: [{ fragment_id: 'frag_bendr_unexpected_private_field', visibility: 'private' }],
+      fragments: [
+        { fragment_id: 'frag_public', visibility: 'public' },
+        { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
+      ],
+    },
     card: { capabilities: [], service_endpoints: [] },
     standards: { standard_refs: [] },
     x402: { endpoints: [] },
@@ -69,4 +82,5 @@ test('proof card summaries and JSON do not include private fragment ids', () => 
   });
 
   assert.equal(JSON.stringify(cards).includes('frag_bendr_private_placeholder'), false);
+  assert.equal(JSON.stringify(cards).includes('frag_bendr_unexpected_private_field'), false);
 });

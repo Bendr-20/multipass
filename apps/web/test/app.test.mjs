@@ -8,14 +8,20 @@ function sampleData() {
   return {
     profile: {
       display_name: 'Bendr 2.0',
+      multipass_id: 'mp_bendr_2',
+      slug: 'bendr-2',
       status: 'link_ready',
       subject_type: 'agent',
       cred_summary: { trust_state: 'building' },
     },
-    fragments: { fragments: [
-      { fragment_id: 'frag_bendr_profile', visibility: 'public' },
-      { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
-    ] },
+    fragments: {
+      subject_id: 'bendr-2',
+      private_fragments: [{ fragment_id: 'frag_bendr_unexpected_private_field', visibility: 'private' }],
+      fragments: [
+        { fragment_id: 'frag_bendr_profile', visibility: 'public' },
+        { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
+      ],
+    },
     card: { capabilities: [{}], service_endpoints: [{}] },
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
@@ -31,7 +37,7 @@ function setupDom(url = 'http://localhost/') {
   return dom.window.document.querySelector('#app');
 }
 
-test('initial render shows loading state then Bendr command center', async () => {
+test('initial render shows loading state then Protocol Artifact record', async () => {
   const root = setupDom();
   let resolveLoad;
   const app = createApp({
@@ -45,13 +51,25 @@ test('initial render shows loading state then Bendr command center', async () =>
   resolveLoad(sampleData());
   await ready;
 
-  assert.match(root.textContent, /Portable identity and trust profiles for agents/);
+  assert.match(root.textContent, /Verifiable identity records for autonomous agents/);
+  assert.match(root.textContent, /MULTIPASS RECORD/);
   assert.match(root.textContent, /Bendr 2\.0/);
+  assert.match(root.textContent, /mp_bendr_2/);
+  assert.match(root.textContent, /bendr-2/);
+  assert.match(root.textContent, /Source/);
+  assert.match(root.textContent, /local API/);
   assert.match(root.textContent, /link_ready/);
+  assert.match(root.textContent, /Public proof only/);
+  assert.match(root.textContent, /Proof ledger/);
   assert.match(root.textContent, /Identity Graph/);
+  assert.ok(root.querySelector('.record-shell'));
+  assert.ok(root.querySelector('.record-sheet'));
+  assert.ok(root.querySelector('.proof-ledger'));
+  assert.equal(root.querySelectorAll('.field').length, 7);
+  assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
 });
 
-test('proof cards render all six document types and JSON toggles open and close', async () => {
+test('proof ledger renders all six document types and JSON toggles open and close', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -59,16 +77,37 @@ test('proof cards render all six document types and JSON toggles open and close'
     assert.match(root.textContent, new RegExp(title));
   }
 
+  const firstToggle = root.querySelector('[data-action="toggle-json"]');
+  assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(firstToggle.getAttribute('aria-controls'), 'proof-json-0');
   assert.equal(root.querySelector('pre'), null);
-  root.querySelector('[data-action="toggle-json"]').click();
+  firstToggle.click();
+  assert.equal(root.querySelector('[data-action="toggle-json"]').getAttribute('aria-expanded'), 'true');
   assert.match(root.querySelector('pre').textContent, /Bendr 2\.0/);
   root.querySelector('[data-action="toggle-json"]').click();
   assert.equal(root.querySelector('pre'), null);
 
   root.querySelectorAll('[data-action="toggle-json"]')[1].click();
   assert.equal(root.innerHTML.includes('frag_bendr_private_placeholder'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_unexpected_private_field'), false);
   root.querySelectorAll('[data-action="toggle-json"]')[1].click();
   assert.equal(root.querySelector('pre'), null);
+});
+
+
+test('proof ledger uses neutral badges for counts and green only for settled states', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const neutralBadges = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
+  assert.ok(neutralBadges.includes('1 capabilities'));
+  assert.ok(neutralBadges.includes('1 refs'));
+  assert.ok(neutralBadges.includes('1 endpoints'));
+  const verifiedBadges = [...root.querySelectorAll('.badge.verified')].map((badge) => badge.textContent);
+  const neutralBadgesAll = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
+  assert.deepEqual(verifiedBadges, ['settled']);
+  assert.ok(neutralBadgesAll.includes('link_ready'));
+  assert.ok(neutralBadgesAll.includes('1 public'));
 });
 
 test('default loader uses safe api query override from window location', async () => {
@@ -107,9 +146,10 @@ test('API failure renders setup message', async () => {
   assert.match(root.textContent, /GET \/multipass-api failed with 502/);
 });
 
-test('private fragment ids are absent from rendered HTML', async () => {
+test('private fragment ids and unexpected private fields are absent from rendered HTML', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.equal(root.innerHTML.includes('frag_bendr_private_placeholder'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_unexpected_private_field'), false);
 });
