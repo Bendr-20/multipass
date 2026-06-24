@@ -6,7 +6,7 @@ export const DEMO_SUBJECT = {
 
 export const V01_COPY = {
   prototypeLabel: 'Internal Prototype',
-  audience: 'Built first for agent builders inspecting identity, proof, standards, and access records.',
+  audience: 'Built first for agent builders, agent teams, and marketplaces that need a fast trust read.',
   productSentence: 'Multipass is a portable trust profile for agents, combining identity, public proof, standards support, and access receipts into one inspectable record.',
 };
 
@@ -85,8 +85,8 @@ export function createAgentCarousel(data) {
 
   return {
     eyebrow: 'AGENT CARD CAROUSEL',
-    title: 'Agent cards',
-    body: 'Agent cards are the compact view apps can scan first. Pick one, then inspect the profile and fragments below.',
+    title: 'Agent cards that lead with trust.',
+    body: 'Each card gives a quick read on identity, Cred, framework, and profile route. The deeper fragments sit below for verification, not first impression.',
     cards,
   };
 }
@@ -138,9 +138,9 @@ function formatEnumLabel(value) {
 
 export const HERO_COPY = {
   eyebrow: 'MULTIPASS RECORD',
-  headline: 'The identity layer for agents people need to inspect before they trust.',
-  body: 'Multipass turns agent identity, AgentDNA records, Cred signals, routes, standards, and receipts into one machine-readable trust profile.',
-  note: 'Internal prototype reading the Bendr 2.0 fixture.',
+  headline: 'The identity layer for agents, swarms, and the apps that need to read them.',
+  body: 'Multipass gives every agent a compact card and a machine-readable trust profile: identity, Cred, routes, standards, and receipts in one portable proof layer.',
+  note: 'Hidden prototype using Bendr 2.0 public fixture data.',
 };
 
 export function createClaritySections() {
@@ -169,19 +169,19 @@ export function createStoryCards(data) {
 
   return [
     {
-      title: 'Identity Graph',
+      title: 'Card first',
+      label: 'Fast read',
+      body: 'Name, Helixa ID, Cred, framework, and profile route should be understandable at a glance.',
+    },
+    {
+      title: 'Proof below',
       label: `${publicFragments.length} public fragments`,
-      body: 'Public fragments make the agent legible without exposing private records.',
+      body: 'Fragments explain why the card should be trusted without dumping raw protocol detail up front.',
     },
     {
-      title: 'Standards Spine',
-      label: `${data.standards.standard_refs.length} standard refs`,
-      body: 'Standards references sit directly inside the profile record instead of living as loose claims.',
-    },
-    {
-      title: 'Access and Receipts',
+      title: 'Portable by design',
       label: `${data.x402.endpoints.length} x402 endpoint`,
-      body: 'Endpoint access can produce receipt evidence, kept close to the identity object.',
+      body: 'Apps can read the same agent profile across discovery, access, settlement, and custody flows.',
     },
   ];
 }

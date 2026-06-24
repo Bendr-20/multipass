@@ -82,7 +82,7 @@ test('agent carousel maps real Helixa card data for display', () => {
     card: { trust_summary: { identity_status: 'pending' } },
   });
 
-  assert.equal(carousel.title, 'Agent cards');
+  assert.equal(carousel.title, 'Agent cards that lead with trust.');
   assert.equal(carousel.cards.length, 2);
   assert.equal(carousel.cards[0].helixaId, '8453:1');
   assert.equal(carousel.cards[0].credLabel, 'Cred 80');
@@ -169,14 +169,14 @@ test('story and proof cards cover the intended demo sections', () => {
 
   const storyCards = createStoryCards(data);
   assert.deepEqual(storyCards.map((card) => card.title), [
-    'Identity Graph',
-    'Standards Spine',
-    'Access and Receipts',
+    'Card first',
+    'Proof below',
+    'Portable by design',
   ]);
   const storyText = JSON.stringify(storyCards);
   assert.match(storyText, /public fragments/i);
-  assert.match(storyText, /standards references/i);
-  assert.match(storyText, /receipt evidence/i);
+  assert.match(storyText, /proof below/i);
+  assert.match(storyText, /profile across discovery/i);
   const proofCards = createProofCards(data);
   assert.deepEqual(proofCards.map((card) => card.title), [
     'Profile',

@@ -97,11 +97,11 @@ function render(root, state) {
         </article>
       </section>
 
+      ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
+
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
 
       <section class="clarity-grid">${claritySections.map(renderClarityCard).join('')}</section>
-
-      ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
       ${renderFragmentTrustMap(fragmentTrustMap)}
 

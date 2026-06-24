@@ -145,7 +145,7 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /link_ready/);
   assert.match(root.textContent, /Public proof only/);
   assert.match(root.textContent, /Proof ledger/);
-  assert.match(root.textContent, /Identity Graph/);
+  assert.match(root.textContent, /Card first/);
   assert.match(root.textContent, /Agent cards/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /Quigbot/);
