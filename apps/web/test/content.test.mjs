@@ -3,9 +3,12 @@ import test from 'node:test';
 
 import {
   DEMO_SUBJECT,
+  FRAGMENT_LEGENDS,
   HERO_COPY,
   V01_COPY,
+  V02_COPY,
   createClaritySections,
+  createFragmentTrustMap,
   createProofCards,
   createStoryCards,
   summarizeProfile,
@@ -39,6 +42,79 @@ test('V0.1 copy names agent builders and separates prototype state', () => {
   assert.match(combined, /fixture/i);
   assert.match(combined, /no live auth/i);
   assert.match(combined, /no live settlement/i);
+});
+
+
+test('V0.2 copy and legends explain fragment trust states', () => {
+  assert.match(V02_COPY.title, /Identity fragments/i);
+  assert.match(V02_COPY.body, /not a score/i);
+  assert.match(V02_COPY.body, /separate signals/i);
+
+  assert.deepEqual(Object.keys(FRAGMENT_LEGENDS.visibility), ['public', 'gated', 'private', 'hidden']);
+  for (const type of ['endpoint', 'attestation', 'receipt', 'standard_ref', 'verification_result']) {
+    assert.equal(typeof FRAGMENT_LEGENDS.fragmentType[type], 'string');
+    assert.ok(FRAGMENT_LEGENDS.fragmentType[type].length > 20);
+  }
+  for (const assurance of ['unverified', 'self_attested', 'platform_verified', 'cryptographic', 'issuer_attested', 'onchain_verified']) {
+    assert.equal(typeof FRAGMENT_LEGENDS.assurance[assurance], 'string');
+    assert.ok(FRAGMENT_LEGENDS.assurance[assurance].length > 20);
+  }
+  for (const status of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
+    assert.equal(typeof FRAGMENT_LEGENDS.status[status], 'string');
+    assert.ok(FRAGMENT_LEGENDS.status[status].length > 20);
+  }
+  for (const policy of ['reverify_on_transfer', 'pause_on_transfer', 'historical_on_transfer', 'never_transfer']) {
+    assert.equal(typeof FRAGMENT_LEGENDS.transferPolicy[policy], 'string');
+    assert.ok(FRAGMENT_LEGENDS.transferPolicy[policy].length > 20);
+  }
+});
+
+test('fragment trust map keeps public fragments separate and explains transfer policy', () => {
+  const map = createFragmentTrustMap({
+    fragments: {
+      fragments: [
+        {
+          fragment_id: 'frag_verified_profile',
+          fragment_type: 'attestation',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          public_value: 'Verified profile claim.',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+        },
+        {
+          fragment_id: 'frag_pending_endpoint',
+          fragment_type: 'endpoint',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          public_value: 'Pending endpoint route.',
+          source: { source_type: 'owner_submission', issuer: null },
+          endpoint_ref: { protocol: 'x402' },
+        },
+        {
+          fragment_id: 'frag_disputed_private',
+          fragment_type: 'attestation',
+          status: 'disputed',
+          assurance_level: 'unverified',
+          visibility: 'private',
+          transfer_policy: 'never_transfer',
+          public_value: null,
+          source: { source_type: 'owner_submission', issuer: null },
+        },
+      ],
+    },
+  });
+
+  assert.equal(map.cards.length, 2);
+  assert.equal(map.cards.some((card) => card.id === 'frag_disputed_private'), false);
+  assert.match(map.cards[0].typeLabel, /Attestation/);
+  assert.match(map.cards[0].assuranceLabel, /Platform verified/);
+  assert.match(map.cards[0].transferPolicyLabel, /Historical on transfer/);
+  assert.match(map.cards[1].summary, /x402 endpoint/i);
+  assert.match(map.emptyPrivateNote, /private and hidden fragments are not rendered/i);
 });
 
 test('summary helpers produce display strings from fixture-shaped documents', () => {

@@ -3,15 +3,19 @@ import { STATIC_DEMO_DATA } from './static-demo-data.js';
 const DEFAULT_API_BASE = '/multipass-api';
 
 export function getApiBaseFromLocation(locationUrl) {
+  const parsed = parseSafeApiOverride(locationUrl);
+  return parsed ? stripTrailingSlash(parsed.toString()) : DEFAULT_API_BASE;
+}
+
+function parseSafeApiOverride(locationUrl) {
   const raw = locationUrl.searchParams.get('api');
-  if (!raw) return DEFAULT_API_BASE;
+  if (!raw) return null;
 
   try {
     const parsed = new URL(raw);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return DEFAULT_API_BASE;
-    return stripTrailingSlash(parsed.toString());
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed : null;
   } catch {
-    return DEFAULT_API_BASE;
+    return null;
   }
 }
 
@@ -58,7 +62,8 @@ export async function loadMultipassDemo({ apiBase = DEFAULT_API_BASE, subject, f
 
 export function shouldUseStaticDemo(locationUrl) {
   const path = locationUrl.pathname;
-  return !locationUrl.searchParams.has('api') && (path === '/multipass' || path.startsWith('/multipass/'));
+  const isMultipassRoute = path === '/multipass' || path.startsWith('/multipass/');
+  return isMultipassRoute && !parseSafeApiOverride(locationUrl);
 }
 
 export async function loadStaticMultipassDemo() {

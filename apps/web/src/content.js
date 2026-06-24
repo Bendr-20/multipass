@@ -10,6 +10,96 @@ export const V01_COPY = {
   productSentence: 'Multipass is a portable trust profile for agents, combining identity, public proof, standards support, and access receipts into one inspectable record.',
 };
 
+
+export const V02_COPY = {
+  title: 'Identity fragments',
+  eyebrow: 'FRAGMENT TRUST MAP',
+  body: 'Fragments are separate signals, not a score. Each one keeps its own visibility, verification state, assurance level, and transfer rule so builders can inspect what supports the profile.',
+};
+
+export const FRAGMENT_LEGENDS = {
+  fragmentType: {
+    endpoint: 'Endpoint fragments describe routes, protocols, manifests, and access surfaces an agent may expose.',
+    attestation: 'Attestation fragments describe claims or checks from an owner, platform, issuer, or verifier.',
+    receipt: 'Receipt fragments describe access or payment evidence without making that evidence trust by itself.',
+    standard_ref: 'Standard reference fragments connect the profile to external standards without implying every adapter is live.',
+    verification_result: 'Verification result fragments record review outcomes, risk context, or disputed checks.',
+    custody_record: 'Custody record fragments describe owner or controller epochs without transferring private authority.',
+  },
+  visibility: {
+    public: 'Visible to anyone and safe for profile cards, indexers, and partner systems.',
+    gated: 'Released only after token, payment, relationship, or allowlist policy is satisfied.',
+    private: 'Visible only to approved owners, operators, or internal systems with a clear need.',
+    hidden: 'Not discoverable through public or gated surfaces, reserved for safety or integrity review.',
+  },
+  status: {
+    verified: 'Checked by a platform, issuer, contract read, or other explicit verification path.',
+    pending: 'Submitted or referenced, but still waiting for review or a stronger proof source.',
+    stale: 'Previously useful, but old enough that builders should request a fresh check.',
+    historical: 'Kept as provenance or prior evidence, not treated as active authority.',
+    disputed: 'Flagged for review because the claim, source, or interpretation is contested.',
+  },
+  assurance: {
+    unverified: 'Unverified means the fragment has no stronger source than a raw claim or placeholder.',
+    self_attested: 'Self attested means the owner or agent supplied the claim without outside verification.',
+    platform_verified: 'Platform verified means Helixa or another platform checked the fragment through a defined process.',
+    cryptographic: 'Cryptographic means the fragment is backed by a signature, hash, or comparable cryptographic proof.',
+    issuer_attested: 'Issuer attested means a named issuer supplied or signed the supporting evidence.',
+    onchain_verified: 'Onchain verified means the fragment was checked against a chain record or contract read.',
+  },
+  transferPolicy: {
+    reverify_on_transfer: 'Reverify on transfer means a new owner must confirm the fragment before it is treated as current.',
+    pause_on_transfer: 'Pause on transfer means active authority should stop until the new owner or operator approves it.',
+    historical_on_transfer: 'Historical on transfer means provenance stays visible, but it does not grant active authority.',
+    never_transfer: 'Never transfer means the fragment is bound to the prior controller or context and must not move.',
+  },
+};
+
+export function createFragmentTrustMap(data) {
+  const fragments = filterPublicFragments(data.fragments);
+  return {
+    title: V02_COPY.title,
+    eyebrow: V02_COPY.eyebrow,
+    body: V02_COPY.body,
+    cards: fragments.map(createFragmentCard),
+    legends: FRAGMENT_LEGENDS,
+    emptyPrivateNote: 'Private and hidden fragments are not rendered in this public prototype.',
+  };
+}
+
+function createFragmentCard(fragment) {
+  const typeLabel = formatEnumLabel(fragment.fragment_type);
+  const protocol = fragment.endpoint_ref?.protocol ? `${fragment.endpoint_ref.protocol} ` : '';
+  const source = fragment.source?.source_type ? formatEnumLabel(fragment.source.source_type) : 'Unknown source';
+  const issuer = fragment.source?.issuer ? ` by ${fragment.source.issuer}` : '';
+
+  return {
+    id: fragment.fragment_id,
+    type: fragment.fragment_type,
+    typeLabel,
+    status: fragment.status,
+    statusExplanation: FRAGMENT_LEGENDS.status[fragment.status] ?? 'Status explanation unavailable.',
+    assurance: fragment.assurance_level,
+    assuranceLabel: formatEnumLabel(fragment.assurance_level),
+    assuranceExplanation: FRAGMENT_LEGENDS.assurance[fragment.assurance_level] ?? 'Assurance explanation unavailable.',
+    visibility: fragment.visibility,
+    visibilityExplanation: FRAGMENT_LEGENDS.visibility[fragment.visibility] ?? 'Visibility explanation unavailable.',
+    transferPolicy: fragment.transfer_policy,
+    transferPolicyLabel: formatEnumLabel(fragment.transfer_policy),
+    transferPolicyExplanation: FRAGMENT_LEGENDS.transferPolicy[fragment.transfer_policy] ?? 'Transfer policy explanation unavailable.',
+    summary: fragment.endpoint_ref
+      ? `${typeLabel} for ${protocol}endpoint from ${source}${issuer}.`
+      : `${typeLabel} from ${source}${issuer}.`,
+    publicValue: fragment.public_value ?? 'No public value returned.',
+  };
+}
+
+function formatEnumLabel(value) {
+  const parts = String(value ?? 'unknown').split('_').filter(Boolean);
+  if (parts.length === 0) return 'Unknown';
+  return [parts[0].charAt(0).toUpperCase() + parts[0].slice(1), ...parts.slice(1)].join(' ');
+}
+
 export const HERO_COPY = {
   eyebrow: 'MULTIPASS RECORD',
   headline: 'Portable trust profiles for agents.',

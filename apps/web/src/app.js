@@ -1,5 +1,5 @@
 import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
-import { createClaritySections, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
+import { createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 export function createApp({ root, loadDemo = defaultLoadDemo }) {
   if (!root) throw new Error('createApp requires a root element');
@@ -54,6 +54,7 @@ function render(root, state) {
   const { data } = state;
   const storyCards = createStoryCards(data);
   const claritySections = createClaritySections(data);
+  const fragmentTrustMap = createFragmentTrustMap(data);
   const proofCards = createProofCards(data);
   root.innerHTML = `
     <div class="record-shell">
@@ -97,6 +98,8 @@ function render(root, state) {
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
 
       <section class="clarity-grid">${claritySections.map(renderClarityCard).join('')}</section>
+
+      ${renderFragmentTrustMap(fragmentTrustMap)}
 
       <section class="proof-ledger">
         <div class="ledger-title"><h2>Proof ledger</h2><span>Expandable API records</span></div>
@@ -143,6 +146,62 @@ function renderClarityCard(section) {
     <article class="clarity-card">
       <h3>${escapeHtml(section.title)}</h3>
       <p>${escapeHtml(section.body)}</p>
+    </article>
+  `;
+}
+
+function renderFragmentTrustMap(map) {
+  return `
+    <section class="fragment-map">
+      <div class="fragment-map-head">
+        <p class="eyebrow">${escapeHtml(map.eyebrow)}</p>
+        <h2>${escapeHtml(map.title)}</h2>
+        <p>${escapeHtml(map.body)}</p>
+      </div>
+      <div class="fragment-cards">
+        ${map.cards.map(renderFragmentCard).join('')}
+      </div>
+      <div class="fragment-legend">
+        ${renderLegendGroup('Fragment type legend', map.legends.fragmentType)}
+        ${renderLegendGroup('Status legend', map.legends.status)}
+        ${renderLegendGroup('Visibility legend', map.legends.visibility)}
+        ${renderLegendGroup('Assurance legend', map.legends.assurance)}
+        ${renderLegendGroup('Transfer policy', map.legends.transferPolicy)}
+      </div>
+      <p class="fragment-note">${escapeHtml(map.emptyPrivateNote)}</p>
+    </section>
+  `;
+}
+
+function renderFragmentCard(card) {
+  return `
+    <article class="fragment-card">
+      <div class="fragment-card-top">
+        <span class="fragment-type">${escapeHtml(card.typeLabel)}</span>
+        <span class="fragment-status status-${escapeHtml(card.status)}">${escapeHtml(card.status)}</span>
+      </div>
+      <h3>${escapeHtml(card.id)}</h3>
+      <p>${escapeHtml(card.summary)}</p>
+      <dl>
+        <div><dt>Assurance</dt><dd>${escapeHtml(card.assuranceLabel)}</dd></div>
+        <div><dt>Visibility</dt><dd>${escapeHtml(card.visibility)}</dd></div>
+        <div><dt>Transfer</dt><dd>${escapeHtml(card.transferPolicyLabel)}</dd></div>
+      </dl>
+      <p class="fragment-value">${escapeHtml(card.publicValue)}</p>
+    </article>
+  `;
+}
+
+function renderLegendGroup(title, entries) {
+  return `
+    <article>
+      <h3>${escapeHtml(title)}</h3>
+      ${Object.entries(entries).map(([key, value]) => `
+        <div class="legend-row">
+          <strong>${escapeHtml(key)}</strong>
+          <span>${escapeHtml(value)}</span>
+        </div>
+      `).join('')}
     </article>
   `;
 }

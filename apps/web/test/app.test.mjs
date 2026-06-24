@@ -18,7 +18,57 @@ function sampleData() {
       subject_id: 'bendr-2',
       private_fragments: [{ fragment_id: 'frag_bendr_unexpected_private_field', visibility: 'private' }],
       fragments: [
-        { fragment_id: 'frag_bendr_profile', visibility: 'public' },
+        {
+          fragment_id: 'frag_bendr_profile',
+          fragment_type: 'attestation',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Bendr profile checked by Helixa fixture.',
+        },
+        {
+          fragment_id: 'frag_bendr_endpoint',
+          fragment_type: 'endpoint',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'owner_submission', issuer: null },
+          public_value: 'Bendr endpoint awaiting live verification.',
+          endpoint_ref: { protocol: 'api' },
+        },
+        {
+          fragment_id: 'frag_bendr_standard_ref',
+          fragment_type: 'standard_ref',
+          status: 'stale',
+          assurance_level: 'issuer_attested',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'issuer_attestation', issuer: 'Helixa' },
+          public_value: 'Adapter reference needs a fresh check.',
+        },
+        {
+          fragment_id: 'frag_bendr_receipt_history',
+          fragment_type: 'receipt',
+          status: 'historical',
+          assurance_level: 'issuer_attested',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          source: { source_type: 'payment_receipt', issuer: 'Helixa' },
+          public_value: 'Receipt evidence retained as history.',
+        },
+        {
+          fragment_id: 'frag_bendr_route_dispute',
+          fragment_type: 'verification_result',
+          status: 'disputed',
+          assurance_level: 'unverified',
+          visibility: 'public',
+          transfer_policy: 'never_transfer',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Route claim intentionally marked disputed in the fixture.',
+        },
         { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
       ],
     },
@@ -69,11 +119,25 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /Public proof only/);
   assert.match(root.textContent, /Proof ledger/);
   assert.match(root.textContent, /Identity Graph/);
+  assert.match(root.textContent, /Identity fragments/);
+  assert.match(root.textContent, /not a score/i);
+  assert.match(root.textContent, /Status legend/);
+  assert.match(root.textContent, /Visibility legend/);
+  assert.match(root.textContent, /Assurance legend/);
+  assert.match(root.textContent, /Fragment type legend/);
+  assert.match(root.textContent, /Transfer policy/);
+  assert.match(root.textContent, /Endpoint fragments describe routes/i);
+  assert.match(root.textContent, /Platform verified means/i);
+  for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
+    assert.match(root.textContent, new RegExp(state, 'i'));
+  }
   assert.ok(root.querySelector('.record-shell'));
   assert.ok(root.querySelector('.record-sheet'));
   assert.ok(root.querySelector('.prototype-ribbon'));
   assert.ok(root.querySelector('.clarity-grid'));
   assert.equal(root.querySelectorAll('.clarity-card').length, 3);
+  assert.equal(root.querySelectorAll('.fragment-card').length, 5);
+  assert.ok(root.querySelector('.fragment-legend'));
   assert.ok(root.querySelector('.proof-ledger'));
   assert.equal(root.querySelectorAll('.field').length, 7);
   assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
@@ -122,7 +186,7 @@ test('proof ledger uses neutral badges for counts and green only for settled sta
   const neutralBadgesAll = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
   assert.deepEqual(verifiedBadges, ['settled']);
   assert.ok(neutralBadgesAll.includes('link_ready'));
-  assert.ok(neutralBadgesAll.includes('1 public'));
+  assert.ok(neutralBadgesAll.includes('5 public'));
 });
 
 test('default loader uses safe api query override from window location', async () => {
@@ -171,6 +235,31 @@ test('static /multipass/ page loads bundled fixture without calling API', async 
   assert.match(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
   assert.match(root.textContent, /mp_bendr_2/);
+  assert.equal(root.querySelectorAll('.fragment-card').length, 5);
+  for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
+    assert.match(root.textContent, new RegExp(state, 'i'));
+  }
+  assert.equal(root.innerHTML.includes('/multipass-api'), false);
+});
+
+
+test('static /multipass/ ignores unsafe api query override without calling API', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?api=not-a-url');
+  const calls = [];
+  globalThis.fetch = async (route) => {
+    calls.push(route);
+    throw new Error(`unexpected fetch ${route}`);
+  };
+
+  try {
+    await createApp({ root }).start();
+  } finally {
+    delete globalThis.fetch;
+  }
+
+  assert.deepEqual(calls, []);
+  assert.match(root.textContent, /Static Demo/);
+  assert.match(root.textContent, /bundled fixture/);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
 });
 

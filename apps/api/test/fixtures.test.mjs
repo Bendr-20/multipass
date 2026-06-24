@@ -44,6 +44,26 @@ test('fixture-backed API filters private fragments', async () => {
 
 
 
+
+test('Bendr fixture covers V0.2 fragment state examples', async () => {
+  const { store } = await loadFixtureStore({ fixture: 'bendr' });
+  const api = createMultipassApi({ store, baseUrl: 'http://127.0.0.1:8787' });
+
+  const { response, body } = await requestJson(api, '/api/multipass/bendr-2/fragments');
+
+  assert.equal(response.status, 200);
+  assert.equal(body.fragments.some((fragment) => fragment.visibility !== 'public'), false);
+  assert.deepEqual([...new Set(body.fragments.map((fragment) => fragment.status))].sort(), [
+    'disputed',
+    'historical',
+    'pending',
+    'stale',
+    'verified',
+  ]);
+  assert.ok(body.fragments.some((fragment) => fragment.transfer_policy === 'pause_on_transfer'));
+  assert.ok(body.fragments.some((fragment) => fragment.transfer_policy === 'never_transfer'));
+});
+
 test('fixture names cannot escape the fixture root', async () => {
   for (const fixture of ['../generic', '../../tmp/example', '/tmp/example', 'foo\\bar']) {
     await assert.rejects(

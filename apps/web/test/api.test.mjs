@@ -38,6 +38,8 @@ test('getApiBaseFromLocation accepts only safe http URLs and falls back otherwis
 test('static demo mode is used for /multipass/ unless api override is present', () => {
   assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/')), true);
   assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=http://127.0.0.1:9999')), false);
+  assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=not-a-url')), true);
+  assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=javascript:alert(1)')), true);
   assert.equal(shouldUseStaticDemo(new URL('http://localhost/')), false);
 });
 
