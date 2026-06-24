@@ -1,0 +1,255 @@
+:root {
+  color-scheme: dark;
+  --bg: #070711;
+  --panel: rgba(18, 19, 34, 0.82);
+  --panel-strong: rgba(29, 31, 54, 0.94);
+  --mint: #6eecd8;
+  --lavender: #b490ff;
+  --blue: #80d0ff;
+  --pink: #f5a0d0;
+  --text: #f7f8ff;
+  --muted: #aeb4ca;
+  --line: rgba(255, 255, 255, 0.13);
+  --shadow: 0 28px 90px rgba(33, 214, 222, 0.11);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(110, 236, 216, 0.18), transparent 32rem),
+    radial-gradient(circle at 86% 16%, rgba(180, 144, 255, 0.16), transparent 34rem),
+    radial-gradient(circle at 50% 100%, rgba(128, 208, 255, 0.12), transparent 28rem),
+    var(--bg);
+  color: var(--text);
+}
+
+button,
+code,
+pre {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 34px 0 42px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 58px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nav strong {
+  color: var(--text);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.28fr) minmax(320px, 0.72fr);
+  gap: 26px;
+  align-items: stretch;
+  margin-bottom: 24px;
+}
+
+.eyebrow,
+.card-label {
+  margin: 0 0 12px;
+  color: var(--mint);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 810px;
+  margin-bottom: 18px;
+  font-size: clamp(2.8rem, 8vw, 6.8rem);
+  line-height: 0.9;
+  letter-spacing: -0.075em;
+}
+
+h2 {
+  margin-bottom: 24px;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  letter-spacing: -0.05em;
+}
+
+h3 {
+  margin-bottom: 12px;
+  font-size: 1.08rem;
+}
+
+.hero-copy {
+  max-width: 700px;
+  color: var(--muted);
+  font-size: 1.12rem;
+  line-height: 1.75;
+}
+
+.note {
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.command-card,
+.story-card,
+.proof-card,
+.error-shell {
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)), var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.command-card {
+  padding: 28px;
+}
+
+.command-card dl {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+}
+
+.command-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 13px;
+}
+
+.command-card dt {
+  color: var(--muted);
+}
+
+.command-card dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 800;
+  text-align: right;
+}
+
+.story-grid,
+.proof-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.story-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 22px 0;
+}
+
+.proof-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.story-card,
+.proof-card {
+  padding: 24px;
+}
+
+.story-card p,
+.proof-card p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.proof-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.proof-head span {
+  border: 1px solid rgba(110, 236, 216, 0.32);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--mint);
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.proof-card button {
+  border: 1px solid rgba(180, 144, 255, 0.38);
+  border-radius: 999px;
+  background: rgba(180, 144, 255, 0.12);
+  color: var(--text);
+  padding: 10px 14px;
+  font-weight: 800;
+}
+
+.proof-card button:hover {
+  border-color: var(--lavender);
+}
+
+pre {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin: 18px 0 0;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+  color: #d9fdf7;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.error-shell {
+  margin-top: 56px;
+  padding: 30px;
+}
+
+footer {
+  margin-top: 34px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  text-align: center;
+}
+
+@media (max-width: 860px) {
+  .shell {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .nav,
+  .hero,
+  .story-grid,
+  .proof-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .nav {
+    gap: 8px;
+    margin-bottom: 38px;
+  }
+}

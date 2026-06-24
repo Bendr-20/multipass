@@ -6,13 +6,16 @@
   "type": "module",
   "packageManager": "pnpm@10.32.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "test": "node --test \"packages/*/test/*.test.mjs\" \"apps/*/test/*.test.mjs\"",
     "test:types": "node --test packages/types/test/schema-contract.test.mjs",
     "api:generic": "pnpm --filter @helixa/multipass-api start --fixture generic",
-    "api:bendr": "pnpm --filter @helixa/multipass-api start --fixture bendr"
+    "api:bendr": "pnpm --filter @helixa/multipass-api start --fixture bendr",
+    "web:dev": "pnpm --filter @helixa/multipass-web dev",
+    "web:build": "pnpm --filter @helixa/multipass-web build",
+    "demo:bendr": "pnpm api:bendr"
   },
   "workspaces": [
     "apps/*",
