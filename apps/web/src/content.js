@@ -4,12 +4,35 @@ export const DEMO_SUBJECT = {
   receiptId: 'receipt_bendr_lookup',
 };
 
+export const V01_COPY = {
+  prototypeLabel: 'Internal Prototype',
+  audience: 'Built first for agent builders inspecting identity, proof, standards, and access records.',
+  productSentence: 'Multipass is a portable trust profile for agents, combining identity, public proof, standards support, and access receipts into one inspectable record.',
+};
+
 export const HERO_COPY = {
   eyebrow: 'MULTIPASS RECORD',
-  headline: 'Verifiable identity records for autonomous agents.',
-  body: 'Multipass turns agent identity, public proof, standards, and access receipts into one portable trust object.',
-  note: 'Local demo reading the Bendr 2.0 fixture.',
+  headline: 'Portable trust profiles for agents.',
+  body: V01_COPY.productSentence,
+  note: 'Internal prototype reading the Bendr 2.0 fixture.',
 };
+
+export function createClaritySections() {
+  return [
+    {
+      title: 'What this record proves',
+      body: 'This record shows how an agent profile can bundle identity, public proof, standards references, endpoint metadata, and access receipts in one inspectable shape.',
+    },
+    {
+      title: 'What is static demo data',
+      body: 'This page uses a safe Bendr fixture so the route can be reviewed with no live auth, no live API, no contract read, and no live settlement service.',
+    },
+    {
+      title: 'What is planned but not live',
+      body: 'Owner editing, live verification, contract reads, paid settlement, custody flows, collection support, and swarm support are planned later slices, not live behavior here.',
+    },
+  ];
+}
 
 export function summarizeProfile(profile) {
   return `${profile.display_name} is a ${profile.subject_type} profile with status ${profile.status} and trust state ${profile.cred_summary?.trust_state ?? 'none'}.`;
@@ -46,36 +69,42 @@ export function createProofCards(data) {
       title: 'Profile',
       status: data.profile.status,
       summary: summarizeProfile(data.profile),
+      why: 'The profile is the canonical summary agents, apps, and builders can resolve first.',
       json: redactPrivateData(data.profile),
     },
     {
       title: 'Public Fragments',
       status: `${publicFragments.length} public`,
       summary: publicFragments.map((fragment) => fragment.fragment_id).join(', ') || 'No public fragments returned.',
+      why: 'Fragments show the public pieces that support the profile without exposing private records.',
       json: publicFragmentDocument,
     },
     {
       title: 'Agent Card',
       status: `${data.card.capabilities.length} capabilities`,
       summary: `${data.card.service_endpoints.length} service endpoint records available.`,
+      why: 'The agent card gives machines a compact view of capabilities, routes, endpoints, and trust context.',
       json: redactPrivateData(data.card),
     },
     {
       title: 'Standards',
       status: `${data.standards.standard_refs.length} refs`,
       summary: formatStandards(data.standards.standard_refs),
+      why: 'Standards references show compatibility targets and adapter state without claiming every adapter is live.',
       json: redactPrivateData(data.standards),
     },
     {
       title: 'x402',
       status: `${data.x402.endpoints.length} endpoints`,
       summary: data.x402.endpoints.map((endpoint) => `${endpoint.endpoint_id} accepts ${endpoint.asset}`).join(', ') || 'No endpoints returned.',
+      why: 'x402 metadata explains planned access rails and accepted assets without implying live settlement here.',
       json: redactPrivateData(data.x402),
     },
     {
       title: 'Receipt',
       status: data.receipt.status,
       summary: `${data.receipt.receipt_id} records a ${data.receipt.response_class ?? 'unknown'} response.`,
+      why: 'Receipt evidence records that an access event can be attached to the profile without becoming trust by itself.',
       json: redactPrivateData(data.receipt),
     },
   ];
