@@ -22,7 +22,7 @@ test('DEMO_SUBJECT contains Bendr V0 metadata', () => {
 });
 
 
-test('V0.1 copy names agent builders and separates prototype state', () => {
+test('landing copy names agent builders and explains product-card-proof flow', () => {
   assert.match(HERO_COPY.headline, /identity layer/i);
   assert.match(HERO_COPY.body, /machine-readable trust profile/i);
   assert.match(V01_COPY.audience, /agent builders/i);
@@ -31,26 +31,24 @@ test('V0.1 copy names agent builders and separates prototype state', () => {
   const sections = createClaritySections();
   const titles = sections.map((section) => section.title);
   assert.deepEqual(titles, [
-    'What this record proves',
-    'What is static demo data',
-    'What is planned but not live',
+    'What is Multipass?',
+    'What the card shows',
+    'What proof adds',
   ]);
 
   const combined = JSON.stringify(sections);
-  assert.match(combined, /identity/i);
-  assert.match(combined, /public proof/i);
-  assert.match(combined, /standards/i);
-  assert.match(combined, /access receipts/i);
-  assert.match(combined, /fixture/i);
-  assert.match(combined, /no live auth/i);
-  assert.match(combined, /no live settlement/i);
+  assert.match(combined, /portable identity/i);
+  assert.match(combined, /agents, swarms, apps, and marketplaces/i);
+  assert.match(combined, /Helixa ID/i);
+  assert.match(combined, /Cred context/i);
+  assert.match(combined, /raw protocol details/i);
 });
 
 
 test('V0.2 copy and legends explain fragment trust states', () => {
-  assert.match(V02_COPY.title, /Identity fragments/i);
-  assert.match(V02_COPY.body, /not a score/i);
-  assert.match(V02_COPY.body, /separate signals/i);
+  assert.match(V02_COPY.title, /Inspect proof/i);
+  assert.match(V02_COPY.body, /card needs verification/i);
+  assert.match(V02_COPY.body, /transfer rule/i);
 
   assert.deepEqual(Object.keys(FRAGMENT_LEGENDS.visibility), ['public', 'gated', 'private', 'hidden']);
   for (const type of ['endpoint', 'attestation', 'receipt', 'standard_ref', 'verification_result']) {
@@ -87,6 +85,30 @@ test('agent carousel maps real Helixa card data for display', () => {
   assert.equal(carousel.cards[0].helixaId, '8453:1');
   assert.equal(carousel.cards[0].credLabel, 'Cred 80');
   assert.equal(carousel.cards[0].verifiedLabel, 'verified');
+});
+
+
+test('fragment trust map turns raw fragment ids into readable proof cards', () => {
+  const map = createFragmentTrustMap({
+    fragments: {
+      fragments: [
+        {
+          fragment_id: 'frag_bendr_helixa_identity',
+          fragment_type: 'attestation',
+          status: 'verified',
+          assurance_level: 'onchain_verified',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          public_value: 'Helixa AgentDNA token #1 on Base.',
+          source: { source_type: 'contract_read', issuer: 'Helixa' },
+        },
+      ],
+    },
+  });
+
+  assert.equal(map.title, 'Inspect proof');
+  assert.equal(map.cards[0].title, 'Helixa AgentDNA identity');
+  assert.equal(map.cards[0].id, 'frag_bendr_helixa_identity');
 });
 
 test('fragment trust map keeps public fragments separate and explains transfer policy', () => {

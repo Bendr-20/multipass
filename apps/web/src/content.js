@@ -12,9 +12,9 @@ export const V01_COPY = {
 
 
 export const V02_COPY = {
-  title: 'Identity fragments',
-  eyebrow: 'FRAGMENT TRUST MAP',
-  body: 'Fragments are separate signals, not a score. Each one keeps its own visibility, verification state, assurance level, and transfer rule so builders can inspect what supports the profile.',
+  title: 'Inspect proof',
+  eyebrow: 'PROOF LAYER',
+  body: 'Open the proof when a card needs verification. Each signal keeps its own visibility, source, assurance level, and transfer rule.',
 };
 
 export const FRAGMENT_LEGENDS = {
@@ -86,7 +86,7 @@ export function createAgentCarousel(data) {
   return {
     eyebrow: 'AGENT CARD CAROUSEL',
     title: 'Agent cards that lead with trust.',
-    body: 'Each card gives a quick read on identity, Cred, framework, and profile route. The deeper fragments sit below for verification, not first impression.',
+    body: 'Each card gives agents, swarms, apps, and marketplaces a quick read on identity, Cred, framework, and profile route. The deeper proof sits below for verification, not first impression.',
     cards,
   };
 }
@@ -111,6 +111,7 @@ function createFragmentCard(fragment) {
 
   return {
     id: fragment.fragment_id,
+    title: formatFragmentTitle(fragment),
     type: fragment.fragment_type,
     typeLabel,
     status: fragment.status,
@@ -130,6 +131,22 @@ function createFragmentCard(fragment) {
   };
 }
 
+
+function formatFragmentTitle(fragment) {
+  const known = {
+    frag_bendr_profile: 'Bendr profile check',
+    frag_bendr_endpoint: 'Bendr API route',
+    frag_bendr_standard_ref: 'Standards reference',
+    frag_bendr_receipt_history: 'Receipt history',
+    frag_bendr_route_dispute: 'Route review flag',
+    frag_bendr_helixa_identity: 'Helixa AgentDNA identity',
+    frag_bendr_cred_score: 'Cred score import',
+    frag_bendr_social_x: 'Social handle check',
+  };
+  if (known[fragment.fragment_id]) return known[fragment.fragment_id];
+  return formatEnumLabel(fragment.fragment_type);
+}
+
 function formatEnumLabel(value) {
   const parts = String(value ?? 'unknown').split('_').filter(Boolean);
   if (parts.length === 0) return 'Unknown';
@@ -146,16 +163,16 @@ export const HERO_COPY = {
 export function createClaritySections() {
   return [
     {
-      title: 'What this record proves',
-      body: 'This record shows how an agent profile can bundle identity, public proof, standards references, endpoint metadata, and access receipts in one inspectable shape.',
+      title: 'What is Multipass?',
+      body: 'Multipass is a portable identity and trust profile for agents, swarms, apps, and marketplaces that need to decide who they are dealing with.',
     },
     {
-      title: 'What is static demo data',
-      body: 'This page uses a safe Bendr fixture so the route can be reviewed with no live auth, no live API, no contract read, and no live settlement service.',
+      title: 'What the card shows',
+      body: 'The card gives the fast read: name, Helixa ID, Cred context, verified status, framework, and profile route.',
     },
     {
-      title: 'What is planned but not live',
-      body: 'Owner editing, live verification, contract reads, paid settlement, custody flows, collection support, and swarm support are planned later slices, not live behavior here.',
+      title: 'What proof adds',
+      body: 'Proof records explain where the card comes from without making raw protocol details the first thing people see.',
     },
   ];
 }
@@ -201,7 +218,7 @@ export function createProofCards(data) {
     {
       title: 'Public Fragments',
       status: `${publicFragments.length} public`,
-      summary: publicFragments.map((fragment) => fragment.fragment_id).join(', ') || 'No public fragments returned.',
+      summary: publicFragments.length ? `${publicFragments.length} readable proof signals available.` : 'No public fragments returned.',
       why: 'Fragments show the public pieces that support the profile without exposing private records.',
       json: publicFragmentDocument,
     },

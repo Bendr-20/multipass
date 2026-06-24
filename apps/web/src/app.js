@@ -62,7 +62,7 @@ function render(root, state) {
     <div class="record-shell">
       <header class="record-header">
         <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
-        <div class="header-meta"><span>Protocol Artifact</span><span>${escapeHtml(data.modeLabel ?? 'Local API Demo')}</span></div>
+        <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.modeLabel ?? 'Local API Demo')}</span></div>
       </header>
 
       <section class="hero-record">
@@ -239,7 +239,7 @@ function renderFragmentCard(card) {
         <span class="fragment-type">${escapeHtml(card.typeLabel)}</span>
         <span class="fragment-status status-${escapeHtml(card.status)}">${escapeHtml(card.status)}</span>
       </div>
-      <h3>${escapeHtml(card.id)}</h3>
+      <h3>${escapeHtml(card.title)}</h3>
       <p>${escapeHtml(card.summary)}</p>
       <dl>
         <div><dt>Assurance</dt><dd>${escapeHtml(card.assuranceLabel)}</dd></div>

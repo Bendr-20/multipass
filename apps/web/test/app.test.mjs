@@ -112,7 +112,7 @@ function setupDom(url = 'http://localhost/') {
   return dom.window.document.querySelector('#app');
 }
 
-test('initial render shows loading state then Protocol Artifact record', async () => {
+test('initial render shows loading state then product-led Multipass record', async () => {
   const root = setupDom();
   let resolveLoad;
   const app = createApp({
@@ -131,11 +131,11 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /machine-readable/i);
   assert.match(root.textContent, /Internal Prototype/);
   assert.match(root.textContent, /agent builders/i);
-  assert.match(root.textContent, /What this record proves/);
-  assert.match(root.textContent, /What is static demo data/);
-  assert.match(root.textContent, /What is planned but not live/);
-  assert.match(root.textContent, /no live auth/i);
-  assert.match(root.textContent, /no live settlement/i);
+  assert.match(root.textContent, /What is Multipass/);
+  assert.match(root.textContent, /What the card shows/);
+  assert.match(root.textContent, /What proof adds/);
+  assert.match(root.textContent, /agents, swarms, apps, and marketplaces/i);
+  assert.match(root.textContent, /raw protocol details/i);
   assert.match(root.textContent, /MULTIPASS RECORD/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /mp_bendr_2/);
@@ -151,8 +151,8 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /Quigbot/);
   assert.match(root.textContent, /Cred 80/);
   assert.match(root.textContent, /8453:1/);
-  assert.match(root.textContent, /Identity fragments/);
-  assert.match(root.textContent, /not a score/i);
+  assert.match(root.textContent, /Inspect proof/);
+  assert.match(root.textContent, /card needs verification/i);
   assert.match(root.textContent, /Status legend/);
   assert.match(root.textContent, /Visibility legend/);
   assert.match(root.textContent, /Assurance legend/);
@@ -193,6 +193,21 @@ test('agent card carousel switches selected card detail', async () => {
   assert.match(root.querySelector('.card-detail').textContent, /Quigbot/);
   assert.match(root.querySelector('.card-detail').textContent, /8453:81/);
   assert.match(root.querySelector('.card-detail').textContent, /Cred 75/);
+});
+
+
+test('landing page leads with product explanation and keeps raw fragment ids out of default view', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.match(root.textContent, /What is Multipass/i);
+  assert.match(root.textContent, /agents, swarms, apps, and marketplaces/i);
+  assert.match(root.textContent, /Inspect proof/i);
+  assert.equal(root.textContent.includes('frag_bendr_'), false);
+
+  const carousel = root.querySelector('.card-carousel');
+  const proof = root.querySelector('.fragment-map');
+  assert.ok(carousel.compareDocumentPosition(proof) & root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING);
 });
 
 test('proof ledger renders all six document types and JSON toggles open and close', async () => {
