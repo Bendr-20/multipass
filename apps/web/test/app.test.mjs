@@ -51,7 +51,14 @@ test('initial render shows loading state then Protocol Artifact record', async (
   resolveLoad(sampleData());
   await ready;
 
-  assert.match(root.textContent, /Verifiable identity records for autonomous agents/);
+  assert.match(root.textContent, /Portable trust profiles for agents/);
+  assert.match(root.textContent, /Internal Prototype/);
+  assert.match(root.textContent, /agent builders/i);
+  assert.match(root.textContent, /What this record proves/);
+  assert.match(root.textContent, /What is static demo data/);
+  assert.match(root.textContent, /What is planned but not live/);
+  assert.match(root.textContent, /no live auth/i);
+  assert.match(root.textContent, /no live settlement/i);
   assert.match(root.textContent, /MULTIPASS RECORD/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /mp_bendr_2/);
@@ -64,6 +71,9 @@ test('initial render shows loading state then Protocol Artifact record', async (
   assert.match(root.textContent, /Identity Graph/);
   assert.ok(root.querySelector('.record-shell'));
   assert.ok(root.querySelector('.record-sheet'));
+  assert.ok(root.querySelector('.prototype-ribbon'));
+  assert.ok(root.querySelector('.clarity-grid'));
+  assert.equal(root.querySelectorAll('.clarity-card').length, 3);
   assert.ok(root.querySelector('.proof-ledger'));
   assert.equal(root.querySelectorAll('.field').length, 7);
   assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
@@ -76,6 +86,11 @@ test('proof ledger renders all six document types and JSON toggles open and clos
   for (const title of ['Profile', 'Public Fragments', 'Agent Card', 'Standards', 'x402', 'Receipt']) {
     assert.match(root.textContent, new RegExp(title));
   }
+  assert.match(root.textContent, /canonical summary/i);
+  assert.match(root.textContent, /without claiming every adapter is live/i);
+  assert.match(root.textContent, /without implying live settlement/i);
+  assert.match(root.textContent, /without becoming trust by itself/i);
+  assert.equal(root.querySelectorAll('.ledger-entry .why').length, 6);
 
   const firstToggle = root.querySelector('[data-action="toggle-json"]');
   assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');

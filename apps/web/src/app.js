@@ -1,5 +1,5 @@
 import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
-import { createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY } from './content.js';
+import { createClaritySections, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 export function createApp({ root, loadDemo = defaultLoadDemo }) {
   if (!root) throw new Error('createApp requires a root element');
@@ -53,6 +53,7 @@ function renderError(root, error) {
 function render(root, state) {
   const { data } = state;
   const storyCards = createStoryCards(data);
+  const claritySections = createClaritySections(data);
   const proofCards = createProofCards(data);
   root.innerHTML = `
     <div class="record-shell">
@@ -64,6 +65,10 @@ function render(root, state) {
       <section class="hero-record">
         <div>
           <p class="eyebrow">${HERO_COPY.eyebrow}</p>
+          <div class="prototype-ribbon">
+            <span>${escapeHtml(V01_COPY.prototypeLabel)}</span>
+            <span>${escapeHtml(V01_COPY.audience)}</span>
+          </div>
           <h1>${HERO_COPY.headline}</h1>
           <p class="lead">${HERO_COPY.body}</p>
           <div class="note">${HERO_COPY.note}</div>
@@ -90,6 +95,8 @@ function render(root, state) {
       </section>
 
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
+
+      <section class="clarity-grid">${claritySections.map(renderClarityCard).join('')}</section>
 
       <section class="proof-ledger">
         <div class="ledger-title"><h2>Proof ledger</h2><span>Expandable API records</span></div>
@@ -131,6 +138,15 @@ function renderStoryCard(card, index) {
   `;
 }
 
+function renderClarityCard(section) {
+  return `
+    <article class="clarity-card">
+      <h3>${escapeHtml(section.title)}</h3>
+      <p>${escapeHtml(section.body)}</p>
+    </article>
+  `;
+}
+
 function renderProofRow(card, index, expandedCard) {
   const expanded = expandedCard === index;
   return `
@@ -138,7 +154,10 @@ function renderProofRow(card, index, expandedCard) {
       <div class="ledger-row">
         <div class="doc">${escapeHtml(card.title)}</div>
         <div class="badge ${getBadgeTone(card)}">${escapeHtml(card.status)}</div>
-        <div class="summary">${escapeHtml(card.summary)}</div>
+        <div class="summary">
+          <span>${escapeHtml(card.summary)}</span>
+          <span class="why">${escapeHtml(card.why)}</span>
+        </div>
         <button data-action="toggle-json" data-index="${index}" aria-expanded="${expanded}" aria-controls="proof-json-${index}">${expanded ? 'Hide JSON' : 'Show JSON'}</button>
       </div>
       ${expanded ? `<pre id="proof-json-${index}" class="json-panel">${escapeHtml(JSON.stringify(card.json, null, 2))}</pre>` : ''}
