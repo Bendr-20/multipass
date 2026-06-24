@@ -728,6 +728,80 @@ h1 {
   border-bottom: 1px solid var(--line);
 }
 
+.swarm-detail {
+  grid-template-columns: 0.72fr 1.28fr;
+}
+
+.swarm-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.swarm-panel {
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  padding: 14px;
+}
+
+.swarm-panel.wide {
+  grid-column: 1 / -1;
+}
+
+.swarm-panel h4 {
+  margin: 0 0 12px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.swarm-panel p {
+  margin: 0;
+}
+
+.swarm-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.swarm-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.swarm-row:last-child {
+  padding-bottom: 0;
+}
+
+.swarm-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.control-chip {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  margin: 0 8px 8px 0;
+  padding: 7px 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.swarm-fields {
+  margin-top: 8px;
+}
+
 @media (max-width: 700px) {
   .record-shell {
     width: min(100% - 24px, 1180px);
@@ -788,7 +862,16 @@ h1 {
     grid-auto-columns: minmax(280px, 88vw);
   }
 
-  .card-detail {
+  .card-detail,
+  .swarm-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .swarm-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .swarm-row {
     grid-template-columns: 1fr;
   }
 

@@ -128,7 +128,7 @@ function sampleData() {
       { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1' },
       { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81' },
       { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0' },
-      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready' },
+      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.' },
     ],
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
@@ -242,6 +242,28 @@ test('landing page presents Helixa Swarm as a parent collection card', async () 
   assert.match(root.textContent, /Shared tool policy/);
   assert.match(root.textContent, /Aggregate Cred context/);
   assert.equal(root.textContent.includes('frag_helixa_swarm_'), false);
+});
+
+
+test('selecting Helixa Swarm shows roster roles controls and transfer behavior', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  root.querySelectorAll('.card-button')[3].click();
+
+  const detail = root.querySelector('.card-detail').textContent;
+  assert.match(detail, /Swarm detail/);
+  assert.match(detail, /Bendr 2\.0/);
+  assert.match(detail, /Lead agent/);
+  assert.match(detail, /Quigbot/);
+  assert.match(detail, /Product agent/);
+  assert.match(detail, /E2ETest/);
+  assert.match(detail, /Test agent/);
+  assert.match(detail, /Tool approvals/);
+  assert.match(detail, /Route policy/);
+  assert.match(detail, /Owner approval/);
+  assert.match(detail, /Cred 78 Prime summarizes the roster without replacing individual agent scores/);
+  assert.match(detail, /Permissions pause and tool routes reverify when custody changes/);
 });
 
 test('landing page leads with product explanation and keeps raw fragment ids out of default view', async () => {

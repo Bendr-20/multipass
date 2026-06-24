@@ -85,6 +85,14 @@ export function createAgentCarousel(data) {
     memberLabel: formatMemberLabel(card.members),
     role: card.role ?? 'Agent Multipass',
     custody: card.custody ?? 'Owner verified',
+    detailMode: card.subjectType === 'swarm' ? 'swarm' : 'agent',
+    roster: Array.isArray(card.roster) ? card.roster.map((member) => ({
+      name: member.name,
+      role: member.role ?? 'Member agent',
+    })) : [],
+    sharedControls: Array.isArray(card.sharedControls) ? card.sharedControls : [],
+    aggregateCred: card.aggregateCred ?? null,
+    transferBehavior: card.transferBehavior ?? null,
   }));
 
   return {

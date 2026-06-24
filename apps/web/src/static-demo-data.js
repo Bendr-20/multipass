@@ -623,7 +623,15 @@ export const STATIC_DEMO_DATA = {
       "subjectType": "swarm",
       "members": 3,
       "role": "Parent Multipass",
-      "custody": "Custody epoch ready"
+      "custody": "Custody epoch ready",
+      "roster": [
+        { "name": "Bendr 2.0", "role": "Lead agent" },
+        { "name": "Quigbot", "role": "Product agent" },
+        { "name": "E2ETest", "role": "Test agent" }
+      ],
+      "sharedControls": ["Tool approvals", "Route policy", "Owner approval"],
+      "aggregateCred": "Cred 78 Prime summarizes the roster without replacing individual agent scores.",
+      "transferBehavior": "Permissions pause and tool routes reverify when custody changes."
     }
   ]
 };

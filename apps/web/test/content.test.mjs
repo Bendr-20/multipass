@@ -117,6 +117,45 @@ test('agent carousel includes collection swarm cards with roster and custody con
   assert.equal(carousel.cards[0].custody, 'Custody epoch ready');
 });
 
+
+test('swarm cards expose roster roles controls and transfer behavior', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      {
+        name: 'Helixa Swarm',
+        tokenId: 'swarm:helixa',
+        helixaId: '8453:swarm:helixa',
+        framework: 'multi-agent',
+        credScore: 78,
+        credTier: 'Prime',
+        verified: true,
+        profileUrl: 'https://helixa.xyz/swarm/helixa',
+        subjectType: 'swarm',
+        members: 3,
+        role: 'Parent Multipass',
+        custody: 'Custody epoch ready',
+        roster: [
+          { name: 'Bendr 2.0', role: 'Lead agent' },
+          { name: 'Quigbot', role: 'Product agent' },
+          { name: 'E2ETest', role: 'Test agent' },
+        ],
+        sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'],
+        aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.',
+        transferBehavior: 'Permissions pause and tool routes reverify when custody changes.',
+      },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  const swarm = carousel.cards[0];
+  assert.equal(swarm.detailMode, 'swarm');
+  assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead agent', 'Product agent', 'Test agent']);
+  assert.deepEqual(swarm.sharedControls, ['Tool approvals', 'Route policy', 'Owner approval']);
+  assert.match(swarm.aggregateCred, /without replacing individual agent scores/i);
+  assert.match(swarm.transferBehavior, /Permissions pause/i);
+});
+
 test('fragment trust map turns raw fragment ids into readable proof cards', () => {
   const map = createFragmentTrustMap({
     fragments: {

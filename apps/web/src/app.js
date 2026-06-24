@@ -174,6 +174,8 @@ function renderAgentCardButton(card, index, selectedIndex) {
 }
 
 function renderAgentCardDetail(card) {
+  if (card.detailMode === 'swarm') return renderSwarmCardDetail(card);
+
   return `
     <article class="card-detail">
       <div>
@@ -191,6 +193,51 @@ function renderAgentCardDetail(card) {
         ${renderField('Role', card.role)}
         ${renderField('Custody', card.custody)}
         ${renderField('Profile', card.profileUrl ?? 'Not linked')}
+      </div>
+    </article>
+  `;
+}
+
+
+function renderSwarmCardDetail(card) {
+  return `
+    <article class="card-detail swarm-detail">
+      <div>
+        <p class="card-label">Swarm detail</p>
+        <h3>${escapeHtml(card.name)}</h3>
+        <p>Parent Multipass for a collection of agents with shared routes, custody context, and proof that still preserves each member profile.</p>
+      </div>
+      <div class="swarm-panels">
+        <section class="swarm-panel">
+          <h4>Roster</h4>
+          ${card.roster.map((member) => `
+            <div class="swarm-row">
+              <strong>${escapeHtml(member.name)}</strong>
+              <span>${escapeHtml(member.role)}</span>
+            </div>
+          `).join('')}
+        </section>
+        <section class="swarm-panel">
+          <h4>Shared controls</h4>
+          ${card.sharedControls.map((control) => `<span class="control-chip">${escapeHtml(control)}</span>`).join('')}
+        </section>
+        <section class="swarm-panel wide">
+          <h4>Aggregate Cred</h4>
+          <p>${escapeHtml(card.aggregateCred ?? `${card.credLabel} (${card.credTier}) gives context only; member scores remain separate.`)}</p>
+        </section>
+        <section class="swarm-panel wide">
+          <h4>Transfer behavior</h4>
+          <p>${escapeHtml(card.transferBehavior ?? 'Permissions pause and active routes reverify when custody changes.')}</p>
+        </section>
+        <section class="swarm-panel wide">
+          <h4>Summary</h4>
+          <div class="card-fields swarm-fields">
+            ${renderField('Helixa ID', card.helixaId)}
+            ${renderField('Roster', card.memberLabel)}
+            ${renderField('Role', card.role)}
+            ${renderField('Custody', card.custody)}
+          </div>
+        </section>
       </div>
     </article>
   `;
