@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/standards-profile.schema.json",
+  "title": "Standards Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "standards_profile_id",
+    "multipass_id",
+    "primary_refs",
+    "standard_refs",
+    "compatibility_summary",
+    "adapter_versions",
+    "last_verified_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "standards_profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_refs": {
+      "type": "object",
+      "description": "Named primary references such as controller asset, ERC-8004 identity, or x402 manifest.",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "standard_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "standard_id",
+          "status",
+          "chain_id",
+          "contract_address",
+          "record_id",
+          "adapter_version",
+          "last_verified_at",
+          "assurance_level"
+        ],
+        "properties": {
+          "standard_id": {
+            "type": "string",
+            "enum": [
+              "ERC-8217",
+              "ERC-8004",
+              "ERC-8126",
+              "ERC-8257",
+              "ERC-8183",
+              "ERC-721T",
+              "ERC-8048"
+            ]
+          },
+          "assurance_level": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "self_attested",
+              "platform_verified",
+              "cryptographic",
+              "issuer_attested",
+              "onchain_verified"
+            ]
+          },
+          "last_verified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null only before the first verification pass."
+          },
+          "chain_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Required field. Null when the standard reference is offchain or chain is not yet known."
+          },
+          "contract_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required field. Null when the reference is not contract-backed or not yet known."
+          },
+          "record_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required field. Null only when no standard-specific record exists yet."
+          },
+          "adapter_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "adapter_ready",
+              "pending",
+              "stale",
+              "disputed",
+              "revoked",
+              "unsupported",
+              "imported_unverified"
+            ]
+          }
+        }
+      }
+    },
+    "compatibility_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_bound",
+        "owner_verified",
+        "risk_checked",
+        "tools_verified",
+        "work_attested",
+        "trust_updated"
+      ],
+      "properties": {
+        "identity_bound": {
+          "type": "boolean"
+        },
+        "owner_verified": {
+          "type": "boolean"
+        },
+        "risk_checked": {
+          "type": "boolean"
+        },
+        "tools_verified": {
+          "type": "boolean"
+        },
+        "work_attested": {
+          "type": "boolean"
+        },
+        "trust_updated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "adapter_versions": {
+      "type": "object",
+      "description": "Map of standard id to adapter version.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "last_verified_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

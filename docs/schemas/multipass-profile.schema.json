@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/multipass-profile.schema.json",
+  "title": "Multipass Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "multipass_id",
+    "subject_type",
+    "display_name",
+    "slug",
+    "status",
+    "owner_summary",
+    "custody_epoch",
+    "public_fragments",
+    "cred_summary",
+    "discovery_profile",
+    "standards_profile",
+    "payment_profile",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_type": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "human",
+        "swarm",
+        "collection",
+        "project",
+        "organization"
+      ]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,80}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "link_ready",
+        "active",
+        "transfer_pending",
+        "suspended",
+        "archived"
+      ]
+    },
+    "owner_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_state",
+        "verification_status",
+        "visibility"
+      ],
+      "properties": {
+        "owner_state": {
+          "type": "string",
+          "enum": [
+            "unclaimed",
+            "claimed",
+            "verified",
+            "transferred"
+          ]
+        },
+        "verification_status": {
+          "type": "string",
+          "enum": [
+            "none",
+            "pending",
+            "verified",
+            "stale",
+            "revoked"
+          ]
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "gated",
+            "private",
+            "hidden"
+          ]
+        },
+        "verified_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "custody_epoch": {
+      "description": "Current custody epoch summary. Null for draft, link_ready, or unclaimed profiles before first verified custody.",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "custody_epoch_id",
+            "status",
+            "started_at"
+          ],
+          "properties": {
+            "custody_epoch_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "active",
+                "historical",
+                "transferred"
+              ]
+            },
+            "owner_controller_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "started_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "ended_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          }
+        }
+      ]
+    },
+    "public_fragments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fragment_id",
+          "fragment_type",
+          "status",
+          "assurance_level",
+          "visibility",
+          "updated_at"
+        ],
+        "properties": {
+          "fragment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fragment_type": {
+            "type": "string",
+            "enum": [
+              "wallet",
+              "social",
+              "domain",
+              "project",
+              "collection",
+              "endpoint",
+              "attestation",
+              "receipt",
+              "standard_ref",
+              "risk_summary",
+              "tool_manifest",
+              "work_record",
+              "custody_record",
+              "verification_result"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "verified",
+              "stale",
+              "revoked",
+              "disputed",
+              "historical"
+            ]
+          },
+          "assurance_level": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "self_attested",
+              "platform_verified",
+              "cryptographic",
+              "issuer_attested",
+              "onchain_verified"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "const": "public"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "cred_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trust_state",
+        "attestation_count",
+        "receipt_count",
+        "last_updated_at"
+      ],
+      "properties": {
+        "trust_state": {
+          "type": "string",
+          "enum": [
+            "none",
+            "building",
+            "established",
+            "stale",
+            "disputed"
+          ]
+        },
+        "attestation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipt_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "public_note": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "discovery_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "tags",
+        "visibility"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "avatar_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "gated",
+            "private",
+            "hidden"
+          ]
+        }
+      }
+    },
+    "standards_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standards_profile_id",
+        "supported_standard_ids",
+        "last_verified_at"
+      ],
+      "properties": {
+        "standards_profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supported_standard_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "last_verified_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "payment_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_assets",
+        "x402_manifest_url",
+        "paid_endpoints_enabled"
+      ],
+      "properties": {
+        "accepted_assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "asset",
+              "chain_id"
+            ],
+            "properties": {
+              "asset": {
+                "type": "string",
+                "minLength": 1
+              },
+              "chain_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "x402_manifest_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "paid_endpoints_enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

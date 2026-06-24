@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/receipt-fragment.schema.json",
+  "title": "Receipt Fragment",
+  "type": "object",
+  "description": "Settlement and response classification record. Do not include raw private request payloads or raw response payloads.",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "multipass_id",
+    "endpoint_id",
+    "provider",
+    "amount",
+    "asset",
+    "chain_id",
+    "status",
+    "created_at",
+    "response_class"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "endpoint_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "bankr_x402_cloud",
+        "self_hosted",
+        "partner"
+      ]
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+    },
+    "asset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "chain_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "settled",
+        "failed",
+        "refunded",
+        "disputed"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "response_class": {
+      "type": "string",
+      "enum": [
+        "success",
+        "client_error",
+        "server_error",
+        "policy_denied",
+        "redacted",
+        "not_returned"
+      ]
+    },
+    "settlement_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 500
+    },
+    "redaction_note": {
+      "type": "string",
+      "maxLength": 500
+    }
+  }
+}
