@@ -93,6 +93,7 @@ export function createAgentCarousel(data) {
     sharedControls: Array.isArray(card.sharedControls) ? card.sharedControls : [],
     aggregateCred: card.aggregateCred ?? null,
     transferBehavior: card.transferBehavior ?? null,
+    proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
   }));
 
   return {
@@ -103,8 +104,8 @@ export function createAgentCarousel(data) {
   };
 }
 
-export function createFragmentTrustMap(data) {
-  const fragments = filterPublicFragments(data.fragments);
+export function createFragmentTrustMap(data, selectedAgent = null) {
+  const fragments = selectPublicFragments(data.fragments, selectedAgent);
   return {
     title: V02_COPY.title,
     eyebrow: V02_COPY.eyebrow,
@@ -159,6 +160,10 @@ function formatFragmentTitle(fragment) {
     frag_bendr_helixa_identity: 'Helixa AgentDNA identity',
     frag_bendr_cred_score: 'Cred score import',
     frag_bendr_social_x: 'Social handle check',
+    frag_quigbot_identity: 'Quigbot identity',
+    frag_quigbot_cred: 'Quigbot Cred context',
+    frag_e2etest_identity: 'E2ETest test identity',
+    frag_e2etest_cred: 'Lower trust context',
     frag_helixa_swarm_roster: 'Swarm roster',
     frag_helixa_swarm_tools: 'Shared tool policy',
     frag_helixa_swarm_cred: 'Aggregate Cred context',
@@ -223,8 +228,8 @@ export function createStoryCards(data) {
   ];
 }
 
-export function createProofCards(data) {
-  const publicFragments = filterPublicFragments(data.fragments);
+export function createProofCards(data, selectedAgent = null) {
+  const publicFragments = selectPublicFragments(data.fragments, selectedAgent);
   const publicFragmentDocument = createPublicFragmentDocument(data.fragments, publicFragments);
 
   return [
@@ -238,7 +243,7 @@ export function createProofCards(data) {
     {
       title: 'Public Fragments',
       status: `${publicFragments.length} public`,
-      summary: publicFragments.length ? `${publicFragments.length} readable proof signals available.` : 'No public fragments returned.',
+      summary: publicFragments.length ? `${publicFragments.length} readable proof signals for ${selectedAgent?.name ?? data.profile.display_name}.` : `No public fragments returned for ${selectedAgent?.name ?? data.profile.display_name}.`,
       why: 'Fragments show the public pieces that support the profile without exposing private records.',
       json: publicFragmentDocument,
     },
@@ -303,6 +308,15 @@ function redactPrivateData(value) {
 function isPrivateKey(key) {
   const normalized = key.toLowerCase();
   return normalized.startsWith('private') || normalized.includes('_private');
+}
+
+function selectPublicFragments(fragmentDocument, selectedAgent) {
+  const publicFragments = filterPublicFragments(fragmentDocument);
+  const selectedIds = selectedAgent?.proofFragmentIds;
+  if (!Array.isArray(selectedIds) || selectedIds.length === 0) return publicFragments;
+
+  const byId = new Map(publicFragments.map((fragment) => [fragment.fragment_id, fragment]));
+  return selectedIds.map((id) => byId.get(id)).filter(Boolean);
 }
 
 function filterPublicFragments(fragmentDocument) {

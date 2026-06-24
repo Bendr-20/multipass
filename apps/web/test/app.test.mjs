@@ -90,6 +90,46 @@ function sampleData() {
           public_value: 'Cred score 80, Preferred tier, imported from Helixa API.',
         },
         {
+          fragment_id: 'frag_quigbot_identity',
+          fragment_type: 'attestation',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'historical_on_transfer',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Quigbot identity checked by Helixa fixture.',
+        },
+        {
+          fragment_id: 'frag_quigbot_cred',
+          fragment_type: 'risk_summary',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'registry_import', issuer: 'Helixa' },
+          public_value: 'Quigbot Cred score 75, Prime tier.',
+        },
+        {
+          fragment_id: 'frag_e2etest_identity',
+          fragment_type: 'attestation',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'owner_submission', issuer: 'Helixa' },
+          public_value: 'E2ETest is a low-assurance test record.',
+        },
+        {
+          fragment_id: 'frag_e2etest_cred',
+          fragment_type: 'risk_summary',
+          status: 'disputed',
+          assurance_level: 'unverified',
+          visibility: 'public',
+          transfer_policy: 'never_transfer',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Lower trust context for a test/demo agent.',
+        },
+        {
           fragment_id: 'frag_helixa_swarm_roster',
           fragment_type: 'custody_record',
           status: 'verified',
@@ -125,10 +165,10 @@ function sampleData() {
     },
     card: { capabilities: [{}], service_endpoints: [{}], trust_summary: { identity_status: 'verified', assurance_level: 'onchain_verified', last_updated_at: '2026-06-24T22:49:52Z' } },
     agentCards: [
-      { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1' },
-      { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81' },
-      { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0' },
-      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.' },
+      { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1', proofFragmentIds: ['frag_bendr_profile', 'frag_bendr_endpoint', 'frag_bendr_standard_ref', 'frag_bendr_receipt_history', 'frag_bendr_route_dispute', 'frag_bendr_helixa_identity', 'frag_bendr_cred_score'] },
+      { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81', proofFragmentIds: ['frag_quigbot_identity', 'frag_quigbot_cred'] },
+      { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0', proofFragmentIds: ['frag_e2etest_identity', 'frag_e2etest_cred'] },
+      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'], roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.' },
     ],
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
@@ -238,9 +278,12 @@ test('landing page presents Helixa Swarm as a parent collection card', async () 
   assert.match(root.textContent, /Parent Multipass/);
   assert.match(root.textContent, /3 agents/);
   assert.match(root.textContent, /Custody epoch ready/);
-  assert.match(root.textContent, /Swarm roster/);
-  assert.match(root.textContent, /Shared tool policy/);
-  assert.match(root.textContent, /Aggregate Cred context/);
+  assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Swarm roster/);
+
+  root.querySelectorAll('.card-button')[3].click();
+  assert.match(root.querySelector('.fragment-map').textContent, /Swarm roster/);
+  assert.match(root.querySelector('.fragment-map').textContent, /Shared tool policy/);
+  assert.match(root.querySelector('.fragment-map').textContent, /Aggregate Cred context/);
   assert.equal(root.textContent.includes('frag_helixa_swarm_'), false);
 });
 
@@ -264,6 +307,29 @@ test('selecting Helixa Swarm shows roster roles controls and transfer behavior',
   assert.match(detail, /Owner approval/);
   assert.match(detail, /Cred 78 Prime summarizes the roster without replacing individual agent scores/);
   assert.match(detail, /Permissions pause and tool routes reverify when custody changes/);
+});
+
+
+test('proof section follows selected card', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  root.querySelectorAll('.card-button')[1].click();
+  let proofTitles = [...root.querySelectorAll('.fragment-card h3')].map((node) => node.textContent);
+  assert.deepEqual(proofTitles, ['Quigbot identity', 'Quigbot Cred context']);
+  assert.match(root.querySelector('.proof-ledger').textContent, /2 public/);
+  assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Helixa AgentDNA identity/);
+
+  root.querySelectorAll('.card-button')[2].click();
+  proofTitles = [...root.querySelectorAll('.fragment-card h3')].map((node) => node.textContent);
+  assert.deepEqual(proofTitles, ['E2ETest test identity', 'Lower trust context']);
+  assert.match(root.querySelector('.proof-ledger').textContent, /2 public/);
+
+  root.querySelectorAll('.card-button')[3].click();
+  proofTitles = [...root.querySelectorAll('.fragment-card h3')].map((node) => node.textContent);
+  assert.deepEqual(proofTitles, ['Swarm roster', 'Shared tool policy', 'Aggregate Cred context']);
+  assert.match(root.querySelector('.proof-ledger').textContent, /3 public/);
+  assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Quigbot identity/);
 });
 
 test('landing page leads with product explanation and keeps raw fragment ids out of default view', async () => {
@@ -323,7 +389,7 @@ test('proof ledger uses neutral badges for counts and green only for settled sta
   const neutralBadgesAll = [...root.querySelectorAll('.badge.neutral')].map((badge) => badge.textContent);
   assert.deepEqual(verifiedBadges, ['settled']);
   assert.ok(neutralBadgesAll.includes('link_ready'));
-  assert.ok(neutralBadgesAll.includes('10 public'));
+  assert.ok(neutralBadgesAll.includes('7 public'));
 });
 
 test('default loader uses safe api query override from window location', async () => {

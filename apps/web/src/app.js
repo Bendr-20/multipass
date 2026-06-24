@@ -56,8 +56,8 @@ function render(root, state) {
   const claritySections = createClaritySections(data);
   const agentCarousel = createAgentCarousel(data);
   const selectedAgent = agentCarousel.cards[state.selectedAgentCard] ?? agentCarousel.cards[0];
-  const fragmentTrustMap = createFragmentTrustMap(data);
-  const proofCards = createProofCards(data);
+  const fragmentTrustMap = createFragmentTrustMap(data, selectedAgent);
+  const proofCards = createProofCards(data, selectedAgent);
   root.innerHTML = `
     <div class="record-shell">
       <header class="record-header">

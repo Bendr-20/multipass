@@ -320,6 +320,92 @@ export const STATIC_DEMO_DATA = {
       },
       {
         "schema_version": "0.1.0",
+        "fragment_id": "frag_quigbot_identity",
+        "multipass_id": "mp_quigbot",
+        "fragment_type": "attestation",
+        "status": "verified",
+        "assurance_level": "platform_verified",
+        "visibility": "public",
+        "transfer_policy": "historical_on_transfer",
+        "source": {
+          "source_type": "platform_check",
+          "source_id": "quigbot_identity",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:50:00Z",
+          "reference_url": "https://helixa.xyz/agent/81"
+        },
+        "public_value": "Quigbot identity checked by the Helixa fixture.",
+        "proof_reference": "fixture:quigbot-identity",
+        "created_at": "2026-06-24T23:50:00Z",
+        "updated_at": "2026-06-24T23:50:00Z",
+        "verified_at": "2026-06-24T23:50:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_quigbot_cred",
+        "multipass_id": "mp_quigbot",
+        "fragment_type": "risk_summary",
+        "status": "verified",
+        "assurance_level": "platform_verified",
+        "visibility": "public",
+        "transfer_policy": "reverify_on_transfer",
+        "source": {
+          "source_type": "registry_import",
+          "source_id": "quigbot_cred",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:50:00Z",
+          "reference_url": "https://helixa.xyz/agent/81"
+        },
+        "public_value": "Quigbot Cred score 75, Prime tier.",
+        "proof_reference": "fixture:quigbot-cred",
+        "created_at": "2026-06-24T23:50:00Z",
+        "updated_at": "2026-06-24T23:50:00Z",
+        "verified_at": "2026-06-24T23:50:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_e2etest_identity",
+        "multipass_id": "mp_e2etest",
+        "fragment_type": "attestation",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "transfer_policy": "reverify_on_transfer",
+        "source": {
+          "source_type": "owner_submission",
+          "source_id": "e2etest_identity",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:50:00Z",
+          "reference_url": "https://helixa.xyz/agent/0"
+        },
+        "public_value": "E2ETest is a low-assurance test record.",
+        "proof_reference": "fixture:e2etest-identity",
+        "created_at": "2026-06-24T23:50:00Z",
+        "updated_at": "2026-06-24T23:50:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_e2etest_cred",
+        "multipass_id": "mp_e2etest",
+        "fragment_type": "risk_summary",
+        "status": "disputed",
+        "assurance_level": "unverified",
+        "visibility": "public",
+        "transfer_policy": "never_transfer",
+        "source": {
+          "source_type": "platform_check",
+          "source_id": "e2etest_cred",
+          "issuer": "Helixa",
+          "observed_at": "2026-06-24T23:50:00Z",
+          "reference_url": "https://helixa.xyz/agent/0"
+        },
+        "public_value": "Lower trust context for a test/demo agent.",
+        "proof_reference": "fixture:e2etest-cred",
+        "created_at": "2026-06-24T23:50:00Z",
+        "updated_at": "2026-06-24T23:50:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
         "fragment_id": "frag_helixa_swarm_roster",
         "multipass_id": "mp_helixa_swarm",
         "fragment_type": "custody_record",
@@ -589,7 +675,8 @@ export const STATIC_DEMO_DATA = {
       "credScore": 80,
       "credTier": "Preferred",
       "verified": true,
-      "profileUrl": "https://helixa.xyz/agent/1"
+      "profileUrl": "https://helixa.xyz/agent/1",
+      "proofFragmentIds": ["frag_bendr_profile", "frag_bendr_endpoint", "frag_bendr_standard_ref", "frag_bendr_receipt_history", "frag_bendr_route_dispute", "frag_bendr_helixa_identity", "frag_bendr_cred_score"]
     },
     {
       "name": "Quigbot",
@@ -599,7 +686,8 @@ export const STATIC_DEMO_DATA = {
       "credScore": 75,
       "credTier": "Prime",
       "verified": true,
-      "profileUrl": "https://helixa.xyz/agent/81"
+      "profileUrl": "https://helixa.xyz/agent/81",
+      "proofFragmentIds": ["frag_quigbot_identity", "frag_quigbot_cred"]
     },
     {
       "name": "E2ETest",
@@ -609,7 +697,8 @@ export const STATIC_DEMO_DATA = {
       "credScore": 41,
       "credTier": "Marginal",
       "verified": false,
-      "profileUrl": "https://helixa.xyz/agent/0"
+      "profileUrl": "https://helixa.xyz/agent/0",
+      "proofFragmentIds": ["frag_e2etest_identity", "frag_e2etest_cred"]
     },
     {
       "name": "Helixa Swarm",
@@ -624,6 +713,7 @@ export const STATIC_DEMO_DATA = {
       "members": 3,
       "role": "Parent Multipass",
       "custody": "Custody epoch ready",
+      "proofFragmentIds": ["frag_helixa_swarm_roster", "frag_helixa_swarm_tools", "frag_helixa_swarm_cred"],
       "roster": [
         { "name": "Bendr 2.0", "role": "Lead agent" },
         { "name": "Quigbot", "role": "Product agent" },

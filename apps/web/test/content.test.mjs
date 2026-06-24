@@ -156,6 +156,48 @@ test('swarm cards expose roster roles controls and transfer behavior', () => {
   assert.match(swarm.transferBehavior, /Permissions pause/i);
 });
 
+
+test('fragment trust map follows selected proof ids', () => {
+  const data = {
+    fragments: {
+      fragments: [
+        { fragment_id: 'frag_bendr_helixa_identity', fragment_type: 'attestation', status: 'verified', assurance_level: 'onchain_verified', visibility: 'public', transfer_policy: 'historical_on_transfer', public_value: 'Bendr identity.', source: { source_type: 'contract_read', issuer: 'Helixa' } },
+        { fragment_id: 'frag_quigbot_identity', fragment_type: 'attestation', status: 'verified', assurance_level: 'platform_verified', visibility: 'public', transfer_policy: 'historical_on_transfer', public_value: 'Quigbot identity.', source: { source_type: 'platform_check', issuer: 'Helixa' } },
+        { fragment_id: 'frag_quigbot_cred', fragment_type: 'risk_summary', status: 'verified', assurance_level: 'platform_verified', visibility: 'public', transfer_policy: 'reverify_on_transfer', public_value: 'Quigbot Cred context.', source: { source_type: 'registry_import', issuer: 'Helixa' } },
+      ],
+    },
+  };
+
+  const map = createFragmentTrustMap(data, { proofFragmentIds: ['frag_quigbot_identity', 'frag_quigbot_cred'] });
+
+  assert.deepEqual(map.cards.map((card) => card.title), ['Quigbot identity', 'Quigbot Cred context']);
+});
+
+test('proof ledger public fragments follow selected proof ids', () => {
+  const data = {
+    profile: { display_name: 'Bendr 2.0', status: 'link_ready', subject_type: 'agent', cred_summary: { trust_state: 'established' } },
+    fragments: {
+      fragments: [
+        { fragment_id: 'frag_bendr_helixa_identity', fragment_type: 'attestation', visibility: 'public' },
+        { fragment_id: 'frag_helixa_swarm_roster', fragment_type: 'custody_record', visibility: 'public' },
+        { fragment_id: 'frag_helixa_swarm_tools', fragment_type: 'endpoint', visibility: 'public' },
+        { fragment_id: 'frag_helixa_swarm_cred', fragment_type: 'risk_summary', visibility: 'public' },
+      ],
+    },
+    card: { capabilities: [{}], service_endpoints: [{}] },
+    standards: { standard_refs: [] },
+    x402: { endpoints: [] },
+    receipt: { receipt_id: 'receipt_bendr_lookup', status: 'settled' },
+  };
+
+  const cards = createProofCards(data, { name: 'Helixa Swarm', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'] });
+  const publicFragments = cards.find((card) => card.title === 'Public Fragments');
+
+  assert.equal(publicFragments.status, '3 public');
+  assert.match(publicFragments.summary, /Helixa Swarm/);
+  assert.equal(publicFragments.json.fragments.length, 3);
+});
+
 test('fragment trust map turns raw fragment ids into readable proof cards', () => {
   const map = createFragmentTrustMap({
     fragments: {
