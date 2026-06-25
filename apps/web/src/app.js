@@ -155,6 +155,7 @@ function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
         ${carousel.cards.map((card, index) => renderAgentCardButton(card, index, selectedIndex)).join('')}
       </div>
       ${renderAgentCardDetail(selectedAgent)}
+      ${renderTransferPreview(selectedAgent)}
     </section>
   `;
 }
@@ -239,6 +240,39 @@ function renderSwarmCardDetail(card) {
           </div>
         </section>
       </div>
+    </article>
+  `;
+}
+
+
+function renderTransferPreview(card) {
+  if (!card.transferPreview) return '';
+  const preview = card.transferPreview;
+  return `
+    <section class="transfer-preview">
+      <div class="transfer-copy">
+        <p class="card-label">${escapeHtml(preview.title)}</p>
+        <h3>${escapeHtml(preview.claimAction)}</h3>
+        <p>${escapeHtml(preview.note)}</p>
+      </div>
+      <div class="transfer-steps">
+        ${renderTransferStep('Current owner', preview.currentOwner)}
+        ${renderTransferStep('Custody epoch', preview.custodyEpoch)}
+        ${renderTransferStep('Permissions', preview.permissionsState)}
+        ${renderTransferStep('Tools', preview.toolAction)}
+        ${renderTransferStep('Private access', preview.privateAccessAction)}
+        ${renderTransferStep('History', preview.historyState)}
+        ${renderTransferStep('Cred', preview.credContinuity)}
+      </div>
+    </section>
+  `;
+}
+
+function renderTransferStep(label, value) {
+  return `
+    <article class="transfer-step">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
     </article>
   `;
 }

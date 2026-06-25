@@ -157,6 +157,49 @@ test('swarm cards expose roster roles controls and transfer behavior', () => {
 });
 
 
+
+test('agent carousel exposes claim transfer preview without transferring secrets', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      {
+        name: 'Helixa Swarm',
+        tokenId: 'swarm:helixa',
+        helixaId: '8453:swarm:helixa',
+        framework: 'multi-agent',
+        credScore: 78,
+        credTier: 'Prime',
+        verified: true,
+        profileUrl: 'https://helixa.xyz/swarm/helixa',
+        subjectType: 'swarm',
+        members: 3,
+        role: 'Parent Multipass',
+        custody: 'Custody epoch ready',
+        transferPreview: {
+          currentOwner: '0x3395...480E0',
+          custodyEpoch: 'Epoch 03',
+          claimAction: 'Claim swarm',
+          permissionsState: 'Permissions paused',
+          toolAction: 'Reverify shared tools',
+          privateAccessAction: 'Rotate private access',
+          historyState: 'History preserved',
+          credContinuity: 'Cred continues with ownership-change context.',
+        },
+      },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  const transfer = carousel.cards[0].transferPreview;
+  assert.equal(transfer.title, 'Transfer / Claim Preview');
+  assert.equal(transfer.currentOwner, '0x3395...480E0');
+  assert.equal(transfer.claimAction, 'Claim swarm');
+  assert.equal(transfer.permissionsState, 'Permissions paused');
+  assert.equal(transfer.toolAction, 'Reverify shared tools');
+  assert.equal(transfer.privateAccessAction, 'Rotate private access');
+  assert.match(transfer.note, /does not transfer secrets/i);
+});
+
 test('fragment trust map follows selected proof ids', () => {
   const data = {
     fragments: {

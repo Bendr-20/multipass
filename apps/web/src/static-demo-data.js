@@ -721,7 +721,17 @@ export const STATIC_DEMO_DATA = {
       ],
       "sharedControls": ["Tool approvals", "Route policy", "Owner approval"],
       "aggregateCred": "Cred 78 Prime summarizes the roster without replacing individual agent scores.",
-      "transferBehavior": "Permissions pause and tool routes reverify when custody changes."
+      "transferBehavior": "Permissions pause and tool routes reverify when custody changes.",
+      "transferPreview": {
+        "currentOwner": "0x3395...480E0",
+        "custodyEpoch": "Epoch 03",
+        "claimAction": "Claim swarm",
+        "permissionsState": "Permissions paused",
+        "toolAction": "Reverify shared tools",
+        "privateAccessAction": "Rotate private access",
+        "historyState": "History preserved",
+        "credContinuity": "Cred continues with ownership-change context."
+      }
     }
   ]
 };

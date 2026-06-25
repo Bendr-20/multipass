@@ -168,7 +168,7 @@ function sampleData() {
       { name: 'Bendr 2.0', tokenId: 1, helixaId: '8453:1', framework: 'openclaw', credScore: 80, credTier: 'Preferred', verified: true, profileUrl: 'https://helixa.xyz/agent/1', proofFragmentIds: ['frag_bendr_profile', 'frag_bendr_endpoint', 'frag_bendr_standard_ref', 'frag_bendr_receipt_history', 'frag_bendr_route_dispute', 'frag_bendr_helixa_identity', 'frag_bendr_cred_score'] },
       { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81', proofFragmentIds: ['frag_quigbot_identity', 'frag_quigbot_cred'] },
       { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0', proofFragmentIds: ['frag_e2etest_identity', 'frag_e2etest_cred'] },
-      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'], roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.' },
+      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'], roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.', transferPreview: { currentOwner: '0x3395...480E0', custodyEpoch: 'Epoch 03', claimAction: 'Claim swarm', permissionsState: 'Permissions paused', toolAction: 'Reverify shared tools', privateAccessAction: 'Rotate private access', historyState: 'History preserved', credContinuity: 'Cred continues with ownership-change context.' } },
     ],
     standards: { standard_refs: [{ standard_id: 'ERC-8004', status: 'adapter_ready' }] },
     x402: { endpoints: [{ endpoint_id: 'lookup', asset: 'CRED' }] },
@@ -309,6 +309,29 @@ test('selecting Helixa Swarm shows roster roles controls and transfer behavior',
   assert.match(detail, /Permissions pause and tool routes reverify when custody changes/);
 });
 
+
+
+test('selected card renders transfer claim preview with paused permissions and preserved history', async () => {
+  const root = setupDom();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  root.querySelectorAll('.card-button')[3].click();
+
+  const preview = root.querySelector('.transfer-preview');
+  assert.ok(preview);
+  assert.match(preview.textContent, /Transfer \/ Claim Preview/);
+  assert.match(preview.textContent, /Current owner/);
+  assert.match(preview.textContent, /0x3395\.\.\.480E0/);
+  assert.match(preview.textContent, /Custody epoch/);
+  assert.match(preview.textContent, /Epoch 03/);
+  assert.match(preview.textContent, /Claim swarm/);
+  assert.match(preview.textContent, /Permissions paused/);
+  assert.match(preview.textContent, /Reverify shared tools/);
+  assert.match(preview.textContent, /Rotate private access/);
+  assert.match(preview.textContent, /History preserved/);
+  assert.match(preview.textContent, /Cred continues with ownership-change context/);
+  assert.match(preview.textContent, /does not transfer secrets/);
+});
 
 test('proof section follows selected card', async () => {
   const root = setupDom();

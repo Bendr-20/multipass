@@ -93,6 +93,7 @@ export function createAgentCarousel(data) {
     sharedControls: Array.isArray(card.sharedControls) ? card.sharedControls : [],
     aggregateCred: card.aggregateCred ?? null,
     transferBehavior: card.transferBehavior ?? null,
+    transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
   }));
 
@@ -144,6 +145,23 @@ function createFragmentCard(fragment) {
   };
 }
 
+
+function normalizeTransferPreview(preview, card) {
+  if (!preview) return null;
+
+  return {
+    title: 'Transfer / Claim Preview',
+    currentOwner: preview.currentOwner ?? 'Owner pending',
+    custodyEpoch: preview.custodyEpoch ?? card.custody ?? 'Custody epoch pending',
+    claimAction: preview.claimAction ?? 'Claim agent',
+    permissionsState: preview.permissionsState ?? 'Permissions paused',
+    toolAction: preview.toolAction ?? 'Reverify tools',
+    privateAccessAction: preview.privateAccessAction ?? 'Rotate private access',
+    historyState: preview.historyState ?? 'History preserved',
+    credContinuity: preview.credContinuity ?? 'Cred continues with ownership-change context.',
+    note: preview.note ?? 'Transfer preview preserves public history but does not transfer secrets, private credentials, or active authority.',
+  };
+}
 
 function formatMemberLabel(members) {
   if (members === null || members === undefined) return '1 agent';
