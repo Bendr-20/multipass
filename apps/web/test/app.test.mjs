@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
 import { createApp } from '../src/app.js';
+import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 
 function sampleData() {
   return {
@@ -259,6 +260,29 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
 });
 
+
+
+test('resolver bar renders without changing default static data', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const resolver = root.querySelector('.live-resolver');
+  assert.ok(resolver);
+  assert.match(resolver.textContent, /Resolve live Helixa agent/);
+  assert.match(resolver.textContent, /Try 1 or 8453:1/);
+  assert.match(resolver.textContent, /Name and slug search is coming later/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+  assert.match(root.textContent, /local API/);
+});
+
+test('render uses live hero note when data supplies one', async () => {
+  const data = { ...sampleData(), heroNote: 'Read-only live Helixa API data for Bendr 2.0.', sourceLabel: 'live Helixa API' };
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  assert.match(root.textContent, /Read-only live Helixa API data for Bendr 2\.0/);
+  assert.doesNotMatch(root.textContent, /public fixture data/);
+});
 
 test('agent card carousel switches selected card detail', async () => {
   const root = setupDom();
@@ -553,6 +577,236 @@ test('static /multipass/ ignores unsafe api query override without calling API',
   assert.match(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
+});
+
+
+test('resolver submit loads live data and updates source label', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver', heroNote: 'Read-only live Helixa API data for Live Bendr.' };
+  const calls = [];
+  const app = createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => { calls.push(input); return liveData; },
+  });
+
+  await app.start();
+  root.querySelector('.live-resolver input').value = '8453:1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['8453:1']);
+  assert.match(root.textContent, /Live Bendr/);
+  assert.match(root.textContent, /live Helixa API/);
+  assert.match(root.textContent, /Live Helixa API data loaded/);
+});
+
+test('static demo button restores bundled fixture after live resolve', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver' };
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  root.querySelector('[data-action="reset-static-demo"]').click();
+
+  assert.match(root.textContent, /Bendr 2\.0/);
+  assert.match(root.textContent, /local API/);
+  assert.doesNotMatch(root.textContent, /Live Bendr/);
+});
+
+test('static demo reset invalidates an in-flight live resolver response', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  let resolveLive;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => new Promise((resolve) => { resolveLive = resolve; }),
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  root.querySelector('[data-action="reset-static-demo"]').click();
+  resolveLive({ ...sampleData(), profile: { ...sampleData().profile, display_name: 'Late Live Bendr' }, sourceLabel: 'live Helixa API' });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.doesNotMatch(root.textContent, /Late Live Bendr/);
+  assert.match(root.textContent, /local API/);
+});
+
+test('resolver invalid input shows validation error and keeps static data available', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => { throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.'); },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = 'Bendr';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Use a token ID like 1 or a Helixa ID like 8453:1/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+});
+
+test('resolver unsupported chain shows Base-only error and keeps static data available', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => { throw new HelixaResolverError('unsupported_chain', 'V0 supports Base Helixa AgentDNA records only.'); },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '1:1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /V0 supports Base Helixa AgentDNA records only/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+});
+
+test('resolver API error keeps static data available', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => { throw new HelixaResolverError('not_found', 'No Helixa agent found for that ID.'); },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '999999';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /No Helixa agent found for that ID/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+});
+
+test('resolver rate limit disables retry during Retry-After window', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => { throw new HelixaResolverError('rate_limited', 'Helixa API is rate-limiting requests. Try again shortly.', { retryAfter: '12' }); },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(root.querySelector('.live-resolver button[type="submit"]').disabled, true);
+  assert.match(root.textContent, /Try again in 12 seconds/);
+});
+
+test('resolver disables duplicate submit while matching request is in flight', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  let resolveLive;
+  let calls = 0;
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => { calls += 1; return new Promise((resolve) => { resolveLive = resolve; }); } }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(calls, 1);
+  assert.equal(root.querySelector('.live-resolver button[type="submit"]').textContent, 'Resolving...');
+
+  resolveLive(sampleData());
+  await Promise.resolve();
+  await Promise.resolve();
+});
+
+test('changed input can supersede an older in-flight resolver request through the real UI', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  const resolvers = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: (input) => new Promise((resolve) => { calls.push(input); resolvers.push(resolve); }),
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(root.querySelector('.live-resolver button[type="submit"]').disabled, false);
+  root.querySelector('.live-resolver input').value = '81';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+
+  assert.deepEqual(calls, ['1', '81']);
+  resolvers[1]({ ...sampleData(), profile: { ...sampleData().profile, display_name: 'Quigbot Live' }, sourceLabel: 'live Helixa API' });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(root.textContent, /Quigbot Live/);
+});
+
+test('newer resolver response supersedes older response', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const resolvers = [];
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: (input) => new Promise((resolve) => resolvers.push({ input, resolve })) }).start();
+
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  root.querySelector('.live-resolver input').value = '81';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+
+  resolvers[1].resolve({ ...sampleData(), profile: { ...sampleData().profile, display_name: 'Quigbot Live' }, sourceLabel: 'live Helixa API' });
+  await Promise.resolve();
+  await Promise.resolve();
+  resolvers[0].resolve({ ...sampleData(), profile: { ...sampleData().profile, display_name: 'Old Bendr Live' }, sourceLabel: 'live Helixa API' });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Quigbot Live/);
+  assert.doesNotMatch(root.textContent, /Old Bendr Live/);
+});
+
+test('agent query auto-resolves live record after static load', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=8453:1');
+  const calls = [];
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async (input) => { calls.push(input); return { ...sampleData(), sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver' }; } }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['8453:1']);
+  assert.match(root.textContent, /live Helixa API/);
+});
+
+test('empty agent query shows the same empty-input validation error', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => { calls.push(input); throw new HelixaResolverError('empty_input', 'Enter a Helixa token ID or Helixa ID.'); },
+  }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['']);
+  assert.match(root.textContent, /Enter a Helixa token ID or Helixa ID/);
+  assert.match(root.textContent, /Bendr 2\.0/);
+});
+
+test('invalid agent query shows the same format validation error', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=Bendr');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => { calls.push(input); throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.'); },
+  }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['Bendr']);
+  assert.match(root.textContent, /Use a token ID like 1 or a Helixa ID like 8453:1/);
 });
 
 test('API failure renders setup message', async () => {

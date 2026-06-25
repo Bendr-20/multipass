@@ -11,6 +11,7 @@ const checkedFiles = [
   join(webRoot, 'src/content.js'),
   join(webRoot, 'src/app.js'),
   join(webRoot, 'src/api.js'),
+  join(webRoot, 'src/live-helixa-resolver.js'),
   join(webRoot, 'src/static-demo-data.js'),
   join(webRoot, 'src/styles.css'),
   join(repoRoot, 'docs/superpowers/specs/2026-06-24-multipass-protocol-artifact-visual-redesign.md'),

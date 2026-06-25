@@ -227,6 +227,79 @@ h1 {
   letter-spacing: -0.02em;
 }
 
+
+.live-resolver {
+  margin: 28px 0;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.live-resolver form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px) auto auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.live-resolver h2 {
+  margin-bottom: 8px;
+}
+
+.live-resolver p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.live-resolver label span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.live-resolver input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  padding: 12px;
+  font: inherit;
+}
+
+.live-resolver button {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 14px;
+  font-weight: 900;
+}
+
+.live-resolver button[type="button"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.live-resolver button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.resolver-message {
+  margin: 14px 0 0;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.resolver-message.error {
+  color: #8a3a28;
+}
+
 .story-records {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -599,6 +672,10 @@ h1 {
 }
 
 @media (max-width: 900px) {
+  .live-resolver form {
+    grid-template-columns: 1fr;
+  }
+
   .record-shell {
     width: min(100% - 28px, 1180px);
   }
@@ -1026,7 +1103,80 @@ h1 {
     font-size: 17px;
   }
 
-  .story-records {
+  
+.live-resolver {
+  margin: 28px 0;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.live-resolver form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px) auto auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.live-resolver h2 {
+  margin-bottom: 8px;
+}
+
+.live-resolver p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.live-resolver label span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.live-resolver input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  padding: 12px;
+  font: inherit;
+}
+
+.live-resolver button {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 14px;
+  font-weight: 900;
+}
+
+.live-resolver button[type="button"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.live-resolver button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.resolver-message {
+  margin: 14px 0 0;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.resolver-message.error {
+  color: #8a3a28;
+}
+
+.story-records {
     grid-template-columns: 1fr;
   }
 

@@ -1,23 +1,108 @@
 import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
+import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo = defaultLoadDemo }) {
+export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loadLiveHelixaMultipass }) {
   if (!root) throw new Error('createApp requires a root element');
 
-  let state = { expandedCard: null, selectedAgentCard: 0 };
+  let state = {
+    expandedCard: null,
+    selectedAgentCard: 0,
+    resolverInput: '',
+    resolverStatus: null,
+    resolverError: null,
+    resolverRequestId: 0,
+    resolverInFlightInput: null,
+    retryUntil: 0,
+    retryMessage: null,
+  };
 
   async function start() {
     renderLoading(root);
     try {
       const data = await loadDemo();
-      state = { ...state, data };
-      render(root, state);
+      state = { ...state, data, staticData: data };
+      render(root, state, handlers);
+      const resolverInput = getInitialResolverInput();
+      if (resolverInput !== null) {
+        resolveLiveAgent(resolverInput);
+      }
     } catch (error) {
       renderError(root, error);
     }
   }
 
+  async function resolveLiveAgent(input) {
+    const trimmed = String(input ?? '').trim();
+    state = {
+      ...state,
+      resolverInput: input,
+      resolverStatus: 'loading',
+      resolverError: null,
+      retryMessage: null,
+      resolverInFlightInput: trimmed,
+      resolverRequestId: state.resolverRequestId + 1,
+    };
+    const requestId = state.resolverRequestId;
+    render(root, state, handlers);
+
+    try {
+      const liveData = await loadLiveDemo(trimmed);
+      if (requestId !== state.resolverRequestId) return;
+      state = {
+        ...state,
+        data: liveData,
+        resolverStatus: 'loaded',
+        resolverError: null,
+        retryUntil: 0,
+        retryMessage: null,
+        selectedAgentCard: 0,
+        expandedCard: null,
+        resolverInFlightInput: null,
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      if (requestId !== state.resolverRequestId) return;
+      const retryState = retryStateFromError(error);
+      state = {
+        ...state,
+        resolverStatus: 'error',
+        resolverError: userResolverMessage(error),
+        resolverInFlightInput: null,
+        retryUntil: retryState.retryUntil,
+        retryMessage: retryState.retryMessage,
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  function resetStaticDemo() {
+    state = {
+      ...state,
+      data: state.staticData,
+      selectedAgentCard: 0,
+      expandedCard: null,
+      resolverInput: '',
+      resolverStatus: null,
+      resolverError: null,
+      resolverInFlightInput: null,
+      resolverRequestId: state.resolverRequestId + 1,
+      retryUntil: 0,
+      retryMessage: null,
+    };
+    render(root, state, handlers);
+  }
+
+  const handlers = { resolveLiveAgent, resetStaticDemo };
+
   return { start };
+}
+
+function getInitialResolverInput() {
+  if (typeof window === 'undefined') return null;
+  const locationUrl = new URL(window.location.href);
+  if (!locationUrl.searchParams.has('agent')) return null;
+  return locationUrl.searchParams.get('agent') ?? '';
 }
 
 function defaultLoadDemo() {
@@ -50,7 +135,7 @@ function renderError(root, error) {
   `;
 }
 
-function render(root, state) {
+function render(root, state, handlers = {}) {
   const { data } = state;
   const storyCards = createStoryCards(data);
   const claritySections = createClaritySections(data);
@@ -74,7 +159,7 @@ function render(root, state) {
           </div>
           <h1>${HERO_COPY.headline}</h1>
           <p class="lead">${HERO_COPY.body}</p>
-          <div class="note">${HERO_COPY.note}</div>
+          <div class="note">${escapeHtml(data.heroNote ?? HERO_COPY.note)}</div>
         </div>
 
         <article class="record-sheet">
@@ -97,6 +182,8 @@ function render(root, state) {
         </article>
       </section>
 
+      ${renderLiveResolver(state)}
+
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
@@ -117,7 +204,7 @@ function render(root, state) {
   root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedAgentCard = Number(button.dataset.index);
-      render(root, state);
+      render(root, state, handlers);
       root.querySelector(`[data-action="select-agent-card"][data-index="${state.selectedAgentCard}"]`)?.focus();
     });
   });
@@ -126,10 +213,61 @@ function render(root, state) {
     button.addEventListener('click', () => {
       const cardIndex = Number(button.dataset.index);
       state.expandedCard = state.expandedCard === cardIndex ? null : cardIndex;
-      render(root, state);
+      render(root, state, handlers);
       root.querySelector(`[data-action="toggle-json"][data-index="${cardIndex}"]`)?.focus();
     });
   });
+
+  root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const input = form.querySelector('input[name="agent"]')?.value ?? '';
+    if (isRetryBlocked(state)) return;
+    if (state.resolverStatus === 'loading' && input.trim() === state.resolverInFlightInput) return;
+    handlers.resolveLiveAgent?.(input);
+  });
+
+  root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
+}
+
+
+function renderLiveResolver(state) {
+  return `
+    <section class="live-resolver" aria-label="Resolve live Helixa agent">
+      <form data-action="resolve-live-agent">
+        <div>
+          <p class="card-label">Resolve live Helixa agent</p>
+          <h2>Read a live AgentDNA record.</h2>
+          <p>Try <code>1</code> or <code>8453:1</code>. Name and slug search is coming later.</p>
+        </div>
+        <label>
+          <span>Helixa ID</span>
+          <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="1 or 8453:1" autocomplete="off" />
+        </label>
+        <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Resolving...' : 'Resolve'}</button>
+        <button type="button" data-action="reset-static-demo">Static demo</button>
+      </form>
+      ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
+      ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
+      ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live Helixa API data loaded. Display only, no approvals or authority changes.</p>' : ''}
+    </section>
+  `;
+}
+
+function isRetryBlocked(state) {
+  return state.retryUntil > Date.now();
+}
+
+function userResolverMessage(error) {
+  if (error instanceof HelixaResolverError) return error.message;
+  return 'Could not reach the Helixa API. Static demo is still available.';
+}
+
+export function retryStateFromError(error, nowMs = Date.now()) {
+  if (!(error instanceof HelixaResolverError) || error.code !== 'rate_limited') return { retryUntil: 0, retryMessage: null };
+  const seconds = Number(error.details?.retryAfter);
+  if (!Number.isFinite(seconds) || seconds <= 0) return { retryUntil: 0, retryMessage: null };
+  return { retryUntil: nowMs + seconds * 1000, retryMessage: `Try again in ${seconds} seconds.` };
 }
 
 function renderField(label, value, className = '') {
@@ -448,6 +586,10 @@ function renderProofRow(card, index, expandedCard) {
 
 function getBadgeTone(card) {
   return ['settled', 'passed', 'filtered'].includes(String(card.status).toLowerCase()) ? 'verified' : 'neutral';
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
 }
 
 function escapeHtml(value) {
