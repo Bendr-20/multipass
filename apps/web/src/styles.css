@@ -313,6 +313,146 @@ h1 {
   color: #8a3a28;
 }
 
+.resolver-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.resolver-examples span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.live-resolver .resolver-examples button {
+  border: 1px solid rgba(46, 40, 30, 0.18);
+  background: var(--paper-soft);
+  color: var(--ink);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.lookup-matches {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.live-resolver .lookup-match-card {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  border: 1px solid rgba(46, 40, 30, 0.18);
+  background:
+    linear-gradient(135deg, rgba(127, 90, 240, 0.08), transparent),
+    var(--paper-soft);
+  color: var(--ink);
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.lookup-match-card strong {
+  font-size: 16px;
+}
+
+.lookup-match-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.lookup-match-card em {
+  justify-self: start;
+  border: 1px solid rgba(46, 40, 30, 0.14);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--green);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.aura-card {
+  display: grid;
+  grid-template-columns: minmax(118px, 160px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+  margin: 28px 0;
+  border: 1px solid rgba(46, 40, 30, 0.16);
+  background:
+    radial-gradient(circle at 18% 20%, rgba(127, 90, 240, 0.20), transparent 32%),
+    radial-gradient(circle at 80% 30%, rgba(98, 185, 155, 0.18), transparent 30%),
+    linear-gradient(180deg, var(--paper), rgba(255, 250, 241, 0.82));
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.aura-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 34px;
+  overflow: hidden;
+  background:
+    conic-gradient(from 140deg, rgba(127, 90, 240, 0.95), rgba(98, 185, 155, 0.95), rgba(244, 181, 103, 0.95), rgba(127, 90, 240, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45), 0 22px 44px rgba(46, 40, 30, 0.16);
+}
+
+.aura-orb::before {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  border-radius: 26px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.24), transparent 60%);
+}
+
+.aura-orb span {
+  position: relative;
+  color: #fffaf1;
+  font-family: var(--display-font);
+  font-size: clamp(34px, 7vw, 58px);
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  text-shadow: 0 8px 22px rgba(46, 40, 30, 0.28);
+}
+
+.aura-copy h2 {
+  margin: 4px 0 8px;
+}
+
+.aura-copy p {
+  max-width: 680px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.aura-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.aura-chips span {
+  border: 1px solid rgba(46, 40, 30, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.72);
+  padding: 7px 10px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .marketplace-listing {
   margin: 28px 0;
   border: 1px solid var(--line);

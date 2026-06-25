@@ -96,6 +96,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   const acceptedPayments = normalizeAcceptedPayments(agent);
   const standards = extractStandards(agent);
   const marketplaceListing = createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl);
+  const visualIdentity = createAgentAuraVisual(agent, { tokenId, displayName, credTier });
   const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   const agentCard = {
@@ -172,6 +173,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
     },
     fragments: { subject_id: `helixa-agent-${tokenId}`, fragments },
     card: createLiveAgentCardDocument(agent, tokenId, profileUrl),
+    visualIdentity,
     marketplaceListing,
     agentCards: [agentCard],
     standards: { standard_refs: standards.map((standard) => ({ standard_id: standard, status: 'referenced' })) },
@@ -269,6 +271,33 @@ function isSearchableLookup(input) {
 
 function normalizeLookup(value) {
   return String(value ?? '').trim().toLowerCase().replace(/^@/, '').replace(/\s+/g, ' ');
+}
+
+
+function createAgentAuraVisual(agent, { tokenId, displayName, credTier }) {
+  const framework = String(agent?.framework ?? 'unknown').trim() || 'unknown';
+  const credLabel = hasNumericCred(agent?.credScore) ? `Cred ${agent.credScore}` : 'Cred pending';
+  const verifiedLabel = agent?.verified ? 'Verified' : 'Unverified';
+  return {
+    source: 'aura',
+    label: 'Agent Aura placeholder',
+    initials: initialsForName(displayName),
+    tone: normalizeAuraTone(credTier),
+    summary: 'Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.',
+    chips: [credLabel, credTier, verifiedLabel, framework].filter(Boolean),
+    seed: `helixa-${tokenId}-${normalizeLookup(displayName)}`,
+  };
+}
+
+function initialsForName(name) {
+  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'MP';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase();
+}
+
+function normalizeAuraTone(tier) {
+  return String(tier ?? 'pending').toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
 function createLiveFragments(agent, tokenId, multipassId, observedAt) {

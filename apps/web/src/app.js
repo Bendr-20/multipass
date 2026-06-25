@@ -231,6 +231,8 @@ function render(root, state, handlers = {}) {
 
       ${renderLiveResolver(state)}
 
+      ${renderAgentAura(data.visualIdentity)}
+
       ${renderMarketplaceListing(data.marketplaceListing)}
 
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
@@ -277,6 +279,9 @@ function render(root, state, handlers = {}) {
   });
 
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
+  root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
+  });
   root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
   });
@@ -301,9 +306,20 @@ function renderLiveResolver(state) {
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
+      ${renderResolverExamples()}
       ${renderLookupMatches(state.lookupMatches)}
       ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live Helixa API data loaded. Display only, no approvals or authority changes.</p>' : ''}
     </section>
+  `;
+}
+
+function renderResolverExamples() {
+  const examples = ['Bendr', 'Quigbot', '81'];
+  return `
+    <div class="resolver-examples" aria-label="Example Helixa lookups">
+      <span>Examples</span>
+      ${examples.map((example) => `<button type="button" data-action="resolve-example-agent" data-agent="${escapeAttribute(example)}">${escapeHtml(example)}</button>`).join('')}
+    </div>
   `;
 }
 
@@ -312,7 +328,7 @@ function renderLookupMatches(matches = []) {
   return `
     <div class="lookup-matches" aria-label="Matching Helixa agents">
       ${matches.map((match) => `
-        <button type="button" data-action="select-lookup-match" data-token-id="${escapeAttribute(match.tokenId)}">
+        <button class="lookup-match-card" type="button" data-action="select-lookup-match" data-token-id="${escapeAttribute(match.tokenId)}">
           <strong>${escapeHtml(match.name)}</strong>
           <span>${escapeHtml(match.helixaId)} · ${escapeHtml(match.framework ?? 'unknown')} · ${match.credScore === null || match.credScore === undefined ? 'Cred pending' : `Cred ${escapeHtml(match.credScore)}`}</span>
           <em>${match.verified ? 'Verified' : 'Unverified'}</em>
@@ -353,6 +369,26 @@ function renderField(label, value, className = '') {
   `;
 }
 
+
+
+function renderAgentAura(visualIdentity) {
+  if (!visualIdentity || visualIdentity.source !== 'aura') return '';
+  return `
+    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual identity">
+      <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}" aria-hidden="true">
+        <span>${escapeHtml(visualIdentity.initials ?? 'MP')}</span>
+      </div>
+      <div class="aura-copy">
+        <p class="card-label">${escapeHtml(visualIdentity.label ?? 'Agent Aura placeholder')}</p>
+        <h2>Default visual identity</h2>
+        <p>${escapeHtml(visualIdentity.summary ?? 'Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.')}</p>
+        <div class="aura-chips">
+          ${(visualIdentity.chips ?? []).map((chip) => `<span>${escapeHtml(chip)}</span>`).join('')}
+        </div>
+      </div>
+    </section>
+  `;
+}
 
 function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
   return `

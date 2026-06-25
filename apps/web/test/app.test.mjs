@@ -889,6 +889,31 @@ test('resolved live agent takes over the page hero and record surface', async ()
   assert.match(root.querySelector('.share-link')?.textContent ?? '', /\/multipass\/\?agent=81/);
 });
 
+
+test('live profile renders Agent Aura placeholder visual and future source copy', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const data = {
+    ...sampleData(),
+    liveProfilePage: { headline: 'Quigbot Multipass', sharePath: '/multipass/?agent=81' },
+    visualIdentity: {
+      source: 'aura',
+      label: 'Agent Aura placeholder',
+      initials: 'Q',
+      tone: 'prime',
+      summary: 'Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.',
+      chips: ['Cred 75', 'openclaw', 'Verified'],
+    },
+  };
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Agent Aura placeholder/);
+  assert.match(root.textContent, /Default Aura visual/);
+  assert.match(root.textContent, /agent NFT, collection NFT, or custom visual/);
+  assert.equal(root.querySelector('.aura-card')?.getAttribute('data-visual-source'), 'aura');
+});
+
 test('manual resolver writes a clean share URL and reset removes it', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = {
@@ -943,6 +968,33 @@ test('invalid agent query shows the same format validation error', async () => {
 });
 
 
+
+test('resolver example chips resolve live agents through the existing flow', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return {
+        ...sampleData(),
+        liveProfilePage: { headline: `${input} Multipass`, sharePath: '/multipass/?agent=81' },
+      };
+    },
+  }).start();
+
+  const chips = [...root.querySelectorAll('[data-action="resolve-example-agent"]')].map((button) => button.textContent.trim());
+  assert.deepEqual(chips, ['Bendr', 'Quigbot', '81']);
+
+  root.querySelector('[data-action="resolve-example-agent"][data-agent="Quigbot"]').click();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['Quigbot']);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
+});
+
 test('ambiguous name lookup renders selectable live agent matches', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const calls = [];
@@ -975,6 +1027,7 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
   assert.match(root.textContent, /Pick a matching Helixa agent/);
   assert.match(root.textContent, /Quigbot/);
   assert.match(root.textContent, /MoltBot Agent/);
+  assert.equal(root.querySelectorAll('.lookup-match-card').length, 2);
   root.querySelector('[data-action="select-lookup-match"][data-token-id="81"]').click();
   await Promise.resolve();
   await Promise.resolve();
