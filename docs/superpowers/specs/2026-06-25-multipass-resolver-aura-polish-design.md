@@ -54,33 +54,34 @@ When a live profile is loaded, the existing share path should become easier to s
 
 ### Agent Aura placeholder
 
-Live agent profiles should show a visual identity tile near the top. For this slice, the tile is generated locally from public normalized agent fields, not fetched from a new image service.
+Live agent profiles should show a visual identity tile near the top. For this slice, the tile must use the real Helixa Agent Aura image at `https://api.helixa.xyz/api/v2/aura/{tokenId}.png`. Local initials/gradient rendering is only a fallback if the image is unavailable.
 
 The default source is:
 
-- `visualSource: aura`
-- label: `Agent Aura placeholder`
+- `visualSource: helixa_aura`
+- label: `Helixa Agent Aura`
+- image URL: `https://api.helixa.xyz/api/v2/aura/{tokenId}.png`
 
-The Aura should feel like a generated identity mark for the agent. It can use deterministic gradients, rings, initials, or trust-state styling derived from safe public fields such as name, token ID, framework, Cred score, and verification state.
+The Aura should display the actual Helixa Agent Aura image. Surrounding styling may use deterministic rings or trust-state accents derived from safe public fields such as name, token ID, framework, Cred score, and verification state.
 
 Copy should clarify future flexibility without implying an active feature:
 
-`Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.`
+`Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.`
 
 Future visual source model:
 
-- `aura` - generated default visual identity
+- `helixa_aura` - default Helixa Agent Aura image
 - `nft` - owner-selected NFT representation
 - `custom` - owner-selected brand art
 
-Only `aura` is implemented in this slice.
+Only `helixa_aura` is implemented in this slice.
 
 ## Data flow
 
 - Existing live resolver parses numeric IDs, canonical Base Helixa IDs, names, and handles.
 - Directory lookup still reads `https://api.helixa.xyz/api/v2/agents?limit=100` without credentials or private headers.
 - Agent detail lookup still reads `https://api.helixa.xyz/api/v2/agent/:id` without credentials or private headers.
-- The mapper creates a read-only visual identity model from whitelisted public fields.
+- The mapper creates a read-only visual identity model using the public token ID to build the Helixa Aura image URL.
 - The renderer displays the visual model if present.
 
 ## Error handling
@@ -88,7 +89,7 @@ Only `aura` is implemented in this slice.
 - Invalid input, unsupported chain, API failure, rate-limit handling, duplicate submit protection, and stale request invalidation remain unchanged.
 - Example chips use the same resolver path and therefore inherit the same errors.
 - Ambiguous lookup keeps the static demo visible while showing the match picker.
-- Aura rendering must tolerate missing name, Cred, framework, owner, and verification fields.
+- Aura rendering must tolerate missing name, Cred, framework, owner, and verification fields, and should keep a local visual fallback if the image cannot be rendered.
 
 ## Testing
 
@@ -96,7 +97,7 @@ Add tests before implementation for:
 
 - resolver example chips render and resolve through the existing flow
 - ambiguous match picker uses selectable card-like results
-- live mapped agent data includes an `aura` visual source by default
+- live mapped agent data includes a `helixa_aura` visual source and real Aura image URL by default
 - live render shows the Agent Aura placeholder and future NFT/custom visual copy
 - static `/multipass/` remains usable without API calls
 - safe share path remains constrained to `/multipass/`

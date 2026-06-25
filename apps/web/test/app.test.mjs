@@ -896,11 +896,12 @@ test('live profile renders Agent Aura placeholder visual and future source copy'
     ...sampleData(),
     liveProfilePage: { headline: 'Quigbot Multipass', sharePath: '/multipass/?agent=81' },
     visualIdentity: {
-      source: 'aura',
-      label: 'Agent Aura placeholder',
+      source: 'helixa_aura',
+      label: 'Helixa Agent Aura',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png',
       initials: 'Q',
       tone: 'prime',
-      summary: 'Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.',
+      summary: 'Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.',
       chips: ['Cred 75', 'openclaw', 'Verified'],
     },
   };
@@ -908,10 +909,11 @@ test('live profile renders Agent Aura placeholder visual and future source copy'
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.match(root.textContent, /Agent Aura placeholder/);
-  assert.match(root.textContent, /Default Aura visual/);
+  assert.match(root.textContent, /Helixa Agent Aura/);
+  assert.match(root.textContent, /Default Helixa Agent Aura/);
+  assert.equal(root.querySelector('.aura-card img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
   assert.match(root.textContent, /agent NFT, collection NFT, or custom visual/);
-  assert.equal(root.querySelector('.aura-card')?.getAttribute('data-visual-source'), 'aura');
+  assert.equal(root.querySelector('.aura-card')?.getAttribute('data-visual-source'), 'helixa_aura');
 });
 
 test('manual resolver writes a clean share URL and reset removes it', async () => {

@@ -279,11 +279,12 @@ function createAgentAuraVisual(agent, { tokenId, displayName, credTier }) {
   const credLabel = hasNumericCred(agent?.credScore) ? `Cred ${agent.credScore}` : 'Cred pending';
   const verifiedLabel = agent?.verified ? 'Verified' : 'Unverified';
   return {
-    source: 'aura',
-    label: 'Agent Aura placeholder',
+    source: 'helixa_aura',
+    label: 'Helixa Agent Aura',
+    imageUrl: `https://api.helixa.xyz/api/v2/aura/${encodeURIComponent(tokenId)}.png`,
     initials: initialsForName(displayName),
     tone: normalizeAuraTone(credTier),
-    summary: 'Default Aura visual. Owners can later bind an agent NFT, collection NFT, or custom visual.',
+    summary: 'Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.',
     chips: [credLabel, credTier, verifiedLabel, framework].filter(Boolean),
     seed: `helixa-${tokenId}-${normalizeLookup(displayName)}`,
   };

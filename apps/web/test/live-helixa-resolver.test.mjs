@@ -150,8 +150,9 @@ test('mapHelixaAgentToMultipassDemo maps Bendr public API data into Multipass di
   assert.equal(data.liveProfilePage.headerMeta, 'Live profile · 8453:1');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=1');
   assert.match(data.liveProfilePage.recordIntro, /public Helixa API signals/);
-  assert.equal(data.visualIdentity.source, 'aura');
-  assert.equal(data.visualIdentity.label, 'Agent Aura placeholder');
+  assert.equal(data.visualIdentity.source, 'helixa_aura');
+  assert.equal(data.visualIdentity.label, 'Helixa Agent Aura');
+  assert.equal(data.visualIdentity.imageUrl, 'https://api.helixa.xyz/api/v2/aura/1.png');
   assert.match(data.visualIdentity.summary, /agent NFT, collection NFT, or custom visual/);
   assert.deepEqual(data.visualIdentity.chips.slice(0, 3), ['Cred 80', 'Preferred', 'Verified']);
   assert.equal(data.profile.display_name, 'Bendr 2.0');
