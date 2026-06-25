@@ -37,3 +37,22 @@ test('mobile hero lead copy keeps readable density', async () => {
   assert.match(leadBlock, /line-height:\s*1\.5;/);
   assert.match(leadBlock, /margin-bottom:\s*20px;/);
 });
+
+test('marketplace listing uses responsive marketplace-card grids', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.marketplace-listing\s*{[^}]*border:[^}]*1px solid/s);
+  assert.match(css, /\.listing-shell\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/s);
+  assert.match(css, /\.listing-routes\s*{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(180px, 1fr\)\);/s);
+  assert.match(css, /\.listing-proof-strip\s*{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(150px, 1fr\)\);/s);
+});
+
+test('mobile marketplace listing collapses to one readable column', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(mobileBlock, /\.marketplace-listing\s*{[^}]*padding:\s*18px;/s);
+  assert.match(mobileBlock, /\.listing-shell\s*{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(mobileBlock, /\.listing-identity\s*{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(mobileBlock, /\.listing-sections\s*{[^}]*grid-template-columns:\s*1fr;/s);
+});
