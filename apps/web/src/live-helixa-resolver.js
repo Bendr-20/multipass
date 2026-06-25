@@ -81,6 +81,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   const credTier = formatCredTier(agent?.credScore);
   const acceptedPayments = normalizeAcceptedPayments(agent);
   const standards = extractStandards(agent);
+  const marketplaceListing = createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl);
 
   const agentCard = {
     name: displayName,
@@ -145,6 +146,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
     },
     fragments: { subject_id: `helixa-agent-${tokenId}`, fragments },
     card: createLiveAgentCardDocument(agent, tokenId, profileUrl),
+    marketplaceListing,
     agentCards: [agentCard],
     standards: { standard_refs: standards.map((standard) => ({ standard_id: standard, status: 'referenced' })) },
     x402: { endpoints: acceptedPayments.map((asset) => ({ endpoint_id: 'live-profile-reference', asset: asset.toUpperCase(), route: profileUrl, status: 'planned' })) },
@@ -315,6 +317,165 @@ function createLiveTransferPreview(agent) {
   };
 }
 
+export function createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl) {
+  const displayName = agent?.name || `Agent #${tokenId}`;
+  const credValue = hasNumericCred(agent?.credScore) ? Number(agent.credScore) : null;
+  const framework = agent?.framework ?? agent?.metadata?.framework ?? 'unknown';
+  const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
+
+  return {
+    title: `${agent?.verified ? 'Verified' : 'Unverified'} agent listing for ${displayName}`,
+    subtitle: `${helixaId} · ${framework}`,
+    summary: createListingSummary(agent),
+    identity: {
+      name: displayName,
+      helixaId,
+      tokenId: String(tokenId),
+      framework,
+      verifiedLabel: agent?.verified ? 'Verified AgentDNA' : 'Unverified AgentDNA',
+      sourceLabel: 'Live Helixa API',
+    },
+    score: createListingScore(credValue),
+    badges: createListingBadges(agent, framework),
+    facts: createListingFacts(agent, tokenId),
+    routes: createPublicRoutes(agent),
+    paymentReferences: createPaymentReferences(agent),
+    proof: createListingProof(fragments),
+    links: createListingLinks(agent, profileUrl),
+    safetyNote: 'Public routes and proof are visible; authority and private credentials stay protected.',
+  };
+}
+
+function createListingScore(credValue) {
+  const tier = credValue === null ? 'Unrated' : formatCredTier(credValue);
+  return {
+    label: credValue === null ? 'Cred pending' : `Cred ${credValue}`,
+    tier,
+    value: credValue,
+    tone: tier.toLowerCase(),
+  };
+}
+
+function createListingSummary(agent) {
+  const categories = agent?.metadata?.serviceCategories ?? [];
+  const skills = agent?.skills ?? [];
+  const domains = agent?.domains ?? [];
+  const descriptors = [...categories, ...skills, ...domains].filter(Boolean).slice(0, 3);
+  if (descriptors.length) return `Live AgentDNA record packaged for marketplaces: ${descriptors.join(', ')}.`;
+  return 'Live AgentDNA record with public trust, route, and ownership context.';
+}
+
+function createListingBadges(agent, framework) {
+  return [
+    { label: agent?.verified ? 'Verified AgentDNA' : 'Unverified AgentDNA', tone: agent?.verified ? 'verified' : 'review' },
+    ...(agent?.soulbound ? [{ label: 'Soulbound', tone: 'neutral' }] : []),
+    ...(agent?.metadata?.openToWork ? [{ label: 'Open to work', tone: 'verified' }] : []),
+    { label: formatLabel(framework), tone: 'neutral' },
+    { label: 'Base', tone: 'neutral' },
+  ];
+}
+
+function createListingFacts(agent, tokenId) {
+  return [
+    { label: 'Owner', value: shortAddress(agent?.owner) ?? 'Owner not published' },
+    { label: 'Operator', value: shortAddress(agent?.operator) ?? 'Not delegated' },
+    { label: 'Token ID', value: String(tokenId) },
+    { label: 'Generation', value: stringifyOptional(agent?.generation, 'Not published') },
+    { label: 'Version', value: stringifyOptional(agent?.version, 'Not published') },
+    { label: 'Points', value: stringifyOptional(agent?.points, 'Not published') },
+  ];
+}
+
+function createPublicRoutes(agent) {
+  const routes = [];
+  for (const [service, config] of Object.entries(agent?.services ?? {})) {
+    const routeValue = config?.url ?? config?.handle;
+    if (!routeValue) continue;
+    routes.push({
+      label: formatLabel(service),
+      value: String(routeValue),
+      url: safePublicUrl(routeValue),
+      kind: 'service',
+    });
+  }
+  for (const [network, value] of Object.entries(agent?.socials ?? {})) {
+    if (!value) continue;
+    routes.push({
+      label: formatLabel(network),
+      value: String(value),
+      url: socialUrl(network, value),
+      kind: 'social',
+    });
+  }
+  return routes;
+}
+
+function createPaymentReferences(agent) {
+  const references = [];
+  for (const asset of agent?.metadata?.acceptedPayments ?? []) {
+    references.push({ label: 'Accepted reference', value: String(asset).toUpperCase(), chainId: HELIXA_CHAIN_ID, source: 'Helixa metadata' });
+  }
+  if (agent?.linkedToken?.symbol) {
+    references.push({ label: 'Linked token', value: String(agent.linkedToken.symbol).toUpperCase(), chainId: HELIXA_CHAIN_ID, source: 'Helixa linked token' });
+  }
+  return dedupePaymentReferences(references);
+}
+
+function createListingProof(fragments) {
+  return {
+    publicFragmentCount: fragments.length,
+    verifiedSignalCount: fragments.filter((fragment) => fragment.status === 'verified').length,
+    reviewRequiredCount: fragments.filter((fragment) => ['pending', 'stale'].includes(fragment.status)).length,
+    privateCredentialState: 'No secrets or private credentials exposed',
+  };
+}
+
+function createListingLinks(agent, profileUrl) {
+  return [
+    profileUrl ? { label: 'Profile', url: safePublicUrl(profileUrl), kind: 'profile' } : null,
+    agent?.explorer ? { label: 'Explorer', url: safePublicUrl(agent.explorer), kind: 'explorer' } : null,
+  ].filter((link) => link?.url);
+}
+
+function safePublicUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function socialUrl(network, value) {
+  const handle = String(value).trim();
+  if (!handle) return null;
+  const direct = safePublicUrl(handle);
+  if (direct) return direct;
+  const clean = handle.replace(/^@/, '');
+  const normalizedNetwork = String(network).toLowerCase();
+  if (normalizedNetwork === 'x') return `https://x.com/${encodeURIComponent(clean)}`;
+  if (normalizedNetwork === 'github' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(clean)) return `https://github.com/${clean}`;
+  if (normalizedNetwork === 'telegram') return `https://t.me/${encodeURIComponent(clean)}`;
+  if (normalizedNetwork === 'website') return safePublicUrl(handle);
+  return null;
+}
+
+function dedupePaymentReferences(references) {
+  const seen = new Set();
+  return references.filter((reference) => {
+    const key = `${reference.label}:${reference.value}:${reference.chainId}:${reference.source}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stringifyOptional(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  return String(value);
+}
+
 function createLiveAgentCardDocument(agent, tokenId, profileUrl) {
   return {
     schema_version: '0.1.0',
@@ -375,7 +536,18 @@ function safeKey(value) {
 }
 
 function formatLabel(value) {
-  return String(value).replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const raw = String(value);
+  const known = {
+    a2a: 'A2A',
+    mcp: 'MCP',
+    x: 'X',
+    github: 'GitHub',
+    usdc: 'USDC',
+    cred: 'CRED',
+  };
+  const normalized = raw.toLowerCase();
+  if (known[normalized]) return known[normalized];
+  return raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function isPositiveTokenId(value) {

@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   HelixaResolverError,
+  createLiveMarketplaceListing,
   fetchHelixaAgent,
   loadLiveHelixaMultipass,
   mapHelixaAgentToMultipassDemo,
@@ -16,6 +17,10 @@ const testRoot = dirname(fileURLToPath(import.meta.url));
 
 async function bendrFixture() {
   return JSON.parse(await readFile(join(testRoot, 'fixtures/helixa-agent-1.json'), 'utf8'));
+}
+
+async function quigbotFixture() {
+  return JSON.parse(await readFile(join(testRoot, 'fixtures/helixa-agent-81.json'), 'utf8'));
 }
 
 test('parseHelixaResolverInput accepts token id and canonical Base Helixa id', () => {
@@ -129,6 +134,70 @@ test('mapHelixaAgentToMultipassDemo handles missing optional public fields', () 
   assert.equal(data.agentCards[0].profileUrl, 'https://helixa.xyz/agent/81');
   assert.equal(data.agentCards[0].ownerSnapshot.operator, 'Not delegated');
   assert.equal(data.x402.endpoints.length, 0);
+});
+
+test('createLiveMarketplaceListing maps Bendr into a marketplace listing', async () => {
+  assert.equal(typeof createLiveMarketplaceListing, 'function');
+  const mapped = mapHelixaAgentToMultipassDemo(await bendrFixture());
+  const listing = mapped.marketplaceListing;
+
+  assert.equal(listing.title, 'Verified agent listing for Bendr 2.0');
+  assert.equal(listing.identity.helixaId, '8453:1');
+  assert.equal(listing.identity.framework, 'openclaw');
+  assert.equal(listing.score.label, 'Cred 80');
+  assert.equal(listing.score.tier, 'Preferred');
+  assert.equal(listing.facts.some((fact) => fact.label === 'Owner' && fact.value === '0x27E3...91Ea'), true);
+  assert.equal(listing.routes.some((route) => route.label === 'Web' && route.url === 'https://helixa.xyz/agent/1'), true);
+  assert.equal(listing.routes.some((route) => route.label === 'MCP' && route.url === 'https://api.helixa.xyz/api/mcp'), true);
+  assert.equal(listing.paymentReferences.some((payment) => payment.value === 'USDC'), true);
+  assert.equal(listing.paymentReferences.some((payment) => payment.value === 'CRED'), true);
+  assert.equal(listing.links.some((link) => link.label === 'Explorer' && link.url?.includes('basescan.org')), true);
+  assert.equal(listing.proof.privateCredentialState, 'No secrets or private credentials exposed');
+  assert.equal(Number.isInteger(listing.proof.publicFragmentCount), true);
+  assert.ok(listing.proof.publicFragmentCount >= 4);
+});
+
+test('createLiveMarketplaceListing maps Quigbot with no payment references', async () => {
+  const listing = mapHelixaAgentToMultipassDemo(await quigbotFixture()).marketplaceListing;
+
+  assert.equal(listing.title, 'Verified agent listing for Quigbot');
+  assert.equal(listing.identity.helixaId, '8453:81');
+  assert.equal(listing.score.label, 'Cred 75');
+  assert.equal(listing.score.tier, 'Prime');
+  assert.equal(listing.paymentReferences.length, 0);
+  assert.equal(listing.routes.some((route) => route.label === 'X' && route.value === '@quigleynft'), true);
+  assert.equal(listing.routes.some((route) => route.label === 'A2A'), true);
+});
+
+test('marketplace listing omits unsafe URLs and secret-bearing fields', () => {
+  const agent = {
+    tokenId: 999,
+    name: 'Unsafe Test',
+    credScore: 50,
+    verified: true,
+    owner: '0x0000000000000000000000000000000000000001',
+    services: {
+      web: { url: 'javascript:alert(1)' },
+      file: { url: 'file:///etc/passwd' },
+      safe: { url: 'https://example.com/agent' },
+    },
+    metadata: {
+      acceptedPayments: ['usdc'],
+      accessToken: 'do-not-render',
+      sessionToken: 'do-not-render',
+    },
+    private_api_key: 'do-not-render',
+    hiddenCredential: 'do-not-render',
+    secret: 'do-not-render',
+  };
+
+  const mapped = mapHelixaAgentToMultipassDemo(agent);
+  const serialized = JSON.stringify(mapped.marketplaceListing);
+
+  assert.equal(serialized.includes('do-not-render'), false);
+  assert.equal(mapped.marketplaceListing.routes.some((route) => route.value === 'https://example.com/agent' && route.url === 'https://example.com/agent'), true);
+  assert.equal(mapped.marketplaceListing.routes.some((route) => route.url?.startsWith('javascript:')), false);
+  assert.equal(mapped.marketplaceListing.routes.some((route) => route.url?.startsWith('file:')), false);
 });
 
 test('loadLiveHelixaMultipass parses fetches and maps live agent data', async () => {
