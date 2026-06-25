@@ -823,6 +823,61 @@ h1 {
   margin-top: 8px;
 }
 
+.owner-snapshot {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.45fr);
+  gap: 18px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 250, 241, 0.82);
+  padding: 20px;
+}
+
+.owner-snapshot-copy h3 {
+  max-width: 420px;
+  margin-top: 8px;
+  color: var(--charcoal);
+  font-family: var(--display);
+  font-size: clamp(24px, 4vw, 42px);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.owner-snapshot-copy p:last-child {
+  max-width: 520px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.owner-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.owner-snapshot-field {
+  border: 1px solid var(--soft-line);
+  border-radius: 16px;
+  background: var(--paper);
+  padding: 13px;
+}
+
+.owner-snapshot-field span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.owner-snapshot-field strong {
+  color: var(--ink);
+  line-height: 1.35;
+}
+
 .transfer-preview {
   display: grid;
   grid-template-columns: 0.72fr 1.28fr;

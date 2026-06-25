@@ -155,6 +155,7 @@ function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
         ${carousel.cards.map((card, index) => renderAgentCardButton(card, index, selectedIndex)).join('')}
       </div>
       ${renderAgentCardDetail(selectedAgent)}
+      ${renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot)}
       ${renderTransferPreview(selectedAgent)}
     </section>
   `;
@@ -245,7 +246,38 @@ function renderSwarmCardDetail(card) {
 }
 
 
+function renderOwnerCustodySnapshot(snapshot) {
+  if (!snapshot) return '';
+  return `
+    <section class="owner-snapshot">
+      <div class="owner-snapshot-copy">
+        <p class="card-label">${escapeHtml(snapshot.title)}</p>
+        <h3>${escapeHtml(snapshot.permissionState)}</h3>
+        <p>${escapeHtml(snapshot.note)}</p>
+      </div>
+      <div class="owner-snapshot-grid">
+        ${renderSnapshotField('Owner', snapshot.owner)}
+        ${renderSnapshotField('Operator', snapshot.operator)}
+        ${renderSnapshotField('Custody epoch', snapshot.custodyEpoch)}
+        ${renderSnapshotField('Visibility', snapshot.visibility)}
+        ${renderSnapshotField('Recent change', snapshot.recentChange)}
+        ${renderSnapshotField('Review action', snapshot.reviewAction)}
+      </div>
+    </section>
+  `;
+}
+
+function renderSnapshotField(label, value) {
+  return `
+    <article class="owner-snapshot-field">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
+
 function renderTransferPreview(card) {
+
   if (!card.transferPreview) return '';
   const preview = card.transferPreview;
   return `

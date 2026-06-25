@@ -676,7 +676,16 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Preferred",
       "verified": true,
       "profileUrl": "https://helixa.xyz/agent/1",
-      "proofFragmentIds": ["frag_bendr_profile", "frag_bendr_endpoint", "frag_bendr_standard_ref", "frag_bendr_receipt_history", "frag_bendr_route_dispute", "frag_bendr_helixa_identity", "frag_bendr_cred_score"]
+      "proofFragmentIds": ["frag_bendr_profile", "frag_bendr_endpoint", "frag_bendr_standard_ref", "frag_bendr_receipt_history", "frag_bendr_route_dispute", "frag_bendr_helixa_identity", "frag_bendr_cred_score"],
+      "ownerSnapshot": {
+        "owner": "0x3395...480E0",
+        "operator": "Bendr runtime",
+        "custodyEpoch": "Epoch 01",
+        "permissionState": "Active owner-approved routes",
+        "visibility": "Public profile, private credentials hidden",
+        "recentChange": "Cred import refreshed",
+        "reviewAction": "Review stale standards reference"
+      }
     },
     {
       "name": "Quigbot",
@@ -687,7 +696,16 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Prime",
       "verified": true,
       "profileUrl": "https://helixa.xyz/agent/81",
-      "proofFragmentIds": ["frag_quigbot_identity", "frag_quigbot_cred"]
+      "proofFragmentIds": ["frag_quigbot_identity", "frag_quigbot_cred"],
+      "ownerSnapshot": {
+        "owner": "0x17d7...bDe4",
+        "operator": "Quigbot runtime",
+        "custodyEpoch": "Epoch 01",
+        "permissionState": "Active owner-approved routes",
+        "visibility": "Public profile, private credentials hidden",
+        "recentChange": "Identity and Cred context imported",
+        "reviewAction": "No public review action"
+      }
     },
     {
       "name": "E2ETest",
@@ -698,7 +716,16 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Marginal",
       "verified": false,
       "profileUrl": "https://helixa.xyz/agent/0",
-      "proofFragmentIds": ["frag_e2etest_identity", "frag_e2etest_cred"]
+      "proofFragmentIds": ["frag_e2etest_identity", "frag_e2etest_cred"],
+      "ownerSnapshot": {
+        "owner": "Demo owner pending",
+        "operator": "Test fixture",
+        "custodyEpoch": "Draft epoch",
+        "permissionState": "Review required before active routes",
+        "visibility": "Public test profile",
+        "recentChange": "Low-assurance test record imported",
+        "reviewAction": "Verify owner before production use"
+      }
     },
     {
       "name": "Helixa Swarm",
@@ -731,6 +758,15 @@ export const STATIC_DEMO_DATA = {
         "privateAccessAction": "Rotate private access",
         "historyState": "History preserved",
         "credContinuity": "Cred continues with ownership-change context."
+      },
+      "ownerSnapshot": {
+        "owner": "0x3395...480E0",
+        "operator": "Helixa ops",
+        "custodyEpoch": "Epoch 03",
+        "permissionState": "Paused until owner review",
+        "visibility": "Public profile, gated private data",
+        "recentChange": "Transfer detected 2026-06-24",
+        "reviewAction": "Reverify routes before resume"
       }
     }
   ]

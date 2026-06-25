@@ -9,6 +9,7 @@ import {
   V02_COPY,
   createClaritySections,
   createAgentCarousel,
+  createOwnerCustodySnapshot,
   createFragmentTrustMap,
   createProofCards,
   createStoryCards,
@@ -157,6 +158,32 @@ test('swarm cards expose roster roles policy references and transfer behavior', 
 });
 
 
+
+
+test('owner custody snapshot exposes V0 owner operator permission and review state', () => {
+  const snapshot = createOwnerCustodySnapshot({
+    name: 'Helixa Swarm',
+    ownerSnapshot: {
+      owner: '0x3395...480E0',
+      operator: 'Helixa ops',
+      custodyEpoch: 'Epoch 03',
+      permissionState: 'Paused until owner review',
+      visibility: 'Public profile, gated private data',
+      recentChange: 'Transfer detected 2026-06-24',
+      reviewAction: 'Reverify routes before resume',
+    },
+  });
+
+  assert.equal(snapshot.title, 'Owner & Custody Snapshot');
+  assert.equal(snapshot.owner, '0x3395...480E0');
+  assert.equal(snapshot.operator, 'Helixa ops');
+  assert.equal(snapshot.custodyEpoch, 'Epoch 03');
+  assert.equal(snapshot.permissionState, 'Paused until owner review');
+  assert.equal(snapshot.visibility, 'Public profile, gated private data');
+  assert.equal(snapshot.recentChange, 'Transfer detected 2026-06-24');
+  assert.equal(snapshot.reviewAction, 'Reverify routes before resume');
+  assert.match(snapshot.note, /state reference/i);
+});
 
 test('agent carousel exposes transfer state preview without transferring secrets', () => {
   const carousel = createAgentCarousel({

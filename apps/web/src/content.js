@@ -93,6 +93,7 @@ export function createAgentCarousel(data) {
     sharedControls: normalizePolicyReferences(card.sharedControls),
     aggregateCred: card.aggregateCred ?? null,
     transferBehavior: card.transferBehavior ?? null,
+    ownerSnapshot: createOwnerCustodySnapshot(card),
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
   }));
@@ -146,7 +147,23 @@ function createFragmentCard(fragment) {
 }
 
 
+export function createOwnerCustodySnapshot(card) {
+  const snapshot = card.ownerSnapshot ?? {};
+  return {
+    title: 'Owner & Custody Snapshot',
+    owner: snapshot.owner ?? 'Owner not published',
+    operator: snapshot.operator ?? (card.subjectType === 'swarm' ? 'Operator not published' : 'Agent operator not published'),
+    custodyEpoch: snapshot.custodyEpoch ?? card.custody ?? 'Custody epoch pending',
+    permissionState: snapshot.permissionState ?? 'Permission state not published',
+    visibility: snapshot.visibility ?? 'Public profile only',
+    recentChange: snapshot.recentChange ?? 'No recent public change',
+    reviewAction: snapshot.reviewAction ?? 'No public review action',
+    note: snapshot.note ?? 'State reference only. Multipass shows ownership, custody, visibility, and review context without executing approvals or transferring authority.',
+  };
+}
+
 function normalizeTransferPreview(preview, card) {
+
   if (!preview) return null;
 
   return {
