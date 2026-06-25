@@ -1,5 +1,9 @@
 const HELIXA_CHAIN_ID = 8453;
+const HELIXA_CHAIN_LABEL = 'Base (8453)';
+const HELIXA_V2_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 const HELIXA_AGENT_API_BASE = 'https://api.helixa.xyz/api/v2/agent';
+const HELIXA_METADATA_API_BASE = 'https://api.helixa.xyz/api/v2/metadata';
+const HELIXA_AURA_API_BASE = 'https://api.helixa.xyz/api/v2/aura';
 const HELIXA_AGENTS_DIRECTORY_URL = 'https://api.helixa.xyz/api/v2/agents?limit=100';
 
 export class HelixaResolverError extends Error {
@@ -96,7 +100,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   const acceptedPayments = normalizeAcceptedPayments(agent);
   const standards = extractStandards(agent);
   const marketplaceListing = createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl);
-  const visualIdentity = createAgentAuraVisual(agent, { tokenId, displayName, credTier });
+  const visualIdentity = createAgentAuraVisual(agent, { tokenId, displayName, credTier, profileUrl });
   const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   const agentCard = {
@@ -274,19 +278,54 @@ function normalizeLookup(value) {
 }
 
 
-function createAgentAuraVisual(agent, { tokenId, displayName, credTier }) {
+function createAgentAuraVisual(agent, { tokenId, displayName, credTier, profileUrl }) {
   const framework = String(agent?.framework ?? 'unknown').trim() || 'unknown';
   const credLabel = hasNumericCred(agent?.credScore) ? `Cred ${agent.credScore}` : 'Cred pending';
   const verifiedLabel = agent?.verified ? 'Verified' : 'Unverified';
   return {
     source: 'helixa_aura',
     label: 'Helixa Agent Aura',
-    imageUrl: `https://api.helixa.xyz/api/v2/aura/${encodeURIComponent(tokenId)}.png`,
+    imageUrl: `${HELIXA_AURA_API_BASE}/${encodeURIComponent(tokenId)}.png`,
     initials: initialsForName(displayName),
     tone: normalizeAuraTone(credTier),
     summary: 'Helixa Agent Aura image for this live profile.',
     chips: [credLabel, credTier, verifiedLabel, framework].filter(Boolean),
     seed: `helixa-${tokenId}-${normalizeLookup(displayName)}`,
+    provenanceDrawer: createAuraProvenanceDrawer(agent, { tokenId, credTier, framework, profileUrl }),
+  };
+}
+
+function createAuraProvenanceDrawer(agent, { tokenId, credTier, framework, profileUrl }) {
+  const metadataUrl = `${HELIXA_METADATA_API_BASE}/${encodeURIComponent(tokenId)}`;
+  const auraUrl = `${HELIXA_AURA_API_BASE}/${encodeURIComponent(tokenId)}.png`;
+  const apiUrl = `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`;
+  const helixaProfileUrl = safePublicUrl(profileUrl) ?? `https://helixa.xyz/agent/${encodeURIComponent(tokenId)}`;
+  const owner = shortAddress(agent?.owner);
+  const facts = compact([
+    { label: 'Helixa ID', value: `${HELIXA_CHAIN_ID}:${tokenId}` },
+    { label: 'AgentDNA token ID', value: String(tokenId) },
+    { label: 'Chain', value: HELIXA_CHAIN_LABEL },
+    { label: 'Contract', value: HELIXA_V2_CONTRACT },
+    owner ? { label: 'Owner', value: owner } : null,
+    hasNumericCred(agent?.credScore) ? { label: 'Cred', value: `Cred ${agent.credScore} · ${credTier}` } : null,
+    framework && framework !== 'unknown' ? { label: 'Framework', value: formatLabel(framework) } : null,
+    { label: 'Metadata source', value: metadataUrl },
+    { label: 'Aura image source', value: auraUrl },
+    { label: 'API source', value: apiUrl },
+  ]);
+
+  return {
+    title: 'Agent Aura Provenance',
+    summary: 'Public Helixa API-reported provenance for this AgentDNA visual.',
+    facts,
+    links: compact([
+      { label: 'Metadata JSON', url: metadataUrl },
+      { label: 'Aura image', url: auraUrl },
+      { label: 'Helixa profile', url: helixaProfileUrl },
+      { label: 'OpenSea item', url: `https://opensea.io/assets/base/${HELIXA_V2_CONTRACT}/${encodeURIComponent(tokenId)}` },
+      agent?.explorer ? { label: 'Explorer', url: agent.explorer } : null,
+    ]),
+    safetyNote: 'Display only. Public provenance does not grant authority, verify private credentials, or expose secrets.',
   };
 }
 

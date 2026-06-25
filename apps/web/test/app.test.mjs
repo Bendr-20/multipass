@@ -890,7 +890,7 @@ test('resolved live agent takes over the page hero and record surface', async ()
 });
 
 
-test('live profile renders OpenSea-style Agent Aura item panel without placeholder explanation', async () => {
+test('live profile renders OpenSea-style Agent Aura item panel with provenance drawer', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=81');
   const data = {
     ...sampleData(),
@@ -903,6 +903,38 @@ test('live profile renders OpenSea-style Agent Aura item panel without placehold
       tone: 'prime',
       summary: 'Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.',
       chips: ['Cred 75', 'openclaw', 'Verified'],
+      provenanceDrawer: {
+        title: 'Agent Aura Provenance',
+        summary: 'Public Helixa API-reported provenance for this AgentDNA visual.',
+        facts: [
+          { label: 'Helixa ID', value: '8453:81' },
+          { label: 'AgentDNA token ID', value: '81' },
+          { label: 'Chain', value: 'Base (8453)' },
+          { label: 'Contract', value: '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60' },
+          { label: 'Owner', value: '0x17d7...bDe4' },
+          { label: 'Metadata source', value: 'https://api.helixa.xyz/api/v2/metadata/81' },
+          { label: 'Aura image source', value: 'https://api.helixa.xyz/api/v2/aura/81.png' },
+          { label: 'API source', value: 'https://api.helixa.xyz/api/v2/agent/81' },
+        ],
+        links: [
+          { label: 'Metadata JSON', url: 'https://api.helixa.xyz/api/v2/metadata/81' },
+          { label: 'Aura image', url: 'https://api.helixa.xyz/api/v2/aura/81.png' },
+          { label: 'OpenSea item', url: 'https://opensea.io/assets/base/0x2e3B541C59D38b84E3Bc54e977200230A204Fe60/81' },
+        ],
+        safetyNote: 'Display only. Public provenance does not grant authority or expose private credentials.',
+      },
+    },
+    marketplaceListing: {
+      title: 'Verified agent listing for Quigbot',
+      summary: 'Live AgentDNA record with public trust context.',
+      identity: { helixaId: '8453:81', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
+      score: { tier: 'Prime', label: 'Cred 75' },
+      badges: [],
+      facts: [],
+      routes: [],
+      paymentReferences: [],
+      links: [],
+      safetyNote: 'Display only.',
     },
   };
   await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
@@ -910,15 +942,105 @@ test('live profile renders OpenSea-style Agent Aura item panel without placehold
   await Promise.resolve();
 
   const auraCard = root.querySelector('.aura-card');
+  const drawer = root.querySelector('.aura-provenance-drawer');
   assert.equal(auraCard?.getAttribute('data-visual-source'), 'helixa_aura');
   assert.match(auraCard?.getAttribute('aria-label') ?? '', /marketplace visual/i);
   assert.ok(root.querySelector('.aura-asset-frame'));
   assert.ok(root.querySelector('.aura-item-meta'));
+  assert.equal(auraCard?.nextElementSibling, drawer);
+  assert.equal(drawer?.nextElementSibling, root.querySelector('.marketplace-listing'));
   assert.match(root.textContent, /Helixa Agent Aura/);
+  assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
+  assert.match(drawer?.textContent ?? '', /8453:81/);
+  assert.match(drawer?.textContent ?? '', /AgentDNA token ID/);
+  assert.match(drawer?.textContent ?? '', /Base \(8453\)/);
+  assert.match(drawer?.textContent ?? '', /0x2e3B541C59D38b84E3Bc54e977200230A204Fe60/);
+  assert.match(drawer?.textContent ?? '', /0x17d7\.\.\.bDe4/);
+  assert.match(drawer?.textContent ?? '', /https:\/\/api\.helixa\.xyz\/api\/v2\/metadata\/81/);
+  assert.match(drawer?.textContent ?? '', /https:\/\/api\.helixa\.xyz\/api\/v2\/aura\/81\.png/);
+  assert.match(drawer?.textContent ?? '', /https:\/\/api\.helixa\.xyz\/api\/v2\/agent\/81/);
+  assert.equal([...drawer.querySelectorAll('a')].some((link) => link.href === 'https://opensea.io/assets/base/0x2e3B541C59D38b84E3Bc54e977200230A204Fe60/81'), true);
+  assert.match(drawer?.textContent ?? '', /does not grant authority/i);
   assert.equal(root.querySelector('.aura-card img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
   assert.doesNotMatch(root.textContent, /Default visual identity/);
   assert.doesNotMatch(root.textContent, /Default Helixa Agent Aura/);
   assert.doesNotMatch(root.textContent, /agent NFT, collection NFT, or custom visual/);
+});
+
+test('Agent Aura provenance drawer is optional and skips empty rows', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const data = {
+    ...sampleData(),
+    visualIdentity: { source: 'helixa_aura', label: 'Helixa Agent Aura', imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png', initials: 'Q', tone: 'prime', chips: [] },
+  };
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.ok(root.querySelector('.aura-card'));
+  assert.equal(root.querySelector('.aura-provenance-drawer'), null);
+
+  const rootWithSparseDrawer = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const sparseData = {
+    ...data,
+    visualIdentity: {
+      ...data.visualIdentity,
+      provenanceDrawer: {
+        title: 'Agent Aura Provenance',
+        summary: 'Public Helixa API-reported provenance for this AgentDNA visual.',
+        facts: [{ label: 'Helixa ID', value: '8453:81' }, { label: 'Owner', value: '' }, { label: 'Framework', value: null }],
+        links: [{ label: 'Metadata JSON', url: 'https://api.helixa.xyz/api/v2/metadata/81' }, { label: 'Explorer', url: '' }],
+        safetyNote: 'Display only.',
+      },
+    },
+  };
+  await createApp({ root: rootWithSparseDrawer, loadDemo: async () => sampleData(), loadLiveDemo: async () => sparseData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const drawer = rootWithSparseDrawer.querySelector('.aura-provenance-drawer');
+  assert.match(drawer?.textContent ?? '', /8453:81/);
+  assert.doesNotMatch(drawer?.textContent ?? '', /Owner/);
+  assert.doesNotMatch(drawer?.textContent ?? '', /Framework/);
+  assert.equal(drawer?.querySelectorAll('a').length, 1);
+});
+
+test('Agent Aura provenance drawer renders only safe public links', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const data = {
+    ...sampleData(),
+    visualIdentity: {
+      source: 'helixa_aura',
+      label: 'Helixa Agent Aura',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png',
+      initials: 'Q',
+      tone: 'prime',
+      chips: [],
+      provenanceDrawer: {
+        title: 'Agent Aura Provenance',
+        summary: 'Public Helixa API-reported provenance for this AgentDNA visual.',
+        facts: [{ label: 'Helixa ID', value: '8453:81' }],
+        links: [
+          { label: 'Good metadata', url: 'https://api.helixa.xyz/api/v2/metadata/81' },
+          { label: 'Bad script', url: 'javascript:alert(1)' },
+          { label: 'Bad ftp', url: 'ftp://example.com/file' },
+          { label: 'Bad malformed', url: 'not a url' },
+          { label: 'Bad credentials', url: 'https://user:pass@example.com/secret' },
+        ],
+        safetyNote: 'Display only.',
+      },
+    },
+  };
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const links = [...root.querySelectorAll('.aura-provenance-drawer a')];
+  assert.equal(links.length, 1);
+  assert.equal(links[0].textContent, 'Good metadata');
+  assert.equal(links[0].getAttribute('target'), '_blank');
+  assert.equal(links[0].getAttribute('rel'), 'noopener noreferrer');
+  assert.doesNotMatch(root.querySelector('.aura-provenance-drawer')?.innerHTML ?? '', /javascript:|ftp:\/\/|user:pass/);
 });
 
 test('manual resolver writes a clean share URL and reset removes it', async () => {

@@ -233,6 +233,8 @@ function render(root, state, handlers = {}) {
 
       ${renderAgentAura(data.visualIdentity)}
 
+      ${renderAgentAuraProvenanceDrawer(data.visualIdentity?.provenanceDrawer)}
+
       ${renderMarketplaceListing(data.marketplaceListing)}
 
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
@@ -402,6 +404,39 @@ function renderAgentAura(visualIdentity) {
       </div>
     </section>
   `;
+}
+
+function renderAgentAuraProvenanceDrawer(drawer) {
+  if (!drawer) return '';
+  const facts = (drawer.facts ?? []).filter((fact) => hasRenderableValue(fact?.label) && hasRenderableValue(fact?.value));
+  const links = (drawer.links ?? []).filter((link) => hasRenderableValue(link?.label) && isRenderablePublicUrl(link?.url));
+  return `
+    <section class="aura-provenance-drawer" aria-labelledby="aura-provenance-title">
+      <div class="aura-provenance-copy">
+        <p class="card-label">Public provenance</p>
+        <h2 id="aura-provenance-title">${escapeHtml(drawer.title ?? 'Agent Aura Provenance')}</h2>
+        <p>${escapeHtml(drawer.summary ?? 'Public source data for this AgentDNA visual.')}</p>
+      </div>
+      <div class="aura-provenance-body">
+        ${facts.length ? `<div class="aura-provenance-grid">${facts.map(renderProvenanceFact).join('')}</div>` : ''}
+        ${links.length ? `<div class="aura-provenance-links" aria-label="Agent Aura provenance links">${links.map((link) => renderSafeLink(link.label, link.url)).join('')}</div>` : ''}
+        ${hasRenderableValue(drawer.safetyNote) ? `<p class="aura-provenance-note">${escapeHtml(drawer.safetyNote)}</p>` : ''}
+      </div>
+    </section>
+  `;
+}
+
+function renderProvenanceFact(fact) {
+  return `
+    <article class="aura-provenance-fact">
+      <span>${escapeHtml(fact.label)}</span>
+      <strong>${escapeHtml(fact.value)}</strong>
+    </article>
+  `;
+}
+
+function hasRenderableValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
 }
 
 function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
@@ -706,7 +741,7 @@ function isRenderablePublicUrl(url) {
   if (!url) return false;
   try {
     const parsed = new URL(String(url));
-    return ['https:', 'http:'].includes(parsed.protocol);
+    return ['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
   } catch {
     return false;
   }

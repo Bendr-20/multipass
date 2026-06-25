@@ -481,6 +481,90 @@ h1 {
   font-weight: 900;
 }
 
+.aura-provenance-drawer {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 22px;
+  margin: -10px 0 28px;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 241, 0.74);
+  box-shadow: 0 18px 48px rgba(25, 27, 28, 0.07);
+  padding: 22px;
+}
+
+.aura-provenance-copy h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(1.5rem, 3vw, 2.3rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.aura-provenance-copy p,
+.aura-provenance-note {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.aura-provenance-body {
+  display: grid;
+  gap: 14px;
+}
+
+.aura-provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.aura-provenance-fact {
+  border: 1px solid var(--soft-line);
+  background: rgba(248, 242, 232, 0.72);
+  padding: 12px;
+}
+
+.aura-provenance-fact span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.aura-provenance-fact strong {
+  display: block;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.aura-provenance-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aura-provenance-links a {
+  border: 1px solid rgba(54, 95, 125, 0.24);
+  border-radius: 999px;
+  background: rgba(54, 95, 125, 0.08);
+  padding: 8px 11px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.aura-provenance-note {
+  margin: 0;
+  border-top: 1px solid var(--soft-line);
+  padding-top: 12px;
+  font-size: 13px;
+}
+
 .marketplace-listing {
   margin: 28px 0;
   border: 1px solid var(--line);
@@ -1566,6 +1650,26 @@ h1 {
   .aura-item-meta h2 {
     font-size: clamp(1.85rem, 9vw, 2.7rem);
     line-height: 1;
+  }
+
+  .aura-provenance-drawer {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin: -4px 0 22px;
+    padding: 16px;
+  }
+
+  .aura-provenance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aura-provenance-copy h2 {
+    font-size: clamp(1.55rem, 7vw, 2.2rem);
+  }
+
+  .aura-provenance-links a {
+    width: 100%;
+    text-align: center;
   }
 
   .marketplace-listing {
