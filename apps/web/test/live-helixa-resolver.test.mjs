@@ -8,6 +8,7 @@ import {
   HelixaResolverError,
   createLiveMarketplaceListing,
   fetchHelixaAgent,
+  fetchHelixaAgentDirectory,
   loadLiveHelixaMultipass,
   mapHelixaAgentToMultipassDemo,
   parseHelixaResolverInput,
@@ -84,6 +85,59 @@ test('fetchHelixaAgent handles network failures and invalid JSON', async () => {
   await assert.rejects(
     () => fetchHelixaAgent('1', async () => ({ ok: true, status: 200, text: async () => '{bad json' })),
     (error) => error instanceof HelixaResolverError && error.code === 'invalid_json',
+  );
+});
+
+
+test('fetchHelixaAgentDirectory requests the public directory without private headers', async () => {
+  const calls = [];
+  const directory = await fetchHelixaAgentDirectory(async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200, text: async () => JSON.stringify({ agents: [{ tokenId: 1, name: 'Bendr 2.0' }] }) };
+  });
+
+  assert.equal(calls[0].url, 'https://api.helixa.xyz/api/v2/agents?limit=100');
+  assert.equal(calls[0].options?.credentials, 'omit');
+  assert.deepEqual(Object.keys(calls[0].options?.headers ?? {}), ['Accept']);
+  assert.deepEqual(directory, [{ tokenId: 1, name: 'Bendr 2.0' }]);
+});
+
+test('loadLiveHelixaMultipass resolves exact names through directory lookup', async () => {
+  const calls = [];
+  const data = await loadLiveHelixaMultipass('Bendr 2.0', async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith('/agents?limit=100')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ agents: [{ tokenId: 1, name: 'Bendr 2.0' }, { tokenId: 81, name: 'Quigbot' }] }) };
+    }
+    if (url.endsWith('/agent/1')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify(await bendrFixture()) };
+    }
+    throw new Error(`unexpected ${url}`);
+  });
+
+  assert.equal(calls[0].url, 'https://api.helixa.xyz/api/v2/agents?limit=100');
+  assert.equal(calls[1].url, 'https://api.helixa.xyz/api/v2/agent/1');
+  assert.equal(data.profile.display_name, 'Bendr 2.0');
+  assert.equal(data.resolver?.canonicalId, '8453:1');
+  assert.equal(data.resolver?.lookupInput, 'Bendr 2.0');
+});
+
+test('loadLiveHelixaMultipass returns match choices for ambiguous name searches', async () => {
+  await assert.rejects(
+    () => loadLiveHelixaMultipass('bot', async (url) => {
+      if (url.endsWith('/agents?limit=100')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ agents: [
+          { tokenId: 10, name: 'MoltBot Agent', framework: 'custom', credScore: 32, verified: false },
+          { tokenId: 81, name: 'Quigbot', framework: 'openclaw', credScore: 75, verified: true },
+        ] }) };
+      }
+      throw new Error(`unexpected ${url}`);
+    }),
+    (error) => error instanceof HelixaResolverError
+      && error.code === 'ambiguous_lookup'
+      && error.details.matches.length === 2
+      && error.details.matches[0].tokenId === '81'
+      && error.details.matches[1].tokenId === '10',
   );
 });
 
@@ -219,10 +273,10 @@ test('loadLiveHelixaMultipass parses fetches and maps live agent data', async ()
   assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=1');
 });
 
-test('loadLiveHelixaMultipass rejects invalid input before fetch', async () => {
+test('loadLiveHelixaMultipass rejects URL input before fetch', async () => {
   let called = false;
   await assert.rejects(
-    () => loadLiveHelixaMultipass('Bendr', async () => { called = true; }),
+    () => loadLiveHelixaMultipass('https://helixa.xyz/agent/1', async () => { called = true; }),
     (error) => error instanceof HelixaResolverError && error.code === 'invalid_format',
   );
   assert.equal(called, false);

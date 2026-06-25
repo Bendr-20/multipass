@@ -1,5 +1,6 @@
 const HELIXA_CHAIN_ID = 8453;
 const HELIXA_AGENT_API_BASE = 'https://api.helixa.xyz/api/v2/agent';
+const HELIXA_AGENTS_DIRECTORY_URL = 'https://api.helixa.xyz/api/v2/agents?limit=100';
 
 export class HelixaResolverError extends Error {
   constructor(code, message, details = {}) {
@@ -42,9 +43,22 @@ export function parseHelixaResolverInput(input) {
 }
 
 export async function fetchHelixaAgent(tokenId, fetchImpl = fetch) {
+  const body = await fetchHelixaJson(`${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`, fetchImpl, `GET Helixa agent failed`);
+  return body;
+}
+
+export async function fetchHelixaAgentDirectory(fetchImpl = fetch) {
+  const body = await fetchHelixaJson(HELIXA_AGENTS_DIRECTORY_URL, fetchImpl, 'GET Helixa agents failed');
+  if (!Array.isArray(body?.['agents'])) {
+    throw new HelixaResolverError('invalid_json', 'Helixa returned a directory response this prototype cannot read yet.');
+  }
+  return body['agents'];
+}
+
+async function fetchHelixaJson(url, fetchImpl, failurePrefix) {
   let response;
   try {
-    response = await fetchImpl(`${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`, {
+    response = await fetchImpl(url, {
       method: 'GET',
       credentials: 'omit',
       headers: { Accept: 'application/json' },
@@ -60,7 +74,7 @@ export async function fetchHelixaAgent(tokenId, fetchImpl = fetch) {
         retryAfter: response.headers?.get?.('Retry-After') ?? null,
       });
     }
-    throw new HelixaResolverError('http_error', `GET Helixa agent failed with ${response.status}`, { status: response.status });
+    throw new HelixaResolverError('http_error', `${failurePrefix} with ${response.status}`, { status: response.status });
   }
 
   const text = await response.text();
@@ -173,12 +187,88 @@ export function mapHelixaAgentToMultipassDemo(agent) {
 }
 
 export async function loadLiveHelixaMultipass(input, fetchImpl = fetch) {
-  const parsed = parseHelixaResolverInput(input);
+  const raw = String(input ?? '').trim();
+  const parsed = await parseResolvableInput(raw, fetchImpl);
   const agent = await fetchHelixaAgent(parsed.tokenId, fetchImpl);
   return {
     ...mapHelixaAgentToMultipassDemo(agent),
     resolver: parsed,
   };
+}
+
+async function parseResolvableInput(input, fetchImpl = fetch) {
+  try {
+    return parseHelixaResolverInput(input);
+  } catch (error) {
+    if (!(error instanceof HelixaResolverError) || error.code !== 'invalid_format' || !isSearchableLookup(input)) throw error;
+  }
+
+  const matches = findDirectoryMatches(await fetchHelixaAgentDirectory(fetchImpl), input);
+  if (matches.length === 0) {
+    throw new HelixaResolverError('not_found', 'No Helixa agent matched that name or handle. Try a token ID like 81.');
+  }
+  if (matches.length > 1) {
+    throw new HelixaResolverError('ambiguous_lookup', 'Pick a matching Helixa agent.', { matches });
+  }
+  const tokenId = matches[0].tokenId;
+  return { chainId: HELIXA_CHAIN_ID, tokenId, canonicalId: `${HELIXA_CHAIN_ID}:${tokenId}`, lookupInput: input };
+}
+
+function findDirectoryMatches(agents, input) {
+  const query = normalizeLookup(input);
+  if (!query) return [];
+  const candidates = agents
+    .map((agent) => createLookupMatch(agent, query))
+    .filter(Boolean)
+    .sort(compareLookupMatches);
+  const exact = candidates.filter((match) => match.rank === 0);
+  return (exact.length ? exact : candidates).slice(0, 8).map(({ rank, ...match }) => match);
+}
+
+function createLookupMatch(agent, query) {
+  const tokenId = String(agent?.tokenId ?? '').trim();
+  const name = String(agent?.name ?? '').trim();
+  if (!tokenId || !name) return null;
+  const keys = lookupKeys(agent);
+  const exact = keys.some((key) => key === query);
+  const partial = !exact && keys.some((key) => key.includes(query));
+  if (!exact && !partial) return null;
+  return {
+    rank: exact ? 0 : 1,
+    tokenId,
+    name,
+    helixaId: `${HELIXA_CHAIN_ID}:${tokenId}`,
+    framework: agent?.framework ?? 'unknown',
+    credScore: hasNumericCred(agent?.credScore) ? Number(agent.credScore) : null,
+    verified: Boolean(agent?.verified),
+  };
+}
+
+function lookupKeys(agent) {
+  const keys = [agent?.name, agent?.slug, agent?.['agentAddress']];
+  for (const value of Object.values(agent?.socials ?? {})) keys.push(value);
+  for (const config of Object.values(agent?.services ?? {})) keys.push(config?.handle, config?.url);
+  return keys.map(normalizeLookup).filter(Boolean);
+}
+
+function compareLookupMatches(a, b) {
+  if (a.rank !== b.rank) return a.rank - b.rank;
+  if (a.verified !== b.verified) return a.verified ? -1 : 1;
+  const aCred = a.credScore ?? -Infinity;
+  const bCred = b.credScore ?? -Infinity;
+  if (aCred !== bCred) return bCred - aCred;
+  return Number(a.tokenId) - Number(b.tokenId);
+}
+
+function isSearchableLookup(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw || raw.length > 80) return false;
+  if (/https?:\/\//i.test(raw) || raw.includes('/')) return false;
+  return /[a-z_@#.-]/i.test(raw);
+}
+
+function normalizeLookup(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/^@/, '').replace(/\s+/g, ' ');
 }
 
 function createLiveFragments(agent, tokenId, multipassId, observedAt) {

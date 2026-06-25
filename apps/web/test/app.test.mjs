@@ -269,8 +269,8 @@ test('resolver bar renders without changing default static data', async () => {
   const resolver = root.querySelector('.live-resolver');
   assert.ok(resolver);
   assert.match(resolver.textContent, /Resolve live Helixa agent/);
-  assert.match(resolver.textContent, /Try 1 or 8453:1/);
-  assert.match(resolver.textContent, /Name and slug search is coming later/);
+  assert.match(resolver.textContent, /Try 1, 8453:1, Bendr 2\.0, or Quigbot/);
+  assert.match(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /local API/);
 });
@@ -940,6 +940,48 @@ test('invalid agent query shows the same format validation error', async () => {
 
   assert.deepEqual(calls, ['Bendr']);
   assert.match(root.textContent, /Use a token ID like 1 or a Helixa ID like 8453:1/);
+});
+
+
+test('ambiguous name lookup renders selectable live agent matches', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      if (input === 'bot') {
+        throw new HelixaResolverError('ambiguous_lookup', 'Pick a matching Helixa agent.', {
+          matches: [
+            { tokenId: '81', name: 'Quigbot', helixaId: '8453:81', framework: 'openclaw', credScore: 75, verified: true },
+            { tokenId: '10', name: 'MoltBot Agent', helixaId: '8453:10', framework: 'custom', credScore: 32, verified: false },
+          ],
+        });
+      }
+      return {
+        ...sampleData(),
+        profile: { ...sampleData().profile, display_name: 'Quigbot' },
+        liveProfilePage: { headline: 'Quigbot Multipass', sharePath: '/multipass/?agent=81' },
+      };
+    },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = 'bot';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Pick a matching Helixa agent/);
+  assert.match(root.textContent, /Quigbot/);
+  assert.match(root.textContent, /MoltBot Agent/);
+  root.querySelector('[data-action="select-lookup-match"][data-token-id="81"]').click();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['bot', '81']);
+  assert.equal(root.querySelector('.hero-record h1').textContent, 'Quigbot Multipass');
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
 });
 
 test('API failure renders setup message', async () => {

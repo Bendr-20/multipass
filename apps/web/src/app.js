@@ -15,6 +15,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
     resolverInFlightInput: null,
     retryUntil: 0,
     retryMessage: null,
+    lookupMatches: [],
   };
 
   async function start() {
@@ -42,6 +43,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       retryMessage: null,
       resolverInFlightInput: trimmed,
       resolverRequestId: state.resolverRequestId + 1,
+      lookupMatches: [],
     };
     const requestId = state.resolverRequestId;
     render(root, state, handlers);
@@ -59,6 +61,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         selectedAgentCard: 0,
         expandedCard: null,
         resolverInFlightInput: null,
+        lookupMatches: [],
       };
       syncShareUrl(liveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
@@ -72,6 +75,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         resolverInFlightInput: null,
         retryUntil: retryState.retryUntil,
         retryMessage: retryState.retryMessage,
+        lookupMatches: lookupMatchesFromError(error),
       };
       render(root, state, handlers);
     }
@@ -90,6 +94,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       resolverRequestId: state.resolverRequestId + 1,
       retryUntil: 0,
       retryMessage: null,
+      lookupMatches: [],
     };
     clearShareUrl();
     render(root, state, handlers);
@@ -272,6 +277,9 @@ function render(root, state, handlers = {}) {
   });
 
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
+  root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
+  });
 }
 
 
@@ -282,24 +290,45 @@ function renderLiveResolver(state) {
         <div>
           <p class="card-label">Resolve live Helixa agent</p>
           <h2>Read a live AgentDNA record.</h2>
-          <p>Try <code>1</code> or <code>8453:1</code>. Name and slug search is coming later.</p>
+          <p>Try <code>1</code>, <code>8453:1</code>, <code>Bendr 2.0</code>, or <code>Quigbot</code>.</p>
         </div>
         <label>
-          <span>Helixa ID</span>
-          <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="1 or 8453:1" autocomplete="off" />
+          <span>Helixa ID, name, or handle</span>
+          <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
         </label>
         <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Resolving...' : 'Resolve'}</button>
         <button type="button" data-action="reset-static-demo">Static demo</button>
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
+      ${renderLookupMatches(state.lookupMatches)}
       ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live Helixa API data loaded. Display only, no approvals or authority changes.</p>' : ''}
     </section>
   `;
 }
 
+function renderLookupMatches(matches = []) {
+  if (!matches.length) return '';
+  return `
+    <div class="lookup-matches" aria-label="Matching Helixa agents">
+      ${matches.map((match) => `
+        <button type="button" data-action="select-lookup-match" data-token-id="${escapeAttribute(match.tokenId)}">
+          <strong>${escapeHtml(match.name)}</strong>
+          <span>${escapeHtml(match.helixaId)} · ${escapeHtml(match.framework ?? 'unknown')} · ${match.credScore === null || match.credScore === undefined ? 'Cred pending' : `Cred ${escapeHtml(match.credScore)}`}</span>
+          <em>${match.verified ? 'Verified' : 'Unverified'}</em>
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
 function isRetryBlocked(state) {
   return state.retryUntil > Date.now();
+}
+
+function lookupMatchesFromError(error) {
+  if (!(error instanceof HelixaResolverError) || error.code !== 'ambiguous_lookup') return [];
+  return Array.isArray(error.details?.matches) ? error.details.matches : [];
 }
 
 function userResolverMessage(error) {
