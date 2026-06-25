@@ -602,6 +602,88 @@ test('resolver submit loads live data and updates source label', async () => {
   assert.match(root.textContent, /Live Helixa API data loaded/);
 });
 
+
+test('static demo does not require marketplace listing data', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.marketplace-listing'), null);
+  assert.doesNotMatch(root.innerHTML, /Marketplace listing preview/);
+  assert.match(root.innerHTML, /Agent cards that lead with trust/);
+});
+
+test('live resolver renders marketplace listing preview without executable controls', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const liveData = {
+    ...sampleData(),
+    profile: { ...sampleData().profile, display_name: 'Live Bendr' },
+    sourceLabel: 'live Helixa API',
+    modeLabel: 'Live Resolver',
+    marketplaceListing: {
+      title: 'Verified agent listing for Bendr 2.0',
+      subtitle: '8453:1 · openclaw',
+      summary: 'Live AgentDNA record packaged for marketplaces.',
+      identity: { name: 'Bendr 2.0', helixaId: '8453:1', tokenId: '1', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
+      score: { label: 'Cred 80', tier: 'Preferred', value: 80, tone: 'preferred' },
+      badges: [{ label: 'Verified AgentDNA', tone: 'verified' }, { label: 'Open to work', tone: 'verified' }],
+      facts: [{ label: 'Owner', value: '0x27E3...91Ea' }, { label: 'Operator', value: 'Not delegated' }],
+      routes: [{ label: 'Web', value: 'https://helixa.xyz/agent/1', url: 'https://helixa.xyz/agent/1', kind: 'service' }, { label: 'MCP', value: 'https://api.helixa.xyz/api/mcp', url: 'https://api.helixa.xyz/api/mcp', kind: 'service' }],
+      paymentReferences: [{ label: 'Accepted reference', value: 'USDC', chainId: 8453, source: 'Helixa metadata' }, { label: 'Linked token', value: 'CRED', chainId: 8453, source: 'Helixa linked token' }],
+      proof: { publicFragmentCount: 7, verifiedSignalCount: 3, reviewRequiredCount: 2, privateCredentialState: 'No secrets or private credentials exposed' },
+      links: [{ label: 'Explorer', url: 'https://basescan.org/token/0x2e3B541C59D38b84E3Bc54e977200230A204Fe60?a=1' }],
+      safetyNote: 'Public routes and proof are visible; authority and private credentials stay protected.',
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  root.querySelector('.live-resolver input').value = '1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const listing = root.querySelector('.marketplace-listing');
+  assert.ok(listing);
+  assert.match(listing.textContent, /Marketplace listing preview/);
+  assert.match(listing.textContent, /Verified agent listing for Bendr 2\.0/);
+  assert.match(listing.textContent, /Cred 80/);
+  assert.match(listing.textContent, /Preferred/);
+  assert.match(listing.textContent, /Live Helixa API/);
+  assert.match(listing.textContent, /No secrets or private credentials exposed/);
+  assert.match(listing.textContent, /USDC/);
+  assert.match(listing.textContent, /CRED/);
+  assert.equal(listing.querySelector('button'), null);
+  assert.equal(listing.querySelector('form'), null);
+  assert.equal(listing.querySelector('[data-action]'), null);
+  assert.doesNotMatch(listing.textContent, /instant approval|instant transfer|instant claim|checkout|credential release/i);
+});
+
+test('marketplace listing renderer does not link unsafe URLs', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const data = {
+    ...sampleData(),
+    marketplaceListing: {
+      title: 'Verified agent listing for Safe Test',
+      summary: 'Safe renderer boundary test.',
+      identity: { verifiedLabel: 'Verified AgentDNA' },
+      score: { tier: 'Qualified', label: 'Cred 50' },
+      badges: [],
+      facts: [],
+      routes: [{ label: 'Unsafe', value: 'javascript:alert(1)', url: 'javascript:alert(1)', kind: 'service' }],
+      paymentReferences: [],
+      proof: { publicFragmentCount: 0, verifiedSignalCount: 0, reviewRequiredCount: 0, privateCredentialState: 'No secrets or private credentials exposed' },
+      links: [{ label: 'Unsafe link', url: 'javascript:alert(1)' }],
+      safetyNote: 'Display only.',
+    },
+  };
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const listing = root.querySelector('.marketplace-listing');
+  assert.ok(listing);
+  assert.equal(listing.querySelector('a[href^="javascript:"]'), null);
+  assert.match(listing.textContent, /Unsafe/);
+  assert.match(listing.textContent, /Unsafe link/);
+});
+
 test('static demo button restores bundled fixture after live resolve', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver' };

@@ -184,6 +184,8 @@ function render(root, state, handlers = {}) {
 
       ${renderLiveResolver(state)}
 
+      ${renderMarketplaceListing(data.marketplaceListing)}
+
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
@@ -486,6 +488,107 @@ function renderTransferStep(label, value) {
       <strong>${escapeHtml(value)}</strong>
     </article>
   `;
+}
+
+function renderMarketplaceListing(listing) {
+  if (!listing) return '';
+  return `
+    <section class="marketplace-listing" aria-label="Marketplace listing preview">
+      <div class="listing-shell">
+        <div class="listing-copy">
+          <p class="card-label">Marketplace listing preview</p>
+          <h2>${escapeHtml(listing.title ?? 'Agent listing')}</h2>
+          <p>${escapeHtml(listing.summary ?? 'Public AgentDNA profile prepared for read-only marketplace discovery.')}</p>
+          ${listing.subtitle ? `<span class="listing-subtitle">${escapeHtml(listing.subtitle)}</span>` : ''}
+        </div>
+        <div class="listing-score">
+          <span>${escapeHtml(listing.score?.tier ?? 'Unrated')}</span>
+          <strong>${escapeHtml(listing.score?.label ?? 'Cred pending')}</strong>
+        </div>
+      </div>
+      <div class="listing-badges">${(listing.badges ?? []).map(renderListingBadge).join('')}</div>
+      <section class="listing-identity">
+        ${renderListingFact({ label: 'Helixa ID', value: listing.identity?.helixaId ?? 'Not published' })}
+        ${renderListingFact({ label: 'Framework', value: listing.identity?.framework ?? 'unknown' })}
+        ${renderListingFact({ label: 'Identity', value: listing.identity?.verifiedLabel ?? 'Unverified AgentDNA' })}
+        ${renderListingFact({ label: 'Source', value: listing.identity?.sourceLabel ?? 'Live Helixa API' })}
+        ${(listing.facts ?? []).map(renderListingFact).join('')}
+      </section>
+      <section class="listing-sections">
+        <article class="listing-section">
+          <h3>Public routes</h3>
+          ${renderListingRoutes(listing.routes)}
+        </article>
+        <article class="listing-section">
+          <h3>Payment references</h3>
+          ${renderListingPayments(listing.paymentReferences)}
+        </article>
+      </section>
+      ${renderListingProofStrip(listing.proof)}
+      ${renderListingLinks(listing.links)}
+      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. No authority changes are available from this listing.')}</p>
+    </section>
+  `;
+}
+
+function renderListingBadge(badge) {
+  return `<span class="listing-badge tone-${escapeAttribute(badge?.tone ?? 'neutral')}">${escapeHtml(badge?.label ?? '')}</span>`;
+}
+
+function renderListingFact(fact) {
+  return `
+    <article class="listing-fact">
+      <span>${escapeHtml(fact?.label ?? '')}</span>
+      <strong>${escapeHtml(fact?.value ?? 'Not published')}</strong>
+    </article>
+  `;
+}
+
+function renderListingRoutes(routes = []) {
+  if (!routes.length) {
+    return '<div class="listing-routes"><article><span>Routes</span><strong>No public service routes published</strong></article></div>';
+  }
+  return `<div class="listing-routes">${routes.map((route) => `
+    <article>
+      <span>${escapeHtml(route?.label ?? 'Route')}</span>
+      <strong>${renderSafeLink(route?.value ?? '', route?.url)}</strong>
+    </article>
+  `).join('')}</div>`;
+}
+
+function renderListingPayments(payments = []) {
+  if (!payments.length) return '<div class="listing-payments"><span class="listing-payment">No public payment references published</span></div>';
+  return `<div class="listing-payments">${payments.map((payment) => `<span class="listing-payment">${escapeHtml(payment?.value ?? '')}${payment?.source ? ` · ${escapeHtml(payment.source)}` : ''}</span>`).join('')}</div>`;
+}
+
+function renderListingProofStrip(proof) {
+  if (!proof) return '';
+  return `<section class="listing-proof-strip">
+    ${renderListingFact({ label: 'Public proof', value: `${proof.publicFragmentCount ?? 0} fragments` })}
+    ${renderListingFact({ label: 'Verified signals', value: proof.verifiedSignalCount ?? 0 })}
+    ${renderListingFact({ label: 'Review queue', value: proof.reviewRequiredCount ?? 0 })}
+    ${renderListingFact({ label: 'Private access', value: proof.privateCredentialState ?? 'No secrets or private credentials exposed' })}
+  </section>`;
+}
+
+function renderListingLinks(links = []) {
+  if (!links.length) return '';
+  return `<div class="listing-links">${links.map((link) => `<span class="listing-link">${renderSafeLink(link?.label ?? 'Link', link?.url)}</span>`).join('')}</div>`;
+}
+
+function renderSafeLink(label, url) {
+  if (!isRenderablePublicUrl(url)) return `<span>${escapeHtml(label)}</span>`;
+  return `<a href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function isRenderablePublicUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(String(url));
+    return ['https:', 'http:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
 }
 
 function renderStoryCard(card, index) {
