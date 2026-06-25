@@ -16,3 +16,13 @@ test('visual direction keeps the original warm Multipass palette', async () => {
   assert.equal(css.includes('--paper: #111724;'), false);
   assert.equal(css.includes('linear-gradient(135deg, var(--blue), #b490ff)'), false);
 });
+
+
+test('change review ledger tones only the review state column', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.change-review-row\.tone-verified > div:last-child strong/);
+  assert.match(css, /\.change-review-row\.tone-review > div:last-child strong/);
+  assert.match(css, /\.change-review-row\.tone-paused > div:last-child strong/);
+  assert.doesNotMatch(css, /\.change-review-row\.tone-verified strong:last-child/);
+});

@@ -156,6 +156,7 @@ function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
       </div>
       ${renderAgentCardDetail(selectedAgent)}
       ${renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot)}
+      ${renderChangeReviewLedger(selectedAgent.changeReviewLedger)}
       ${renderTransferPreview(selectedAgent)}
     </section>
   `;
@@ -275,6 +276,46 @@ function renderSnapshotField(label, value) {
     </article>
   `;
 }
+
+function renderChangeReviewLedger(ledger) {
+  if (!ledger) return '';
+  return `
+    <section class="change-review-ledger">
+      <div class="change-review-head">
+        <p class="card-label">${escapeHtml(ledger.eyebrow)}</p>
+        <h3>${escapeHtml(ledger.title)}</h3>
+        <p>${escapeHtml(ledger.note)}</p>
+      </div>
+      <div class="change-review-rows">
+        ${ledger.rows.map(renderChangeReviewRow).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderChangeReviewRow(row) {
+  return `
+    <article class="change-review-row tone-${escapeHtml(row.tone)}">
+      <div>
+        <span>Change</span>
+        <strong>${escapeHtml(row.event)}</strong>
+      </div>
+      <div>
+        <span>Source</span>
+        <strong>${escapeHtml(row.source)}</strong>
+      </div>
+      <div>
+        <span>Impact</span>
+        <strong>${escapeHtml(row.impact)}</strong>
+      </div>
+      <div>
+        <span>Review</span>
+        <strong>${escapeHtml(row.reviewState)}</strong>
+      </div>
+    </article>
+  `;
+}
+
 
 function renderTransferPreview(card) {
 

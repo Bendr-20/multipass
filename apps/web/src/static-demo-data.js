@@ -685,7 +685,12 @@ export const STATIC_DEMO_DATA = {
         "visibility": "Public profile, private credentials hidden",
         "recentChange": "Cred import refreshed",
         "reviewAction": "Review stale standards reference"
-      }
+      },
+      "changeReviewLedger": [
+        { "event": "Cred import refreshed", "source": "Helixa API", "impact": "Cred context updated", "reviewState": "Verified" },
+        { "event": "Standards reference stale", "source": "Standards profile", "impact": "Adapter claim needs a fresh check", "reviewState": "Reverify" },
+        { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
+      ]
     },
     {
       "name": "Quigbot",
@@ -705,7 +710,12 @@ export const STATIC_DEMO_DATA = {
         "visibility": "Public profile, private credentials hidden",
         "recentChange": "Identity and Cred context imported",
         "reviewAction": "No public review action"
-      }
+      },
+      "changeReviewLedger": [
+        { "event": "Identity context imported", "source": "Helixa fixture", "impact": "Agent card updated", "reviewState": "Verified" },
+        { "event": "Cred import refreshed", "source": "Helixa API", "impact": "Cred context updated", "reviewState": "Verified" },
+        { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
+      ]
     },
     {
       "name": "E2ETest",
@@ -725,7 +735,12 @@ export const STATIC_DEMO_DATA = {
         "visibility": "Public test profile",
         "recentChange": "Low-assurance test record imported",
         "reviewAction": "Verify owner before production use"
-      }
+      },
+      "changeReviewLedger": [
+        { "event": "Low-assurance test record imported", "source": "Test fixture", "impact": "Routes remain inactive", "reviewState": "Review required" },
+        { "event": "Owner verification missing", "source": "Owner registry", "impact": "Production use blocked", "reviewState": "Reverify" },
+        { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
+      ]
     },
     {
       "name": "Helixa Swarm",
@@ -767,7 +782,14 @@ export const STATIC_DEMO_DATA = {
         "visibility": "Public profile, gated private data",
         "recentChange": "Transfer detected 2026-06-24",
         "reviewAction": "Reverify routes before resume"
-      }
+      },
+      "changeReviewLedger": [
+        { "event": "Cred import refreshed", "source": "Helixa API", "impact": "Aggregate Cred context updated", "reviewState": "Verified" },
+        { "event": "Transfer detected", "source": "Owner registry", "impact": "Permissions paused", "reviewState": "Review required" },
+        { "event": "Shared route policy changed", "source": "Policy reference", "impact": "Routes paused for recheck", "reviewState": "Paused" },
+        { "event": "Standards reference stale", "source": "Standards profile", "impact": "Adapter claim needs a fresh check", "reviewState": "Reverify" },
+        { "event": "Private credentials hidden", "source": "Private vault", "impact": "No secrets or private credentials exposed", "reviewState": "No public action" }
+      ]
     }
   ]
 };

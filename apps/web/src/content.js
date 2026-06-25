@@ -94,6 +94,7 @@ export function createAgentCarousel(data) {
     aggregateCred: card.aggregateCred ?? null,
     transferBehavior: card.transferBehavior ?? null,
     ownerSnapshot: createOwnerCustodySnapshot(card),
+    changeReviewLedger: createChangeReviewLedger(card),
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
   }));
@@ -144,6 +145,41 @@ function createFragmentCard(fragment) {
       : `${typeLabel} from ${source}${issuer}.`,
     publicValue: fragment.public_value ?? 'No public value returned.',
   };
+}
+
+
+export function createChangeReviewLedger(card) {
+  const rows = normalizeChangeReviewRows(card.changeReviewLedger);
+  if (rows.length === 0) return null;
+
+  return {
+    title: 'Change + Review Ledger',
+    eyebrow: 'RECENT CHANGES / REVIEW QUEUE',
+    rows,
+    note: 'Readable state only. Multipass shows change history, source, impact, and review state without executing approvals or transferring authority.',
+  };
+}
+
+function normalizeChangeReviewRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({
+      event: row.event ?? 'Change recorded',
+      source: row.source ?? 'Source not published',
+      impact: row.impact ?? 'Impact not published',
+      reviewState: row.reviewState ?? row.state ?? 'Review state not published',
+      tone: normalizeLedgerTone(row.reviewState ?? row.state),
+    }));
+}
+
+function normalizeLedgerTone(state) {
+  const normalized = String(state ?? '').toLowerCase();
+  if (normalized.includes('verified')) return 'verified';
+  if (normalized.includes('required') || normalized.includes('reverify')) return 'review';
+  if (normalized.includes('paused')) return 'paused';
+  if (normalized.includes('no public action')) return 'neutral';
+  return 'neutral';
 }
 
 

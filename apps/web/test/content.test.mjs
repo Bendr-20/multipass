@@ -227,6 +227,45 @@ test('agent carousel exposes transfer state preview without transferring secrets
   assert.match(transfer.note, /does not transfer secrets/i);
 });
 
+test('agent carousel exposes change review ledger rows without executable actions', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      {
+        name: 'Helixa Swarm',
+        tokenId: 'swarm:helixa',
+        helixaId: '8453:swarm:helixa',
+        framework: 'multi-agent',
+        credScore: 78,
+        credTier: 'Prime',
+        verified: true,
+        profileUrl: 'https://helixa.xyz/swarm/helixa',
+        subjectType: 'swarm',
+        members: 3,
+        role: 'Parent Multipass',
+        custody: 'Custody epoch ready',
+        changeReviewLedger: [
+          { event: 'Cred import refreshed', source: 'Helixa API', impact: 'Cred context updated', reviewState: 'Verified' },
+          { event: 'Transfer detected', source: 'Owner registry', impact: 'Permissions paused', reviewState: 'Review required' },
+          { event: 'Standards reference stale', source: 'Standards profile', impact: 'Adapter claim needs a fresh check', reviewState: 'Reverify' },
+        ],
+      },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  const ledger = carousel.cards[0].changeReviewLedger;
+  assert.equal(ledger.title, 'Change + Review Ledger');
+  assert.deepEqual(ledger.rows.map((row) => row.event), [
+    'Cred import refreshed',
+    'Transfer detected',
+    'Standards reference stale',
+  ]);
+  assert.deepEqual(ledger.rows.map((row) => row.reviewState), ['Verified', 'Review required', 'Reverify']);
+  assert.match(ledger.note, /readable state/i);
+  assert.doesNotMatch(JSON.stringify(ledger), /Execute|Approve now|Transfer now/i);
+});
+
 test('fragment trust map follows selected proof ids', () => {
   const data = {
     fragments: {
