@@ -860,6 +860,57 @@ test('agent query auto-resolves live record after static load', async () => {
   assert.match(root.textContent, /live Helixa API/);
 });
 
+test('resolved live agent takes over the page hero and record surface', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const liveData = {
+    ...sampleData(),
+    modeLabel: 'Live Profile',
+    sourceLabel: 'live Helixa API',
+    profile: { ...sampleData().profile, display_name: 'Quigbot', slug: 'helixa-agent-81', multipass_id: 'mp_helixa_agent_81' },
+    liveProfilePage: {
+      eyebrow: 'LIVE MULTIPASS',
+      headline: 'Quigbot Multipass',
+      body: 'Live AgentDNA profile for Quigbot with public trust, routes, custody context, and proof inspection.',
+      note: 'Shareable live profile for 8453:81.',
+      recordIntro: 'Live AgentDNA profile assembled from public Helixa API signals.',
+      headerMeta: 'Live profile · 8453:81',
+      sharePath: '/multipass/?agent=81',
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(root.querySelector('.hero-record h1').textContent, 'Quigbot Multipass');
+  assert.match(root.querySelector('.record-sheet').textContent, /Live AgentDNA profile assembled from public Helixa API signals/);
+  assert.match(root.querySelector('.header-meta').textContent, /Live profile · 8453:81/);
+  assert.equal(root.querySelector('.share-link')?.getAttribute('href'), '/multipass/?agent=81');
+  assert.match(root.querySelector('.share-link')?.textContent ?? '', /\/multipass\/\?agent=81/);
+});
+
+test('manual resolver writes a clean share URL and reset removes it', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const liveData = {
+    ...sampleData(),
+    profile: { ...sampleData().profile, display_name: 'Bendr 2.0' },
+    liveProfilePage: {
+      headline: 'Bendr 2.0 Multipass',
+      sharePath: '/multipass/?agent=1',
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  root.querySelector('.live-resolver input').value = '8453:1';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
+  root.querySelector('[data-action="reset-static-demo"]').click();
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/');
+});
+
 test('empty agent query shows the same empty-input validation error', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=');
   const calls = [];

@@ -130,6 +130,8 @@ h1 {
 
 .note {
   display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   border: 1px solid var(--line);
   background: rgba(255, 250, 241, 0.58);
   color: var(--charcoal);
@@ -138,6 +140,17 @@ h1 {
   font-weight: 850;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.share-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.share-link:hover,
+.share-link:focus-visible {
+  color: var(--blue);
 }
 
 .record-sheet,

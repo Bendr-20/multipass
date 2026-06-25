@@ -60,6 +60,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         expandedCard: null,
         resolverInFlightInput: null,
       };
+      syncShareUrl(liveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
     } catch (error) {
       if (requestId !== state.resolverRequestId) return;
@@ -90,6 +91,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       retryUntil: 0,
       retryMessage: null,
     };
+    clearShareUrl();
     render(root, state, handlers);
   }
 
@@ -135,8 +137,48 @@ function renderError(root, error) {
   `;
 }
 
+function createHeroCopy(data) {
+  const live = data.liveProfilePage ?? {};
+  return {
+    eyebrow: live.eyebrow ?? HERO_COPY.eyebrow,
+    prototypeLabel: live.prototypeLabel ?? V01_COPY.prototypeLabel,
+    audience: live.audience ?? V01_COPY.audience,
+    headline: live.headline ?? HERO_COPY.headline,
+    body: live.body ?? HERO_COPY.body,
+    note: live.note ?? data.heroNote ?? HERO_COPY.note,
+  };
+}
+
+function renderShareLink(sharePath) {
+  if (!isSafeSharePath(sharePath)) return '';
+  return ` <a class="share-link" href="${escapeAttribute(sharePath)}">${escapeHtml(sharePath)}</a>`;
+}
+
+function isSafeSharePath(sharePath) {
+  if (!sharePath) return false;
+  try {
+    const parsed = new URL(String(sharePath), 'https://helixa.xyz');
+    return parsed.origin === 'https://helixa.xyz' && parsed.pathname === '/multipass/' && /^\d+$/.test(parsed.searchParams.get('agent') ?? '');
+  } catch {
+    return false;
+  }
+}
+
+function syncShareUrl(sharePath) {
+  if (typeof window === 'undefined' || !isSafeSharePath(sharePath)) return;
+  window.history.replaceState(null, '', sharePath);
+}
+
+function clearShareUrl() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('agent');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function render(root, state, handlers = {}) {
   const { data } = state;
+  const heroCopy = createHeroCopy(data);
   const storyCards = createStoryCards(data);
   const claritySections = createClaritySections(data);
   const agentCarousel = createAgentCarousel(data);
@@ -147,26 +189,26 @@ function render(root, state, handlers = {}) {
     <div class="record-shell">
       <header class="record-header">
         <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
-        <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.modeLabel ?? 'Local API Demo')}</span></div>
+        <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.modeLabel ?? 'Local API Demo')}</span></div>
       </header>
 
       <section class="hero-record">
         <div>
-          <p class="eyebrow">${HERO_COPY.eyebrow}</p>
+          <p class="eyebrow">${escapeHtml(heroCopy.eyebrow)}</p>
           <div class="prototype-ribbon">
-            <span>${escapeHtml(V01_COPY.prototypeLabel)}</span>
-            <span>${escapeHtml(V01_COPY.audience)}</span>
+            <span>${escapeHtml(heroCopy.prototypeLabel)}</span>
+            <span>${escapeHtml(heroCopy.audience)}</span>
           </div>
-          <h1>${HERO_COPY.headline}</h1>
-          <p class="lead">${HERO_COPY.body}</p>
-          <div class="note">${escapeHtml(data.heroNote ?? HERO_COPY.note)}</div>
+          <h1>${escapeHtml(heroCopy.headline)}</h1>
+          <p class="lead">${escapeHtml(heroCopy.body)}</p>
+          <div class="note">${escapeHtml(heroCopy.note)}${renderShareLink(data.liveProfilePage?.sharePath)}</div>
         </div>
 
         <article class="record-sheet">
           <div class="sheet-top">
             <div>
               <h2>${escapeHtml(data.profile.display_name)}</h2>
-              <p>Agent profile with public identity fragments, standards references, x402 route metadata, and receipt evidence.</p>
+              <p>${escapeHtml(data.liveProfilePage?.recordIntro ?? 'Agent profile with public identity fragments, standards references, x402 route metadata, and receipt evidence.')}</p>
             </div>
             <div class="stamp">Public proof only</div>
           </div>

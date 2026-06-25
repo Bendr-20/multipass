@@ -90,8 +90,12 @@ test('fetchHelixaAgent handles network failures and invalid JSON', async () => {
 test('mapHelixaAgentToMultipassDemo maps Bendr public API data into Multipass display shape', async () => {
   const data = mapHelixaAgentToMultipassDemo(await bendrFixture());
 
-  assert.equal(data.modeLabel, 'Live Resolver');
+  assert.equal(data.modeLabel, 'Live Profile');
   assert.equal(data.sourceLabel, 'live Helixa API');
+  assert.equal(data.liveProfilePage.headline, 'Bendr 2.0 Multipass');
+  assert.equal(data.liveProfilePage.headerMeta, 'Live profile · 8453:1');
+  assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=1');
+  assert.match(data.liveProfilePage.recordIntro, /public Helixa API signals/);
   assert.equal(data.profile.display_name, 'Bendr 2.0');
   assert.equal(data.profile.slug, 'helixa-agent-1');
   assert.equal(data.profile.multipass_id, 'mp_helixa_agent_1');
@@ -132,6 +136,8 @@ test('mapHelixaAgentToMultipassDemo handles missing optional public fields', () 
   assert.equal(data.profile.display_name, 'Quigbot');
   assert.equal(data.agentCards[0].framework, 'unknown');
   assert.equal(data.agentCards[0].profileUrl, 'https://helixa.xyz/agent/81');
+  assert.equal(data.liveProfilePage.headline, 'Quigbot Multipass');
+  assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=81');
   assert.equal(data.agentCards[0].ownerSnapshot.operator, 'Not delegated');
   assert.equal(data.x402.endpoints.length, 0);
 });
@@ -210,6 +216,7 @@ test('loadLiveHelixaMultipass parses fetches and maps live agent data', async ()
   assert.equal(calls[0].url, 'https://api.helixa.xyz/api/v2/agent/1');
   assert.equal(data.profile.display_name, 'Bendr 2.0');
   assert.equal(data.resolver?.canonicalId, '8453:1');
+  assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=1');
 });
 
 test('loadLiveHelixaMultipass rejects invalid input before fetch', async () => {

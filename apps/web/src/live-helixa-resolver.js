@@ -82,11 +82,12 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   const acceptedPayments = normalizeAcceptedPayments(agent);
   const standards = extractStandards(agent);
   const marketplaceListing = createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl);
+  const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   const agentCard = {
     name: displayName,
     tokenId,
-    helixaId: `${HELIXA_CHAIN_ID}:${tokenId}`,
+    helixaId,
     framework: agent?.framework ?? agent?.metadata?.framework ?? 'unknown',
     credScore: hasNumericCred(agent?.credScore) ? Number(agent.credScore) : null,
     credTier,
@@ -99,9 +100,20 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   };
 
   return {
-    modeLabel: 'Live Resolver',
+    modeLabel: 'Live Profile',
     sourceLabel: 'live Helixa API',
     heroNote: `Read-only live Helixa API data for ${displayName}.`,
+    liveProfilePage: {
+      eyebrow: 'LIVE MULTIPASS',
+      prototypeLabel: 'Live AgentDNA Profile',
+      audience: 'Public trust, route, custody, and proof context for marketplaces and agent directories.',
+      headline: `${displayName} Multipass`,
+      body: `Live AgentDNA profile for ${displayName} with public trust, routes, custody context, and proof inspection.`,
+      note: `Shareable live profile for ${helixaId}.`,
+      recordIntro: 'Live AgentDNA profile assembled from public Helixa API signals. Display only; authority and private credentials stay protected.',
+      headerMeta: `Live profile · ${helixaId}`,
+      sharePath: `/multipass/?agent=${encodeURIComponent(tokenId)}`,
+    },
     profile: {
       schema_version: '0.1.0',
       multipass_id: multipassId,
