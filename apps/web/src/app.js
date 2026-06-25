@@ -384,17 +384,19 @@ function safeHttpsUrl(value) {
 function renderAgentAura(visualIdentity) {
   if (!visualIdentity || !['helixa_aura', 'aura'].includes(visualIdentity.source)) return '';
   const safeImageUrl = safeHttpsUrl(visualIdentity.imageUrl);
+  const label = visualIdentity.label ?? 'Helixa Agent Aura';
   return `
-    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual identity">
-      <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}">
-        ${safeImageUrl ? `<img src="${escapeAttribute(safeImageUrl)}" alt="${escapeAttribute(visualIdentity.label ?? 'Helixa Agent Aura')}" loading="lazy" />` : ''}
-        <span>${escapeHtml(visualIdentity.initials ?? 'MP')}</span>
+    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura marketplace visual">
+      <div class="aura-asset-frame">
+        <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}">
+          ${safeImageUrl ? `<img src="${escapeAttribute(safeImageUrl)}" alt="${escapeAttribute(label)}" loading="lazy" />` : ''}
+          <span>${escapeHtml(visualIdentity.initials ?? 'MP')}</span>
+        </div>
       </div>
-      <div class="aura-copy">
-        <p class="card-label">${escapeHtml(visualIdentity.label ?? 'Agent Aura placeholder')}</p>
-        <h2>Default visual identity</h2>
-        <p>${escapeHtml(visualIdentity.summary ?? 'Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.')}</p>
-        <div class="aura-chips">
+      <div class="aura-item-meta">
+        <p class="card-label">Visual</p>
+        <h2>${escapeHtml(label)}</h2>
+        <div class="aura-chips" aria-label="Agent Aura traits">
           ${(visualIdentity.chips ?? []).map((chip) => `<span>${escapeHtml(chip)}</span>`).join('')}
         </div>
       </div>

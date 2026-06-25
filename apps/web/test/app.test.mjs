@@ -890,7 +890,7 @@ test('resolved live agent takes over the page hero and record surface', async ()
 });
 
 
-test('live profile renders Agent Aura placeholder visual and future source copy', async () => {
+test('live profile renders OpenSea-style Agent Aura item panel without placeholder explanation', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=81');
   const data = {
     ...sampleData(),
@@ -909,11 +909,16 @@ test('live profile renders Agent Aura placeholder visual and future source copy'
   await Promise.resolve();
   await Promise.resolve();
 
+  const auraCard = root.querySelector('.aura-card');
+  assert.equal(auraCard?.getAttribute('data-visual-source'), 'helixa_aura');
+  assert.match(auraCard?.getAttribute('aria-label') ?? '', /marketplace visual/i);
+  assert.ok(root.querySelector('.aura-asset-frame'));
+  assert.ok(root.querySelector('.aura-item-meta'));
   assert.match(root.textContent, /Helixa Agent Aura/);
-  assert.match(root.textContent, /Default Helixa Agent Aura/);
   assert.equal(root.querySelector('.aura-card img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
-  assert.match(root.textContent, /agent NFT, collection NFT, or custom visual/);
-  assert.equal(root.querySelector('.aura-card')?.getAttribute('data-visual-source'), 'helixa_aura');
+  assert.doesNotMatch(root.textContent, /Default visual identity/);
+  assert.doesNotMatch(root.textContent, /Default Helixa Agent Aura/);
+  assert.doesNotMatch(root.textContent, /agent NFT, collection NFT, or custom visual/);
 });
 
 test('manual resolver writes a clean share URL and reset removes it', async () => {

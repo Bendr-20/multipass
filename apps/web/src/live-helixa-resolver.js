@@ -284,7 +284,7 @@ function createAgentAuraVisual(agent, { tokenId, displayName, credTier }) {
     imageUrl: `https://api.helixa.xyz/api/v2/aura/${encodeURIComponent(tokenId)}.png`,
     initials: initialsForName(displayName),
     tone: normalizeAuraTone(credTier),
-    summary: 'Default Helixa Agent Aura. Owners can later bind an agent NFT, collection NFT, or custom visual.',
+    summary: 'Helixa Agent Aura image for this live profile.',
     chips: [credLabel, credTier, verifiedLabel, framework].filter(Boolean),
     seed: `helixa-${tokenId}-${normalizeLookup(displayName)}`,
   };
