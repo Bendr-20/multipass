@@ -90,7 +90,7 @@ export function createAgentCarousel(data) {
       name: member.name,
       role: member.role ?? 'Member agent',
     })) : [],
-    sharedControls: Array.isArray(card.sharedControls) ? card.sharedControls : [],
+    sharedControls: normalizePolicyReferences(card.sharedControls),
     aggregateCred: card.aggregateCred ?? null,
     transferBehavior: card.transferBehavior ?? null,
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
@@ -150,10 +150,10 @@ function normalizeTransferPreview(preview, card) {
   if (!preview) return null;
 
   return {
-    title: 'Transfer / Claim Preview',
+    title: 'Transfer State Preview',
     currentOwner: preview.currentOwner ?? 'Owner pending',
     custodyEpoch: preview.custodyEpoch ?? card.custody ?? 'Custody epoch pending',
-    claimAction: preview.claimAction ?? 'Claim agent',
+    claimAction: normalizeClaimAction(preview.claimAction),
     permissionsState: preview.permissionsState ?? 'Permissions paused',
     toolAction: preview.toolAction ?? 'Reverify tools',
     privateAccessAction: preview.privateAccessAction ?? 'Rotate private access',
@@ -161,6 +161,21 @@ function normalizeTransferPreview(preview, card) {
     credContinuity: preview.credContinuity ?? 'Cred continues with ownership-change context.',
     note: preview.note ?? 'Transfer preview preserves public history but does not transfer secrets, private credentials, or active authority.',
   };
+}
+
+function normalizePolicyReferences(controls) {
+  if (!Array.isArray(controls)) return [];
+  const labels = {
+    'Tool approvals': 'Tool approval policy',
+    'Route policy': 'Route policy reference',
+    'Owner approval': 'Owner approval required',
+  };
+  return controls.map((control) => labels[control] ?? control);
+}
+
+function normalizeClaimAction(action) {
+  if (!action || action === 'Claim swarm' || action === 'Claim agent') return 'New owner claim required';
+  return action;
 }
 
 function formatMemberLabel(members) {
@@ -235,8 +250,8 @@ export function createStoryCards(data) {
     },
     {
       title: 'Proof below',
-      label: `${publicFragments.length} public fragments`,
-      body: 'Fragments explain why the card should be trusted without dumping raw protocol detail up front.',
+      label: 'Selected proof',
+      body: 'Fragments explain why the selected card should be trusted without dumping raw protocol detail up front.',
     },
     {
       title: 'Portable by design',

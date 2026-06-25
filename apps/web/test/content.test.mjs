@@ -118,7 +118,7 @@ test('agent carousel includes collection swarm cards with roster and custody con
 });
 
 
-test('swarm cards expose roster roles controls and transfer behavior', () => {
+test('swarm cards expose roster roles policy references and transfer behavior', () => {
   const carousel = createAgentCarousel({
     agentCards: [
       {
@@ -139,7 +139,7 @@ test('swarm cards expose roster roles controls and transfer behavior', () => {
           { name: 'Quigbot', role: 'Product agent' },
           { name: 'E2ETest', role: 'Test agent' },
         ],
-        sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'],
+        sharedControls: ['Tool approval policy', 'Route policy reference', 'Owner approval required'],
         aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.',
         transferBehavior: 'Permissions pause and tool routes reverify when custody changes.',
       },
@@ -151,14 +151,14 @@ test('swarm cards expose roster roles controls and transfer behavior', () => {
   const swarm = carousel.cards[0];
   assert.equal(swarm.detailMode, 'swarm');
   assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead agent', 'Product agent', 'Test agent']);
-  assert.deepEqual(swarm.sharedControls, ['Tool approvals', 'Route policy', 'Owner approval']);
+  assert.deepEqual(swarm.sharedControls, ['Tool approval policy', 'Route policy reference', 'Owner approval required']);
   assert.match(swarm.aggregateCred, /without replacing individual agent scores/i);
   assert.match(swarm.transferBehavior, /Permissions pause/i);
 });
 
 
 
-test('agent carousel exposes claim transfer preview without transferring secrets', () => {
+test('agent carousel exposes transfer state preview without transferring secrets', () => {
   const carousel = createAgentCarousel({
     agentCards: [
       {
@@ -177,7 +177,7 @@ test('agent carousel exposes claim transfer preview without transferring secrets
         transferPreview: {
           currentOwner: '0x3395...480E0',
           custodyEpoch: 'Epoch 03',
-          claimAction: 'Claim swarm',
+          claimAction: 'New owner claim required',
           permissionsState: 'Permissions paused',
           toolAction: 'Reverify shared tools',
           privateAccessAction: 'Rotate private access',
@@ -191,9 +191,9 @@ test('agent carousel exposes claim transfer preview without transferring secrets
   });
 
   const transfer = carousel.cards[0].transferPreview;
-  assert.equal(transfer.title, 'Transfer / Claim Preview');
+  assert.equal(transfer.title, 'Transfer State Preview');
   assert.equal(transfer.currentOwner, '0x3395...480E0');
-  assert.equal(transfer.claimAction, 'Claim swarm');
+  assert.equal(transfer.claimAction, 'New owner claim required');
   assert.equal(transfer.permissionsState, 'Permissions paused');
   assert.equal(transfer.toolAction, 'Reverify shared tools');
   assert.equal(transfer.privateAccessAction, 'Rotate private access');
@@ -372,8 +372,13 @@ test('story and proof cards cover the intended demo sections', () => {
     'Proof below',
     'Portable by design',
   ]);
+  assert.deepEqual(storyCards.map((card) => card.label), [
+    'Fast read',
+    'Selected proof',
+    '1 x402 endpoint',
+  ]);
   const storyText = JSON.stringify(storyCards);
-  assert.match(storyText, /public fragments/i);
+  assert.doesNotMatch(storyText, /\d+ public fragments/i);
   assert.match(storyText, /proof below/i);
   assert.match(storyText, /profile across discovery/i);
   const proofCards = createProofCards(data);

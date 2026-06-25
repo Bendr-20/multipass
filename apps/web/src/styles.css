@@ -421,15 +421,36 @@ h1 {
 }
 
 .fragment-legend {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+}
+
+.fragment-legend summary {
+  cursor: pointer;
+  padding: 16px;
+  color: var(--charcoal);
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.fragment-legend[open] {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
-  margin-top: 18px;
+  padding: 0 16px 16px;
+}
+
+.fragment-legend[open] summary {
+  grid-column: 1 / -1;
+  padding: 16px 0 2px;
 }
 
 .fragment-legend article {
   border: 1px solid var(--line);
-  background: var(--paper-soft);
+  background: var(--paper);
   padding: 16px;
 }
 

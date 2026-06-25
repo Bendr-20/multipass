@@ -225,11 +225,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /8453:1/);
   assert.match(root.textContent, /Inspect proof/);
   assert.match(root.textContent, /card needs verification/i);
-  assert.match(root.textContent, /Status legend/);
-  assert.match(root.textContent, /Visibility legend/);
-  assert.match(root.textContent, /Assurance legend/);
-  assert.match(root.textContent, /Fragment type legend/);
-  assert.match(root.textContent, /Transfer policy/);
+  assert.match(root.textContent, /Proof vocabulary/);
   assert.match(root.textContent, /Endpoint fragments describe routes/i);
   assert.match(root.textContent, /Platform verified means/i);
   for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
@@ -246,7 +242,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
   assert.match(root.textContent, /Cred score 80/);
-  assert.ok(root.querySelector('.fragment-legend'));
+  assert.equal(root.querySelector('.fragment-legend')?.tagName, 'DETAILS');
+  assert.equal(root.querySelector('.fragment-legend')?.hasAttribute('open'), false);
   assert.ok(root.querySelector('.proof-ledger'));
   assert.equal(root.querySelectorAll('.record-sheet .field').length, 7);
   assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
@@ -288,7 +285,7 @@ test('landing page presents Helixa Swarm as a parent collection card', async () 
 });
 
 
-test('selecting Helixa Swarm shows roster roles controls and transfer behavior', async () => {
+test('selecting Helixa Swarm shows roster roles policy references and transfer behavior', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -302,16 +299,18 @@ test('selecting Helixa Swarm shows roster roles controls and transfer behavior',
   assert.match(detail, /Product agent/);
   assert.match(detail, /E2ETest/);
   assert.match(detail, /Test agent/);
-  assert.match(detail, /Tool approvals/);
-  assert.match(detail, /Route policy/);
-  assert.match(detail, /Owner approval/);
+  assert.match(detail, /Policy references/);
+  assert.match(detail, /Tool approval policy/);
+  assert.match(detail, /Route policy reference/);
+  assert.match(detail, /Owner approval required/);
+  assert.doesNotMatch(detail, /Shared controls/);
   assert.match(detail, /Cred 78 Prime summarizes the roster without replacing individual agent scores/);
   assert.match(detail, /Permissions pause and tool routes reverify when custody changes/);
 });
 
 
 
-test('selected card renders transfer claim preview with paused permissions and preserved history', async () => {
+test('selected card renders transfer state preview with paused permissions and preserved history', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -319,12 +318,13 @@ test('selected card renders transfer claim preview with paused permissions and p
 
   const preview = root.querySelector('.transfer-preview');
   assert.ok(preview);
-  assert.match(preview.textContent, /Transfer \/ Claim Preview/);
+  assert.match(preview.textContent, /Transfer State Preview/);
   assert.match(preview.textContent, /Current owner/);
   assert.match(preview.textContent, /0x3395\.\.\.480E0/);
   assert.match(preview.textContent, /Custody epoch/);
   assert.match(preview.textContent, /Epoch 03/);
-  assert.match(preview.textContent, /Claim swarm/);
+  assert.match(preview.textContent, /New owner claim required/);
+  assert.doesNotMatch(preview.textContent, /Claim swarm/);
   assert.match(preview.textContent, /Permissions paused/);
   assert.match(preview.textContent, /Reverify shared tools/);
   assert.match(preview.textContent, /Rotate private access/);

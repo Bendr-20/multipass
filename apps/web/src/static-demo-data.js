@@ -719,13 +719,13 @@ export const STATIC_DEMO_DATA = {
         { "name": "Quigbot", "role": "Product agent" },
         { "name": "E2ETest", "role": "Test agent" }
       ],
-      "sharedControls": ["Tool approvals", "Route policy", "Owner approval"],
+      "sharedControls": ["Tool approval policy", "Route policy reference", "Owner approval required"],
       "aggregateCred": "Cred 78 Prime summarizes the roster without replacing individual agent scores.",
       "transferBehavior": "Permissions pause and tool routes reverify when custody changes.",
       "transferPreview": {
         "currentOwner": "0x3395...480E0",
         "custodyEpoch": "Epoch 03",
-        "claimAction": "Claim swarm",
+        "claimAction": "New owner claim required",
         "permissionsState": "Permissions paused",
         "toolAction": "Reverify shared tools",
         "privateAccessAction": "Rotate private access",

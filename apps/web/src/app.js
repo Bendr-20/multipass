@@ -219,7 +219,7 @@ function renderSwarmCardDetail(card) {
           `).join('')}
         </section>
         <section class="swarm-panel">
-          <h4>Shared controls</h4>
+          <h4>Policy references</h4>
           ${card.sharedControls.map((control) => `<span class="control-chip">${escapeHtml(control)}</span>`).join('')}
         </section>
         <section class="swarm-panel wide">
@@ -308,13 +308,14 @@ function renderFragmentTrustMap(map) {
       <div class="fragment-cards">
         ${map.cards.map(renderFragmentCard).join('')}
       </div>
-      <div class="fragment-legend">
+      <details class="fragment-legend">
+        <summary>Proof vocabulary</summary>
         ${renderLegendGroup('Fragment type legend', map.legends.fragmentType)}
         ${renderLegendGroup('Status legend', map.legends.status)}
         ${renderLegendGroup('Visibility legend', map.legends.visibility)}
         ${renderLegendGroup('Assurance legend', map.legends.assurance)}
         ${renderLegendGroup('Transfer policy', map.legends.transferPolicy)}
-      </div>
+      </details>
       <p class="fragment-note">${escapeHtml(map.emptyPrivateNote)}</p>
     </section>
   `;
