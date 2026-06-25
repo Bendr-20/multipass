@@ -1100,83 +1100,54 @@ h1 {
   }
 
   .lead {
-    font-size: 17px;
+    margin-bottom: 20px;
+    font-size: 16px;
+    line-height: 1.5;
   }
 
+  h1 {
+    font-size: clamp(2.2rem, 9.5vw, 3rem);
+    line-height: 1;
+    letter-spacing: -0.055em;
+  }
 
-.live-resolver {
-  margin: 28px 0;
-  border: 1px solid var(--line);
-  background: var(--paper);
-  box-shadow: var(--shadow);
-  padding: 22px;
-}
+  .live-resolver {
+    margin: 22px 0;
+    padding: 16px;
+  }
 
-.live-resolver form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px) auto auto;
-  gap: 14px;
-  align-items: end;
-}
+  .live-resolver form {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 
-.live-resolver h2 {
-  margin-bottom: 8px;
-}
+  .live-resolver .card-label {
+    margin-bottom: 8px;
+    font-size: 11px;
+  }
 
-.live-resolver p {
-  margin-bottom: 0;
-  color: var(--muted);
-  line-height: 1.5;
-}
+  .live-resolver h2 {
+    margin-bottom: 6px;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.045em;
+  }
 
-.live-resolver label span {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
+  .live-resolver p {
+    font-size: 13px;
+    line-height: 1.45;
+  }
 
-.live-resolver input {
-  width: 100%;
-  border: 1px solid var(--line);
-  background: var(--paper-soft);
-  color: var(--ink);
-  padding: 12px;
-  font: inherit;
-}
+  .live-resolver button {
+    width: 100%;
+  }
 
-.live-resolver button {
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-  padding: 12px 14px;
-  font-weight: 900;
-}
+  .resolver-message {
+    font-size: 13px;
+    line-height: 1.4;
+  }
 
-.live-resolver button[type="button"] {
-  background: var(--paper);
-  color: var(--ink);
-}
-
-.live-resolver button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.resolver-message {
-  margin: 14px 0 0;
-  color: var(--green);
-  font-weight: 800;
-}
-
-.resolver-message.error {
-  color: #8a3a28;
-}
-
-.story-records {
+  .story-records {
     grid-template-columns: 1fr;
   }
 
