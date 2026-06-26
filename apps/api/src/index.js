@@ -171,6 +171,8 @@ async function handleSaveMultipass(request, { savedRecords, activationService })
     schema_version: '0.1.0',
     state: saved.created ? 'saved_unclaimed' : 'saved_existing',
     created: saved.created,
+    multipass_id: saved.profile.multipass_id,
+    slug: saved.profile.slug,
     profile: saved.profile,
     sharePath: `/multipass/${encodeURIComponent(saved.profile.slug)}`,
   }, saved.created ? 201 : 200);

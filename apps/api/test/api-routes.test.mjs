@@ -290,12 +290,16 @@ test('POST /api/multipass saves idempotent persistent records', async () => {
   assert.equal(first.response.status, 201);
   assert.equal(first.body.created, true);
   assert.equal(first.body.state, 'saved_unclaimed');
+  assert.equal(first.body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(first.body.slug, 'bendr-2-1');
   assert.equal(first.body.profile.slug, 'bendr-2-1');
   assert.equal(first.body.sharePath, '/multipass/bendr-2-1');
 
   const second = await postJson(api, '/api/multipass', { agent: '1' });
   assert.equal(second.response.status, 200);
   assert.equal(second.body.created, false);
+  assert.equal(second.body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(second.body.slug, 'bendr-2-1');
   assert.equal(second.body.sharePath, '/multipass/bendr-2-1');
 });
 
