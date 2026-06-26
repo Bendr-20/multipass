@@ -305,6 +305,20 @@ test('resolver bar renders without changing default static data', async () => {
   assert.match(root.textContent, /bundled fixture/);
 });
 
+test('static homepage renders display-only share panel', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const panel = root.querySelector('.share-panel');
+  assert.ok(panel);
+  assert.match(panel.textContent, /Portable Agent Identity/);
+  assert.match(panel.textContent, /preview copy/i);
+  assert.equal(panel.querySelector('input')?.value, 'https://helixa.xyz/multipass/');
+  assert.equal(panel.querySelector('input')?.hasAttribute('readonly'), true);
+  assert.doesNotMatch(panel.textContent, /claim|approve|transfer|payment|wallet/i);
+});
+
+
 test('render uses live hero note when data supplies one', async () => {
   const data = { ...sampleData(), heroNote: 'Read-only live Helixa API data for Bendr 2.0.', sourceLabel: 'live Helixa API' };
   const root = setupDom('https://helixa.xyz/multipass/');
@@ -917,6 +931,8 @@ test('resolved live agent takes over the page hero and record surface', async ()
   assert.match(root.querySelector('.header-meta').textContent, /Live profile · 8453:81/);
   assert.equal(root.querySelector('.share-link')?.getAttribute('href'), '/multipass/?agent=81');
   assert.match(root.querySelector('.share-link')?.textContent ?? '', /\/multipass\/\?agent=81/);
+  assert.equal(root.querySelector('.share-panel input')?.value, 'https://helixa.xyz/multipass/?agent=81');
+  assert.match(root.querySelector('.share-panel')?.textContent ?? '', /Quigbot Multipass/);
 });
 
 

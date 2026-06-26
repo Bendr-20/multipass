@@ -159,11 +159,22 @@ function renderShareLink(sharePath) {
   return ` <a class="share-link" href="${escapeAttribute(sharePath)}">${escapeHtml(sharePath)}</a>`;
 }
 
+function getSafeSharePath(sharePath) {
+  if (!sharePath) return '/multipass/';
+  return isSafeSharePath(sharePath) ? String(sharePath) : '/multipass/';
+}
+
+function getAbsoluteShareUrl(sharePath) {
+  return new URL(getSafeSharePath(sharePath), 'https://helixa.xyz').toString();
+}
+
 function isSafeSharePath(sharePath) {
   if (!sharePath) return false;
   try {
     const parsed = new URL(String(sharePath), 'https://helixa.xyz');
-    return parsed.origin === 'https://helixa.xyz' && parsed.pathname === '/multipass/' && /^\d+$/.test(parsed.searchParams.get('agent') ?? '');
+    if (parsed.origin !== 'https://helixa.xyz' || parsed.pathname !== '/multipass/') return false;
+    const agent = parsed.searchParams.get('agent');
+    return agent === null || /^\d+$/.test(agent);
   } catch {
     return false;
   }
@@ -200,6 +211,8 @@ function render(root, state, handlers = {}) {
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
 
       ${renderLiveResolver(state)}
+
+      ${renderSharePanel(data, heroCopy)}
 
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
@@ -304,6 +317,24 @@ function renderHeroStat(label, value) {
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
     </article>
+  `;
+}
+
+function renderSharePanel(data, heroCopy) {
+  const shareUrl = getAbsoluteShareUrl(data.liveProfilePage?.sharePath);
+  const title = String(data.liveProfilePage?.headline ?? heroCopy.headline ?? 'Multipass').replace(/[.!?]+$/u, '');
+  return `
+    <section class="share-panel" aria-label="Share Multipass profile">
+      <div>
+        <p class="card-label">Share preview</p>
+        <h2>Portable Agent Identity</h2>
+        <p>Preview copy: ${escapeHtml(title)}. Identity, proof, custody, Cred, and discovery context for agents and AI-native systems.</p>
+      </div>
+      <label>
+        <span>Copy preview URL</span>
+        <input value="${escapeAttribute(shareUrl)}" readonly aria-label="Multipass share URL" />
+      </label>
+    </section>
   `;
 }
 
