@@ -1,8 +1,10 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
-import { createMultipassApi } from './index.js';
+import { activateHelixaRecord } from './activation-records.js';
 import { loadFixtureStore } from './fixtures.js';
+import { createMultipassApi } from './index.js';
+import { createSqliteSavedRecords } from './saved-records.js';
 
 const DEFAULT_FIXTURE = 'generic';
 const DEFAULT_HOST = '127.0.0.1';
@@ -13,6 +15,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     fixture: env.MULTIPASS_FIXTURE || DEFAULT_FIXTURE,
     host: env.HOST || DEFAULT_HOST,
     port: parsePort(env.PORT, DEFAULT_PORT, 'PORT'),
+    databasePath: env.MULTIPASS_DB_PATH || null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -23,6 +26,8 @@ export function parseServerOptions(argv = [], env = process.env) {
       options.host = argv[++index];
     } else if (arg === '--port') {
       options.port = parsePort(argv[++index], DEFAULT_PORT, '--port');
+    } else if (arg === '--database') {
+      options.databasePath = argv[++index];
     }
   }
 
@@ -34,14 +39,26 @@ export async function startServer(options = {}) {
     fixture: options.fixture || DEFAULT_FIXTURE,
     host: options.host || DEFAULT_HOST,
     port: options.port ?? DEFAULT_PORT,
+    databasePath: options.databasePath ?? null,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
+  const ownsSavedRecords = Boolean(parsed.databasePath && !options.savedRecords);
+  const savedRecords = options.savedRecords ?? (parsed.databasePath ? createSqliteSavedRecords({ databasePath: parsed.databasePath }) : null);
+  const activationService = options.activationService ?? activateHelixaRecord;
   let api;
   let baseUrl;
 
   const nodeServer = http.createServer(async (req, res) => {
     try {
-      const request = new Request(new URL(req.url || '/', baseUrl), { method: req.method || 'GET' });
+      const requestInit = {
+        method: req.method || 'GET',
+        headers: normalizeHeaders(req.headers),
+      };
+      if (!['GET', 'HEAD'].includes(requestInit.method.toUpperCase())) {
+        requestInit.body = req;
+        requestInit.duplex = 'half';
+      }
+      const request = new Request(new URL(req.url || '/', baseUrl), requestInit);
       const response = await api.handleRequest(request);
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
       res.end(await response.text());
@@ -65,18 +82,30 @@ export async function startServer(options = {}) {
   const address = nodeServer.address();
   const port = typeof address === 'object' && address ? address.port : parsed.port;
   baseUrl = `http://${parsed.host}:${port}`;
-  api = createMultipassApi({ store, baseUrl });
+  api = createMultipassApi({ store, baseUrl, savedRecords, activationService });
 
   return {
     fixtureName,
     host: parsed.host,
     port,
     url: baseUrl,
+    databasePath: parsed.databasePath,
     server: nodeServer,
     close: () => new Promise((resolve, reject) => {
-      nodeServer.close((error) => (error ? reject(error) : resolve()));
+      nodeServer.close((error) => {
+        if (ownsSavedRecords) savedRecords.close();
+        error ? reject(error) : resolve();
+      });
     }),
   };
+}
+
+function normalizeHeaders(headers) {
+  return Object.fromEntries(
+    Object.entries(headers)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : String(value)]),
+  );
 }
 
 function parsePort(value, fallback, source) {
@@ -92,6 +121,7 @@ async function main() {
   const server = await startServer(parseServerOptions(process.argv.slice(2), process.env));
   console.log(`Multipass API server listening at ${server.url}`);
   console.log(`Fixture: ${server.fixtureName}`);
+  if (server.databasePath) console.log(`Database: ${server.databasePath}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
