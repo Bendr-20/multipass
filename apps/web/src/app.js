@@ -326,14 +326,15 @@ function renderSharePanel(data, heroCopy) {
   return `
     <section class="share-panel" aria-label="Share Multipass profile">
       <div>
-        <p class="card-label">Share preview</p>
+        <p class="card-label">Share this Multipass</p>
         <h2>Portable Agent Identity</h2>
-        <p>Preview copy: ${escapeHtml(title)}. Identity, proof, custody, Cred, and discovery context for agents and AI-native systems.</p>
+        <p>${escapeHtml(title)}. Identity, proof, custody, Cred, and discovery context for agents and AI-native systems.</p>
       </div>
-      <label>
-        <span>Copy preview URL</span>
-        <input value="${escapeAttribute(shareUrl)}" readonly aria-label="Multipass share URL" />
-      </label>
+      <div class="share-copy-card" aria-label="Multipass share URL">
+        <span>Share URL</span>
+        <code class="share-url">${escapeHtml(shareUrl)}</code>
+        <small class="share-hint">Tap and hold to copy</small>
+      </div>
     </section>
   `;
 }

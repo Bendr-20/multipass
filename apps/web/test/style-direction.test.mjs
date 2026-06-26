@@ -18,6 +18,16 @@ test('visual direction keeps the original warm Multipass palette', async () => {
 });
 
 
+test('share panel is styled as a share card instead of an input form on mobile', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.share-url\s*{/);
+  assert.match(css, /\.share-hint\s*{/);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.share-panel[\s\S]*grid-template-columns: 1fr;/);
+  assert.doesNotMatch(css, /\.share-panel input/);
+});
+
+
 test('change review ledger tones only the review state column', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
