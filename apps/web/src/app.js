@@ -126,7 +126,7 @@ function renderLoading(root) {
   root.innerHTML = `
     <section class="record-shell loading-shell">
       <p class="eyebrow">${HERO_COPY.eyebrow}</p>
-      <h1>Loading Bendr 2.0...</h1>
+      <h1>Loading Multipass...</h1>
     </section>
   `;
 }
@@ -197,47 +197,17 @@ function render(root, state, handlers = {}) {
         <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.modeLabel ?? 'Local API Demo')}</span></div>
       </header>
 
-      <section class="hero-record">
-        <div>
-          <p class="eyebrow">${escapeHtml(heroCopy.eyebrow)}</p>
-          <div class="prototype-ribbon">
-            <span>${escapeHtml(heroCopy.prototypeLabel)}</span>
-            <span>${escapeHtml(heroCopy.audience)}</span>
-          </div>
-          <h1>${escapeHtml(heroCopy.headline)}</h1>
-          <p class="lead">${escapeHtml(heroCopy.body)}</p>
-          <div class="note">${escapeHtml(heroCopy.note)}${renderShareLink(data.liveProfilePage?.sharePath)}</div>
-        </div>
-
-        <article class="record-sheet">
-          <div class="sheet-top">
-            <div>
-              <h2>${escapeHtml(data.profile.display_name)}</h2>
-              <p>${escapeHtml(data.liveProfilePage?.recordIntro ?? 'Agent profile with public identity fragments, standards references, x402 route metadata, and receipt evidence.')}</p>
-            </div>
-            <div class="stamp">Public proof only</div>
-          </div>
-          <div class="field-grid">
-            ${renderField('Record', data.profile.multipass_id ?? DEMO_SUBJECT.slug)}
-            ${renderField('Subject', data.profile.subject_type)}
-            ${renderField('Slug', data.profile.slug ?? DEMO_SUBJECT.slug)}
-            ${renderField('Status', data.profile.status, 'status')}
-            ${renderField('Trust State', data.profile.cred_summary?.trust_state ?? 'none')}
-            ${renderField('Source', data.sourceLabel ?? 'local API')}
-            ${renderField('Receipt', data.receipt.receipt_id)}
-          </div>
-        </article>
-      </section>
+      ${renderHomepageHero(heroCopy, data, agentCarousel)}
 
       ${renderLiveResolver(state)}
+
+      ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
       ${renderAgentAura(data.visualIdentity)}
 
       ${renderAgentAuraProvenanceDrawer(data.visualIdentity?.provenanceDrawer)}
 
       ${renderMarketplaceListing(data.marketplaceListing)}
-
-      ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
 
       <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
 
@@ -289,10 +259,57 @@ function render(root, state, handlers = {}) {
   });
 }
 
+function renderHomepageHero(heroCopy, data, agentCarousel) {
+  const profileCount = agentCarousel.cards.length;
+  const proofCount = countPublicProofSignals(data);
+  return `
+    <section class="homepage-hero">
+      <div class="homepage-hero-copy">
+        <p class="eyebrow">${escapeHtml(heroCopy.eyebrow)}</p>
+        <div class="prototype-ribbon">
+          <span>${escapeHtml(heroCopy.prototypeLabel)}</span>
+          <span>${escapeHtml(heroCopy.audience)}</span>
+        </div>
+        <h1>${escapeHtml(heroCopy.headline)}</h1>
+        <p class="lead">${escapeHtml(heroCopy.body)}</p>
+        <div class="homepage-actions">
+          <a href="#live-resolver" class="homepage-action primary">Resolve live agent</a>
+          <a href="#profile-gallery" class="homepage-action">View example profiles</a>
+        </div>
+        <div class="note">${escapeHtml(heroCopy.note)}${renderShareLink(data.liveProfilePage?.sharePath)}</div>
+      </div>
+      <aside class="homepage-proof-panel" aria-label="Multipass profile ingredients">
+        <p class="card-label">Trust profile stack</p>
+        <h2>Identity, custody, proof, routes, and visual context in one readable profile.</h2>
+        <div class="homepage-proof-grid">
+          ${renderHeroStat('Profiles', profileCount)}
+          ${renderHeroStat('Public proof', proofCount)}
+          ${renderHeroStat('Live source', data.sourceLabel ?? 'bundled fixture')}
+          ${renderHeroStat('Primary use', 'Discovery')}
+        </div>
+      </aside>
+    </section>
+  `;
+}
+
+function countPublicProofSignals(data) {
+  return Array.isArray(data.fragments?.fragments)
+    ? data.fragments.fragments.filter((fragment) => fragment.visibility === 'public').length
+    : 0;
+}
+
+function renderHeroStat(label, value) {
+  return `
+    <article class="homepage-proof-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
 
 function renderLiveResolver(state) {
   return `
-    <section class="live-resolver" aria-label="Resolve live Helixa agent">
+    <section id="live-resolver" class="live-resolver" aria-label="Resolve live Helixa agent">
       <form data-action="resolve-live-agent">
         <div>
           <p class="card-label">Resolve live Helixa agent</p>
@@ -388,7 +405,7 @@ function renderAgentAura(visualIdentity) {
   const safeImageUrl = safeHttpsUrl(visualIdentity.imageUrl);
   const label = visualIdentity.label ?? 'Helixa Agent Aura';
   return `
-    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura marketplace visual">
+    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual for trust profile">
       <div class="aura-asset-frame">
         <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}">
           ${safeImageUrl ? `<img src="${escapeAttribute(safeImageUrl)}" alt="${escapeAttribute(label)}" loading="lazy" />` : ''}
@@ -441,7 +458,7 @@ function hasRenderableValue(value) {
 
 function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
   return `
-    <section class="card-carousel">
+    <section id="profile-gallery" class="profile-gallery card-carousel">
       <div class="card-carousel-head">
         <p class="eyebrow">${escapeHtml(carousel.eyebrow)}</p>
         <h2>${escapeHtml(carousel.title)}</h2>
@@ -461,13 +478,19 @@ function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
 function renderAgentCardButton(card, index, selectedIndex) {
   const selected = index === selectedIndex;
   return `
-    <button class="card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
-      <span class="card-name">${escapeHtml(card.name)}</span>
-      <span>${escapeHtml(card.helixaId)}</span>
-      <span>${escapeHtml(card.subjectLabel)} · ${escapeHtml(card.memberLabel)}</span>
-      <span>${escapeHtml(card.role)}</span>
-      <span>${escapeHtml(card.custody)}</span>
-      <strong>${escapeHtml(card.credLabel)}</strong>
+    <button class="profile-card card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
+      <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(card.visual?.label ?? `${card.name} visual identity`)}">
+        ${card.visual?.imageUrl ? `<img src="${escapeAttribute(card.visual.imageUrl)}" alt="${escapeAttribute(card.visual.label)}" loading="lazy" />` : ''}
+        <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
+      </span>
+      <span class="profile-card-copy">
+        <span class="card-name">${escapeHtml(card.name)}</span>
+        <span>${escapeHtml(card.role)} · ${escapeHtml(card.memberLabel)}</span>
+        <span>${escapeHtml(card.helixaId)}</span>
+        <span>${escapeHtml(card.custody)}</span>
+        <span>${escapeHtml(card.proofSummary)}</span>
+        <strong>${escapeHtml(card.credLabel)} · ${escapeHtml(card.verifiedLabel)}</strong>
+      </span>
     </button>
   `;
 }
@@ -649,10 +672,10 @@ function renderTransferStep(label, value) {
 function renderMarketplaceListing(listing) {
   if (!listing) return '';
   return `
-    <section class="marketplace-listing" aria-label="Marketplace listing preview">
+    <section class="marketplace-listing" aria-label="Trust profile marketplace compatibility context">
       <div class="listing-shell">
         <div class="listing-copy">
-          <p class="card-label">Marketplace listing preview</p>
+          <p class="card-label">Trust profile context</p>
           <h2>${escapeHtml(listing.title ?? 'Agent listing')}</h2>
           <p>${escapeHtml(listing.summary ?? 'Public AgentDNA profile prepared for read-only marketplace discovery.')}</p>
           ${listing.subtitle ? `<span class="listing-subtitle">${escapeHtml(listing.subtitle)}</span>` : ''}
@@ -682,7 +705,7 @@ function renderMarketplaceListing(listing) {
       </section>
       ${renderListingProofStrip(listing.proof)}
       ${renderListingLinks(listing.links)}
-      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. No authority changes are available from this listing.')}</p>
+      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or credential release.')}</p>
     </section>
   `;
 }
@@ -804,6 +827,7 @@ function renderFragmentCard(card) {
         <div><dt>Assurance</dt><dd>${escapeHtml(card.assuranceLabel)}</dd></div>
         <div><dt>Visibility</dt><dd>${escapeHtml(card.visibility)}</dd></div>
         <div><dt>Transfer</dt><dd>${escapeHtml(card.transferPolicyLabel)}</dd></div>
+        <div><dt>Source</dt><dd>${escapeHtml(card.sourceLabel ?? 'Unknown source')}</dd></div>
       </dl>
       <p class="fragment-value">${escapeHtml(card.publicValue)}</p>
     </article>

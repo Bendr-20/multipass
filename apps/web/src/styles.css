@@ -94,6 +94,105 @@ button:focus-visible {
   align-items: start;
 }
 
+.homepage-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.72fr);
+  gap: 34px;
+  align-items: stretch;
+  margin-bottom: 28px;
+}
+
+.homepage-hero-copy {
+  min-height: 560px;
+  border: 1px solid var(--ink);
+  background:
+    linear-gradient(135deg, rgba(54, 95, 125, 0.11), transparent 44%),
+    linear-gradient(180deg, rgba(255, 250, 241, 0.96), rgba(248, 242, 232, 0.84));
+  padding: clamp(28px, 5vw, 56px);
+  box-shadow: var(--shadow);
+}
+
+.homepage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 22px;
+}
+
+.homepage-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.homepage-action.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.homepage-proof-panel {
+  display: flex;
+  min-height: 560px;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 80% 12%, rgba(47, 125, 85, 0.14), transparent 15rem),
+    var(--paper);
+  padding: 28px;
+}
+
+.homepage-proof-panel h2 {
+  max-width: 420px;
+  font-size: clamp(2rem, 3vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.065em;
+}
+
+.homepage-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.homepage-proof-stat {
+  min-height: 106px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 14px;
+}
+
+.homepage-proof-stat span,
+.homepage-proof-stat strong {
+  display: block;
+}
+
+.homepage-proof-stat span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.homepage-proof-stat strong {
+  margin-top: 10px;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
 .eyebrow,
 .card-label {
   margin: 0 0 16px;
@@ -1167,6 +1266,7 @@ h1 {
 
   .record-header,
   .hero-record,
+  .homepage-hero,
   .story-records,
   .ledger-row,
   .sheet-top,
@@ -1245,6 +1345,78 @@ h1 {
   padding: 16px;
   text-align: left;
   box-shadow: none;
+}
+
+.profile-card.card-button {
+  display: grid;
+  grid-template-rows: 168px 1fr;
+  gap: 14px;
+  min-height: 360px;
+  padding: 12px;
+}
+
+.profile-card-visual {
+  position: relative;
+  display: grid;
+  min-height: 168px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--soft-line);
+  background:
+    radial-gradient(circle at 30% 22%, rgba(128, 208, 255, 0.26), transparent 10rem),
+    radial-gradient(circle at 72% 70%, rgba(47, 125, 85, 0.18), transparent 9rem),
+    var(--paper-soft);
+}
+
+.profile-card-visual.tone-swarm {
+  background:
+    repeating-linear-gradient(45deg, rgba(48, 51, 49, 0.08) 0 1px, transparent 1px 12px),
+    radial-gradient(circle at 72% 30%, rgba(154, 118, 48, 0.22), transparent 11rem),
+    var(--paper-soft);
+}
+
+.profile-card-visual.tone-prime,
+.profile-card-visual.tone-preferred,
+.profile-card-visual.tone-verified {
+  background:
+    radial-gradient(circle at 36% 20%, rgba(47, 125, 85, 0.24), transparent 10rem),
+    radial-gradient(circle at 76% 78%, rgba(54, 95, 125, 0.20), transparent 10rem),
+    var(--paper-soft);
+}
+
+.profile-card-visual img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-card-visual span {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border: 1px solid rgba(25, 27, 28, 0.44);
+  background: rgba(255, 250, 241, 0.82);
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: -0.05em;
+}
+
+.profile-card-visual img + span {
+  right: 10px;
+  bottom: 10px;
+  width: auto;
+  height: auto;
+  padding: 6px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.profile-card-copy {
+  display: block;
 }
 
 .card-button.selected {
@@ -1581,7 +1753,8 @@ h1 {
     display: none;
   }
 
-  .hero-record {
+  .hero-record,
+  .homepage-hero {
     gap: 18px;
   }
 

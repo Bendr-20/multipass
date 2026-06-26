@@ -24,8 +24,8 @@ test('DEMO_SUBJECT contains Bendr V0 metadata', () => {
 
 
 test('landing copy names agent builders and explains product-card-proof flow', () => {
-  assert.match(HERO_COPY.headline, /identity layer/i);
-  assert.match(HERO_COPY.body, /machine-readable trust profile/i);
+  assert.match(HERO_COPY.headline, /portable agent trust profiles/i);
+  assert.match(HERO_COPY.body, /visual identity graph/i);
   assert.match(V01_COPY.audience, /agent builders/i);
   assert.match(V01_COPY.prototypeLabel, /Internal Prototype/);
 
@@ -38,8 +38,8 @@ test('landing copy names agent builders and explains product-card-proof flow', (
   ]);
 
   const combined = JSON.stringify(sections);
-  assert.match(combined, /portable identity/i);
-  assert.match(combined, /agents, swarms, apps, and marketplaces/i);
+  assert.match(combined, /portable agent trust profile/i);
+  assert.match(combined, /agents, humans, swarms, collections, projects, organizations, apps, directories, and marketplace display surfaces/i);
   assert.match(combined, /Helixa ID/i);
   assert.match(combined, /Cred context/i);
   assert.match(combined, /raw protocol details/i);
@@ -81,11 +81,14 @@ test('agent carousel maps real Helixa card data for display', () => {
     card: { trust_summary: { identity_status: 'pending' } },
   });
 
-  assert.equal(carousel.title, 'Agent cards that lead with trust.');
+  assert.equal(carousel.title, 'Example trust profiles.');
   assert.equal(carousel.cards.length, 2);
   assert.equal(carousel.cards[0].helixaId, '8453:1');
   assert.equal(carousel.cards[0].credLabel, 'Cred 80');
   assert.equal(carousel.cards[0].verifiedLabel, 'verified');
+  assert.equal(carousel.cards[0].role, 'Lead agent');
+  assert.equal(carousel.cards[0].visual.imageUrl, 'https://api.helixa.xyz/api/v2/aura/1.png');
+  assert.match(carousel.cards[0].proofSummary, /Proof pending|proof signals/);
 });
 
 
@@ -465,15 +468,26 @@ test('story and proof cards cover the intended demo sections', () => {
   assert.match(proofCards.find((card) => card.title === 'Receipt').why, /evidence/i);
 });
 
-test('proof card summaries and JSON do not include private fragment ids', () => {
+test('proof card summaries and JSON do not include non-public fragment ids', () => {
   const cards = createProofCards({
-    profile: { display_name: 'Bendr 2.0', status: 'link_ready', subject_type: 'agent', cred_summary: { trust_state: 'building' } },
+    profile: {
+      display_name: 'Bendr 2.0',
+      status: 'link_ready',
+      subject_type: 'agent',
+      cred_summary: { trust_state: 'building' },
+      hidden_fragments: [{ fragment_id: 'frag_profile_hidden_placeholder', visibility: 'hidden' }],
+      gated_fragments: [{ fragment_id: 'frag_profile_gated_placeholder', visibility: 'gated' }],
+    },
     fragments: {
       subject_id: 'bendr-2',
       private_fragments: [{ fragment_id: 'frag_bendr_unexpected_private_field', visibility: 'private' }],
+      hidden_fragments: [{ fragment_id: 'frag_bendr_hidden_placeholder', visibility: 'hidden' }],
+      gated_fragments: [{ fragment_id: 'frag_bendr_gated_placeholder', visibility: 'gated' }],
       fragments: [
         { fragment_id: 'frag_public', visibility: 'public' },
         { fragment_id: 'frag_bendr_private_placeholder', visibility: 'private' },
+        { fragment_id: 'frag_bendr_hidden_nested', visibility: 'hidden' },
+        { fragment_id: 'frag_bendr_gated_nested', visibility: 'gated' },
       ],
     },
     card: { capabilities: [], service_endpoints: [] },
@@ -482,6 +496,13 @@ test('proof card summaries and JSON do not include private fragment ids', () => 
     receipt: { receipt_id: 'receipt_bendr_lookup', status: 'settled' },
   });
 
-  assert.equal(JSON.stringify(cards).includes('frag_bendr_private_placeholder'), false);
-  assert.equal(JSON.stringify(cards).includes('frag_bendr_unexpected_private_field'), false);
+  const json = JSON.stringify(cards);
+  assert.equal(json.includes('frag_bendr_private_placeholder'), false);
+  assert.equal(json.includes('frag_bendr_unexpected_private_field'), false);
+  assert.equal(json.includes('frag_bendr_hidden_placeholder'), false);
+  assert.equal(json.includes('frag_bendr_gated_placeholder'), false);
+  assert.equal(json.includes('frag_bendr_hidden_nested'), false);
+  assert.equal(json.includes('frag_bendr_gated_nested'), false);
+  assert.equal(json.includes('frag_profile_hidden_placeholder'), false);
+  assert.equal(json.includes('frag_profile_gated_placeholder'), false);
 });

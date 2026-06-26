@@ -20,15 +20,15 @@ Ship a homepage that answers quickly:
 
 1. **Product hero**
    - Lead with Multipass as the homepage subject.
-   - Use a headline about portable trust profiles for agents, swarms, collections, and AI-native systems.
+   - Use a headline about portable trust profiles for agents, humans, swarms, collections, projects, organizations, and AI-native systems.
    - Include concise supporting copy.
    - Include primary CTA to resolve a live agent and secondary CTA to inspect the example gallery/proof.
    - Do not lead with Bendr-specific fields, receipt IDs, raw slugs, or a record sheet.
 
 2. **Visual profile gallery**
    - Replace the text-heavy carousel feel with visual cards.
-   - Cards should show an Aura/image/visual frame, name, role/type, Cred/state, verification, custody hint, and a short proof summary.
-   - Bendr and Quigbot can be featured examples, but the gallery should also make room for swarm/collection/project-style Multipass subjects.
+   - Cards should show an Aura/image/visual frame, name, role/type, Cred summary, separate trust state, verification, custody hint, and a short proof summary.
+   - Bendr and Quigbot can be featured examples, but the gallery should also make room for human, swarm, collection, project, and organization-style Multipass subjects.
    - Selected card can still drive deeper proof sections, but the first read must be visual and product-like.
 
 3. **Live resolver feature**
@@ -40,7 +40,7 @@ Ship a homepage that answers quickly:
    - Replace the current explanatory blocks with a short three-step product narrative:
      1. Identify the subject.
      2. Attach public proof and custody context.
-     3. Let apps/agents/marketplaces read the trust profile safely.
+     3. Let apps and agents read the trust profile safely, with marketplace compatibility as a secondary integration context.
    - Keep this concise and lower than the visual gallery.
 
 5. **Proof and trust inspection**
@@ -54,7 +54,7 @@ Each gallery card should include:
 - Visual asset or generated fallback frame.
 - Subject name.
 - Subject type/role.
-- Cred label or trust state.
+- Cred label or payment/access context, clearly separate from trust state.
 - Verified/unverified state.
 - Custody/owner/operator hint.
 - Public proof count or proof summary.
@@ -102,7 +102,9 @@ Add or update tests to prove:
 
 - Homepage hero is Multipass-first and does not lead with Bendr record-sheet language.
 - Bendr appears as an example/profile card, not the entire page identity.
-- Visual cards render image/fallback frames, trust state, Cred, custody, and proof summary.
+- Visual cards render image/fallback frames, separate trust state and Cred/access context, custody, and proof summary.
+- Homepage renders only public fields, not gated, private, or hidden data.
+- Homepage avoids emoji, em dashes, raw protocol fields above the fold, and executable claim, buy, transfer, approve, or unlock language.
 - Resolver still works for `1`, `81`, `Bendr`, `Quigbot`, and `?agent=81`.
 - Proof map still follows the selected visual card.
 - Blocked marketplace/action language remains absent.
@@ -113,4 +115,5 @@ Add or update tests to prove:
 - Cards in the carousel/gallery have strong visuals and profile-object feel.
 - Bendr is clearly an example, not the page wrapper.
 - Existing live resolver behavior stays intact.
+- Humans and organizations are represented in the product framing even if the first bundled example set remains AgentDNA-heavy.
 - Tests and build pass.

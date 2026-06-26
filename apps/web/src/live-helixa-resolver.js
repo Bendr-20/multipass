@@ -119,17 +119,17 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   };
 
   return {
-    modeLabel: 'Live Profile',
+    modeLabel: 'Live Trust Profile',
     sourceLabel: 'live Helixa API',
     heroNote: `Read-only live Helixa API data for ${displayName}.`,
     liveProfilePage: {
       eyebrow: 'LIVE MULTIPASS',
-      prototypeLabel: 'Live AgentDNA Profile',
-      audience: 'Public trust, route, custody, and proof context for marketplaces and agent directories.',
+      prototypeLabel: 'Live trust profile',
+      audience: 'Public trust, route, custody, and proof context for agent builders, directories, and marketplace compatibility.',
       headline: `${displayName} Multipass`,
-      body: `Live AgentDNA profile for ${displayName} with public trust, routes, custody context, and proof inspection.`,
-      note: `Shareable live profile for ${helixaId}.`,
-      recordIntro: 'Live AgentDNA profile assembled from public Helixa API signals. Display only; authority and private credentials stay protected.',
+      body: `Portable agent trust profile for ${displayName} with public identity, custody context, routes, and proof inspection.`,
+      note: `Shareable live trust profile for ${helixaId}.`,
+      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals. Display only; authority and private credentials stay protected.',
       headerMeta: `Live profile · ${helixaId}`,
       sharePath: `/multipass/?agent=${encodeURIComponent(tokenId)}`,
     },
@@ -495,8 +495,8 @@ export function createLiveMarketplaceListing(agent, tokenId, fragments, profileU
   const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   return {
-    title: `${agent?.verified ? 'Verified' : 'Unverified'} agent listing for ${displayName}`,
-    subtitle: `${helixaId} · ${framework}`,
+    title: `${displayName} trust profile`,
+    subtitle: 'Marketplace compatibility context',
     summary: createListingSummary(agent),
     identity: {
       name: displayName,
@@ -513,7 +513,7 @@ export function createLiveMarketplaceListing(agent, tokenId, fragments, profileU
     paymentReferences: createPaymentReferences(agent),
     proof: createListingProof(fragments),
     links: createListingLinks(agent, profileUrl),
-    safetyNote: 'Public routes and proof are visible; authority and private credentials stay protected.',
+    safetyNote: 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or credential release.',
   };
 }
 
@@ -532,8 +532,8 @@ function createListingSummary(agent) {
   const skills = agent?.skills ?? [];
   const domains = agent?.domains ?? [];
   const descriptors = [...categories, ...skills, ...domains].filter(Boolean).slice(0, 3);
-  if (descriptors.length) return `Live AgentDNA record packaged for marketplaces: ${descriptors.join(', ')}.`;
-  return 'Live AgentDNA record with public trust, route, and ownership context.';
+  if (descriptors.length) return `Read-only public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility: ${descriptors.join(', ')}.`;
+  return 'Read-only public AgentDNA trust profile with route, custody, and ownership context for marketplace compatibility.';
 }
 
 function createListingBadges(agent, framework) {

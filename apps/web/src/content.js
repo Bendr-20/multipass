@@ -6,8 +6,8 @@ export const DEMO_SUBJECT = {
 
 export const V01_COPY = {
   prototypeLabel: 'Internal Prototype',
-  audience: 'Built first for agent builders, agent teams, and marketplaces that need a fast trust read.',
-  productSentence: 'Multipass is a portable trust profile for agents, combining identity, public proof, standards support, and access receipts into one inspectable record.',
+  audience: 'Built first for agent builders and agent teams; marketplace compatibility is a secondary display use case.',
+  productSentence: 'Multipass is a portable agent trust profile combining identity, public proof, standards support, custody context, and access receipts into one inspectable record.',
 };
 
 
@@ -83,7 +83,7 @@ export function createAgentCarousel(data) {
     profileUrl: card.profileUrl ?? null,
     subjectLabel: card.subjectType ?? 'agent',
     memberLabel: formatMemberLabel(card.members),
-    role: card.role ?? 'Agent Multipass',
+    role: card.role ?? defaultRoleForCard(card),
     custody: card.custody ?? 'Owner verified',
     detailMode: card.subjectType === 'swarm' ? 'swarm' : 'agent',
     roster: Array.isArray(card.roster) ? card.roster.map((member) => ({
@@ -97,12 +97,14 @@ export function createAgentCarousel(data) {
     changeReviewLedger: createChangeReviewLedger(card),
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
+    visual: createProfileCardVisual(card),
+    proofSummary: createProfileProofSummary(card),
   }));
 
   return {
-    eyebrow: 'AGENT CARD CAROUSEL',
-    title: 'Agent cards that lead with trust.',
-    body: 'Each card gives agents, swarms, apps, and marketplaces a quick read on identity, Cred, framework, and profile route. The deeper proof sits below for verification, not first impression.',
+    eyebrow: 'PROFILE GALLERY',
+    title: 'Example trust profiles.',
+    body: 'Each card gives agents, humans, organizations, swarms, apps, and directories a quick read on identity, separate trust state, Cred context, framework, and profile route. Marketplace compatibility stays secondary; deeper proof sits below for verification.',
     cards,
   };
 }
@@ -140,6 +142,7 @@ function createFragmentCard(fragment) {
     transferPolicy: fragment.transfer_policy,
     transferPolicyLabel: formatEnumLabel(fragment.transfer_policy),
     transferPolicyExplanation: FRAGMENT_LEGENDS.transferPolicy[fragment.transfer_policy] ?? 'Transfer policy explanation unavailable.',
+    sourceLabel: `${source}${issuer}`,
     summary: fragment.endpoint_ref
       ? `${typeLabel} for ${protocol}endpoint from ${source}${issuer}.`
       : `${typeLabel} from ${source}${issuer}.`,
@@ -231,6 +234,43 @@ function normalizeClaimAction(action) {
   return action;
 }
 
+function defaultRoleForCard(card) {
+  if (String(card.tokenId) === '1' || /bendr/i.test(card.name ?? '')) return 'Lead agent';
+  if (String(card.tokenId) === '81' || /quigbot/i.test(card.name ?? '')) return 'Product agent';
+  if (card.subjectType === 'swarm') return 'Parent Multipass';
+  return 'Agent profile';
+}
+
+function createProfileCardVisual(card) {
+  const tokenId = card.tokenId;
+  const isNumericToken = /^\d+$/.test(String(tokenId ?? ''));
+  const type = card.subjectType ?? 'agent';
+  const tone = type === 'swarm'
+    ? 'swarm'
+    : card.verified
+      ? String(card.credTier ?? 'verified').toLowerCase()
+      : 'review';
+  return {
+    type,
+    tone,
+    initials: initialsForName(card.name),
+    imageUrl: isNumericToken ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null,
+    label: `${card.name} visual identity`,
+  };
+}
+
+function initialsForName(name) {
+  const words = String(name ?? 'MP').split(/\s+/).filter(Boolean);
+  if (!words.length) return 'MP';
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? '').join('') || 'MP';
+}
+
+function createProfileProofSummary(card) {
+  const count = Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds.length : 0;
+  const label = count === 1 ? 'public proof signal' : 'public proof signals';
+  return count > 0 ? `${count} ${label}` : 'Proof pending';
+}
+
 function formatMemberLabel(members) {
   if (members === null || members === undefined) return '1 agent';
   return `${members} ${Number(members) === 1 ? 'agent' : 'agents'}`;
@@ -265,21 +305,21 @@ function formatEnumLabel(value) {
 }
 
 export const HERO_COPY = {
-  eyebrow: 'MULTIPASS RECORD',
-  headline: 'The identity layer for agents, swarms, and the apps that need to read them.',
-  body: 'Multipass gives every agent a compact card and a machine-readable trust profile: identity, Cred, routes, standards, and receipts in one portable proof layer.',
-  note: 'Hidden prototype using Bendr 2.0 public fixture data.',
+  eyebrow: 'MULTIPASS',
+  headline: 'Portable agent trust profiles for AI-native systems.',
+  body: 'Multipass gives agents, humans, swarms, collections, projects, organizations, and AI-native systems a visual identity graph with public proof, custody context, routes, Cred, and discovery data in one readable profile.',
+  note: 'Homepage prototype using Helixa AgentDNA examples and live resolver data.',
 };
 
 export function createClaritySections() {
   return [
     {
       title: 'What is Multipass?',
-      body: 'Multipass is a portable identity and trust profile for agents, swarms, apps, and marketplaces that need to decide who they are dealing with.',
+      body: 'Multipass is a portable agent trust profile for agents, humans, swarms, collections, projects, organizations, apps, directories, and marketplace display surfaces that need to decide who they are dealing with.',
     },
     {
       title: 'What the card shows',
-      body: 'The card gives the fast read: name, Helixa ID, Cred context, verified status, framework, and profile route.',
+      body: 'The card gives the fast read: name, Helixa ID, separate trust state, Cred context, verified status, framework, and profile route.',
     },
     {
       title: 'What proof adds',
@@ -381,7 +421,7 @@ function redactPrivateData(value) {
   }
 
   if (!value || typeof value !== 'object') return value;
-  if (value.visibility === 'private') return undefined;
+  if (isNonPublicVisibility(value.visibility)) return undefined;
 
   return Object.fromEntries(
     Object.entries(value)
@@ -391,9 +431,18 @@ function redactPrivateData(value) {
   );
 }
 
+function isNonPublicVisibility(visibility) {
+  return ['private', 'hidden', 'gated'].includes(String(visibility ?? '').toLowerCase());
+}
+
 function isPrivateKey(key) {
   const normalized = key.toLowerCase();
-  return normalized.startsWith('private') || normalized.includes('_private');
+  return normalized.startsWith('private')
+    || normalized.startsWith('hidden')
+    || normalized.startsWith('gated')
+    || normalized.includes('_private')
+    || normalized.includes('_hidden')
+    || normalized.includes('_gated');
 }
 
 function selectPublicFragments(fragmentDocument, selectedAgent) {

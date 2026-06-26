@@ -42,3 +42,27 @@ test('Protocol Artifact web copy avoids blocked wording', async () => {
     assert.equal(emojiPattern.test(text), false, `${file} contains emoji`);
   }
 });
+
+const blockedUiPhrases = [
+  /Marketplace listing preview/i,
+  /instant approval/i,
+  /instant transfer/i,
+  /claim now/i,
+  /transfer now/i,
+  /approve now/i,
+  /unlock secrets/i,
+];
+
+test('Multipass UI copy avoids executable marketplace and transfer overclaims', async () => {
+  const uiFiles = [
+    join(webRoot, 'src/content.js'),
+    join(webRoot, 'src/app.js'),
+    join(webRoot, 'src/live-helixa-resolver.js'),
+  ];
+  for (const file of uiFiles) {
+    const text = await readFile(file, 'utf8');
+    for (const phrase of blockedUiPhrases) {
+      assert.equal(phrase.test(text), false, `${file} contains blocked UI phrase: ${phrase}`);
+    }
+  }
+});

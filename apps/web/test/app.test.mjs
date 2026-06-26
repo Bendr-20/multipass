@@ -195,6 +195,37 @@ function setupDom(url = 'http://localhost/') {
   return dom.window.document.querySelector('#app');
 }
 
+
+
+test('homepage leads with Multipass product hero instead of Bendr record sheet', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const hero = root.querySelector('.homepage-hero');
+  assert.ok(hero);
+  assert.match(hero.textContent, /Multipass/i);
+  assert.match(hero.textContent, /portable agent trust profiles/i);
+  assert.doesNotMatch(hero.textContent, /mp_bendr_2/);
+  assert.doesNotMatch(hero.textContent, /receipt_bendr_lookup/);
+  assert.equal(root.querySelector('.record-sheet'), null);
+});
+
+test('homepage renders visual profile gallery cards with proof context', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const gallery = root.querySelector('.profile-gallery');
+  assert.ok(gallery);
+  assert.match(gallery.textContent, /Example trust profiles/i);
+  const cards = [...root.querySelectorAll('.profile-card')];
+  assert.ok(cards.length >= 4);
+  assert.ok(cards.every((card) => card.querySelector('.profile-card-visual')));
+  assert.ok(cards.every((card) => /Cred|Trust/.test(card.textContent)));
+  assert.ok(cards.every((card) => /proof/i.test(card.textContent)));
+  assert.match(cards[0].textContent, /Bendr 2\.0/);
+  assert.match(cards[0].textContent, /Lead agent/i);
+});
+
 test('initial render shows loading state then product-led Multipass record', async () => {
   const root = setupDom();
   let resolveLoad;
@@ -204,32 +235,30 @@ test('initial render shows loading state then product-led Multipass record', asy
   });
 
   const ready = app.start();
-  assert.match(root.textContent, /Loading Bendr 2\.0/);
+  assert.match(root.textContent, /Loading Multipass/);
+  assert.doesNotMatch(root.textContent, /Loading Bendr 2\.0/);
 
   resolveLoad(sampleData());
   await ready;
 
-  assert.match(root.textContent, /identity layer/i);
+  assert.match(root.textContent, /portable agent trust profiles/i);
   assert.match(root.textContent, /agent builders/i);
-  assert.match(root.textContent, /machine-readable/i);
+  assert.match(root.textContent, /visual identity graph/i);
   assert.match(root.textContent, /Internal Prototype/);
   assert.match(root.textContent, /agent builders/i);
   assert.match(root.textContent, /What is Multipass/);
   assert.match(root.textContent, /What the card shows/);
   assert.match(root.textContent, /What proof adds/);
-  assert.match(root.textContent, /agents, swarms, apps, and marketplaces/i);
+  assert.match(root.textContent, /portable agent trust profile/i);
   assert.match(root.textContent, /raw protocol details/i);
-  assert.match(root.textContent, /MULTIPASS RECORD/);
+  assert.match(root.textContent, /MULTIPASS/);
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /mp_bendr_2/);
-  assert.match(root.textContent, /bendr-2/);
-  assert.match(root.textContent, /Source/);
-  assert.match(root.textContent, /local API/);
-  assert.match(root.textContent, /link_ready/);
-  assert.match(root.textContent, /Public proof only/);
+  assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
+  assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /bendr-2/);
+  assert.match(root.textContent, /bundled fixture/);
   assert.match(root.textContent, /Proof ledger/);
   assert.match(root.textContent, /Card first/);
-  assert.match(root.textContent, /Agent cards/);
+  assert.match(root.textContent, /Example trust profiles/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /Quigbot/);
   assert.match(root.textContent, /Cred 80/);
@@ -239,11 +268,12 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /Proof vocabulary/);
   assert.match(root.textContent, /Endpoint fragments describe routes/i);
   assert.match(root.textContent, /Platform verified means/i);
+  assert.match(root.querySelector('.fragment-card').textContent, /Source/i);
   for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
     assert.match(root.textContent, new RegExp(state, 'i'));
   }
   assert.ok(root.querySelector('.record-shell'));
-  assert.ok(root.querySelector('.record-sheet'));
+  assert.equal(root.querySelector('.record-sheet'), null);
   assert.ok(root.querySelector('.prototype-ribbon'));
   assert.ok(root.querySelector('.clarity-grid'));
   assert.equal(root.querySelectorAll('.clarity-card').length, 3);
@@ -256,8 +286,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.equal(root.querySelector('.fragment-legend')?.tagName, 'DETAILS');
   assert.equal(root.querySelector('.fragment-legend')?.hasAttribute('open'), false);
   assert.ok(root.querySelector('.proof-ledger'));
-  assert.equal(root.querySelectorAll('.record-sheet .field').length, 7);
-  assert.equal(root.querySelector('.field strong.status').classList.contains('verified'), false);
+  assert.ok(root.querySelector('.homepage-proof-panel'));
+  assert.equal(root.querySelectorAll('.homepage-proof-stat').length, 4);
 });
 
 
@@ -272,7 +302,7 @@ test('resolver bar renders without changing default static data', async () => {
   assert.match(resolver.textContent, /Try 1, 8453:1, Bendr 2\.0, or Quigbot/);
   assert.match(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /local API/);
+  assert.match(root.textContent, /bundled fixture/);
 });
 
 test('render uses live hero note when data supplies one', async () => {
@@ -448,7 +478,7 @@ test('landing page leads with product explanation and keeps raw fragment ids out
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.match(root.textContent, /What is Multipass/i);
-  assert.match(root.textContent, /agents, swarms, apps, and marketplaces/i);
+  assert.match(root.textContent, /portable agent trust profile/i);
   assert.match(root.textContent, /Inspect proof/i);
   assert.equal(root.textContent.includes('frag_bendr_'), false);
 
@@ -548,7 +578,7 @@ test('static /multipass/ page loads bundled fixture without calling API', async 
   assert.deepEqual(calls, []);
   assert.match(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
-  assert.match(root.textContent, /mp_bendr_2/);
+  assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
   assert.match(root.textContent, /Cred score 80/);
@@ -609,10 +639,10 @@ test('static demo does not require marketplace listing data', async () => {
 
   assert.equal(root.querySelector('.marketplace-listing'), null);
   assert.doesNotMatch(root.innerHTML, /Marketplace listing preview/);
-  assert.match(root.innerHTML, /Agent cards that lead with trust/);
+  assert.match(root.innerHTML, /Example trust profiles/);
 });
 
-test('live resolver renders marketplace listing preview without executable controls', async () => {
+test('live resolver renders trust profile compatibility context without executable controls', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = {
     ...sampleData(),
@@ -620,9 +650,9 @@ test('live resolver renders marketplace listing preview without executable contr
     sourceLabel: 'live Helixa API',
     modeLabel: 'Live Resolver',
     marketplaceListing: {
-      title: 'Verified agent listing for Bendr 2.0',
+      title: 'Bendr 2.0 trust profile',
       subtitle: '8453:1 · openclaw',
-      summary: 'Live AgentDNA record packaged for marketplaces.',
+      summary: 'Read-only public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility.',
       identity: { name: 'Bendr 2.0', helixaId: '8453:1', tokenId: '1', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
       score: { label: 'Cred 80', tier: 'Preferred', value: 80, tone: 'preferred' },
       badges: [{ label: 'Verified AgentDNA', tone: 'verified' }, { label: 'Open to work', tone: 'verified' }],
@@ -643,8 +673,8 @@ test('live resolver renders marketplace listing preview without executable contr
 
   const listing = root.querySelector('.marketplace-listing');
   assert.ok(listing);
-  assert.match(listing.textContent, /Marketplace listing preview/);
-  assert.match(listing.textContent, /Verified agent listing for Bendr 2\.0/);
+  assert.match(listing.textContent, /Trust profile context/);
+  assert.match(listing.textContent, /Bendr 2\.0 trust profile/);
   assert.match(listing.textContent, /Cred 80/);
   assert.match(listing.textContent, /Preferred/);
   assert.match(listing.textContent, /Live Helixa API/);
@@ -696,7 +726,7 @@ test('static demo button restores bundled fixture after live resolve', async () 
   root.querySelector('[data-action="reset-static-demo"]').click();
 
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /local API/);
+  assert.match(root.textContent, /bundled fixture/);
   assert.doesNotMatch(root.textContent, /Live Bendr/);
 });
 
@@ -717,7 +747,7 @@ test('static demo reset invalidates an in-flight live resolver response', async 
   await Promise.resolve();
 
   assert.doesNotMatch(root.textContent, /Late Live Bendr/);
-  assert.match(root.textContent, /local API/);
+  assert.match(root.textContent, /bundled fixture/);
 });
 
 test('resolver invalid input shows validation error and keeps static data available', async () => {
@@ -872,7 +902,7 @@ test('resolved live agent takes over the page hero and record surface', async ()
       headline: 'Quigbot Multipass',
       body: 'Live AgentDNA profile for Quigbot with public trust, routes, custody context, and proof inspection.',
       note: 'Shareable live profile for 8453:81.',
-      recordIntro: 'Live AgentDNA profile assembled from public Helixa API signals.',
+      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals.',
       headerMeta: 'Live profile · 8453:81',
       sharePath: '/multipass/?agent=81',
     },
@@ -882,8 +912,8 @@ test('resolved live agent takes over the page hero and record surface', async ()
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(root.querySelector('.hero-record h1').textContent, 'Quigbot Multipass');
-  assert.match(root.querySelector('.record-sheet').textContent, /Live AgentDNA profile assembled from public Helixa API signals/);
+  assert.equal(root.querySelector('.homepage-hero h1').textContent, 'Quigbot Multipass');
+  assert.match(root.querySelector('.homepage-proof-panel').textContent, /Trust profile stack/);
   assert.match(root.querySelector('.header-meta').textContent, /Live profile · 8453:81/);
   assert.equal(root.querySelector('.share-link')?.getAttribute('href'), '/multipass/?agent=81');
   assert.match(root.querySelector('.share-link')?.textContent ?? '', /\/multipass\/\?agent=81/);
@@ -925,7 +955,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
       },
     },
     marketplaceListing: {
-      title: 'Verified agent listing for Quigbot',
+      title: 'Quigbot trust profile',
       summary: 'Live AgentDNA record with public trust context.',
       identity: { helixaId: '8453:81', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
       score: { tier: 'Prime', label: 'Cred 75' },
@@ -944,7 +974,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   const auraCard = root.querySelector('.aura-card');
   const drawer = root.querySelector('.aura-provenance-drawer');
   assert.equal(auraCard?.getAttribute('data-visual-source'), 'helixa_aura');
-  assert.match(auraCard?.getAttribute('aria-label') ?? '', /marketplace visual/i);
+  assert.match(auraCard?.getAttribute('aria-label') ?? '', /trust profile/i);
   assert.ok(root.querySelector('.aura-asset-frame'));
   assert.ok(root.querySelector('.aura-item-meta'));
   assert.equal(auraCard?.nextElementSibling, drawer);
@@ -1162,7 +1192,7 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
   await Promise.resolve();
 
   assert.deepEqual(calls, ['bot', '81']);
-  assert.equal(root.querySelector('.hero-record h1').textContent, 'Quigbot Multipass');
+  assert.equal(root.querySelector('.homepage-hero h1').textContent, 'Quigbot Multipass');
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
 });
 
@@ -1175,10 +1205,22 @@ test('API failure renders setup message', async () => {
   assert.match(root.textContent, /GET \/multipass-api failed with 502/);
 });
 
-test('private fragment ids and unexpected private fields are absent from rendered HTML', async () => {
+test('non-public fragment ids and unexpected private fields are absent from rendered HTML', async () => {
   const root = setupDom();
-  await createApp({ root, loadDemo: async () => sampleData() }).start();
+  const data = sampleData();
+  data.fragments.hidden_fragments = [{ fragment_id: 'frag_bendr_hidden_placeholder', visibility: 'hidden' }];
+  data.fragments.gated_fragments = [{ fragment_id: 'frag_bendr_gated_placeholder', visibility: 'gated' }];
+  data.fragments.fragments.push(
+    { fragment_id: 'frag_bendr_hidden_nested', visibility: 'hidden' },
+    { fragment_id: 'frag_bendr_gated_nested', visibility: 'gated' },
+  );
+
+  await createApp({ root, loadDemo: async () => data }).start();
 
   assert.equal(root.innerHTML.includes('frag_bendr_private_placeholder'), false);
   assert.equal(root.innerHTML.includes('frag_bendr_unexpected_private_field'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_hidden_placeholder'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_gated_placeholder'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_hidden_nested'), false);
+  assert.equal(root.innerHTML.includes('frag_bendr_gated_nested'), false);
 });
