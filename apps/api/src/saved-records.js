@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
@@ -51,6 +52,10 @@ const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
   'verificationStatus',
   'website',
 ]);
+
+const DEFAULT_CLAIM_NONCE_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_MANAGER_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const EDITABLE_PROFILE_FIELDS = new Set(['display_name', 'summary', 'avatar_url', 'tags']);
 
 export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
   const db = new DatabaseSync(databasePath);
@@ -143,6 +148,290 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       return readSourceContext(db, multipassId);
     },
 
+    createClaimNonce(identifier, options = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const sourceContext = readSourceContext(db, profile.multipass_id);
+      const issuedAt = dateFrom(options.now);
+      const expiresAt = new Date(issuedAt.getTime() + (options.ttlMs ?? DEFAULT_CLAIM_NONCE_TTL_MS));
+      const nonce = randomHex(16);
+      const sourceCanonicalId = sourceContext?.activation?.canonicalId ?? 'unknown';
+      const domain = normalizeDomain(options.domain ?? 'helixa.xyz');
+      const message = createClaimMessage({
+        multipassId: profile.multipass_id,
+        sourceCanonicalId,
+        domain,
+        nonce,
+        issuedAt: issuedAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+      });
+
+      db.prepare(`INSERT INTO claim_nonces (
+        nonce_hash, multipass_id, source_canonical_id, domain, purpose, message, issued_at, expires_at, used_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`).run(
+        hashSecret(nonce),
+        profile.multipass_id,
+        sourceCanonicalId,
+        domain,
+        options.purpose ?? 'claim_management',
+        message,
+        issuedAt.toISOString(),
+        expiresAt.toISOString(),
+      );
+
+      return {
+        schema_version: '0.1.0',
+        multipass_id: profile.multipass_id,
+        source_canonical_id: sourceCanonicalId,
+        nonce,
+        message,
+        issued_at: issuedAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
+      };
+    },
+
+    consumeClaimNonce(nonce, options = {}) {
+      const now = dateFrom(options.now).toISOString();
+      const row = db.prepare(`SELECT * FROM claim_nonces WHERE nonce_hash = ?`).get(hashSecret(nonce));
+      if (!row) throw new Error('Claim nonce not found.');
+      if (options.multipassId && row.multipass_id !== options.multipassId) {
+        throw new Error('Claim nonce is scoped to another Multipass.');
+      }
+      if (row.used_at) throw new Error('Claim nonce was already used.');
+      if (Date.parse(row.expires_at) <= Date.parse(now)) throw new Error('Claim nonce expired.');
+
+      db.prepare(`UPDATE claim_nonces SET used_at = ? WHERE nonce_hash = ?`).run(now, row.nonce_hash);
+      return row;
+    },
+
+    createManualReviewRequest(identifier, input = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(input.now).toISOString();
+      const wallet = normalizeWallet(input.proposedManagerWallet, 'proposedManagerWallet');
+      const contactRoute = normalizeBoundedString(input.contactRoute, 'contactRoute', 240);
+      const note = normalizeBoundedString(input.note, 'note', 1000);
+      const claimId = `claim_${randomHex(12)}`;
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`INSERT INTO claim_requests (
+          claim_id, multipass_id, proof_type, proposed_manager_wallet, contact_route, note, status, created_at, updated_at, approved_at, approved_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`).run(
+          claimId,
+          profile.multipass_id,
+          'manual_review',
+          wallet,
+          contactRoute,
+          note,
+          'pending_review',
+          now,
+          now,
+        );
+        updateProfileOwnerSummary(db, profile.multipass_id, {
+          owner_state: 'claimed',
+          verification_status: 'pending',
+          verified_at: null,
+          summary: 'Management claim pending manual review. This does not transfer custody, tools, credentials, or ownership.',
+        }, now);
+        appendChangeLog(db, profile.multipass_id, 'Management claim requested for manual review.', now);
+        appendAuditEvent(db, profile.multipass_id, 'manual_review_requested', { claimId, proposedManagerWallet: wallet }, now);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return readClaimRequest(db, claimId);
+    },
+
+    approveManualReviewClaim(identifier, claimId, input = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(input.now).toISOString();
+      const admin = normalizeBoundedString(input.admin ?? 'admin', 'admin', 120);
+      const row = db.prepare(`SELECT * FROM claim_requests WHERE multipass_id = ? AND claim_id = ?`).get(profile.multipass_id, claimId);
+      if (!row) throw new Error('Claim request not found.');
+      if (row.proof_type !== 'manual_review') throw new Error('Only manual review claims can be approved here.');
+      if (row.status !== 'pending_review') throw new Error('Claim request is not pending review.');
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`UPDATE claim_requests SET status = ?, approved_at = ?, approved_by = ?, updated_at = ? WHERE claim_id = ?`).run(
+          'approved',
+          now,
+          admin,
+          now,
+          claimId,
+        );
+        updateProfileOwnerSummary(db, profile.multipass_id, {
+          owner_state: 'claimed',
+          verification_status: 'verified',
+          verified_at: now,
+          summary: 'Management claim review-approved for public profile edits. Source-owner wallet proof was not completed; this does not transfer custody, tools, credentials, or ownership.',
+        }, now);
+        appendChangeLog(db, profile.multipass_id, 'Management claim approved after manual review.', now);
+        appendAuditEvent(db, profile.multipass_id, 'manual_review_approved', { claimId, admin }, now);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return readClaimRequest(db, claimId);
+    },
+
+    markOwnerWalletVerified(identifier, input = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(input.now).toISOString();
+      const wallet = normalizeWallet(input.managerWallet, 'managerWallet');
+      updateProfileOwnerSummary(db, profile.multipass_id, {
+        owner_state: 'verified',
+        verification_status: 'verified',
+        verified_at: now,
+        summary: 'Management claim owner-wallet verified for public profile edits. This does not transfer custody, tools, credentials, or ownership.',
+      }, now);
+      appendChangeLog(db, profile.multipass_id, 'Management claim owner-wallet verified.', now);
+      appendAuditEvent(db, profile.multipass_id, 'owner_wallet_verified', { managerWallet: wallet }, now);
+      return readProfile(db, profile.multipass_id);
+    },
+
+    getClaimState(multipassId) {
+      const approved = db.prepare(`SELECT * FROM claim_requests WHERE multipass_id = ? AND status = ? ORDER BY rowid DESC LIMIT 1`).get(multipassId, 'approved');
+      if (approved) {
+        return {
+          schema_version: '0.1.0',
+          multipass_id: multipassId,
+          status: 'claimed_review_approved',
+          manager_wallet: approved.proposed_manager_wallet,
+          claim_id: approved.claim_id,
+        };
+      }
+
+      const pending = db.prepare(`SELECT * FROM claim_requests WHERE multipass_id = ? AND status = ? ORDER BY rowid DESC LIMIT 1`).get(multipassId, 'pending_review');
+      if (pending) {
+        return {
+          schema_version: '0.1.0',
+          multipass_id: multipassId,
+          status: 'claim_pending',
+          proposed_manager_wallet: pending.proposed_manager_wallet,
+          claim_id: pending.claim_id,
+        };
+      }
+
+      const profile = readProfile(db, multipassId);
+      if (profile?.owner_summary?.owner_state === 'verified') {
+        return { schema_version: '0.1.0', multipass_id: multipassId, status: 'claimed_verified_owner' };
+      }
+
+      return { schema_version: '0.1.0', multipass_id: multipassId, status: 'saved_unclaimed' };
+    },
+
+    findApprovedManagerClaim(multipassId, wallet) {
+      return db.prepare(`SELECT * FROM claim_requests
+        WHERE multipass_id = ? AND proposed_manager_wallet = ? AND proof_type = ? AND status = ?
+        ORDER BY rowid DESC LIMIT 1`).get(multipassId, normalizeWallet(wallet, 'wallet'), 'manual_review', 'approved') ?? null;
+    },
+
+    createManagerSession(identifier, input = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const nowDate = dateFrom(input.now);
+      const expiresAt = new Date(nowDate.getTime() + (input.ttlMs ?? DEFAULT_MANAGER_SESSION_TTL_MS));
+      const sessionId = randomHex(32);
+      const csrfToken = randomHex(32);
+      const wallet = normalizeWallet(input.managerWallet, 'managerWallet');
+      const claimStatus = normalizeClaimStatus(input.claimStatus);
+
+      db.prepare(`INSERT INTO manager_sessions (
+        session_hash, multipass_id, manager_wallet, claim_status, csrf_hash, issued_at, expires_at, revoked_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`).run(
+        hashSecret(sessionId),
+        profile.multipass_id,
+        wallet,
+        claimStatus,
+        hashSecret(csrfToken),
+        nowDate.toISOString(),
+        expiresAt.toISOString(),
+      );
+
+      appendAuditEvent(db, profile.multipass_id, 'manager_session_created', { managerWallet: wallet, claimStatus }, nowDate.toISOString());
+      return { sessionId, csrfToken, expires_at: expiresAt.toISOString(), multipass_id: profile.multipass_id };
+    },
+
+    validateManagerSession(input = {}) {
+      const row = db.prepare(`SELECT * FROM manager_sessions WHERE session_hash = ?`).get(hashSecret(input.sessionId ?? ''));
+      if (!row) throw new Error('Manager session not found.');
+      if (row.revoked_at) throw new Error('Manager session revoked.');
+      if (input.multipassId && row.multipass_id !== input.multipassId) {
+        throw new Error('Manager session is scoped to another Multipass.');
+      }
+      if (Date.parse(row.expires_at) <= dateFrom(input.now).getTime()) {
+        throw new Error('Manager session expired.');
+      }
+      if (!constantTimeEqual(row.csrf_hash, hashSecret(input.csrfToken ?? ''))) {
+        throw new Error('Manager session CSRF token is invalid.');
+      }
+      return row;
+    },
+
+    revokeManagerSession(sessionId, input = {}) {
+      const now = dateFrom(input.now).toISOString();
+      db.prepare(`UPDATE manager_sessions SET revoked_at = ? WHERE session_hash = ? AND revoked_at IS NULL`).run(now, hashSecret(sessionId ?? ''));
+    },
+
+    updatePublicProfile(identifier, edits = {}, input = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const agentCard = readBundleById(db, profile.multipass_id)?.agentCard;
+      if (!agentCard) throw new Error('Agent card not found.');
+      const now = dateFrom(input.now).toISOString();
+      const actorWallet = normalizeWallet(input.actorWallet, 'actorWallet');
+      const normalized = normalizePublicProfileEdits(edits);
+      const changedFields = [];
+      const nextProfile = structuredClone(profile);
+      const nextAgentCard = structuredClone(agentCard);
+
+      if ('display_name' in normalized && normalized.display_name !== profile.display_name) {
+        nextProfile.display_name = normalized.display_name;
+        nextAgentCard.name = normalized.display_name;
+        changedFields.push('display_name');
+      }
+      if ('summary' in normalized && normalized.summary !== profile.discovery_profile.summary) {
+        nextProfile.discovery_profile.summary = normalized.summary;
+        changedFields.push('summary');
+      }
+      if ('avatar_url' in normalized && normalized.avatar_url !== (profile.discovery_profile.avatar_url ?? null)) {
+        nextProfile.discovery_profile.avatar_url = normalized.avatar_url;
+        changedFields.push('avatar_url');
+      }
+      if ('tags' in normalized && JSON.stringify(normalized.tags) !== JSON.stringify(profile.discovery_profile.tags)) {
+        nextProfile.discovery_profile.tags = normalized.tags;
+        changedFields.push('tags');
+      }
+
+      if (changedFields.length === 0) {
+        return { profile, changedFields: [] };
+      }
+
+      nextProfile.updated_at = now;
+      assertMultipassProfile(nextProfile);
+      assertAgentCard(nextAgentCard);
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`UPDATE saved_records SET profile_json = ?, agent_card_json = ?, updated_at = ? WHERE multipass_id = ?`).run(
+          JSON.stringify(nextProfile),
+          JSON.stringify(nextAgentCard),
+          now,
+          profile.multipass_id,
+        );
+        appendChangeLog(db, profile.multipass_id, `Public profile updated: ${changedFields.join(', ')}.`, now);
+        appendAuditEvent(db, profile.multipass_id, 'public_profile_updated', { actorWallet, changedFields }, now);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return { profile: readProfile(db, profile.multipass_id), changedFields };
+    },
+
     close() {
       db.close();
     },
@@ -172,6 +461,47 @@ function initialize(db) {
       multipass_id TEXT NOT NULL,
       change_id TEXT NOT NULL,
       message TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS claim_nonces (
+      nonce_hash TEXT PRIMARY KEY,
+      multipass_id TEXT NOT NULL,
+      source_canonical_id TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      message TEXT NOT NULL,
+      issued_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS claim_requests (
+      claim_id TEXT PRIMARY KEY,
+      multipass_id TEXT NOT NULL,
+      proof_type TEXT NOT NULL,
+      proposed_manager_wallet TEXT NOT NULL,
+      contact_route TEXT NOT NULL,
+      note TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      approved_at TEXT,
+      approved_by TEXT
+    );
+    CREATE TABLE IF NOT EXISTS manager_sessions (
+      session_hash TEXT PRIMARY KEY,
+      multipass_id TEXT NOT NULL,
+      manager_wallet TEXT NOT NULL,
+      claim_status TEXT NOT NULL,
+      csrf_hash TEXT NOT NULL,
+      issued_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS audit_events (
+      audit_id TEXT PRIMARY KEY,
+      multipass_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
   `);
@@ -333,6 +663,173 @@ function isSensitiveSourceField(field) {
     || normalized.includes('bearer');
 }
 
+
+
+function requireSavedProfile(db, identifier) {
+  const profile = readProfile(db, identifier);
+  if (!profile) throw new Error(`Saved Multipass not found: ${identifier}`);
+  return profile;
+}
+
+function createClaimMessage({ multipassId, sourceCanonicalId, domain, nonce, issuedAt, expiresAt }) {
+  return [
+    'Helixa Multipass claim management',
+    '',
+    `Multipass ID: ${multipassId}`,
+    `Source canonical ID: ${sourceCanonicalId}`,
+    `Domain: ${domain}`,
+    `Nonce: ${nonce}`,
+    `Issued at: ${issuedAt}`,
+    `Expires at: ${expiresAt}`,
+    '',
+    'Signing this message verifies control for public Multipass metadata management only.',
+    'It does not transfer funds, assets, tools, credentials, or ownership.',
+  ].join('\n');
+}
+
+function updateProfileOwnerSummary(db, multipassId, ownerSummary, updatedAt) {
+  const profile = requireSavedProfile(db, multipassId);
+  const nextProfile = {
+    ...profile,
+    owner_summary: {
+      ...profile.owner_summary,
+      ...ownerSummary,
+      visibility: profile.owner_summary.visibility ?? 'public',
+    },
+    updated_at: updatedAt,
+  };
+  if (nextProfile.owner_summary.verified_at === null) {
+    delete nextProfile.owner_summary.verified_at;
+  }
+  assertMultipassProfile(nextProfile);
+  db.prepare(`UPDATE saved_records SET profile_json = ?, updated_at = ? WHERE multipass_id = ?`).run(
+    JSON.stringify(nextProfile),
+    updatedAt,
+    multipassId,
+  );
+}
+
+function appendChangeLog(db, multipassId, message, createdAt) {
+  db.prepare(`INSERT INTO change_log_entries (multipass_id, change_id, message, created_at) VALUES (?, ?, ?, ?)`).run(
+    multipassId,
+    `change_${randomHex(12)}`,
+    message,
+    createdAt,
+  );
+}
+
+function appendAuditEvent(db, multipassId, eventType, event, createdAt) {
+  db.prepare(`INSERT INTO audit_events (audit_id, multipass_id, event_type, event_json, created_at) VALUES (?, ?, ?, ?, ?)`).run(
+    `audit_${randomHex(12)}`,
+    multipassId,
+    eventType,
+    JSON.stringify(event ?? {}),
+    createdAt,
+  );
+}
+
+function readClaimRequest(db, claimId) {
+  return db.prepare(`SELECT * FROM claim_requests WHERE claim_id = ?`).get(claimId) ?? null;
+}
+
+function normalizePublicProfileEdits(edits) {
+  if (!isPlainObject(edits)) throw new TypeError('Profile edits must be an object.');
+  for (const key of Object.keys(edits)) {
+    if (!EDITABLE_PROFILE_FIELDS.has(key)) {
+      throw new TypeError(`${key} is not editable through Multipass management.`);
+    }
+  }
+
+  const normalized = {};
+  if ('display_name' in edits) {
+    normalized.display_name = normalizeBoundedString(edits.display_name, 'display_name', 120);
+  }
+  if ('summary' in edits) {
+    normalized.summary = normalizeBoundedString(edits.summary, 'summary', 1000);
+  }
+  if ('avatar_url' in edits) {
+    normalized.avatar_url = normalizeOptionalUrl(edits.avatar_url, 'avatar_url');
+  }
+  if ('tags' in edits) {
+    if (!Array.isArray(edits.tags)) throw new TypeError('tags must be an array.');
+    normalized.tags = [...new Set(edits.tags.map((tag) => normalizeTag(tag)))].slice(0, 12);
+  }
+  return normalized;
+}
+
+function normalizeTag(value) {
+  const tag = String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!tag) throw new TypeError('tags cannot include empty values.');
+  if (tag.length > 40) throw new TypeError('tags values must be 40 characters or fewer.');
+  return tag;
+}
+
+function normalizeOptionalUrl(value, field) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const raw = String(value).trim();
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new TypeError(`${field} must be a valid URL.`);
+  }
+  if (!['https:', 'http:'].includes(parsed.protocol)) {
+    throw new TypeError(`${field} must use http or https.`);
+  }
+  return parsed.toString();
+}
+
+function normalizeBoundedString(value, field, maxLength) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw new TypeError(`${field} is required.`);
+  if (normalized.length > maxLength) throw new TypeError(`${field} must be ${maxLength} characters or fewer.`);
+  return normalized;
+}
+
+function normalizeWallet(value, field) {
+  const wallet = String(value ?? '').trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(wallet)) throw new TypeError(`${field} must be an EVM wallet address.`);
+  return wallet;
+}
+
+function normalizeDomain(value) {
+  const domain = String(value ?? '').trim().toLowerCase();
+  if (!/^[a-z0-9.-]{1,253}$/.test(domain)) throw new TypeError('domain is invalid.');
+  return domain;
+}
+
+function normalizeClaimStatus(value) {
+  const status = String(value ?? '').trim();
+  if (!['claimed_verified_owner', 'claimed_review_approved', 'claimed_admin_seeded'].includes(status)) {
+    throw new TypeError('claimStatus is invalid.');
+  }
+  return status;
+}
+
+function dateFrom(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new TypeError('Invalid date.');
+    return value;
+  }
+  if (value === undefined || value === null || value === '') return new Date();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new TypeError(`Invalid date: ${value}`);
+  return date;
+}
+
+function randomHex(bytes) {
+  return randomBytes(bytes).toString('hex');
+}
+
+function hashSecret(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function constantTimeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
 
 function isUniqueConstraintError(error) {
   return String(error?.message ?? '').includes('UNIQUE constraint failed');
