@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import { MultipassValidationError } from '@helixa/multipass-sdk';
 
+import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
+import { createSqliteSavedRecords } from '../src/saved-records.js';
 
 const profile = {
   schema_version: '0.1.0',
@@ -161,15 +163,41 @@ const receipt = {
 
 function makeApi() {
   return createMultipassApi({
-    store: createMemoryStore({
-      profiles: [profile],
-      fragments: [publicFragment, privateFragment],
-      agentCards: [agentCard],
-      standardsProfiles: [standardsProfile],
-      x402Manifests: [x402Manifest],
-      receiptFragments: [receipt],
-    }),
+    store: createFixtureStore(),
     baseUrl: 'https://multipass.example.test',
+  });
+}
+
+function createFixtureStore() {
+  return createMemoryStore({
+    profiles: [profile],
+    fragments: [publicFragment, privateFragment],
+    agentCards: [agentCard],
+    standardsProfiles: [standardsProfile],
+    x402Manifests: [x402Manifest],
+    receiptFragments: [receipt],
+  });
+}
+
+function makeSavedRecord() {
+  return buildSavedRecordFromHelixaAgent({
+    tokenId: '1',
+    name: 'Bendr 2.0',
+    owner: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+    verified: true,
+  }, { observedAt: '2026-06-26T20:00:00.000Z' });
+}
+
+function makeSaveApi() {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  return createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+    activationService: async (input) => {
+      assert.equal(input, '1');
+      return makeSavedRecord();
+    },
   });
 }
 
@@ -179,6 +207,15 @@ async function requestJson(api, path) {
     response,
     body: await response.json(),
   };
+}
+
+async function postJson(api, path, body) {
+  const response = await api.handleRequest(new Request(`https://multipass.example.test${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+  return { response, body: await response.json() };
 }
 
 test('serves canonical profile by slug or id', async () => {
@@ -231,6 +268,81 @@ test('returns structured 404 errors', async () => {
   assert.equal(response.status, 404);
   assert.equal(body.error.code, 'not_found');
   assert.match(body.error.message, /Multipass not found/);
+});
+
+test('POST /api/multipass/activate returns preview JSON without persisting', async () => {
+  const api = makeSaveApi();
+
+  const preview = await postJson(api, '/api/multipass/activate', { agent: '1' });
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.state, 'activated_unsaved');
+  assert.equal(preview.body.profile.slug, 'bendr-2-1');
+  assert.equal(preview.body.source.canonicalId, '8453:1');
+
+  const savedRead = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(savedRead.response.status, 404);
+});
+
+test('POST /api/multipass saves idempotent persistent records', async () => {
+  const api = makeSaveApi();
+
+  const first = await postJson(api, '/api/multipass', { agent: '1' });
+  assert.equal(first.response.status, 201);
+  assert.equal(first.body.created, true);
+  assert.equal(first.body.state, 'saved_unclaimed');
+  assert.equal(first.body.profile.slug, 'bendr-2-1');
+  assert.equal(first.body.sharePath, '/multipass/bendr-2-1');
+
+  const second = await postJson(api, '/api/multipass', { agent: '1' });
+  assert.equal(second.response.status, 200);
+  assert.equal(second.body.created, false);
+  assert.equal(second.body.sharePath, '/multipass/bendr-2-1');
+});
+
+test('GET saved profile resolves before fixture store and exposes saved documents', async () => {
+  const api = makeSaveApi();
+  await postJson(api, '/api/multipass', { agent: '1' });
+
+  const profileRead = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(profileRead.response.status, 200);
+  assert.equal(profileRead.body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(profileRead.body.slug, 'bendr-2-1');
+
+  assert.equal((await requestJson(api, '/api/multipass/bendr-2-1/card')).body.name, 'Bendr 2.0');
+  assert.equal((await requestJson(api, '/api/multipass/bendr-2-1/agent-card')).body.name, 'Bendr 2.0');
+  const fragments = await requestJson(api, '/api/multipass/bendr-2-1/fragments');
+  assert.notDeepEqual(fragments.body.fragments.map((fragment) => fragment.fragment_id), ['frag_public_wallet']);
+  assert.ok(fragments.body.fragments.some((fragment) => fragment.fragment_id === 'frag_helixa_agent_1_owner_wallet'));
+  const changes = await requestJson(api, '/api/multipass/mp_helixa_agent_1/changes');
+  assert.equal(changes.body.entries[0].message, 'Multipass saved from live public source record.');
+});
+
+test('POST routes return structured input errors', async () => {
+  const api = makeSaveApi();
+
+  const badJsonResponse = await api.handleRequest(new Request('https://multipass.example.test/api/multipass', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{',
+  }));
+  const badJson = await badJsonResponse.json();
+  assert.equal(badJsonResponse.status, 400);
+  assert.equal(badJson.error.code, 'invalid_json');
+
+  const missing = await postJson(api, '/api/multipass', {});
+  assert.equal(missing.response.status, 400);
+  assert.equal(missing.body.error.code, 'invalid_request');
+});
+
+test('POST save and preview require activation configuration', async () => {
+  const api = makeApi();
+  const preview = await postJson(api, '/api/multipass/activate', { agent: '1' });
+  const save = await postJson(api, '/api/multipass', { agent: '1' });
+
+  assert.equal(preview.response.status, 503);
+  assert.equal(preview.body.error.code, 'not_configured');
+  assert.equal(save.response.status, 503);
+  assert.equal(save.body.error.code, 'not_configured');
 });
 
 test('validates store documents before serving them', () => {
