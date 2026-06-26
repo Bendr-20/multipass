@@ -9,6 +9,19 @@ export function getActivationState(data = {}, resolverState = {}) {
     ?? data.liveProfilePage?.headerMeta?.match(/\b\d+:\d+\b/u)?.[0]
     ?? null;
 
+  if (data.activation?.state === 'saved_record') {
+    return {
+      kind: 'saved',
+      title: 'Saved Multipass',
+      subject,
+      resolvedId,
+      sourceLabel: data.sourceLabel ?? 'saved Multipass API',
+      originLabel: 'Saved public Multipass record',
+      summary: 'This persistent Multipass was saved from a public live agent record. It does not grant authority or expose private credentials.',
+      showFutureBindNote: true,
+    };
+  }
+
   if (!isLoadedLive) {
     return {
       kind: 'preview',

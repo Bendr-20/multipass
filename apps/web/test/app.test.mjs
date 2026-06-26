@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { createApp } from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
+import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
 function sampleData() {
   return {
@@ -1347,6 +1348,106 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
   assert.deepEqual(calls, ['bot', '81']);
   assert.equal(root.querySelector('.homepage-hero h1').textContent, 'Quigbot Multipass');
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
+});
+
+
+test('live activated page saves with resolved token id and updates share panel', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=Quigbot');
+  const liveData = {
+    ...sampleData(),
+    sourceLabel: 'live Helixa API',
+    resolver: { canonicalId: '8453:1', tokenId: '1' },
+    liveProfilePage: { headline: 'Bendr Multipass', headerMeta: 'Live profile · 8453:1', sharePath: '/multipass/?agent=1' },
+  };
+  const saves = [];
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => liveData,
+    saveMultipass: async ({ agent }) => {
+      saves.push(agent);
+      return { created: true, sharePath: '/multipass/bendr-2-1', profile: { slug: 'bendr-2-1' } };
+    },
+  }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const button = [...root.querySelectorAll('button')].find((node) => node.textContent === 'Save Multipass');
+  assert.ok(button);
+  button.click();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(saves, ['1']);
+  assert.match(root.textContent, /Saved Multipass/);
+  assert.match(root.textContent, /\/multipass\/bendr-2-1/);
+  assert.equal(new URL(window.location.href).pathname, '/multipass/bendr-2-1');
+});
+
+test('direct saved slug route loads saved Multipass from API instead of static preview', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const fetches = [];
+  await createApp({
+    root,
+    fetchImpl: async (url) => {
+      fetches.push(url);
+      if (String(url).endsWith('/api/multipass/bendr-2-1')) {
+        return new Response(JSON.stringify({ ...sampleData().profile, display_name: 'Saved Bendr', slug: 'bendr-2-1', multipass_id: 'mp_helixa_agent_1', status: 'active' }), { status: 200 });
+      }
+      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
+      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
+      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
+      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
+      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [{ message: 'Multipass saved from live public source record.' }] }), { status: 200 });
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  assert.match(root.textContent, /Saved Bendr/);
+  assert.match(root.textContent, /Saved Multipass/);
+  assert.doesNotMatch(root.textContent, /Preview Multipass/);
+  assert.ok(fetches.some((url) => String(url).includes('/api/multipass/bendr-2-1')));
+});
+
+test('save error does not update stable URL or claim success', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => ({
+      ...sampleData(),
+      sourceLabel: 'live Helixa API',
+      resolver: { canonicalId: '8453:1', tokenId: '1' },
+      liveProfilePage: { headline: 'Bendr Multipass', headerMeta: 'Live profile · 8453:1', sharePath: '/multipass/?agent=1' },
+    }),
+    saveMultipass: async () => { throw new Error('Save API unavailable.'); },
+  }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+  [...root.querySelectorAll('button')].find((node) => node.textContent === 'Save Multipass').click();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Save API unavailable/);
+  assert.doesNotMatch(root.textContent, /Saved Multipass/);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
+});
+
+test('static preview does not show Save Multipass action', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+  assert.doesNotMatch(root.textContent, /Save Multipass/);
+});
+
+test('safe Multipass share path helper accepts only preview and stable profile paths', () => {
+  assert.equal(isSafeMultipassSharePath('/multipass/'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/?agent=1'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/bendr-2-1'), true);
+  assert.equal(isSafeMultipassSharePath('https://evil.test/multipass/bendr-2-1'), false);
+  assert.equal(isSafeMultipassSharePath('/multipass/a%2Fb'), false);
+  assert.equal(isSafeMultipassSharePath('/multipass/../admin'), false);
+  assert.equal(isSafeMultipassSharePath('/multipass/?agent=Quigbot'), false);
 });
 
 test('API failure renders setup message', async () => {

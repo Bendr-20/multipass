@@ -1,9 +1,11 @@
 import { getActivationState } from './activation.js';
-import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
+import { getApiBaseFromLocation, getSavedSlugFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
+import { saveActivatedMultipass } from './saved-multipass-api.js';
+import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loadLiveHelixaMultipass }) {
+export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, fetchImpl } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   let state = {
@@ -17,12 +19,17 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
     retryUntil: 0,
     retryMessage: null,
     lookupMatches: [],
+    saveStatus: null,
+    saveError: null,
+    savedSharePath: null,
+    savedProfile: null,
   };
+  const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
 
   async function start() {
     renderLoading(root);
     try {
-      const data = await loadDemo();
+      const data = await loadInitialDemo();
       state = { ...state, data, staticData: data };
       render(root, state, handlers);
       const resolverInput = getInitialResolverInput();
@@ -45,6 +52,10 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       resolverInFlightInput: trimmed,
       resolverRequestId: state.resolverRequestId + 1,
       lookupMatches: [],
+      saveStatus: null,
+      saveError: null,
+      savedSharePath: null,
+      savedProfile: null,
     };
     const requestId = state.resolverRequestId;
     render(root, state, handlers);
@@ -63,6 +74,10 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         expandedCard: null,
         resolverInFlightInput: null,
         lookupMatches: [],
+        saveStatus: null,
+        saveError: null,
+        savedSharePath: null,
+        savedProfile: null,
       };
       syncShareUrl(liveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
@@ -80,6 +95,10 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         retryUntil: retryState.retryUntil,
         retryMessage: retryState.retryMessage,
         lookupMatches: lookupMatchesFromError(error),
+        saveStatus: null,
+        saveError: null,
+        savedSharePath: null,
+        savedProfile: null,
       };
       clearShareUrl();
       render(root, state, handlers);
@@ -100,12 +119,51 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       retryUntil: 0,
       retryMessage: null,
       lookupMatches: [],
+      saveStatus: null,
+      saveError: null,
+      savedSharePath: null,
+      savedProfile: null,
     };
     clearShareUrl();
     render(root, state, handlers);
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo };
+  async function saveCurrentMultipass() {
+    if (state.resolverStatus !== 'loaded') return;
+    const agent = state.data?.resolver?.tokenId;
+    if (!agent) {
+      state = { ...state, saveStatus: 'error', saveError: 'Resolved token ID is required before saving.' };
+      render(root, state, handlers);
+      return;
+    }
+    state = { ...state, saveStatus: 'saving', saveError: null };
+    render(root, state, handlers);
+    try {
+      const saved = await saveMultipass({ agent, fetchImpl });
+      state = {
+        ...state,
+        saveStatus: 'saved',
+        saveError: null,
+        savedSharePath: saved.sharePath,
+        savedProfile: saved.profile,
+        data: {
+          ...state.data,
+          liveProfilePage: {
+            ...state.data.liveProfilePage,
+            sharePath: saved.sharePath,
+            headerMeta: `Saved Multipass · ${saved.profile?.slug ?? 'persistent profile'}`,
+          },
+        },
+      };
+      syncShareUrl(saved.sharePath);
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, saveStatus: 'error', saveError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass };
 
   return { start };
 }
@@ -117,14 +175,22 @@ function getInitialResolverInput() {
   return locationUrl.searchParams.get('agent') ?? '';
 }
 
-function defaultLoadDemo() {
+function defaultLoadDemo({ fetchImpl } = {}) {
   const locationUrl = new URL(window.location.href);
+  const apiBase = getApiBaseFromLocation(locationUrl);
+  const savedSlug = getSavedSlugFromLocation(locationUrl);
+  if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
   if (shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
 
   return loadMultipassDemo({
-    apiBase: getApiBaseFromLocation(locationUrl),
+    apiBase,
     subject: DEMO_SUBJECT,
+    fetchImpl,
   });
+}
+
+function defaultSaveMultipass({ agent, fetchImpl } = {}) {
+  return saveActivatedMultipass({ agent, apiBase: getApiBaseFromLocation(new URL(window.location.href)), fetchImpl });
 }
 
 function renderLoading(root) {
@@ -160,34 +226,14 @@ function createHeroCopy(data) {
 }
 
 function renderShareLink(sharePath) {
-  if (!isSafeSharePath(sharePath)) return '';
+  if (!isSafeMultipassSharePath(sharePath)) return '';
   return ` <a class="share-link" href="${escapeAttribute(sharePath)}">${escapeHtml(sharePath)}</a>`;
 }
 
-function getSafeSharePath(sharePath) {
-  if (!sharePath) return '/multipass/';
-  return isSafeSharePath(sharePath) ? String(sharePath) : '/multipass/';
-}
-
-function getAbsoluteShareUrl(sharePath) {
-  return new URL(getSafeSharePath(sharePath), 'https://helixa.xyz').toString();
-}
-
-function isSafeSharePath(sharePath) {
-  if (!sharePath) return false;
-  try {
-    const parsed = new URL(String(sharePath), 'https://helixa.xyz');
-    if (parsed.origin !== 'https://helixa.xyz' || parsed.pathname !== '/multipass/') return false;
-    const agent = parsed.searchParams.get('agent');
-    return agent === null || /^\d+$/.test(agent);
-  } catch {
-    return false;
-  }
-}
 
 function syncShareUrl(sharePath) {
-  if (typeof window === 'undefined' || !isSafeSharePath(sharePath)) return;
-  window.history.replaceState(null, '', sharePath);
+  if (typeof window === 'undefined' || !isSafeMultipassSharePath(sharePath)) return;
+  window.history.replaceState(null, '', getSafeMultipassSharePath(sharePath));
 }
 
 function clearShareUrl() {
@@ -220,6 +266,8 @@ function render(root, state, handlers = {}) {
 
       ${renderActivationSummary(activationState)}
 
+      ${renderSavePanel(state)}
+
       ${renderSharePanel(data, heroCopy)}
 
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
@@ -241,7 +289,7 @@ function render(root, state, handlers = {}) {
         ${proofCards.map((card, index) => renderProofRow(card, index, state.expandedCard)).join('')}
       </section>
 
-      <footer class="footer-note">${escapeHtml(activationState.kind === 'activated'
+      <footer class="footer-note">${escapeHtml(['activated', 'saved'].includes(activationState.kind)
         ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
         : 'This is a static public preview. It does not include auth, persistence, contract reads, or payment settlement.'
       )}</footer>
@@ -274,6 +322,7 @@ function render(root, state, handlers = {}) {
     handlers.resolveLiveAgent?.(input);
   });
 
+  root.querySelector('[data-action="save-multipass"]')?.addEventListener('click', () => handlers.saveCurrentMultipass?.());
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));

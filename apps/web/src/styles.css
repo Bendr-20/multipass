@@ -2110,3 +2110,36 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.save-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(110, 236, 216, 0.24);
+  border-radius: 18px;
+  background: rgba(110, 236, 216, 0.06);
+  display: grid;
+  gap: 0.65rem;
+}
+
+.save-panel button {
+  width: fit-content;
+}
+
+.save-message,
+.save-share-path {
+  margin: 0;
+  color: var(--text);
+}
+
+.save-message.muted {
+  color: var(--muted);
+}
+
+.save-message.error {
+  color: #ff9aa8;
+}
+
+.save-share-path {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
