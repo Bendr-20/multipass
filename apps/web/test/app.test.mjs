@@ -298,9 +298,11 @@ test('resolver bar renders without changing default static data', async () => {
 
   const resolver = root.querySelector('.live-resolver');
   assert.ok(resolver);
-  assert.match(resolver.textContent, /Resolve live Helixa agent/);
-  assert.match(resolver.textContent, /Try 1, 8453:1, Bendr 2\.0, or Quigbot/);
-  assert.match(resolver.textContent, /Helixa ID, name, or handle/);
+  assert.match(resolver.textContent, /Activate a live agent record/);
+  assert.match(resolver.textContent, /Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name/);
+  assert.match(resolver.textContent, /Activate Multipass/);
+  assert.doesNotMatch(resolver.textContent, /Resolve live Helixa agent/);
+  assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /bundled fixture/);
 });
@@ -644,7 +646,7 @@ test('resolver submit loads live data and updates source label', async () => {
   assert.deepEqual(calls, ['8453:1']);
   assert.match(root.textContent, /Live Bendr/);
   assert.match(root.textContent, /live Helixa API/);
-  assert.match(root.textContent, /Live Helixa API data loaded/);
+  assert.match(root.textContent, /Live record activated into a display-only Multipass/);
 });
 
 
@@ -843,7 +845,7 @@ test('resolver disables duplicate submit while matching request is in flight', a
   root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   assert.equal(calls, 1);
-  assert.equal(root.querySelector('.live-resolver button[type="submit"]').textContent, 'Resolving...');
+  assert.equal(root.querySelector('.live-resolver button[type="submit"]').textContent, 'Activating...');
 
   resolveLive(sampleData());
   await Promise.resolve();

@@ -286,7 +286,7 @@ function renderHomepageHero(heroCopy, data, agentCarousel) {
         <h1>${escapeHtml(heroCopy.headline)}</h1>
         <p class="lead">${escapeHtml(heroCopy.body)}</p>
         <div class="homepage-actions">
-          <a href="#live-resolver" class="homepage-action primary">Resolve live agent</a>
+          <a href="#live-resolver" class="homepage-action primary">Activate Multipass</a>
           <a href="#profile-gallery" class="homepage-action">View example profiles</a>
         </div>
         <div class="note">${escapeHtml(heroCopy.note)}${renderShareLink(data.liveProfilePage?.sharePath)}</div>
@@ -341,25 +341,25 @@ function renderSharePanel(data, heroCopy) {
 
 function renderLiveResolver(state) {
   return `
-    <section id="live-resolver" class="live-resolver" aria-label="Resolve live Helixa agent">
+    <section id="live-resolver" class="live-resolver" aria-label="Activate a live agent record">
       <form data-action="resolve-live-agent">
         <div>
-          <p class="card-label">Resolve live Helixa agent</p>
-          <h2>Read a live AgentDNA record.</h2>
-          <p>Try <code>1</code>, <code>8453:1</code>, <code>Bendr 2.0</code>, or <code>Quigbot</code>.</p>
+          <p class="card-label">Activate a live agent record</p>
+          <h2>Build a Multipass from live AgentDNA data.</h2>
+          <p>Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name. Try <code>1</code>, <code>8453:1</code>, <code>Bendr 2.0</code>, or <code>Quigbot</code>.</p>
         </div>
         <label>
-          <span>Helixa ID, name, or handle</span>
+          <span>AgentDNA ID, ERC-8004-style ID, token ID, or agent name</span>
           <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
         </label>
-        <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Resolving...' : 'Resolve'}</button>
-        <button type="button" data-action="reset-static-demo">Static demo</button>
+        <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
+        <button type="button" data-action="reset-static-demo">View static demo</button>
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
       ${renderResolverExamples()}
       ${renderLookupMatches(state.lookupMatches)}
-      ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live Helixa API data loaded. Display only, no approvals or authority changes.</p>' : ''}
+      ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : ''}
     </section>
   `;
 }
