@@ -913,6 +913,45 @@ test('resolver API error keeps static data available', async () => {
   assert.match(root.textContent, /Bendr 2\.0/);
 });
 
+test('failed lookup after live activation returns to preview state without stale activated copy', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  let calls = 0;
+  const liveData = {
+    ...sampleData(),
+    sourceLabel: 'live Helixa API',
+    profile: { ...sampleData().profile, display_name: 'Quigbot Live' },
+    resolver: { canonicalId: '8453:81', tokenId: '81' },
+    liveProfilePage: { headline: 'Quigbot Multipass', headerMeta: 'Live profile · 8453:81', sharePath: '/multipass/?agent=81' },
+  };
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => {
+      calls += 1;
+      if (calls === 1) return liveData;
+      throw new HelixaResolverError('not_found', 'No Helixa agent found for that ID.');
+    },
+  }).start();
+
+  root.querySelector('.live-resolver input').value = '81';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(root.querySelector('.activation-summary').textContent, /Activated Multipass/);
+
+  root.querySelector('.live-resolver input').value = '999999';
+  root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /No Helixa agent found for that ID/);
+  assert.match(root.querySelector('.activation-summary').textContent, /Preview Multipass/);
+  assert.doesNotMatch(root.textContent, /Quigbot Live/);
+  assert.doesNotMatch(root.textContent, /Activated Multipass/);
+  assert.equal(new URL(window.location.href).searchParams.get('agent'), null);
+});
+
 test('resolver rate limit disables retry during Retry-After window', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({

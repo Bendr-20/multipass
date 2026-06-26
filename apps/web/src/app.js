@@ -71,6 +71,9 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
       const retryState = retryStateFromError(error);
       state = {
         ...state,
+        data: state.staticData ?? state.data,
+        selectedAgentCard: 0,
+        expandedCard: null,
         resolverStatus: 'error',
         resolverError: userResolverMessage(error),
         resolverInFlightInput: null,
@@ -78,6 +81,7 @@ export function createApp({ root, loadDemo = defaultLoadDemo, loadLiveDemo = loa
         retryMessage: retryState.retryMessage,
         lookupMatches: lookupMatchesFromError(error),
       };
+      clearShareUrl();
       render(root, state, handlers);
     }
   }
