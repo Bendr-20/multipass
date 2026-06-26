@@ -321,6 +321,101 @@ test('static homepage renders display-only share panel', async () => {
   assert.doesNotMatch(panel.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 
+test('static initial state shows preview Multipass instead of activated Multipass', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const activation = root.querySelector('.activation-summary');
+  assert.ok(activation);
+  assert.match(activation.textContent, /Preview Multipass/);
+  assert.match(activation.textContent, /Preview from bundled public data/);
+  assert.match(activation.textContent, /Binding NFTs to an existing identity is planned for a later adapter release/);
+  assert.doesNotMatch(activation.textContent, /Activated Multipass/);
+  assert.doesNotMatch(activation.textContent, /Activated from NFT/);
+});
+
+test('successful live resolve shows activated Multipass summary without stale static framing', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const liveData = {
+    ...sampleData(),
+    modeLabel: 'Live Profile',
+    sourceLabel: 'live Helixa API',
+    profile: { ...sampleData().profile, display_name: 'Quigbot' },
+    resolver: { canonicalId: '8453:81', tokenId: '81' },
+    liveProfilePage: { headline: 'Quigbot Multipass', headerMeta: 'Live profile · 8453:81', sharePath: '/multipass/?agent=81' },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const activation = root.querySelector('.activation-summary');
+  assert.match(activation.textContent, /Activated Multipass/);
+  assert.match(activation.textContent, /Quigbot/);
+  assert.match(activation.textContent, /8453:81/);
+  assert.match(activation.textContent, /Activated from live agent record/);
+  assert.match(activation.textContent, /This Multipass was built from a live public agent record/);
+  assert.match(activation.textContent, /live Helixa API/);
+  assert.match(root.textContent, /Live record activated into a display-only Multipass/);
+  assert.doesNotMatch(root.textContent, /This is a static public demo/);
+});
+
+test('trusted NFT adapter metadata is required for Activated from NFT label', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  const liveData = {
+    ...sampleData(),
+    sourceLabel: 'live Helixa API',
+    resolver: { canonicalId: '8453:1', tokenId: '1' },
+    activation: { origin: 'nft_adapter_new_erc8004', originSource: 'trusted_resolver_metadata' },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.querySelector('.activation-summary').textContent, /Activated from NFT/);
+});
+
+test('untrusted NFT-looking live data does not claim Activated from NFT', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  const liveData = {
+    ...sampleData(),
+    sourceLabel: 'live Helixa API',
+    resolver: { canonicalId: '8453:1', tokenId: '1' },
+    activation: { origin: 'nft_adapter_new_erc8004', originSource: 'guessed_from_collection' },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const activation = root.querySelector('.activation-summary').textContent;
+  assert.match(activation, /Activated from live agent record/);
+  assert.doesNotMatch(activation, /Activated from NFT/);
+});
+
+test('activated page avoids custody and binding overclaims', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  const liveData = {
+    ...sampleData(),
+    sourceLabel: 'live Helixa API',
+    resolver: { canonicalId: '8453:1', tokenId: '1' },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.doesNotMatch(root.textContent, /bind to existing ERC-8004/i);
+  assert.doesNotMatch(root.textContent, /transfer ownership/i);
+  assert.doesNotMatch(root.textContent, /move tools/i);
+  assert.doesNotMatch(root.textContent, /move secrets/i);
+  assert.doesNotMatch(root.textContent, /grant permissions/i);
+  assert.doesNotMatch(root.textContent, /passport/i);
+  assert.doesNotMatch(root.textContent, /Multi Pass/i);
+  assert.doesNotMatch(root.textContent, /created ERC-8004/i);
+});
+
 
 test('render uses live hero note when data supplies one', async () => {
   const data = { ...sampleData(), heroNote: 'Read-only live Helixa API data for Bendr 2.0.', sourceLabel: 'live Helixa API' };

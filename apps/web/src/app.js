@@ -1,3 +1,4 @@
+import { getActivationState } from './activation.js';
 import { getApiBaseFromLocation, loadMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -199,6 +200,7 @@ function render(root, state, handlers = {}) {
   const claritySections = createClaritySections(data);
   const agentCarousel = createAgentCarousel(data);
   const selectedAgent = agentCarousel.cards[state.selectedAgentCard] ?? agentCarousel.cards[0];
+  const activationState = getActivationState(data, state);
   const fragmentTrustMap = createFragmentTrustMap(data, selectedAgent);
   const proofCards = createProofCards(data, selectedAgent);
   root.innerHTML = `
@@ -211,6 +213,8 @@ function render(root, state, handlers = {}) {
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
 
       ${renderLiveResolver(state)}
+
+      ${renderActivationSummary(activationState)}
 
       ${renderSharePanel(data, heroCopy)}
 
@@ -233,7 +237,10 @@ function render(root, state, handlers = {}) {
         ${proofCards.map((card, index) => renderProofRow(card, index, state.expandedCard)).join('')}
       </section>
 
-      <footer class="footer-note">This is a static public demo. It does not include auth, persistence, contract reads, or payment settlement.</footer>
+      <footer class="footer-note">${escapeHtml(activationState.kind === 'activated'
+        ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
+        : 'This is a static public preview. It does not include auth, persistence, contract reads, or payment settlement.'
+      )}</footer>
     </div>
   `;
 
@@ -360,6 +367,30 @@ function renderLiveResolver(state) {
       ${renderResolverExamples()}
       ${renderLookupMatches(state.lookupMatches)}
       ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : ''}
+    </section>
+  `;
+}
+
+function renderActivationSummary(activationState) {
+  const resolved = activationState.resolvedId ? `<span>${escapeHtml(activationState.resolvedId)}</span>` : '';
+  const futureBindNote = activationState.showFutureBindNote
+    ? '<p class="activation-bind-note">Today, NFT activation creates a new ERC-8004 identity. Binding NFTs to an existing identity is planned for a later adapter release.</p>'
+    : '';
+
+  return `
+    <section class="activation-summary ${escapeAttribute(activationState.kind)}" aria-label="Multipass activation state">
+      <div>
+        <p class="card-label">Agent Activation</p>
+        <h2>${escapeHtml(activationState.title)}</h2>
+        <p>${escapeHtml(activationState.summary)}</p>
+      </div>
+      <div class="activation-facts" aria-label="Activation facts">
+        <strong>${escapeHtml(activationState.subject)}</strong>
+        ${resolved}
+        <em>${escapeHtml(activationState.originLabel)}</em>
+        <small>${escapeHtml(activationState.sourceLabel)}</small>
+      </div>
+      ${futureBindNote}
     </section>
   `;
 }
