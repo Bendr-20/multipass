@@ -1,11 +1,11 @@
 import { getActivationState } from './activation.js';
 import { getApiBaseFromLocation, getSavedSlugFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
-import { saveActivatedMultipass } from './saved-multipass-api.js';
+import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, fetchImpl } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletSigner = defaultWalletSigner, fetchImpl } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   let state = {
@@ -23,6 +23,10 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     saveError: null,
     savedSharePath: null,
     savedProfile: null,
+    claimStatus: null,
+    claimError: null,
+    claimCsrfToken: null,
+    claimSessionStatus: null,
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
 
@@ -56,6 +60,10 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       saveError: null,
       savedSharePath: null,
       savedProfile: null,
+      claimStatus: null,
+      claimError: null,
+      claimCsrfToken: null,
+      claimSessionStatus: null,
     };
     const requestId = state.resolverRequestId;
     render(root, state, handlers);
@@ -123,6 +131,10 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       saveError: null,
       savedSharePath: null,
       savedProfile: null,
+      claimStatus: null,
+      claimError: null,
+      claimCsrfToken: null,
+      claimSessionStatus: null,
     };
     clearShareUrl();
     render(root, state, handlers);
@@ -163,7 +175,104 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass };
+  async function claimWithWallet() {
+    const id = getManageIdentifier(state);
+    if (!id) return;
+    state = { ...state, claimStatus: 'signing', claimError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
+      const signed = await walletSigner(nonce.message);
+      const verified = await claimApi.verifyClaimSignature({
+        id,
+        apiBase,
+        wallet: signed.wallet,
+        nonce: nonce.nonce,
+        signature: signed.signature,
+        fetchImpl,
+      });
+      state = mergeClaimProfileState(state, verified, {
+        claimStatus: verified.claim_status ?? 'claimed',
+        claimCsrfToken: verified.csrfToken ?? null,
+        claimError: null,
+        claimSessionStatus: 'active',
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, claimStatus: 'error', claimError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  async function submitManualReview(event) {
+    const id = getManageIdentifier(state);
+    if (!id) return;
+    const form = event?.currentTarget;
+    const formData = createFormData(form);
+    state = { ...state, claimStatus: 'submitting_review', claimError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const result = await claimApi.submitManualReviewClaim({
+        id,
+        apiBase,
+        proposedManagerWallet: formData.get('proposedManagerWallet'),
+        contactRoute: formData.get('contactRoute'),
+        note: formData.get('note'),
+        fetchImpl,
+      });
+      state = mergeClaimProfileState(state, result, {
+        claimStatus: result.claim_status ?? 'claim_pending',
+        claimError: null,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, claimStatus: 'error', claimError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  async function updatePublicProfile(event) {
+    const id = getManageIdentifier(state);
+    if (!id || !state.claimCsrfToken) return;
+    const form = event?.currentTarget;
+    const formData = createFormData(form);
+    const patch = compactProfilePatch({
+      display_name: formData.get('display_name'),
+      summary: formData.get('summary'),
+      avatar_url: formData.get('avatar_url'),
+      tags: formData.get('tags'),
+    });
+    state = { ...state, claimStatus: 'updating_profile', claimError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const updated = await claimApi.updateMultipassProfile({ id, apiBase, csrfToken: state.claimCsrfToken, patch, fetchImpl });
+      state = mergeClaimProfileState(state, updated, {
+        claimStatus: 'profile_updated',
+        claimError: null,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, claimStatus: 'error', claimError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  async function logoutManagerSession() {
+    const id = getManageIdentifier(state);
+    if (!id) return;
+    try {
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      await claimApi.logoutMultipassSession?.({ id, apiBase, csrfToken: state.claimCsrfToken, fetchImpl });
+    } finally {
+      state = { ...state, claimCsrfToken: null, claimSessionStatus: null, claimStatus: 'signed_out' };
+      render(root, state, handlers);
+    }
+  }
+
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, logoutManagerSession };
 
   return { start };
 }
@@ -191,6 +300,68 @@ function defaultLoadDemo({ fetchImpl } = {}) {
 
 function defaultSaveMultipass({ agent, fetchImpl } = {}) {
   return saveActivatedMultipass({ agent, apiBase: getApiBaseFromLocation(new URL(window.location.href)), fetchImpl });
+}
+
+const defaultClaimApi = {
+  createClaimNonce,
+  verifyClaimSignature,
+  submitManualReviewClaim,
+  updateMultipassProfile,
+  logoutMultipassSession,
+};
+
+async function defaultWalletSigner(message) {
+  const ethereum = globalThis.window?.ethereum;
+  if (!ethereum?.request) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
+  const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+  const wallet = accounts?.[0];
+  if (!wallet) throw new Error('Wallet connection did not return an account.');
+  const signature = await ethereum.request({ method: 'personal_sign', params: [message, wallet] });
+  return { wallet, signature };
+}
+
+function getManageIdentifier(state) {
+  return state.savedProfile?.slug ?? state.data?.profile?.slug ?? state.data?.profile?.multipass_id ?? null;
+}
+
+function isSavedManageRecord(state) {
+  return Boolean(state.savedProfile?.slug || state.data?.activation?.state === 'saved_record' || state.data?.modeLabel === 'Saved Multipass');
+}
+
+function mergeClaimProfileState(current, result, patch = {}) {
+  const nextProfile = result?.profile ? { ...current.data.profile, ...result.profile } : current.data.profile;
+  return {
+    ...current,
+    ...patch,
+    data: {
+      ...current.data,
+      profile: nextProfile,
+      liveProfilePage: current.data.liveProfilePage ? {
+        ...current.data.liveProfilePage,
+        headline: `${nextProfile.display_name ?? current.data.liveProfilePage.headline ?? 'Saved'} Multipass`,
+      } : current.data.liveProfilePage,
+    },
+  };
+}
+
+function createFormData(form) {
+  const FormDataCtor = form?.ownerDocument?.defaultView?.FormData ?? FormData;
+  return form ? new FormDataCtor(form) : new FormDataCtor();
+}
+
+function compactProfilePatch(input) {
+  const patch = {};
+  for (const [key, value] of Object.entries(input)) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) continue;
+    if (key === 'tags') {
+      const tags = normalized.split(',').map((tag) => tag.trim()).filter(Boolean);
+      if (tags.length) patch.tags = tags;
+    } else {
+      patch[key] = normalized;
+    }
+  }
+  return patch;
 }
 
 function renderLoading(root) {
@@ -268,6 +439,8 @@ function render(root, state, handlers = {}) {
 
       ${renderSavePanel(state)}
 
+      ${renderClaimManagementPanel(state)}
+
       ${renderSharePanel(data, heroCopy)}
 
       ${renderAgentCarousel(agentCarousel, selectedAgent, state.selectedAgentCard)}
@@ -323,6 +496,16 @@ function render(root, state, handlers = {}) {
   });
 
   root.querySelector('[data-action="save-multipass"]')?.addEventListener('click', () => handlers.saveCurrentMultipass?.());
+  root.querySelector('[data-action="claim-with-wallet"]')?.addEventListener('click', () => handlers.claimWithWallet?.());
+  root.querySelector('[data-action="submit-manual-review"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlers.submitManualReview?.(event);
+  });
+  root.querySelector('[data-action="update-public-profile"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlers.updatePublicProfile?.(event);
+  });
+  root.querySelector('[data-action="logout-manager-session"]')?.addEventListener('click', () => handlers.logoutManagerSession?.());
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
@@ -421,6 +604,59 @@ function renderLiveResolver(state) {
       ${renderLookupMatches(state.lookupMatches)}
       ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : ''}
     </section>
+  `;
+}
+
+function renderClaimManagementPanel(state) {
+  if (!isSavedManageRecord(state)) return '';
+  const profile = state.data?.profile ?? state.savedProfile ?? {};
+  const ownerSummary = profile.owner_summary ?? {};
+  const status = state.claimStatus ?? ownerSummary.verification_status ?? ownerSummary.owner_state ?? 'unclaimed';
+  const canEdit = Boolean(state.claimCsrfToken);
+  return `
+    <section class="claim-management-panel" aria-label="Claim management">
+      <div class="claim-management-copy">
+        <p class="card-label">Claim management</p>
+        <h2>Manage safe public profile fields.</h2>
+        <p>Owner-wallet verification or manual review can unlock public profile edits only. This does not transfer custody, tools, credentials, or ownership.</p>
+        <div class="claim-status-row">
+          <span>Status</span>
+          <strong>${escapeHtml(status)}</strong>
+        </div>
+        ${ownerSummary.summary ? `<p class="resolver-message">${escapeHtml(ownerSummary.summary)}</p>` : ''}
+        ${state.claimError ? `<p class="resolver-message error">${escapeHtml(state.claimError)}</p>` : ''}
+      </div>
+      <div class="claim-management-actions">
+        <button type="button" data-action="claim-with-wallet" ${state.claimStatus === 'signing' ? 'disabled' : ''}>${state.claimStatus === 'signing' ? 'Waiting for signature...' : 'Sign owner claim'}</button>
+        <form class="manual-review-form" data-action="submit-manual-review">
+          <label><span>Manager wallet for review</span><input name="proposedManagerWallet" placeholder="0x..." autocomplete="off" /></label>
+          <label><span>Contact route</span><input name="contactRoute" placeholder="agentmail:team@example.test" autocomplete="off" /></label>
+          <label><span>Review note</span><textarea name="note" rows="2" placeholder="Why this wallet should manage public fields"></textarea></label>
+          <button type="submit">Request manual review</button>
+        </form>
+      </div>
+      ${canEdit ? renderPublicProfileEditForm(profile, state) : ''}
+    </section>
+  `;
+}
+
+function renderPublicProfileEditForm(profile, state) {
+  const discovery = profile.discovery_profile ?? {};
+  const summary = profile.summary ?? discovery.summary ?? '';
+  const avatarUrl = profile.avatar_url ?? discovery.avatar_url ?? '';
+  const tags = Array.isArray(profile.tags) ? profile.tags : (Array.isArray(discovery.tags) ? discovery.tags : []);
+  return `
+    <form class="public-profile-edit-form" data-action="update-public-profile" aria-label="Edit public Multipass profile">
+      <p class="card-label">Public profile editor</p>
+      <label><span>Display name</span><input name="display_name" value="${escapeAttribute(profile.display_name ?? '')}" /></label>
+      <label><span>Summary</span><textarea name="summary" rows="3">${escapeHtml(summary)}</textarea></label>
+      <label><span>Avatar URL</span><input name="avatar_url" value="${escapeAttribute(avatarUrl)}" /></label>
+      <label><span>Tags</span><input name="tags" value="${escapeAttribute(tags.join(', '))}" /></label>
+      <div class="profile-edit-actions">
+        <button type="submit" ${state.claimStatus === 'updating_profile' ? 'disabled' : ''}>${state.claimStatus === 'updating_profile' ? 'Saving...' : 'Save public edits'}</button>
+        <button type="button" data-action="logout-manager-session">Sign out</button>
+      </div>
+    </form>
   `;
 }
 

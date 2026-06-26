@@ -1335,11 +1335,20 @@ Run:
 cd /home/ubuntu/multipass
 python3 - <<'PY'
 from pathlib import Path
+blocked_terms = [
+    'Multi' + ' Pass',
+    'pass' + 'port',
+    'transfer' + ' ownership',
+    'move' + ' tools',
+    'move' + ' secrets',
+    'grant' + ' permissions',
+    'created' + ' ERC-8004',
+]
 for p in [Path('docs/v0-scope.md'), Path('apps/api/README.md')]:
     text = p.read_text()
-    for bad in ['Multi' + ' Pass', 'pass' + 'port', 'transfer ownership', 'move tools', 'move secrets', 'grant permissions', 'created ERC-8004']:
+    for bad in blocked_terms:
         if bad.lower() in text.lower():
-            raise SystemExit(f'{p}: forbidden copy {bad}')
+            raise SystemExit(f'{p}: blocked copy hit')
 print('docs copy scan ok')
 PY
 ```

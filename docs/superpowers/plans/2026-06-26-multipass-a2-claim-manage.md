@@ -168,14 +168,7 @@ Before claiming completion:
 
 - `pnpm test`
 - `MULTIPASS_BASE=/multipass/ pnpm --filter @helixa/multipass-web build`
-- copy scan for forbidden phrases:
-  - `Multi Pass`
-  - `passport`
-  - `transfer ownership`
-  - `move tools`
-  - `move secrets`
-  - `grant permissions`
-  - `created ERC-8004`
+- copy scan for the blocked product/custody/terminology phrase list from project memory.
 - live smoke after deploy:
   - service active
   - nginx active

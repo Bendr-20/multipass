@@ -1478,3 +1478,95 @@ test('non-public fragment ids and unexpected private fields are absent from rend
   assert.equal(root.innerHTML.includes('frag_bendr_hidden_nested'), false);
   assert.equal(root.innerHTML.includes('frag_bendr_gated_nested'), false);
 });
+
+test('direct saved slug route renders display-only claim management panel', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({
+    root,
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/api/multipass/bendr-2-1')) {
+        return new Response(JSON.stringify({
+          ...sampleData().profile,
+          display_name: 'Saved Bendr',
+          slug: 'bendr-2-1',
+          multipass_id: 'mp_helixa_agent_1',
+          status: 'active',
+          owner_summary: {
+            owner_state: 'unclaimed',
+            verification_status: 'unclaimed',
+            summary: 'Saved display-only profile. Management is unclaimed.',
+          },
+        }), { status: 200 });
+      }
+      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
+      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
+      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
+      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
+      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [] }), { status: 200 });
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  const panel = root.querySelector('.claim-management-panel');
+  assert.ok(panel);
+  assert.match(panel.textContent, /Claim management/);
+  assert.match(panel.textContent, /public profile edits only/i);
+  assert.match(panel.textContent, /does not transfer custody, tools, credentials, or ownership/i);
+  assert.equal(panel.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Sign owner claim');
+  assert.doesNotMatch(panel.textContent, /move secrets|grant permissions|transfer ownership/i);
+});
+
+test('saved profile owner wallet claim enables safe public profile edits', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const claimApi = {
+    createClaimNonce: async ({ id, apiBase }) => { calls.push(['nonce', id, apiBase]); return { nonce: 'nonce-1', message: 'Sign Bendr claim' }; },
+    verifyClaimSignature: async ({ id, wallet, nonce, signature }) => {
+      calls.push(['verify', id, wallet, nonce, signature]);
+      return { claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: 'Saved Bendr', owner_summary: { verification_status: 'verified', summary: 'Owner-wallet verified for public profile edits.' } } };
+    },
+    updateMultipassProfile: async ({ id, csrfToken, patch }) => {
+      calls.push(['update', id, csrfToken, patch]);
+      return { changedFields: Object.keys(patch), profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: patch.display_name, summary: patch.summary } };
+    },
+  };
+  const walletSigner = async (message) => {
+    calls.push(['sign', message]);
+    return { wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' };
+  };
+
+  await createApp({
+    root,
+    claimApi,
+    walletSigner,
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/api/multipass/bendr-2-1')) return new Response(JSON.stringify({ ...sampleData().profile, slug: 'bendr-2-1', multipass_id: 'mp_helixa_agent_1', status: 'active' }), { status: 200 });
+      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
+      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
+      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
+      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
+      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [] }), { status: 200 });
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.querySelector('.claim-management-panel').textContent, /claimed_verified_owner/);
+  const form = root.querySelector('[data-action="update-public-profile"]');
+  assert.ok(form);
+  form.querySelector('input[name="display_name"]').value = 'Bendr Managed';
+  form.querySelector('textarea[name="summary"]').value = 'Managed public profile copy.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.match(root.textContent, /Bendr Managed/);
+  assert.deepEqual(calls[0], ['nonce', 'bendr-2-1', 'https://api.example.test']);
+  assert.deepEqual(calls[1], ['sign', 'Sign Bendr claim']);
+  assert.deepEqual(calls[2], ['verify', 'bendr-2-1', '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', 'nonce-1', '0xsig']);
+  assert.deepEqual(calls[3], ['update', 'bendr-2-1', 'csrf-1', { display_name: 'Bendr Managed', summary: 'Managed public profile copy.' }]);
+});

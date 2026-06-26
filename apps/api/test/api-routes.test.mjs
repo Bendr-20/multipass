@@ -362,3 +362,177 @@ test('validates store documents before serving them', () => {
     },
   );
 });
+
+const OWNER_WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+const MANAGER_WALLET = '0x339559A2d1CD15059365FC7bD36b3047BbA480E0';
+
+function makeClaimApi() {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  savedRecords.saveActivatedRecord(makeSavedRecord());
+  return createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+    allowedOrigins: ['https://multipass.example.test'],
+    adminSecret: 'test-admin-secret',
+    signatureVerifier: async ({ wallet, message, signature }) => {
+      assert.match(message, /Helixa Multipass claim management/);
+      return signature === `valid:${wallet.toLowerCase()}`;
+    },
+  });
+}
+
+async function postJsonWithHeaders(api, path, body, headers = {}) {
+  const response = await api.handleRequest(new Request(`https://multipass.example.test${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  }));
+  return { response, body: await response.json() };
+}
+
+async function patchJsonWithHeaders(api, path, body, headers = {}) {
+  const response = await api.handleRequest(new Request(`https://multipass.example.test${path}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  }));
+  return { response, body: await response.json() };
+}
+
+test('claim nonce route returns a scoped signing message for saved records', async () => {
+  const api = makeClaimApi();
+
+  const { response, body } = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/claim/nonce', {}, {
+    origin: 'https://multipass.example.test',
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(body.source_canonical_id, '8453:1');
+  assert.match(body.message, /Domain: multipass\.example\.test/);
+  assert.match(body.message, /does not transfer funds, assets, tools, credentials, or ownership/i);
+});
+
+test('owner wallet claim verifies signature and creates CSRF protected manager session', async () => {
+  const api = makeClaimApi();
+  const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
+
+  const verified = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: OWNER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${OWNER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+
+  assert.equal(verified.response.status, 200);
+  assert.equal(verified.body.claim_status, 'claimed_verified_owner');
+  assert.match(verified.body.csrfToken, /^[a-f0-9]{64}$/);
+  assert.equal(verified.body.profile.owner_summary.owner_state, 'verified');
+  const cookie = verified.response.headers.get('set-cookie');
+  assert.match(cookie, /multipass_manager=/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Lax/);
+
+  const missingCsrf = await patchJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/profile', {
+    display_name: 'Bendr Managed',
+  }, { origin: 'https://multipass.example.test', cookie });
+  assert.equal(missingCsrf.response.status, 403);
+  assert.equal(missingCsrf.body.error.code, 'forbidden');
+
+  const wrongOrigin = await patchJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/profile', {
+    display_name: 'Bendr Managed',
+  }, { origin: 'https://evil.example.test', cookie, 'x-csrf-token': verified.body.csrfToken });
+  assert.equal(wrongOrigin.response.status, 403);
+
+  const blocked = await patchJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/profile', {
+    cred_summary: { trust_state: 'established' },
+  }, { origin: 'https://multipass.example.test', cookie, 'x-csrf-token': verified.body.csrfToken });
+  assert.equal(blocked.response.status, 400);
+  assert.equal(blocked.body.error.code, 'invalid_request');
+
+  const edited = await patchJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/profile', {
+    display_name: 'Bendr Managed',
+    summary: 'Managed public Multipass profile.',
+    avatar_url: 'https://assets.example.test/bendr.png',
+    tags: ['helixa', 'managed'],
+  }, { origin: 'https://multipass.example.test', cookie, 'x-csrf-token': verified.body.csrfToken });
+  assert.equal(edited.response.status, 200);
+  assert.deepEqual(edited.body.changedFields, ['display_name', 'summary', 'avatar_url', 'tags']);
+  assert.equal(edited.body.profile.display_name, 'Bendr Managed');
+
+  const changes = await requestJson(api, '/api/multipass/mp_helixa_agent_1/changes');
+  assert.match(changes.body.entries.at(-1).message, /Public profile updated/);
+
+  const logout = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/session/logout', {}, {
+    origin: 'https://multipass.example.test',
+    cookie,
+    'x-csrf-token': verified.body.csrfToken,
+  });
+  assert.equal(logout.response.status, 200);
+  assert.equal(logout.body.ok, true);
+  assert.match(logout.response.headers.get('set-cookie'), /Max-Age=0/);
+
+  const afterLogout = await patchJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/profile', {
+    display_name: 'Bendr After Logout',
+  }, { origin: 'https://multipass.example.test', cookie, 'x-csrf-token': verified.body.csrfToken });
+  assert.equal(afterLogout.response.status, 403);
+  assert.equal(afterLogout.body.error.code, 'forbidden');
+});
+
+test('wallet claim rejects signatures from wallets that are not source owner or approved manager', async () => {
+  const api = makeClaimApi();
+  const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
+
+  const rejected = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: MANAGER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${MANAGER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+
+  assert.equal(rejected.response.status, 403);
+  assert.equal(rejected.body.error.code, 'forbidden');
+});
+
+test('manual review creates pending claim without session and approved manager must still sign', async () => {
+  const api = makeClaimApi();
+
+  const pending = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/claim/verify', {
+    mode: 'manual_review',
+    proposedManagerWallet: MANAGER_WALLET,
+    contactRoute: 'agentmail:team@example.test',
+    note: 'Please approve public profile management for this team wallet.',
+  }, { origin: 'https://multipass.example.test' });
+
+  assert.equal(pending.response.status, 202);
+  assert.equal(pending.body.claim_status, 'claim_pending');
+  assert.equal(pending.response.headers.get('set-cookie'), null);
+  assert.equal(pending.body.profile.owner_summary.verification_status, 'pending');
+
+  const claimId = pending.body.claim.claim_id;
+  const deniedApproval = await postJsonWithHeaders(api, `/api/admin/multipass/mp_helixa_agent_1/claims/${claimId}/approve`, {}, {
+    origin: 'https://multipass.example.test',
+  });
+  assert.equal(deniedApproval.response.status, 401);
+
+  const approved = await postJsonWithHeaders(api, `/api/admin/multipass/mp_helixa_agent_1/claims/${claimId}/approve`, {}, {
+    origin: 'https://multipass.example.test',
+    'x-admin-secret': 'test-admin-secret',
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(approved.body.claim_status, 'claimed_review_approved');
+  assert.match(approved.body.profile.owner_summary.summary, /review-approved/i);
+  assert.doesNotMatch(approved.body.profile.owner_summary.summary, /owner-wallet verified/i);
+
+  const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
+  const session = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: MANAGER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${MANAGER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(session.response.status, 200);
+  assert.equal(session.body.claim_status, 'claimed_review_approved');
+  assert.match(session.response.headers.get('set-cookie'), /multipass_manager=/);
+});

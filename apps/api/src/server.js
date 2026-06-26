@@ -16,6 +16,9 @@ export function parseServerOptions(argv = [], env = process.env) {
     host: env.HOST || DEFAULT_HOST,
     port: parsePort(env.PORT, DEFAULT_PORT, 'PORT'),
     databasePath: env.MULTIPASS_DB_PATH || null,
+    allowedOrigins: parseOriginList(env.MULTIPASS_ALLOWED_ORIGINS),
+    adminSecret: env.MULTIPASS_ADMIN_SECRET || null,
+    cookieSecure: parseOptionalBoolean(env.MULTIPASS_COOKIE_SECURE, 'MULTIPASS_COOKIE_SECURE'),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -40,6 +43,9 @@ export async function startServer(options = {}) {
     host: options.host || DEFAULT_HOST,
     port: options.port ?? DEFAULT_PORT,
     databasePath: options.databasePath ?? null,
+    allowedOrigins: options.allowedOrigins ?? [],
+    adminSecret: options.adminSecret ?? null,
+    cookieSecure: options.cookieSecure ?? null,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
   const ownsSavedRecords = Boolean(parsed.databasePath && !options.savedRecords);
@@ -82,7 +88,15 @@ export async function startServer(options = {}) {
   const address = nodeServer.address();
   const port = typeof address === 'object' && address ? address.port : parsed.port;
   baseUrl = `http://${parsed.host}:${port}`;
-  api = createMultipassApi({ store, baseUrl, savedRecords, activationService });
+  api = createMultipassApi({
+    store,
+    baseUrl,
+    savedRecords,
+    activationService,
+    allowedOrigins: parsed.allowedOrigins,
+    adminSecret: parsed.adminSecret,
+    cookieSecure: parsed.cookieSecure,
+  });
 
   return {
     fixtureName,
@@ -115,6 +129,20 @@ function parsePort(value, fallback, source) {
     throw new Error(`Invalid port for ${source}: ${value}`);
   }
   return port;
+}
+
+function parseOriginList(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function parseOptionalBoolean(value, source) {
+  if (value === undefined || value === null || value === '') return null;
+  if (['1', 'true', 'yes'].includes(String(value).toLowerCase())) return true;
+  if (['0', 'false', 'no'].includes(String(value).toLowerCase())) return false;
+  throw new Error(`Invalid boolean for ${source}: ${value}`);
 }
 
 async function main() {

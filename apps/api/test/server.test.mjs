@@ -14,6 +14,9 @@ test('parseServerOptions returns safe defaults', () => {
     host: '127.0.0.1',
     port: 8787,
     databasePath: null,
+    allowedOrigins: [],
+    adminSecret: null,
+    cookieSecure: null,
   });
 });
 
@@ -29,8 +32,27 @@ test('CLI flags override environment values', () => {
       host: '0.0.0.0',
       port: 9000,
       databasePath: null,
+      allowedOrigins: [],
+      adminSecret: null,
+      cookieSecure: null,
     },
   );
+});
+
+test('parseServerOptions accepts claim management security env', () => {
+  assert.deepEqual(parseServerOptions([], {
+    MULTIPASS_ALLOWED_ORIGINS: 'https://helixa.xyz, https://www.helixa.xyz',
+    MULTIPASS_ADMIN_SECRET: 'secret',
+    MULTIPASS_COOKIE_SECURE: '1',
+  }), {
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 8787,
+    databasePath: null,
+    allowedOrigins: ['https://helixa.xyz', 'https://www.helixa.xyz'],
+    adminSecret: 'secret',
+    cookieSecure: true,
+  });
 });
 
 test('parseServerOptions rejects invalid ports', () => {

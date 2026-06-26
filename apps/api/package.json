@@ -13,7 +13,8 @@
     }
   },
   "dependencies": {
-    "@helixa/multipass-sdk": "workspace:*"
+    "@helixa/multipass-sdk": "workspace:*",
+    "viem": "^2.53.1"
   },
   "files": [
     "README.md",

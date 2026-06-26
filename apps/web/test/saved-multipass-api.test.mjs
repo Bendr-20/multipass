@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { saveActivatedMultipass } from '../src/saved-multipass-api.js';
+import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
 
 test('saveActivatedMultipass posts agent input and returns saved payload', async () => {
   const calls = [];
@@ -66,4 +66,59 @@ test('saveActivatedMultipass throws useful API errors', async () => {
     }),
     /Nope/,
   );
+});
+
+test('claim helpers post nonce verify update and logout with credentials and CSRF', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (String(url).endsWith('/claim/nonce')) return new Response(JSON.stringify({ nonce: 'nonce-1', message: 'Sign this' }), { status: 200 });
+    if (String(url).endsWith('/claim/verify')) return new Response(JSON.stringify({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { display_name: 'Bendr' } }), { status: 200 });
+    if (String(url).endsWith('/profile')) return new Response(JSON.stringify({ changedFields: ['display_name'], profile: { display_name: 'Bendr Managed' } }), { status: 200 });
+    if (String(url).endsWith('/session/logout')) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    throw new Error(`unexpected URL ${url}`);
+  };
+
+  assert.deepEqual(await createClaimNonce({ id: 'bendr-2-1', apiBase: '/multipass-api', fetchImpl }), { nonce: 'nonce-1', message: 'Sign this' });
+  assert.deepEqual(await verifyClaimSignature({ id: 'bendr-2-1', apiBase: '/multipass-api', wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', nonce: 'nonce-1', signature: '0xsig', fetchImpl }), { claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { display_name: 'Bendr' } });
+  assert.deepEqual(await updateMultipassProfile({ id: 'bendr-2-1', apiBase: '/multipass-api', csrfToken: 'csrf-1', patch: { display_name: 'Bendr Managed' }, fetchImpl }), { changedFields: ['display_name'], profile: { display_name: 'Bendr Managed' } });
+  assert.deepEqual(await logoutMultipassSession({ id: 'bendr-2-1', apiBase: '/multipass-api', csrfToken: 'csrf-1', fetchImpl }), { ok: true });
+
+  assert.deepEqual(calls.map((call) => [call.url, call.init.method, call.init.credentials]), [
+    ['/multipass-api/api/multipass/bendr-2-1/claim/nonce', 'POST', 'include'],
+    ['/multipass-api/api/multipass/bendr-2-1/claim/verify', 'POST', 'include'],
+    ['/multipass-api/api/multipass/bendr-2-1/profile', 'PATCH', 'include'],
+    ['/multipass-api/api/multipass/bendr-2-1/session/logout', 'POST', 'include'],
+  ]);
+  assert.equal(calls[2].init.headers['x-csrf-token'], 'csrf-1');
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    mode: 'wallet_signature',
+    wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+    nonce: 'nonce-1',
+    signature: '0xsig',
+  });
+});
+
+test('manual review helper submits review claim metadata', async () => {
+  const calls = [];
+  const result = await submitManualReviewClaim({
+    id: 'bendr-2-1',
+    apiBase: 'https://api.example.test/base',
+    proposedManagerWallet: '0x339559A2d1CD15059365FC7bD36b3047BbA480E0',
+    contactRoute: 'agentmail:team@example.test',
+    note: 'Please review.',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ claim_status: 'claim_pending' }), { status: 202 });
+    },
+  });
+
+  assert.deepEqual(result, { claim_status: 'claim_pending' });
+  assert.equal(calls[0].url, 'https://api.example.test/base/api/multipass/bendr-2-1/claim/verify');
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    mode: 'manual_review',
+    proposedManagerWallet: '0x339559A2d1CD15059365FC7bD36b3047BbA480E0',
+    contactRoute: 'agentmail:team@example.test',
+    note: 'Please review.',
+  });
 });

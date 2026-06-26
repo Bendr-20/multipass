@@ -9,20 +9,111 @@ export class SavedMultipassError extends Error {
 export async function saveActivatedMultipass({ agent, apiBase, fetchImpl = fetch } = {}) {
   const trimmed = String(agent ?? '').trim();
   if (!trimmed) throw new SavedMultipassError('Activate a live record before saving.');
-  const base = apiBase ?? globalThis.location?.origin ?? '';
-
-  const response = await fetchImpl(joinApiPath(base, '/api/multipass'), {
+  return requestSavedJson({
+    apiBase,
+    path: '/api/multipass',
     method: 'POST',
+    body: { agent: trimmed },
+    fetchImpl,
+    errorPrefix: 'Save failed',
+  });
+}
+
+export async function createClaimNonce({ id, apiBase, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/claim/nonce`,
+    method: 'POST',
+    body: {},
+    fetchImpl,
+    errorPrefix: 'Claim nonce request failed',
+  });
+}
+
+export async function verifyClaimSignature({ id, apiBase, wallet, nonce, signature, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/claim/verify`,
+    method: 'POST',
+    body: {
+      mode: 'wallet_signature',
+      wallet: String(wallet ?? '').trim(),
+      nonce: String(nonce ?? '').trim(),
+      signature: String(signature ?? '').trim(),
+    },
+    fetchImpl,
+    errorPrefix: 'Claim verification failed',
+  });
+}
+
+export async function submitManualReviewClaim({ id, apiBase, proposedManagerWallet, contactRoute, note, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/claim/verify`,
+    method: 'POST',
+    body: {
+      mode: 'manual_review',
+      proposedManagerWallet: String(proposedManagerWallet ?? '').trim(),
+      contactRoute: String(contactRoute ?? '').trim(),
+      note: String(note ?? '').trim(),
+    },
+    fetchImpl,
+    errorPrefix: 'Manual review request failed',
+  });
+}
+
+export async function updateMultipassProfile({ id, apiBase, csrfToken, patch, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/profile`,
+    method: 'PATCH',
+    body: patch ?? {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Profile update failed',
+  });
+}
+
+export async function logoutMultipassSession({ id, apiBase, csrfToken, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/session/logout`,
+    method: 'POST',
+    body: {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Logout failed',
+  });
+}
+
+async function requestSavedJson({ apiBase, path, method, body, csrfToken, fetchImpl, errorPrefix }) {
+  const base = apiBase ?? globalThis.location?.origin ?? '';
+  const headers = { 'content-type': 'application/json', accept: 'application/json' };
+  if (csrfToken) headers['x-csrf-token'] = String(csrfToken);
+
+  const response = await fetchImpl(joinApiPath(base, path), {
+    method,
     credentials: 'include',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ agent: trimmed }),
+    headers,
+    body: JSON.stringify(body ?? {}),
   });
 
-  const body = await response.json().catch(() => null);
+  const responseBody = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new SavedMultipassError(body?.error?.message ?? `Save failed with ${response.status}`, { status: response.status, body });
+    throw new SavedMultipassError(responseBody?.error?.message ?? `${errorPrefix} with ${response.status}`, { status: response.status, body: responseBody });
   }
-  return body;
+  return responseBody;
+}
+
+function requireMultipassIdentifier(value) {
+  const id = String(value ?? '').trim();
+  if (!id) throw new SavedMultipassError('Saved Multipass id is required.');
+  return id;
 }
 
 export function joinApiPath(apiBase, path) {
