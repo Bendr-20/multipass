@@ -38,6 +38,7 @@ logs/
 *.jpeg
 *.gif
 *.webp
+!apps/web/public/helixa-logo.png
 
 # local assistant/workspace files
 MEMORY.md

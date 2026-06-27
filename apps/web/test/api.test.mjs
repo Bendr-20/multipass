@@ -63,7 +63,7 @@ test('static demo data is public API shaped and sanitized', async () => {
   assert.equal(JSON.stringify(data).includes('frag_bendr_private_placeholder'), false);
   assert.equal(JSON.stringify(data).includes('private_fragments'), false);
   assert.equal(data.sourceLabel, 'bundled fixture');
-  assert.equal(data.modeLabel, 'Static Demo');
+  assert.equal(data.modeLabel, 'Bundled Fixture');
 });
 
 test('loadJson throws clear errors for failed routes and invalid JSON', async () => {

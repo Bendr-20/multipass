@@ -331,8 +331,13 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /portable agent trust profiles/i);
   assert.match(root.textContent, /agent builders/i);
   assert.match(root.textContent, /visual identity graph/i);
-  assert.match(root.textContent, /Internal Prototype/);
+  assert.doesNotMatch(root.textContent, /Internal Prototype/);
+  assert.doesNotMatch(root.textContent, /Hidden Prototype/);
+  assert.doesNotMatch(root.textContent, /Static Demo/);
   assert.match(root.textContent, /agent builders/i);
+  const brandLogo = root.querySelector('.brand-logo');
+  assert.equal(brandLogo?.getAttribute('src'), '/multipass/helixa-logo.png');
+  assert.equal(brandLogo?.getAttribute('alt'), '');
   assert.match(root.textContent, /What is Multipass/);
   assert.match(root.textContent, /What the card shows/);
   assert.match(root.textContent, /What proof adds/);
@@ -775,7 +780,7 @@ test('static /multipass/ page loads bundled fixture without calling API', async 
   }
 
   assert.deepEqual(calls, []);
-  assert.match(root.textContent, /Static Demo/);
+  assert.doesNotMatch(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
@@ -803,7 +808,7 @@ test('static /multipass/ ignores unsafe api query override without calling API',
   }
 
   assert.deepEqual(calls, []);
-  assert.match(root.textContent, /Static Demo/);
+  assert.doesNotMatch(root.textContent, /Static Demo/);
   assert.match(root.textContent, /bundled fixture/);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
 });

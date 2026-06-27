@@ -70,11 +70,12 @@ button:focus-visible {
   letter-spacing: -0.035em;
 }
 
-.mark {
+.brand-logo {
   width: 38px;
   height: 38px;
-  border: 2px solid var(--ink);
-  background: repeating-linear-gradient(90deg, var(--ink) 0 5px, transparent 5px 10px), var(--paper);
+  object-fit: cover;
+  filter: invert(1) grayscale(1) contrast(1.15);
+  mix-blend-mode: multiply;
 }
 
 .header-meta {

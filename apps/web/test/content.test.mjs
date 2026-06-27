@@ -27,7 +27,7 @@ test('landing copy names agent builders and explains product-card-proof flow', (
   assert.match(HERO_COPY.headline, /portable agent trust profiles/i);
   assert.match(HERO_COPY.body, /visual identity graph/i);
   assert.match(V01_COPY.audience, /agent builders/i);
-  assert.match(V01_COPY.prototypeLabel, /Internal Prototype/);
+  assert.equal(V01_COPY.prototypeLabel, '');
 
   const sections = createClaritySections();
   const titles = sections.map((section) => section.title);

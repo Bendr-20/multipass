@@ -476,8 +476,8 @@ function render(root, state, handlers = {}) {
   root.innerHTML = `
     <div class="record-shell">
       <header class="record-header">
-        <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
-        <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.modeLabel ?? 'Local API Demo')}</span></div>
+        <div class="brand"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"><span>Multipass</span></div>
+        <div class="header-meta"><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.sourceLabel ?? 'Multipass')}</span></div>
       </header>
 
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
@@ -572,7 +572,7 @@ function renderHomepageHero(heroCopy, data, agentCarousel) {
       <div class="homepage-hero-copy">
         <p class="eyebrow">${escapeHtml(heroCopy.eyebrow)}</p>
         <div class="prototype-ribbon">
-          <span>${escapeHtml(heroCopy.prototypeLabel)}</span>
+          ${heroCopy.prototypeLabel ? `<span>${escapeHtml(heroCopy.prototypeLabel)}</span>` : ''}
           <span>${escapeHtml(heroCopy.audience)}</span>
         </div>
         <h1>${escapeHtml(heroCopy.headline)}</h1>
