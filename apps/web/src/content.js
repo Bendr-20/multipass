@@ -5,7 +5,7 @@ export const DEMO_SUBJECT = {
 };
 
 export const V01_COPY = {
-  prototypeLabel: 'Internal Prototype',
+  prototypeLabel: '',
   audience: 'Built first for agent builders and agent teams; marketplace compatibility is a secondary display use case.',
   productSentence: 'Multipass is a portable agent trust profile combining identity, public proof, standards support, custody context, and access receipts into one inspectable record.',
 };

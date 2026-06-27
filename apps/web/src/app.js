@@ -2,11 +2,14 @@ import { getActivationState } from './activation.js';
 import { getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletSigner = defaultWalletSigner, fetchImpl } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl } = {}) {
   if (!root) throw new Error('createApp requires a root element');
+
+  const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
 
   let state = {
     expandedCard: null,
@@ -27,10 +30,15 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     claimError: null,
     claimCsrfToken: null,
     claimSessionStatus: null,
+    walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
 
   async function start() {
+    activeWalletClient.subscribe?.(() => {
+      state = { ...state, walletSnapshot: activeWalletClient.getSnapshot() };
+      if (state.data) render(root, state, handlers);
+    });
     renderLoading(root);
     try {
       const data = await loadInitialDemo();
@@ -180,10 +188,41 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     if (!id) return;
     state = { ...state, claimStatus: 'signing', claimError: null };
     render(root, state, handlers);
+
     try {
-      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
-      const signed = await walletSigner(nonce.message);
+      let walletSnapshot = activeWalletClient.getSnapshot();
+      state = { ...state, walletSnapshot };
+      if (walletSnapshot.configured === false) throw new Error('Wallet login is not configured for this build.');
+      if (walletSnapshot.ready === false) throw new Error('Wallet options are still loading.');
+      if (!walletSnapshot.connected) {
+        await activeWalletClient.connect();
+        walletSnapshot = activeWalletClient.getSnapshot();
+        state = { ...state, walletSnapshot };
+      }
+      if (!walletSnapshot.connected) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
+    } catch (error) {
+      renderClaimFailure(getWalletErrorMessage(error));
+      return;
+    }
+
+    const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+    let nonce;
+    try {
+      nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
+    } catch (error) {
+      renderClaimFailure(getClaimApiErrorMessage(error));
+      return;
+    }
+
+    let signed;
+    try {
+      signed = await activeWalletClient.signMessage(nonce.message);
+    } catch (error) {
+      renderClaimFailure(getWalletErrorMessage(error));
+      return;
+    }
+
+    try {
       const verified = await claimApi.verifyClaimSignature({
         id,
         apiBase,
@@ -200,9 +239,13 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       });
       render(root, state, handlers);
     } catch (error) {
-      state = { ...state, claimStatus: 'error', claimError: error.message };
-      render(root, state, handlers);
+      renderClaimFailure(getClaimApiErrorMessage(error));
     }
+  }
+
+  function renderClaimFailure(claimError) {
+    state = { ...state, claimStatus: 'error', claimError };
+    render(root, state, handlers);
   }
 
   async function submitManualReview(event) {
@@ -310,18 +353,24 @@ const defaultClaimApi = {
   logoutMultipassSession,
 };
 
-async function defaultWalletSigner(message) {
-  const ethereum = globalThis.window?.ethereum;
-  if (!ethereum?.request) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
-  const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-  const wallet = accounts?.[0];
-  if (!wallet) throw new Error('Wallet connection did not return an account.');
-  const signature = await ethereum.request({ method: 'personal_sign', params: [message, wallet] });
-  return { wallet, signature };
-}
-
 function getManageIdentifier(state) {
   return state.savedProfile?.slug ?? state.data?.profile?.slug ?? state.data?.profile?.multipass_id ?? null;
+}
+
+function isWrongWalletClaimError(error) {
+  const details = error?.details ?? {};
+  const bodyError = details.body?.error ?? {};
+  return error?.name === 'SavedMultipassError'
+    && [401, 403].includes(details.status)
+    && ['forbidden', 'unauthorized'].includes(bodyError.code)
+    && /not eligible to manage this Multipass record/i.test(bodyError.message ?? error?.message ?? '');
+}
+
+function getClaimApiErrorMessage(error) {
+  if (isWrongWalletClaimError(error)) {
+    return 'That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review.';
+  }
+  return error?.message || 'Claim request failed. Nothing was changed.';
 }
 
 function isSavedManageRecord(state) {
@@ -427,8 +476,8 @@ function render(root, state, handlers = {}) {
   root.innerHTML = `
     <div class="record-shell">
       <header class="record-header">
-        <div class="brand"><div class="mark" aria-hidden="true"></div><span>Multipass</span></div>
-        <div class="header-meta"><span>Hidden Prototype</span><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.modeLabel ?? 'Local API Demo')}</span></div>
+        <div class="brand"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"><span>Multipass</span></div>
+        <div class="header-meta"><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.sourceLabel ?? 'Multipass')}</span></div>
       </header>
 
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
@@ -523,7 +572,7 @@ function renderHomepageHero(heroCopy, data, agentCarousel) {
       <div class="homepage-hero-copy">
         <p class="eyebrow">${escapeHtml(heroCopy.eyebrow)}</p>
         <div class="prototype-ribbon">
-          <span>${escapeHtml(heroCopy.prototypeLabel)}</span>
+          ${heroCopy.prototypeLabel ? `<span>${escapeHtml(heroCopy.prototypeLabel)}</span>` : ''}
           <span>${escapeHtml(heroCopy.audience)}</span>
         </div>
         <h1>${escapeHtml(heroCopy.headline)}</h1>
@@ -607,12 +656,23 @@ function renderLiveResolver(state) {
   `;
 }
 
+function getClaimButtonLabel(state) {
+  const snapshot = state.walletSnapshot ?? {};
+  if (state.claimStatus === 'signing') return 'Waiting for signature...';
+  if (snapshot.configured === false) return 'Wallet login not configured';
+  if (snapshot.ready === false) return 'Loading wallet options...';
+  if (snapshot.connected && snapshot.label) return `Sign owner claim with ${snapshot.label}`;
+  return snapshot.connectLabel ?? 'Connect wallet to claim';
+}
+
 function renderClaimManagementPanel(state) {
   if (!isSavedManageRecord(state)) return '';
   const profile = state.data?.profile ?? state.savedProfile ?? {};
   const ownerSummary = profile.owner_summary ?? {};
   const status = state.claimStatus ?? ownerSummary.verification_status ?? ownerSummary.owner_state ?? 'unclaimed';
   const canEdit = Boolean(state.claimCsrfToken);
+  const claimButtonLabel = getClaimButtonLabel(state);
+  const walletUnconfigured = state.walletSnapshot?.configured === false;
   return `
     <section class="claim-management-panel" aria-label="Claim management">
       <div class="claim-management-copy">
@@ -624,10 +684,11 @@ function renderClaimManagementPanel(state) {
           <strong>${escapeHtml(status)}</strong>
         </div>
         ${ownerSummary.summary ? `<p class="resolver-message">${escapeHtml(ownerSummary.summary)}</p>` : ''}
+        ${walletUnconfigured ? '<p class="resolver-message error">Wallet login is not configured for this build.</p>' : ''}
         ${state.claimError ? `<p class="resolver-message error">${escapeHtml(state.claimError)}</p>` : ''}
       </div>
       <div class="claim-management-actions">
-        <button type="button" data-action="claim-with-wallet" ${state.claimStatus === 'signing' ? 'disabled' : ''}>${state.claimStatus === 'signing' ? 'Waiting for signature...' : 'Sign owner claim'}</button>
+        <button type="button" data-action="claim-with-wallet" ${state.claimStatus === 'signing' || walletUnconfigured ? 'disabled' : ''}>${escapeHtml(claimButtonLabel)}</button>
         <form class="manual-review-form" data-action="submit-manual-review">
           <label><span>Manager wallet for review</span><input name="proposedManagerWallet" placeholder="0x..." autocomplete="off" /></label>
           <label><span>Contact route</span><input name="contactRoute" placeholder="agentmail:team@example.test" autocomplete="off" /></label>

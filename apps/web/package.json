@@ -13,5 +13,11 @@
     "jsdom": "^26.1.0",
     "playwright-core": "^1.61.1",
     "vite": "^7.0.0"
+  },
+  "dependencies": {
+    "@privy-io/react-auth": "^3.32.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "viem": "^2.53.1"
   }
 }

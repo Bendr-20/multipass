@@ -1,5 +1,5 @@
 export const STATIC_DEMO_DATA = {
-  "modeLabel": "Static Demo",
+  "modeLabel": "Bundled Fixture",
   "sourceLabel": "bundled fixture",
   "profile": {
     "schema_version": "0.1.0",
