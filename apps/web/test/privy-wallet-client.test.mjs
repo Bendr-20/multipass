@@ -72,16 +72,17 @@ test('createPrivyWalletClient delegates connect and signMessage actions', async 
   assert.deepEqual(calls, [['connect'], ['signMessage', 'hello']]);
 });
 
-test('waitForConnection resolves after a connected snapshot', async () => {
+test('waitForConnection resolves the connected address string', async () => {
   const client = createPrivyWalletClient();
   const connected = client.waitForConnection({ timeoutMs: 100 });
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 
   queueMicrotask(() => client.setSnapshot({
     ready: true,
     configured: true,
     connected: true,
-    address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+    address,
   }));
 
-  assert.deepEqual(await connected, client.getSnapshot());
+  assert.equal(await connected, address);
 });

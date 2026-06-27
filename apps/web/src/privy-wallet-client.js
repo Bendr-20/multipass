@@ -85,7 +85,7 @@ export function createPrivyWalletClient() {
     return new Promise((resolve, reject) => {
       const current = getSnapshot();
       if (current.connected && current.address) {
-        resolve(current);
+        resolve(current.address);
         return;
       }
 
@@ -104,7 +104,7 @@ export function createPrivyWalletClient() {
 
       unsubscribe = subscribe(() => {
         const next = getSnapshot();
-        if (next.connected && next.address) finish(resolve, next);
+        if (next.connected && next.address) finish(resolve, next.address);
       });
     });
   }
