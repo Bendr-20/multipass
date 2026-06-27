@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   createPrivyConnectAction,
+  createPrivyConnectionError,
   createPrivyWalletClient,
   selectEvmWallet,
 } from '../src/privy-wallet-client.js';
@@ -123,6 +124,37 @@ test('createPrivyConnectAction propagates modal rejection without waiting for wa
       description: 'Connect the wallet that manages this Multipass public profile.',
     },
   ]]);
+});
+
+test('waitForConnection rejects immediately when Privy reports wallet modal cancellation', async () => {
+  const client = createPrivyWalletClient();
+  const connected = client.waitForConnection({ timeoutMs: 1000 });
+
+  queueMicrotask(() => client.failConnection(createPrivyConnectionError('exited_auth_flow')));
+
+  await assert.rejects(connected, {
+    message: 'Wallet signature cancelled. Nothing was changed.',
+  });
+});
+
+test('createPrivyConnectAction clears stale Privy connection errors before opening modal', async () => {
+  const client = createPrivyWalletClient();
+  client.failConnection(createPrivyConnectionError('exited_auth_flow'));
+
+  const action = createPrivyConnectAction({
+    configured: true,
+    connectWallet: () => {
+      queueMicrotask(() => client.setSnapshot({
+        ready: true,
+        configured: true,
+        connected: true,
+        address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      }));
+    },
+    client,
+  });
+
+  assert.equal(await action(), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
 });
 
 test('waitForConnection resolves the connected address string', async () => {

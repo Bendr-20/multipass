@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useConnectWallet, usePrivy, useWallets } from '@privy-io/react-auth';
 
 import { defaultWalletSnapshot, shortenAddress } from './wallet-client.js';
@@ -25,6 +25,25 @@ function loadingAction() {
   throw new Error(LOADING_WALLET_MESSAGE);
 }
 
+function isPromiseLike(value) {
+  return Boolean(value && typeof value.then === 'function');
+}
+
+export function createPrivyConnectionError(error) {
+  const message = typeof error === 'string' ? error : error?.message;
+  const normalized = String(message ?? '').toLowerCase();
+  const isCancellation = normalized.includes('exited')
+    || normalized.includes('cancel')
+    || normalized.includes('reject')
+    || normalized.includes('denied');
+
+  if (isCancellation) {
+    return new Error('Wallet signature cancelled. Nothing was changed.');
+  }
+
+  return new Error(message || 'Wallet connection failed. Nothing was changed.');
+}
+
 export function selectEvmWallet(wallets = []) {
   let selected = null;
   for (const wallet of wallets) {
@@ -38,10 +57,12 @@ export function createPrivyConnectAction({ client, configured, connectWallet }) 
   return async () => {
     if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
     if (typeof connectWallet !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
-    await connectWallet({
+    client.clearConnectionError?.();
+    const modalResult = connectWallet({
       walletChainType: 'ethereum-only',
       description: PRIVY_CONNECT_DESCRIPTION,
     });
+    if (isPromiseLike(modalResult)) await modalResult;
     return client.waitForConnection({ timeoutMs: 15000 });
   };
 }
@@ -57,6 +78,7 @@ export function createPrivyWalletClient() {
     signMessage: loadingAction,
   };
   const subscribers = new Set();
+  let connectionError = null;
 
   function notify() {
     for (const listener of subscribers) listener(snapshot);
@@ -72,6 +94,7 @@ export function createPrivyWalletClient() {
   }
 
   function setSnapshot(nextSnapshot = {}) {
+    if (nextSnapshot.connected) connectionError = null;
     const merged = { ...snapshot, ...nextSnapshot };
     let address = Object.hasOwn(nextSnapshot, 'address') ? nextSnapshot.address : merged.address;
     if (nextSnapshot.connected === false) address = null;
@@ -94,11 +117,24 @@ export function createPrivyWalletClient() {
     actions = { ...actions, ...nextActions };
   }
 
+  function clearConnectionError() {
+    connectionError = null;
+  }
+
+  function failConnection(error) {
+    connectionError = error instanceof Error ? error : createPrivyConnectionError(error);
+    notify();
+  }
+
   function waitForConnection({ timeoutMs = 30000 } = {}) {
     return new Promise((resolve, reject) => {
       const current = getSnapshot();
       if (current.connected && current.address) {
         resolve(current.address);
+        return;
+      }
+      if (connectionError) {
+        reject(connectionError);
         return;
       }
 
@@ -116,6 +152,10 @@ export function createPrivyWalletClient() {
       }, timeoutMs);
 
       unsubscribe = subscribe(() => {
+        if (connectionError) {
+          finish(reject, connectionError);
+          return;
+        }
         const next = getSnapshot();
         if (next.connected && next.address) finish(resolve, next.address);
       });
@@ -129,6 +169,8 @@ export function createPrivyWalletClient() {
     signMessage: (...args) => actions.signMessage(...args),
     setSnapshot,
     setActions,
+    clearConnectionError,
+    failConnection,
     waitForConnection,
   };
 }
@@ -136,9 +178,18 @@ export function createPrivyWalletClient() {
 export function PrivyWalletBridge({ client, configured }) {
   const privy = usePrivy();
   const { wallets = [], ready: walletsReady = false } = useWallets();
-  const { connectWallet: connectWalletFromHook } = useConnectWallet();
+  const handleConnectSuccess = useCallback(() => {
+    client.clearConnectionError();
+  }, [client]);
+  const handleConnectError = useCallback((error) => {
+    client.failConnection(createPrivyConnectionError(error));
+  }, [client]);
+  const { connectWallet: connectWalletFromHook } = useConnectWallet({
+    onSuccess: handleConnectSuccess,
+    onError: handleConnectError,
+  });
   const activeWallet = selectEvmWallet(wallets);
-  const connectWallet = privy?.connectWallet ?? connectWalletFromHook;
+  const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {
     client.setSnapshot({
