@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createPrivyConnectAction,
   createPrivyWalletClient,
   selectEvmWallet,
 } from '../src/privy-wallet-client.js';
@@ -70,6 +71,29 @@ test('createPrivyWalletClient delegates connect and signMessage actions', async 
   await client.connect();
   assert.deepEqual(await client.signMessage('hello'), { wallet: '0xwallet', signature: '0xsig' });
   assert.deepEqual(calls, [['connect'], ['signMessage', 'hello']]);
+});
+
+test('createPrivyConnectAction opens Privy with Multipass prompt and explicit timeout', async () => {
+  const calls = [];
+  const action = createPrivyConnectAction({
+    configured: true,
+    connectWallet: (options) => calls.push(['connectWallet', options]),
+    client: {
+      waitForConnection: async (options) => {
+        calls.push(['waitForConnection', options]);
+        return '0xwallet';
+      },
+    },
+  });
+
+  assert.equal(await action(), '0xwallet');
+  assert.deepEqual(calls, [
+    ['connectWallet', {
+      walletChainType: 'ethereum-only',
+      description: 'Connect the wallet that manages this Multipass public profile.',
+    }],
+    ['waitForConnection', { timeoutMs: 15000 }],
+  ]);
 });
 
 test('waitForConnection resolves the connected address string', async () => {

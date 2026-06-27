@@ -7,6 +7,7 @@ const LOADING_WALLET_MESSAGE = 'Wallet options are still loading.';
 const WALLET_NOT_CONFIGURED_MESSAGE = 'Wallet login is not configured for this build.';
 const CONNECT_EVM_WALLET_MESSAGE = 'Connect an Ethereum wallet to sign the owner claim.';
 const WALLET_CANNOT_SIGN_MESSAGE = 'Connected wallet cannot sign messages.';
+const PRIVY_CONNECT_DESCRIPTION = 'Connect the wallet that manages this Multipass public profile.';
 
 function connectedAtValue(wallet) {
   const value = Number(wallet?.connectedAt);
@@ -31,6 +32,18 @@ export function selectEvmWallet(wallets = []) {
     if (!selected || connectedAtValue(wallet) > connectedAtValue(selected)) selected = wallet;
   }
   return selected;
+}
+
+export function createPrivyConnectAction({ client, configured, connectWallet }) {
+  return async () => {
+    if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
+    if (typeof connectWallet !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
+    connectWallet({
+      walletChainType: 'ethereum-only',
+      description: PRIVY_CONNECT_DESCRIPTION,
+    });
+    return client.waitForConnection({ timeoutMs: 15000 });
+  };
 }
 
 export function createPrivyWalletClient() {
@@ -138,12 +151,7 @@ export function PrivyWalletBridge({ client, configured }) {
 
   useEffect(() => {
     client.setActions({
-      connect: async () => {
-        if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
-        if (typeof connectWallet !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
-        connectWallet({ walletChainType: 'ethereum-only' });
-        return client.waitForConnection();
-      },
+      connect: createPrivyConnectAction({ client, configured, connectWallet }),
       signMessage: async (message) => {
         const wallet = selectEvmWallet(wallets);
         if (!wallet) throw new Error(CONNECT_EVM_WALLET_MESSAGE);
