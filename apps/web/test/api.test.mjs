@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildDemoRoutes,
   getApiBaseFromLocation,
+  getWritableApiBaseFromLocation,
   loadJson,
   loadMultipassDemo,
   shouldUseStaticDemo,
@@ -32,6 +33,18 @@ test('getApiBaseFromLocation accepts only safe http URLs and falls back otherwis
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=https://api.example.test/base/')), 'https://api.example.test/base');
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=javascript:alert(1)')), '/multipass-api');
   assert.equal(getApiBaseFromLocation(new URL('http://local.test/?api=not-a-url')), '/multipass-api');
+});
+
+test('getWritableApiBaseFromLocation rejects cross-origin api overrides for claim writes', () => {
+  assert.equal(getWritableApiBaseFromLocation(new URL('https://helixa.xyz/multipass/bendr-2-1')), '/multipass-api');
+  assert.equal(
+    getWritableApiBaseFromLocation(new URL('https://helixa.xyz/multipass/bendr-2-1?api=https://evil.example.test/base/')),
+    '/multipass-api',
+  );
+  assert.equal(
+    getWritableApiBaseFromLocation(new URL('https://helixa.xyz/multipass/bendr-2-1?api=https://helixa.xyz/multipass-api/')),
+    'https://helixa.xyz/multipass-api',
+  );
 });
 
 

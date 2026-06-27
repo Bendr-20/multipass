@@ -1,5 +1,5 @@
 import { getActivationState } from './activation.js';
-import { getApiBaseFromLocation, getSavedSlugFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
+import { getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
@@ -181,7 +181,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     state = { ...state, claimStatus: 'signing', claimError: null };
     render(root, state, handlers);
     try {
-      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
       const signed = await walletSigner(nonce.message);
       const verified = await claimApi.verifyClaimSignature({
@@ -213,7 +213,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     state = { ...state, claimStatus: 'submitting_review', claimError: null };
     render(root, state, handlers);
     try {
-      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const result = await claimApi.submitManualReviewClaim({
         id,
         apiBase,
@@ -247,7 +247,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     state = { ...state, claimStatus: 'updating_profile', claimError: null };
     render(root, state, handlers);
     try {
-      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const updated = await claimApi.updateMultipassProfile({ id, apiBase, csrfToken: state.claimCsrfToken, patch, fetchImpl });
       state = mergeClaimProfileState(state, updated, {
         claimStatus: 'profile_updated',
@@ -264,7 +264,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const id = getManageIdentifier(state);
     if (!id) return;
     try {
-      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       await claimApi.logoutMultipassSession?.({ id, apiBase, csrfToken: state.claimCsrfToken, fetchImpl });
     } finally {
       state = { ...state, claimCsrfToken: null, claimSessionStatus: null, claimStatus: 'signed_out' };

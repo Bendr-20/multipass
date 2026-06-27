@@ -367,19 +367,26 @@ const OWNER_WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const MANAGER_WALLET = '0x339559A2d1CD15059365FC7bD36b3047BbA480E0';
 
 function makeClaimApi() {
+  return makeClaimApiWithRecords().api;
+}
+
+function makeClaimApiWithRecords() {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   savedRecords.saveActivatedRecord(makeSavedRecord());
-  return createMultipassApi({
-    store: createFixtureStore(),
+  return {
     savedRecords,
-    baseUrl: 'https://multipass.example.test',
-    allowedOrigins: ['https://multipass.example.test'],
-    adminSecret: 'test-admin-secret',
-    signatureVerifier: async ({ wallet, message, signature }) => {
-      assert.match(message, /Helixa Multipass claim management/);
-      return signature === `valid:${wallet.toLowerCase()}`;
-    },
-  });
+    api: createMultipassApi({
+      store: createFixtureStore(),
+      savedRecords,
+      baseUrl: 'https://multipass.example.test',
+      allowedOrigins: ['https://multipass.example.test'],
+      adminSecret: 'test-admin-secret',
+      signatureVerifier: async ({ wallet, message, signature }) => {
+        assert.match(message, /Helixa Multipass claim management/);
+        return signature === `valid:${wallet.toLowerCase()}`;
+      },
+    }),
+  };
 }
 
 async function postJsonWithHeaders(api, path, body, headers = {}) {
@@ -495,6 +502,44 @@ test('wallet claim rejects signatures from wallets that are not source owner or 
   assert.equal(rejected.body.error.code, 'forbidden');
 });
 
+test('claim verify returns structured errors for expired used or wrong-scope nonces', async () => {
+  const { api, savedRecords } = makeClaimApiWithRecords();
+  const expired = savedRecords.createClaimNonce('mp_helixa_agent_1', {
+    domain: 'multipass.example.test',
+    now: '2026-06-26T23:45:00.000Z',
+    ttlMs: 1,
+  });
+
+  const expiredResponse = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: OWNER_WALLET,
+    nonce: expired.nonce,
+    signature: `valid:${OWNER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(expiredResponse.response.status, 403);
+  assert.equal(expiredResponse.body.error.code, 'forbidden');
+  assert.match(expiredResponse.body.error.message, /expired/i);
+
+  const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
+  const first = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: OWNER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${OWNER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(first.response.status, 200);
+
+  const reused = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: OWNER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${OWNER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(reused.response.status, 403);
+  assert.equal(reused.body.error.code, 'forbidden');
+  assert.match(reused.body.error.message, /already used/i);
+});
+
 test('manual review creates pending claim without session and approved manager must still sign', async () => {
   const api = makeClaimApi();
 
@@ -516,6 +561,13 @@ test('manual review creates pending claim without session and approved manager m
   });
   assert.equal(deniedApproval.response.status, 401);
 
+  const missingClaim = await postJsonWithHeaders(api, '/api/admin/multipass/mp_helixa_agent_1/claims/claim_missing/approve', {}, {
+    origin: 'https://multipass.example.test',
+    'x-admin-secret': 'test-admin-secret',
+  });
+  assert.equal(missingClaim.response.status, 404);
+  assert.equal(missingClaim.body.error.code, 'not_found');
+
   const approved = await postJsonWithHeaders(api, `/api/admin/multipass/mp_helixa_agent_1/claims/${claimId}/approve`, {}, {
     origin: 'https://multipass.example.test',
     'x-admin-secret': 'test-admin-secret',
@@ -524,6 +576,13 @@ test('manual review creates pending claim without session and approved manager m
   assert.equal(approved.body.claim_status, 'claimed_review_approved');
   assert.match(approved.body.profile.owner_summary.summary, /review-approved/i);
   assert.doesNotMatch(approved.body.profile.owner_summary.summary, /owner-wallet verified/i);
+
+  const duplicateApproval = await postJsonWithHeaders(api, `/api/admin/multipass/mp_helixa_agent_1/claims/${claimId}/approve`, {}, {
+    origin: 'https://multipass.example.test',
+    'x-admin-secret': 'test-admin-secret',
+  });
+  assert.equal(duplicateApproval.response.status, 400);
+  assert.equal(duplicateApproval.body.error.code, 'invalid_request');
 
   const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
   const session = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {

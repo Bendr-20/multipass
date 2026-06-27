@@ -169,6 +169,31 @@ test('admin approval keeps review-approved claim distinct from owner wallet veri
   assert.equal(store.findApprovedManagerClaim('mp_helixa_agent_1', MANAGER).claim_id, request.claim_id);
 });
 
+test('owner wallet verification stays authoritative over later manual review approval', () => {
+  const store = makeStore();
+  const request = store.createManualReviewRequest('mp_helixa_agent_1', {
+    proposedManagerWallet: MANAGER,
+    contactRoute: 'agentmail:team@example.test',
+    note: 'Manual review path.',
+    now: NOW,
+  });
+
+  store.markOwnerWalletVerified('mp_helixa_agent_1', {
+    managerWallet: OWNER,
+    now: '2026-06-26T23:46:00.000Z',
+  });
+  store.approveManualReviewClaim('mp_helixa_agent_1', request.claim_id, {
+    admin: 'operator',
+    now: '2026-06-26T23:50:00.000Z',
+  });
+
+  assert.equal(store.getClaimState('mp_helixa_agent_1').status, 'claimed_verified_owner');
+  const profile = store.resolveProfile('bendr-2-1');
+  assert.equal(profile.owner_summary.owner_state, 'verified');
+  assert.match(profile.owner_summary.summary, /owner-wallet verified/i);
+  assert.equal(store.findApprovedManagerClaim('mp_helixa_agent_1', MANAGER).claim_id, request.claim_id);
+});
+
 test('manager sessions are scoped, CSRF protected, expirable, and revocable', () => {
   const store = makeStore();
   const session = store.createManagerSession('mp_helixa_agent_1', {

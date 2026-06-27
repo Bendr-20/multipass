@@ -1565,7 +1565,7 @@ test('saved profile owner wallet claim enables safe public profile edits', async
   await Promise.resolve();
 
   assert.match(root.textContent, /Bendr Managed/);
-  assert.deepEqual(calls[0], ['nonce', 'bendr-2-1', 'https://api.example.test']);
+  assert.deepEqual(calls[0], ['nonce', 'bendr-2-1', '/multipass-api']);
   assert.deepEqual(calls[1], ['sign', 'Sign Bendr claim']);
   assert.deepEqual(calls[2], ['verify', 'bendr-2-1', '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', 'nonce-1', '0xsig']);
   assert.deepEqual(calls[3], ['update', 'bendr-2-1', 'csrf-1', { display_name: 'Bendr Managed', summary: 'Managed public profile copy.' }]);

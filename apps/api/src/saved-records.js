@@ -261,12 +261,15 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
           now,
           claimId,
         );
-        updateProfileOwnerSummary(db, profile.multipass_id, {
-          owner_state: 'claimed',
-          verification_status: 'verified',
-          verified_at: now,
-          summary: 'Management claim review-approved for public profile edits. Source-owner wallet proof was not completed; this does not transfer custody, tools, credentials, or ownership.',
-        }, now);
+        const currentProfile = readProfile(db, profile.multipass_id);
+        if (currentProfile?.owner_summary?.owner_state !== 'verified') {
+          updateProfileOwnerSummary(db, profile.multipass_id, {
+            owner_state: 'claimed',
+            verification_status: 'verified',
+            verified_at: now,
+            summary: 'Management claim review-approved for public profile edits. Source-owner wallet proof was not completed; this does not transfer custody, tools, credentials, or ownership.',
+          }, now);
+        }
         appendChangeLog(db, profile.multipass_id, 'Management claim approved after manual review.', now);
         appendAuditEvent(db, profile.multipass_id, 'manual_review_approved', { claimId, admin }, now);
         db.exec('COMMIT');
@@ -294,6 +297,11 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
     },
 
     getClaimState(multipassId) {
+      const profile = readProfile(db, multipassId);
+      if (profile?.owner_summary?.owner_state === 'verified') {
+        return { schema_version: '0.1.0', multipass_id: multipassId, status: 'claimed_verified_owner' };
+      }
+
       const approved = db.prepare(`SELECT * FROM claim_requests WHERE multipass_id = ? AND status = ? ORDER BY rowid DESC LIMIT 1`).get(multipassId, 'approved');
       if (approved) {
         return {
@@ -314,11 +322,6 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
           proposed_manager_wallet: pending.proposed_manager_wallet,
           claim_id: pending.claim_id,
         };
-      }
-
-      const profile = readProfile(db, multipassId);
-      if (profile?.owner_summary?.owner_state === 'verified') {
-        return { schema_version: '0.1.0', multipass_id: multipassId, status: 'claimed_verified_owner' };
       }
 
       return { schema_version: '0.1.0', multipass_id: multipassId, status: 'saved_unclaimed' };

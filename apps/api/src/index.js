@@ -217,9 +217,14 @@ async function handleAdminPost(request, parts, context) {
   }
 
   const profile = resolveSavedProfile(context.savedRecords, parts[3]);
-  const claim = context.savedRecords.approveManualReviewClaim(profile.multipass_id, parts[5], {
-    admin: 'api-admin',
-  });
+  let claim;
+  try {
+    claim = context.savedRecords.approveManualReviewClaim(profile.multipass_id, parts[5], {
+      admin: 'api-admin',
+    });
+  } catch (error) {
+    throw mapAdminClaimError(error);
+  }
   const updatedProfile = context.savedRecords.resolveProfile(profile.multipass_id);
   return jsonResponse({
     schema_version: '0.1.0',
@@ -314,7 +319,12 @@ async function handleClaimVerify(request, identifier, context) {
   if (!signature) throw new ApiInputError('invalid_request', 'signature is required.');
   if (!nonceValue) throw new ApiInputError('invalid_request', 'nonce is required.');
 
-  const nonce = context.savedRecords.consumeClaimNonce(nonceValue, { multipassId: profile.multipass_id });
+  let nonce;
+  try {
+    nonce = context.savedRecords.consumeClaimNonce(nonceValue, { multipassId: profile.multipass_id });
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
   const validSignature = await context.signatureVerifier({ wallet, message: nonce.message, signature });
   if (!validSignature) {
     throw new ApiForbiddenError('Wallet signature did not verify against the claim nonce.');
@@ -463,6 +473,12 @@ function resolveSavedProfile(savedRecords, identifier) {
 function getSourceOwnerWallet(savedRecords, multipassId) {
   const snapshot = savedRecords.getSourceContext?.(multipassId)?.sourceSnapshot ?? {};
   return normalizeWalletOrNull(snapshot.owner ?? snapshot.ownerAddress);
+}
+
+function mapAdminClaimError(error) {
+  const message = error.message ?? 'Claim approval failed.';
+  if (/not found/i.test(message)) return new ApiNotFoundError(message);
+  return new ApiInputError('invalid_request', message);
 }
 
 async function readJsonBody(request) {

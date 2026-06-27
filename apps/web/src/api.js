@@ -8,6 +8,12 @@ export function getApiBaseFromLocation(locationUrl) {
   return parsed ? stripTrailingSlash(parsed.toString()) : DEFAULT_API_BASE;
 }
 
+export function getWritableApiBaseFromLocation(locationUrl) {
+  const parsed = parseSafeApiOverride(locationUrl);
+  if (!parsed) return DEFAULT_API_BASE;
+  return parsed.origin === locationUrl.origin ? stripTrailingSlash(parsed.toString()) : DEFAULT_API_BASE;
+}
+
 function parseSafeApiOverride(locationUrl) {
   const raw = locationUrl.searchParams.get('api');
   if (!raw) return null;
