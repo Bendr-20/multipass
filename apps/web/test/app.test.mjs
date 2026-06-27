@@ -196,6 +196,70 @@ function setupDom(url = 'http://localhost/') {
   return dom.window.document.querySelector('#app');
 }
 
+async function flushAsyncEvents(count = 8) {
+  for (let index = 0; index < count; index += 1) await Promise.resolve();
+}
+
+async function savedProfileFetch(url) {
+  if (String(url).endsWith('/api/multipass/bendr-2-1')) {
+    return new Response(JSON.stringify({
+      ...sampleData().profile,
+      display_name: 'Saved Bendr',
+      slug: 'bendr-2-1',
+      multipass_id: 'mp_helixa_agent_1',
+      status: 'active',
+      owner_summary: {
+        owner_state: 'unclaimed',
+        verification_status: 'unclaimed',
+        summary: 'Saved display-only profile. Management is unclaimed.',
+      },
+    }), { status: 200 });
+  }
+  if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
+  if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
+  if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
+  if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
+  if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [{ message: 'Multipass saved from live public source record.' }] }), { status: 200 });
+  throw new Error(`Unexpected URL ${url}`);
+}
+
+function createWalletClientFixture({ snapshot, connect, signMessage } = {}) {
+  let currentSnapshot = {
+    ready: true,
+    configured: true,
+    connected: false,
+    address: null,
+    label: null,
+    connectLabel: 'Connect wallet to claim',
+    ...snapshot,
+  };
+  return {
+    getSnapshot() {
+      return currentSnapshot;
+    },
+    setSnapshot(nextSnapshot) {
+      currentSnapshot = { ...currentSnapshot, ...nextSnapshot };
+    },
+    subscribe() {
+      return () => {};
+    },
+    async connect() {
+      return connect?.();
+    },
+    async signMessage(message) {
+      if (signMessage) return signMessage(message);
+      return { wallet: currentSnapshot.address, signature: '0xsig' };
+    },
+  };
+}
+
+function createSavedMultipassError({ status = 403, code = 'forbidden', message = 'Wallet is not eligible to manage this Multipass record.' } = {}) {
+  const error = new Error(message);
+  error.name = 'SavedMultipassError';
+  error.details = { status, body: { error: { code, message } } };
+  return error;
+}
+
 
 
 test('homepage leads with Multipass product hero instead of Bendr record sheet', async () => {
@@ -1392,15 +1456,7 @@ test('direct saved slug route loads saved Multipass from API instead of static p
     root,
     fetchImpl: async (url) => {
       fetches.push(url);
-      if (String(url).endsWith('/api/multipass/bendr-2-1')) {
-        return new Response(JSON.stringify({ ...sampleData().profile, display_name: 'Saved Bendr', slug: 'bendr-2-1', multipass_id: 'mp_helixa_agent_1', status: 'active' }), { status: 200 });
-      }
-      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
-      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
-      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
-      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
-      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [{ message: 'Multipass saved from live public source record.' }] }), { status: 200 });
-      throw new Error(`Unexpected URL ${url}`);
+      return savedProfileFetch(url);
     },
   }).start();
 
@@ -1483,28 +1539,7 @@ test('direct saved slug route renders display-only claim management panel', asyn
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
   await createApp({
     root,
-    fetchImpl: async (url) => {
-      if (String(url).endsWith('/api/multipass/bendr-2-1')) {
-        return new Response(JSON.stringify({
-          ...sampleData().profile,
-          display_name: 'Saved Bendr',
-          slug: 'bendr-2-1',
-          multipass_id: 'mp_helixa_agent_1',
-          status: 'active',
-          owner_summary: {
-            owner_state: 'unclaimed',
-            verification_status: 'unclaimed',
-            summary: 'Saved display-only profile. Management is unclaimed.',
-          },
-        }), { status: 200 });
-      }
-      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
-      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
-      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
-      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
-      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [] }), { status: 200 });
-      throw new Error(`Unexpected URL ${url}`);
-    },
+    fetchImpl: savedProfileFetch,
   }).start();
 
   const panel = root.querySelector('.claim-management-panel');
@@ -1512,8 +1547,164 @@ test('direct saved slug route renders display-only claim management panel', asyn
   assert.match(panel.textContent, /Claim management/);
   assert.match(panel.textContent, /public profile edits only/i);
   assert.match(panel.textContent, /does not transfer custody, tools, credentials, or ownership/i);
-  assert.equal(panel.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Sign owner claim');
+  assert.equal(panel.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Connect wallet to claim');
   assert.doesNotMatch(panel.textContent, /move secrets|grant permissions|transfer ownership/i);
+});
+
+test('claim button renders connected wallet shortened address', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      label: '0x27E3...91Ea',
+      connectLabel: 'Sign owner claim',
+    },
+  });
+
+  await createApp({ root, walletClient, fetchImpl: savedProfileFetch }).start();
+
+  assert.equal(root.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Sign owner claim with 0x27E3...91Ea');
+});
+
+test('saved profile claim connects wallet before creating nonce', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    connect: async () => {
+      calls.push(['connect']);
+      walletClient.setSnapshot({
+        connected: true,
+        address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+        label: '0x27E3...91Ea',
+        connectLabel: 'Sign owner claim',
+      });
+    },
+    signMessage: async (message) => {
+      calls.push(['sign', message]);
+      return { wallet: walletClient.getSnapshot().address, signature: '0xsig' };
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => { calls.push(['nonce']); return { nonce: 'nonce-1', message: 'Sign Bendr claim' }; },
+    verifyClaimSignature: async () => {
+      calls.push(['verify']);
+      return { claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1' } };
+    },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls.slice(0, 3), [['connect'], ['nonce'], ['sign', 'Sign Bendr claim']]);
+  assert.match(root.querySelector('.claim-management-panel').textContent, /claimed_verified_owner/);
+});
+
+test('wallet modal cancellation does not create a claim nonce', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const walletClient = createWalletClientFixture({
+    connect: async () => {
+      calls.push(['connect']);
+      throw { code: 4001 };
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => { calls.push(['nonce']); return { nonce: 'nonce-1', message: 'Sign Bendr claim' }; },
+    verifyClaimSignature: async () => { calls.push(['verify']); return {}; },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls, [['connect']]);
+  assert.match(root.querySelector('.claim-management-panel').textContent, /Wallet signature cancelled. Nothing was changed./);
+});
+
+test('claim button is disabled when wallet login is not configured', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const walletClient = createWalletClientFixture({ snapshot: { configured: false } });
+
+  await createApp({ root, walletClient, fetchImpl: savedProfileFetch }).start();
+
+  const button = root.querySelector('[data-action="claim-with-wallet"]');
+  assert.equal(button.disabled, true);
+  assert.equal(button.textContent, 'Wallet login not configured');
+  assert.match(root.querySelector('.claim-management-panel').textContent, /Wallet login is not configured for this build./);
+});
+
+test('claim flow stops when connect returns no EVM wallet', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const walletClient = createWalletClientFixture({
+    connect: async () => {
+      calls.push(['connect']);
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => { calls.push(['nonce']); return { nonce: 'nonce-1', message: 'Sign Bendr claim' }; },
+    verifyClaimSignature: async () => { calls.push(['verify']); return {}; },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls, [['connect']]);
+  assert.match(root.querySelector('.claim-management-panel').textContent, /Connect an Ethereum wallet to sign the owner claim./);
+});
+
+test('claim flow handles missing personal_sign support before verify', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      label: '0x27E3...91Ea',
+      connectLabel: 'Sign owner claim',
+    },
+    signMessage: async () => {
+      calls.push(['sign']);
+      throw new Error('Connected wallet cannot sign messages.');
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => { calls.push(['nonce']); return { nonce: 'nonce-1', message: 'Sign Bendr claim' }; },
+    verifyClaimSignature: async () => { calls.push(['verify']); return {}; },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls, [['nonce'], ['sign']]);
+  assert.match(root.querySelector('.claim-management-panel').textContent, /Connected wallet cannot sign messages./);
+});
+
+test('API unauthorized claim shows wrong-wallet manual-review guidance', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      label: '0x27E3...91Ea',
+      connectLabel: 'Sign owner claim',
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => { throw createSavedMultipassError(); },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.claim-management-panel').textContent, /That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review./);
 });
 
 test('saved profile owner wallet claim enables safe public profile edits', async () => {
@@ -1539,15 +1730,7 @@ test('saved profile owner wallet claim enables safe public profile edits', async
     root,
     claimApi,
     walletSigner,
-    fetchImpl: async (url) => {
-      if (String(url).endsWith('/api/multipass/bendr-2-1')) return new Response(JSON.stringify({ ...sampleData().profile, slug: 'bendr-2-1', multipass_id: 'mp_helixa_agent_1', status: 'active' }), { status: 200 });
-      if (String(url).endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', fragments: [] }), { status: 200 });
-      if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
-      if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
-      if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
-      if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [] }), { status: 200 });
-      throw new Error(`Unexpected URL ${url}`);
-    },
+    fetchImpl: savedProfileFetch,
   }).start();
 
   root.querySelector('[data-action="claim-with-wallet"]').click();
