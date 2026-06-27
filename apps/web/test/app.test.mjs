@@ -260,6 +260,28 @@ function createSavedMultipassError({ status = 403, code = 'forbidden', message =
   return error;
 }
 
+async function renderClaimFailureText(error) {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      label: '0x27E3...91Ea',
+      connectLabel: 'Sign owner claim',
+    },
+  });
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => { throw error; },
+  };
+
+  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  return root.querySelector('.claim-management-panel').textContent;
+}
+
 
 
 test('homepage leads with Multipass product hero instead of Bendr record sheet', async () => {
@@ -1686,25 +1708,41 @@ test('claim flow handles missing personal_sign support before verify', async () 
 });
 
 test('API unauthorized claim shows wrong-wallet manual-review guidance', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
-  const walletClient = createWalletClientFixture({
-    snapshot: {
-      connected: true,
-      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
-      label: '0x27E3...91Ea',
-      connectLabel: 'Sign owner claim',
+  const panelText = await renderClaimFailureText(createSavedMultipassError());
+
+  assert.match(panelText, /That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review./);
+});
+
+test('unrelated claim API errors keep their original messages instead of wrong-wallet guidance', async () => {
+  const cases = [
+    {
+      name: 'invalid_request SavedMultipassError',
+      error: createSavedMultipassError({ status: 400, code: 'invalid_request', message: 'Invalid claim request payload.' }),
+      expected: /Invalid claim request payload\./,
     },
-  });
-  const claimApi = {
-    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
-    verifyClaimSignature: async () => { throw createSavedMultipassError(); },
-  };
+    {
+      name: 'bad-signature forbidden SavedMultipassError',
+      error: createSavedMultipassError({ status: 403, code: 'forbidden', message: 'Signature verification failed.' }),
+      expected: /Signature verification failed\./,
+    },
+    {
+      name: 'expired nonce forbidden SavedMultipassError',
+      error: createSavedMultipassError({ status: 403, code: 'forbidden', message: 'Claim nonce expired.' }),
+      expected: /Claim nonce expired\./,
+    },
+    {
+      name: 'generic network Error',
+      error: new Error('Network unavailable.'),
+      expected: /Network unavailable\./,
+    },
+  ];
 
-  await createApp({ root, claimApi, walletClient, fetchImpl: savedProfileFetch }).start();
-  root.querySelector('[data-action="claim-with-wallet"]').click();
-  await flushAsyncEvents();
-
-  assert.match(root.querySelector('.claim-management-panel').textContent, /That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review./);
+  for (const { name, error, expected } of cases) {
+    const panelText = await renderClaimFailureText(error);
+    assert.match(panelText, expected, name);
+    assert.doesNotMatch(panelText, /That wallet cannot manage this Multipass/i, name);
+    assert.doesNotMatch(panelText, /Connect the source owner wallet/i, name);
+  }
 });
 
 test('saved profile owner wallet claim enables safe public profile edits', async () => {
