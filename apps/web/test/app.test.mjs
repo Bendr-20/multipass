@@ -1735,6 +1735,11 @@ test('unrelated claim API errors keep their original messages instead of wrong-w
       error: new Error('Network unavailable.'),
       expected: /Network unavailable\./,
     },
+    {
+      name: 'API rejection wording Error',
+      error: new Error('Signature policy rejected the request.'),
+      expected: /Signature policy rejected the request\./,
+    },
   ];
 
   for (const { name, error, expected } of cases) {

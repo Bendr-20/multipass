@@ -68,6 +68,15 @@ export function createInjectedWalletClient({ getWindow = () => globalThis.window
     for (const listener of subscribers) listener();
   }
 
+  async function connect() {
+    const provider = getProvider();
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    const nextAddress = accounts?.[0] ?? null;
+    if (!nextAddress) throw new Error('Wallet connection did not return an account.');
+    address = nextAddress;
+    notify();
+  }
+
   return {
     getSnapshot() {
       return defaultWalletSnapshot({
@@ -81,16 +90,9 @@ export function createInjectedWalletClient({ getWindow = () => globalThis.window
       subscribers.add(listener);
       return () => subscribers.delete(listener);
     },
-    async connect() {
-      const provider = getProvider();
-      const accounts = await provider.request({ method: 'eth_requestAccounts' });
-      const nextAddress = accounts?.[0] ?? null;
-      if (!nextAddress) throw new Error('Wallet connection did not return an account.');
-      address = nextAddress;
-      notify();
-    },
+    connect,
     async signMessage(message) {
-      if (!address) await this.connect();
+      if (!address) await connect();
       if (!address) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
       const provider = getProvider();
       const signature = await provider.request({ method: 'personal_sign', params: [message, address] });

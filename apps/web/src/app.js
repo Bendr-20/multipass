@@ -188,6 +188,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     if (!id) return;
     state = { ...state, claimStatus: 'signing', claimError: null };
     render(root, state, handlers);
+
     try {
       let walletSnapshot = activeWalletClient.getSnapshot();
       state = { ...state, walletSnapshot };
@@ -199,10 +200,29 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         state = { ...state, walletSnapshot };
       }
       if (!walletSnapshot.connected) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
+    } catch (error) {
+      renderClaimFailure(getWalletErrorMessage(error));
+      return;
+    }
 
-      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
-      const signed = await activeWalletClient.signMessage(nonce.message);
+    const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+    let nonce;
+    try {
+      nonce = await claimApi.createClaimNonce({ id, apiBase, fetchImpl });
+    } catch (error) {
+      renderClaimFailure(getClaimApiErrorMessage(error));
+      return;
+    }
+
+    let signed;
+    try {
+      signed = await activeWalletClient.signMessage(nonce.message);
+    } catch (error) {
+      renderClaimFailure(getWalletErrorMessage(error));
+      return;
+    }
+
+    try {
       const verified = await claimApi.verifyClaimSignature({
         id,
         apiBase,
@@ -219,12 +239,13 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       });
       render(root, state, handlers);
     } catch (error) {
-      const claimError = isWrongWalletClaimError(error)
-        ? 'That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review.'
-        : getWalletErrorMessage(error);
-      state = { ...state, claimStatus: 'error', claimError };
-      render(root, state, handlers);
+      renderClaimFailure(getClaimApiErrorMessage(error));
     }
+  }
+
+  function renderClaimFailure(claimError) {
+    state = { ...state, claimStatus: 'error', claimError };
+    render(root, state, handlers);
   }
 
   async function submitManualReview(event) {
@@ -343,6 +364,13 @@ function isWrongWalletClaimError(error) {
     && [401, 403].includes(details.status)
     && ['forbidden', 'unauthorized'].includes(bodyError.code)
     && /not eligible to manage this Multipass record/i.test(bodyError.message ?? error?.message ?? '');
+}
+
+function getClaimApiErrorMessage(error) {
+  if (isWrongWalletClaimError(error)) {
+    return 'That wallet cannot manage this Multipass. Connect the source owner wallet or request manual review.';
+  }
+  return error?.message || 'Claim request failed. Nothing was changed.';
 }
 
 function isSavedManageRecord(state) {
