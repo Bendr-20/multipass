@@ -38,7 +38,7 @@ export function createPrivyConnectAction({ client, configured, connectWallet }) 
   return async () => {
     if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
     if (typeof connectWallet !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
-    connectWallet({
+    await connectWallet({
       walletChainType: 'ethereum-only',
       description: PRIVY_CONNECT_DESCRIPTION,
     });

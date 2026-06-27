@@ -96,6 +96,35 @@ test('createPrivyConnectAction opens Privy with Multipass prompt and explicit ti
   ]);
 });
 
+test('createPrivyConnectAction propagates modal rejection without waiting for wallet state', async () => {
+  const calls = [];
+  const modalError = new Error('wallet modal cancelled');
+  const modalRejection = Promise.reject(modalError);
+  modalRejection.catch(() => {});
+  const action = createPrivyConnectAction({
+    configured: true,
+    connectWallet: (options) => {
+      calls.push(['connectWallet', options]);
+      return modalRejection;
+    },
+    client: {
+      waitForConnection: async (options) => {
+        calls.push(['waitForConnection', options]);
+        throw new Error('should not wait');
+      },
+    },
+  });
+
+  await assert.rejects(action(), modalError);
+  assert.deepEqual(calls, [[
+    'connectWallet',
+    {
+      walletChainType: 'ethereum-only',
+      description: 'Connect the wallet that manages this Multipass public profile.',
+    },
+  ]]);
+});
+
 test('waitForConnection resolves the connected address string', async () => {
   const client = createPrivyWalletClient();
   const connected = client.waitForConnection({ timeoutMs: 100 });
