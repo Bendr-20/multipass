@@ -677,24 +677,11 @@ function renderProductHome(root, state, handlers = {}) {
 
 function renderAgentVisualStrip(carousel, selectedIndex) {
   return `
-    <section id="agent-visuals" class="profile-visual-strip" aria-label="Agent examples">
-      <div class="visual-card-track" role="tablist" aria-label="Agent examples">
-        ${carousel.cards.map((card, index) => renderAgentVisualButton(card, index, selectedIndex)).join('')}
+    <section id="agent-visuals" class="profile-gallery card-carousel profile-visual-strip" aria-label="Agent examples">
+      <div class="card-track" role="tablist" aria-label="Agent examples">
+        ${carousel.cards.map((card, index) => renderAgentCardButton(card, index, selectedIndex)).join('')}
       </div>
     </section>
-  `;
-}
-
-function renderAgentVisualButton(card, index, selectedIndex) {
-  const selected = index === selectedIndex;
-  return `
-    <button class="visual-card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
-      <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(card.visual?.label ?? `${card.name} visual identity`)}">
-        ${card.visual?.imageUrl ? `<img src="${escapeAttribute(card.visual.imageUrl)}" alt="${escapeAttribute(card.visual.label)}" loading="lazy" />` : ''}
-        <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
-      </span>
-      <strong>${escapeHtml(card.name)}</strong>
-    </button>
   `;
 }
 

@@ -24,7 +24,9 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.equal(resolverColumnRules.at(-1), '1fr', 'the last resolver grid declaration must stay single-column on mobile');
   assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2rem, 8\.8vw, 2\.7rem\);/s);
   assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*margin-top:\s*12px;/s);
-  assert.match(mobileBlock, /\.visual-card-track\s*\{[^}]*grid-auto-columns:\s*minmax\(132px, 42vw\);/s);
+  assert.match(mobileBlock, /\.card-track\s*\{[^}]*grid-auto-columns: minmax\(280px, 88vw\);/s);
+  assert.match(mobileBlock, /\.homepage-proof-panel h2\s*\{[^}]*font-size:\s*clamp\(1\.45rem, 7vw, 2\.15rem\);/s);
+  assert.doesNotMatch(mobileBlock, /\.homepage-proof-panel h2,\s*\.homepage-proof-grid\s*\{[^}]*display:\s*none;/s);
   assert.match(mobileBlock, /\.live-resolver\s*\{[^}]*padding:\s*16px;/s);
   assert.doesNotMatch(mobileBlock, /\.live-resolver form\s*\{[^}]*minmax\(180px, 260px\)[^}]*auto auto/s);
 });

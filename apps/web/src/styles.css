@@ -1972,42 +1972,36 @@ h1 {
 
   .homepage-proof-panel {
     min-height: 0;
+    gap: 14px;
     padding: 16px;
   }
 
-  .homepage-proof-panel h2,
+  .homepage-proof-panel h2 {
+    font-size: clamp(1.45rem, 7vw, 2.15rem);
+    line-height: 0.98;
+  }
+
   .homepage-proof-grid {
-    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .homepage-proof-stat {
+    min-height: 74px;
+    padding: 10px;
+  }
+
+  .homepage-proof-stat span {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  .homepage-proof-stat strong {
+    margin-top: 6px;
+    font-size: 14px;
   }
 
   .profile-visual-strip {
     margin-top: 12px;
-  }
-
-  .visual-card-track {
-    grid-auto-columns: minmax(132px, 42vw);
-    gap: 8px;
-  }
-
-  .visual-card-button {
-    grid-template-rows: 112px auto;
-    gap: 6px;
-    padding: 6px;
-  }
-
-  .visual-card-button .profile-card-visual {
-    min-height: 112px;
-  }
-
-  .visual-card-button .profile-card-visual span {
-    right: 6px;
-    bottom: 6px;
-    padding: 4px 6px;
-    font-size: 9px;
-  }
-
-  .visual-card-button strong {
-    font-size: 12px;
   }
 
   .prototype-ribbon,

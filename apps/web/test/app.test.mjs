@@ -308,7 +308,8 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.ok(strip);
   assert.equal(strip.querySelector('.card-carousel-head'), null);
   assert.equal(strip.querySelector('.card-detail'), null);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
+  assert.equal(strip.querySelectorAll('.card-button').length, 4);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 0);
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
   assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
@@ -410,7 +411,8 @@ test('static homepage keeps agent visuals display-only', async () => {
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
   assert.equal(strip.querySelector('input'), null);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
+  assert.equal(strip.querySelectorAll('.card-button').length, 4);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 0);
   assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 
@@ -420,6 +422,8 @@ test('static initial state presents Multipass product home instead of Bendr prof
 
   assert.ok(root.querySelector('.product-home-shell'));
   assert.match(root.querySelector('.product-hero')?.textContent ?? '', /Portable identity profiles for agents/);
+  assert.match(root.querySelector('.homepage-proof-panel')?.textContent ?? '', /What it does/);
+  assert.equal(root.querySelectorAll('.homepage-proof-stat').length, 4);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.activation-summary'), null);
