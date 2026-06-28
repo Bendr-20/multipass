@@ -677,24 +677,11 @@ function renderProductHome(root, state, handlers = {}) {
 
 function renderAgentVisualStrip(carousel, selectedIndex) {
   const activeIndex = Math.max(0, Math.min(selectedIndex, carousel.cards.length - 1));
-  const previousIndex = activeIndex === 0 ? carousel.cards.length - 1 : activeIndex - 1;
-  const nextIndex = activeIndex === carousel.cards.length - 1 ? 0 : activeIndex + 1;
 
   return `
     <section id="agent-visuals" class="profile-visual-strip" aria-label="Agent examples">
-      <div class="visual-card-viewport">
-        <div class="visual-card-track" role="tablist" aria-label="Agent examples" style="--active-index: ${activeIndex}">
-          ${carousel.cards.map((card, index) => renderAgentVisualButton(card, index, activeIndex)).join('')}
-        </div>
-      </div>
-      <div class="visual-carousel-controls" aria-label="Agent carousel controls">
-        <button data-action="select-agent-card" data-index="${previousIndex}" type="button" aria-label="Previous agent">Prev</button>
-        <div class="visual-carousel-dots" aria-label="Agent carousel pages">
-          ${carousel.cards.map((card, index) => `
-            <button class="visual-carousel-dot${index === activeIndex ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-label="Show ${escapeAttribute(card.name)}" aria-current="${index === activeIndex ? 'true' : 'false'}"></button>
-          `).join('')}
-        </div>
-        <button data-action="select-agent-card" data-index="${nextIndex}" type="button" aria-label="Next agent">Next</button>
+      <div class="visual-card-track" role="tablist" aria-label="Swipe through agent examples">
+        ${carousel.cards.map((card, index) => renderAgentVisualButton(card, index, activeIndex)).join('')}
       </div>
     </section>
   `;

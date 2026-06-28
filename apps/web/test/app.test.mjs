@@ -308,31 +308,32 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.ok(strip);
   assert.equal(strip.querySelector('.card-carousel-head'), null);
   assert.equal(strip.querySelector('.card-detail'), null);
-  assert.ok(strip.querySelector('.visual-card-viewport'));
-  assert.ok(strip.querySelector('.visual-card-track')?.getAttribute('style')?.includes('--active-index: 0'));
+  assert.equal(strip.querySelector('.visual-card-viewport'), null);
+  assert.ok(strip.querySelector('.visual-card-track'));
+  assert.equal(strip.querySelector('.visual-card-track')?.hasAttribute('style'), false);
   assert.equal(strip.querySelector('.card-track'), null);
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
   assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
-  assert.equal(strip.querySelectorAll('.visual-carousel-dot').length, 4);
+  assert.equal(strip.querySelector('.visual-carousel-controls'), null);
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
   assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
   assert.match(strip.textContent, /Quigbot/);
 });
 
-test('homepage visual carousel slides through agent cards', async () => {
+test('homepage visual carousel is native swipeable scroll snap, not a button slider', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
-  assert.ok(strip.querySelector('.visual-card-track')?.getAttribute('style')?.includes('--active-index: 0'));
-
-  strip.querySelector('button[aria-label="Next agent"]')?.dispatchEvent(new root.ownerDocument.defaultView.Event('click', { bubbles: true }));
-
-  const updatedStrip = root.querySelector('.profile-visual-strip');
-  assert.ok(updatedStrip.querySelector('.visual-card-track')?.getAttribute('style')?.includes('--active-index: 1'));
-  assert.equal(updatedStrip.querySelector('.visual-carousel-dot.selected')?.getAttribute('aria-label'), 'Show Quigbot');
+  const track = strip.querySelector('.visual-card-track');
+  assert.ok(track);
+  assert.equal(track.getAttribute('role'), 'tablist');
+  assert.match(track.getAttribute('aria-label') ?? '', /Swipe through/i);
+  assert.equal(track.hasAttribute('style'), false);
+  assert.equal(strip.querySelector('button[aria-label="Next agent"]'), null);
+  assert.equal(strip.querySelector('button[aria-label="Previous agent"]'), null);
 });
 
 test('initial render shows loading state then product-led Multipass record', async () => {
@@ -430,11 +431,12 @@ test('static homepage keeps agent visuals display-only', async () => {
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
   assert.equal(strip.querySelector('input'), null);
-  assert.ok(strip.querySelector('.visual-card-viewport'));
+  assert.equal(strip.querySelector('.visual-card-viewport'), null);
+  assert.ok(strip.querySelector('.visual-card-track'));
   assert.equal(strip.querySelector('.card-track'), null);
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
   assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
-  assert.equal(strip.querySelectorAll('.visual-carousel-dot').length, 4);
+  assert.equal(strip.querySelector('.visual-carousel-controls'), null);
   assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 

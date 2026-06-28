@@ -27,9 +27,10 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(mobileBlock, /\.record-shell\s*\{[^}]*max-width:\s*calc\(100vw - 24px\);[^}]*overflow-x:\s*clip;/s);
   assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2rem, 8\.8vw, 2\.7rem\);/s);
   assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;[^}]*margin-top:\s*12px;/s);
-  assert.match(css, /\.visual-card-viewport\s*\{[^}]*overflow:\s*hidden;/s);
-  assert.match(css, /\.visual-card-track\s*\{[^}]*display:\s*flex;[^}]*transform:\s*translateX\(calc\(var\(--active-index, 0\) \* -100%\)\);[^}]*transition:\s*transform 320ms ease;/s);
-  assert.match(css, /\.visual-card-button\s*\{[^}]*flex:\s*0 0 100%;/s);
+  assert.doesNotMatch(css, /\.visual-card-viewport\s*\{/s);
+  assert.match(css, /\.visual-card-track\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x mandatory;[^}]*-webkit-overflow-scrolling:\s*touch;/s);
+  assert.doesNotMatch(css, /\.visual-card-track\s*\{[^}]*transform:\s*translate/s);
+  assert.match(css, /\.visual-card-button\s*\{[^}]*flex:\s*0 0 min\(300px, 86%\);[^}]*scroll-snap-align:\s*start;/s);
   assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*156px auto;/s);
   assert.match(mobileBlock, /\.product-hero-copy\s*\{[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-carousel\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
