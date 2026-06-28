@@ -10,6 +10,13 @@ import {
   assertX402Manifest,
 } from '@helixa/multipass-sdk';
 
+import {
+  assertManagerEditableFragment,
+  normalizeManagerFragmentInput,
+  normalizeManagerFragmentPatch,
+  summarizePublicFragments,
+} from './fragment-manager.js';
+
 const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
   'apiUrl',
   'auraUrl',
@@ -379,6 +386,73 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       db.prepare(`UPDATE manager_sessions SET revoked_at = ? WHERE session_hash = ? AND revoked_at IS NULL`).run(now, hashSecret(sessionId ?? ''));
     },
 
+    getFragment(identifier, fragmentId) {
+      const profile = requireSavedProfile(db, identifier);
+      return readBundleById(db, profile.multipass_id)?.fragments.find((fragment) => fragment.fragment_id === fragmentId) ?? null;
+    },
+
+    getAuditEvents(multipassId) {
+      return db.prepare(`SELECT audit_id, multipass_id, event_type, event_json, created_at FROM audit_events WHERE multipass_id = ? ORDER BY rowid ASC`).all(multipassId)
+        .map((row) => ({ ...row, event: JSON.parse(row.event_json) }));
+    },
+
+    createPublicFragment(identifier, input = {}, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const fragment = normalizeManagerFragmentInput(input, { multipassId: profile.multipass_id, now, randomHex });
+      const fragments = [...bundle.fragments, fragment];
+      writeFragmentMutation(db, bundle, fragments, {
+        now,
+        message: `Public fragment added: ${fragment.fragment_type}.`,
+        auditType: 'public_fragment_created',
+        auditPayload: { actorWallet, fragmentId: fragment.fragment_id, fragmentType: fragment.fragment_type },
+      });
+      return readFragmentMutationResult(db, profile.multipass_id, fragment.fragment_id);
+    },
+
+    updatePublicFragment(identifier, fragmentId, patch = {}, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const index = bundle.fragments.findIndex((fragment) => fragment.fragment_id === fragmentId);
+      if (index === -1) throw new Error('Fragment not found.');
+      assertManagerEditableFragment(bundle.fragments[index]);
+      const nextFragment = normalizeManagerFragmentPatch(bundle.fragments[index], patch, { now });
+      const fragments = bundle.fragments.with(index, nextFragment);
+      writeFragmentMutation(db, bundle, fragments, {
+        now,
+        message: `Public fragment updated: ${nextFragment.fragment_type}.`,
+        auditType: 'public_fragment_updated',
+        auditPayload: { actorWallet, fragmentId, fragmentType: nextFragment.fragment_type },
+      });
+      return readFragmentMutationResult(db, profile.multipass_id, fragmentId);
+    },
+
+    revokePublicFragment(identifier, fragmentId, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const index = bundle.fragments.findIndex((fragment) => fragment.fragment_id === fragmentId);
+      if (index === -1) throw new Error('Fragment not found.');
+      assertManagerEditableFragment(bundle.fragments[index]);
+      const nextFragment = assertIdentityFragment({ ...bundle.fragments[index], status: 'revoked', revoked_at: now, updated_at: now });
+      const fragments = bundle.fragments.with(index, nextFragment);
+      writeFragmentMutation(db, bundle, fragments, {
+        now,
+        message: `Public fragment revoked: ${nextFragment.fragment_type}.`,
+        auditType: 'public_fragment_revoked',
+        auditPayload: { actorWallet, fragmentId, fragmentType: nextFragment.fragment_type },
+      });
+      return readFragmentMutationResult(db, profile.multipass_id, fragmentId);
+    },
+
     updatePublicProfile(identifier, edits = {}, input = {}) {
       const profile = requireSavedProfile(db, identifier);
       const agentCard = readBundleById(db, profile.multipass_id)?.agentCard;
@@ -688,6 +762,46 @@ function createClaimMessage({ multipassId, sourceCanonicalId, domain, nonce, iss
     'Signing this message verifies control for public Multipass metadata management only.',
     'It does not transfer funds, assets, tools, credentials, or ownership.',
   ].join('\n');
+}
+
+function writeFragmentMutation(db, bundle, fragments, { now, message, auditType, auditPayload }) {
+  const nextFragments = fragments.map(assertIdentityFragment);
+  const nextProfile = {
+    ...bundle.profile,
+    public_fragments: summarizePublicFragments(nextFragments),
+    updated_at: now,
+  };
+  assertMultipassProfile(nextProfile);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare(`UPDATE saved_records SET profile_json = ?, fragments_json = ?, updated_at = ? WHERE multipass_id = ?`).run(
+      JSON.stringify(nextProfile),
+      JSON.stringify(nextFragments),
+      now,
+      bundle.profile.multipass_id,
+    );
+    appendChangeLog(db, bundle.profile.multipass_id, message, now);
+    appendAuditEvent(db, bundle.profile.multipass_id, auditType, auditPayload, now);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function readFragmentMutationResult(db, multipassId, fragmentId) {
+  const bundle = readBundleById(db, multipassId);
+  const fragment = bundle?.fragments.find((entry) => entry.fragment_id === fragmentId);
+  if (!bundle || !fragment) throw new Error('Fragment mutation result not found.');
+  return {
+    fragment,
+    fragments: {
+      schema_version: bundle.profile.schema_version,
+      multipass_id: bundle.profile.multipass_id,
+      fragments: bundle.fragments.filter((entry) => entry.visibility === 'public'),
+    },
+    profile: bundle.profile,
+  };
 }
 
 function updateProfileOwnerSummary(db, multipassId, ownerSummary, updatedAt) {

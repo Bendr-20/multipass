@@ -45,14 +45,21 @@ function makeSavedRecord(overrides = {}) {
         summary: 'Management is not claimed.',
       },
       custody_epoch: null,
-      public_fragments: [],
+      public_fragments: (overrides.fragments ?? []).filter((fragment) => fragment.visibility === 'public').map((fragment) => ({
+        fragment_id: fragment.fragment_id,
+        fragment_type: fragment.fragment_type,
+        status: fragment.status,
+        assurance_level: fragment.assurance_level,
+        visibility: fragment.visibility,
+        updated_at: fragment.updated_at,
+      })),
       cred_summary: { trust_state: 'none', attestation_count: 0, receipt_count: 0, last_updated_at: NOW },
       discovery_profile: { summary: 'Saved from a public live source record.', tags: ['helixa'], avatar_url: null, visibility: 'public' },
       standards_profile: { standards_profile_id: 'sp_helixa_agent_1', supported_standard_ids: ['ERC-8004'], last_verified_at: null },
       payment_profile: { accepted_assets: [], x402_manifest_url: null, paid_endpoints_enabled: false },
       updated_at: NOW,
     },
-    fragments: [],
+    fragments: overrides.fragments ?? [],
     agentCard: {
       schema_version: '0.1.0',
       multipass_id: overrides.multipassId ?? 'mp_helixa_agent_1',
@@ -88,6 +95,30 @@ function makeSavedRecord(overrides = {}) {
     x402Manifest: { schema_version: '0.1.0', multipass_id: overrides.multipassId ?? 'mp_helixa_agent_1', endpoints: [] },
     receipts: [],
     change: { change_id: 'change_initial_save', message: 'Multipass saved from live public source record.', created_at: NOW },
+  };
+}
+
+
+function makeImportedRiskFragment(overrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    fragment_id: overrides.fragment_id ?? 'frag_imported_cred',
+    multipass_id: overrides.multipass_id ?? 'mp_helixa_agent_1',
+    fragment_type: 'risk_summary',
+    status: 'verified',
+    assurance_level: 'platform_verified',
+    visibility: 'public',
+    transfer_policy: 'reverify_on_transfer',
+    source: {
+      source_type: 'registry_import',
+      source_id: 'helixa-api:cred:1',
+      issuer: 'Helixa',
+      observed_at: NOW,
+    },
+    public_value: 'Cred score imported from Helixa API.',
+    proof_reference: null,
+    created_at: NOW,
+    updated_at: NOW,
   };
 }
 
@@ -250,4 +281,83 @@ test('manager public profile edits are allowlisted and logged', () => {
     () => store.updatePublicProfile('mp_helixa_agent_1', { avatar_url: 'javascript:alert(1)' }, { actorWallet: OWNER, now: NOW }),
     /avatar_url/,
   );
+});
+
+test('manager public fragment mutations refresh fragments profile summary changelog and audit events', () => {
+  const store = makeStore();
+
+  const created = store.createPublicFragment('bendr-2-1', {
+    fragment_type: 'wallet',
+    public_value: OWNER,
+    reference_url: 'https://basescan.org/address/0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+  }, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:10:00.000Z',
+  });
+
+  assert.equal(created.fragment.fragment_type, 'wallet');
+  assert.equal(created.fragment.public_value, OWNER.toLowerCase());
+  assert.equal(created.fragment.source.issuer, null);
+  assert.match(created.fragment.fragment_id, /^frag_manager_wallet_/);
+
+  let profile = store.resolveProfile('mp_helixa_agent_1');
+  assert.equal(profile.updated_at, '2026-06-27T00:10:00.000Z');
+  assert.deepEqual(profile.public_fragments, [{
+    fragment_id: created.fragment.fragment_id,
+    fragment_type: 'wallet',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    updated_at: '2026-06-27T00:10:00.000Z',
+  }]);
+  assert.deepEqual(store.getPublicFragments('mp_helixa_agent_1').map((fragment) => fragment.fragment_id), [created.fragment.fragment_id]);
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public fragment added: wallet/);
+  assert.equal(store.getAuditEvents('mp_helixa_agent_1').at(-1).event_type, 'public_fragment_created');
+  assert.deepEqual(store.getAuditEvents('mp_helixa_agent_1').at(-1).event.actorWallet, OWNER.toLowerCase());
+
+  const updated = store.updatePublicFragment('bendr-2-1', created.fragment.fragment_id, {
+    public_value: '0x339559A2d1CD15059365FC7bD36b3047BbA480E0',
+    status: 'stale',
+    proof_reference: 'owner note 2026-06-27',
+  }, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:15:00.000Z',
+  });
+
+  assert.equal(updated.fragment.public_value, '0x339559a2d1cd15059365fc7bd36b3047bba480e0');
+  assert.equal(updated.fragment.status, 'stale');
+  assert.equal(updated.fragment.proof_reference, 'owner note 2026-06-27');
+  profile = store.resolveProfile('mp_helixa_agent_1');
+  assert.equal(profile.updated_at, '2026-06-27T00:15:00.000Z');
+  assert.equal(profile.public_fragments[0].status, 'stale');
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public fragment updated: wallet/);
+  assert.equal(store.getAuditEvents('mp_helixa_agent_1').at(-1).event_type, 'public_fragment_updated');
+
+  const revoked = store.revokePublicFragment('mp_helixa_agent_1', created.fragment.fragment_id, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:20:00.000Z',
+  });
+
+  assert.equal(revoked.fragment.status, 'revoked');
+  assert.equal(revoked.fragment.revoked_at, '2026-06-27T00:20:00.000Z');
+  profile = store.resolveProfile('bendr-2-1');
+  assert.equal(profile.public_fragments[0].status, 'revoked');
+  assert.equal(store.getPublicFragments('mp_helixa_agent_1')[0].status, 'revoked');
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public fragment revoked: wallet/);
+  assert.equal(store.getAuditEvents('mp_helixa_agent_1').at(-1).event_type, 'public_fragment_revoked');
+});
+
+test('manager fragment mutations reject blocked types imported fragments unsafe URLs and wrong endpoint refs', () => {
+  const store = createSqliteSavedRecords({ databasePath: ':memory:' });
+  store.saveActivatedRecord(makeSavedRecord({ fragments: [makeImportedRiskFragment()] }));
+
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'risk_summary', public_value: 'Cred 999' }, { actorWallet: OWNER, now: NOW }), /not allowed|blocked/i);
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'wallet', public_value: OWNER, visibility: 'private' }, { actorWallet: OWNER, now: NOW }), /visibility|public/i);
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'wallet', public_value: '<script>alert(1)</script>' }, { actorWallet: OWNER, now: NOW }), /public_value|unsafe|wallet/i);
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'wallet', public_value: OWNER, reference_url: 'http://example.test' }, { actorWallet: OWNER, now: NOW }), /https/i);
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'endpoint', public_value: 'Bad endpoint', endpoint_ref: { endpoint_id: 'bad', url: 'http://example.test', protocol: 'api' } }, { actorWallet: OWNER, now: NOW }), /https/i);
+  assert.throws(() => store.createPublicFragment('bendr-2-1', { fragment_type: 'wallet', public_value: OWNER, endpoint_ref: { endpoint_id: 'not-wallet', url: 'https://example.test', protocol: 'api' } }, { actorWallet: OWNER, now: NOW }), /endpoint_ref/i);
+  assert.throws(() => store.updatePublicFragment('bendr-2-1', 'frag_imported_cred', { public_value: 'Manager edited Cred.' }, { actorWallet: OWNER, now: NOW }), /read-only|not editable/i);
+  assert.throws(() => store.revokePublicFragment('bendr-2-1', 'frag_imported_cred', { actorWallet: OWNER, now: NOW }), /read-only|not editable/i);
+  assert.throws(() => store.updatePublicFragment('bendr-2-1', 'frag_missing', { public_value: OWNER }, { actorWallet: OWNER, now: NOW }), /not found/i);
 });
