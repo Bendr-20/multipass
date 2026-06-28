@@ -288,29 +288,25 @@ test('homepage leads with Multipass product hero instead of Bendr record sheet',
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const hero = root.querySelector('.homepage-hero');
+  const hero = root.querySelector('.product-hero');
   assert.ok(hero);
   assert.match(hero.textContent, /Multipass/i);
-  assert.match(hero.textContent, /portable agent trust profiles/i);
+  assert.match(hero.textContent, /Portable identity profiles for agents/i);
   assert.doesNotMatch(hero.textContent, /mp_bendr_2/);
   assert.doesNotMatch(hero.textContent, /receipt_bendr_lookup/);
   assert.equal(root.querySelector('.record-sheet'), null);
 });
 
-test('homepage renders visual profile gallery cards with proof context', async () => {
+test('homepage renders product cards and keeps Bendr as an example link', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const gallery = root.querySelector('.profile-gallery');
-  assert.ok(gallery);
-  assert.match(gallery.textContent, /Example trust profiles/i);
-  const cards = [...root.querySelectorAll('.profile-card')];
-  assert.ok(cards.length >= 4);
-  assert.ok(cards.every((card) => card.querySelector('.profile-card-visual')));
-  assert.ok(cards.every((card) => /Cred|Trust/.test(card.textContent)));
-  assert.ok(cards.every((card) => /proof/i.test(card.textContent)));
-  assert.match(cards[0].textContent, /Bendr 2\.0/);
-  assert.match(cards[0].textContent, /Lead agent/i);
+  const cards = [...root.querySelectorAll('.product-card-grid .clarity-card')];
+  assert.equal(cards.length, 3);
+  assert.match(root.textContent, /Separate product from profile/);
+  assert.match(root.textContent, /Public proof fragments/);
+  assert.match(root.textContent, /Claim-gated management/);
+  assert.equal(root.querySelector('a[href="/multipass/bendr-2-1"]')?.textContent, 'View Bendr profile');
 });
 
 test('initial render shows loading state then product-led Multipass record', async () => {
@@ -397,36 +393,36 @@ test('resolver bar renders without changing default static data', async () => {
   assert.doesNotMatch(resolver.textContent, /Resolve live Helixa agent/);
   assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /Bendr 2\.0 Public Profile/);
+  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
   assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
 });
 
-test('static homepage renders display-only share panel', async () => {
+test('static homepage renders display-only example profile panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   const panel = root.querySelector('.share-panel');
   assert.ok(panel);
-  assert.match(panel.textContent, /Portable Agent Identity/);
-  assert.match(panel.textContent, /Share this Multipass/i);
-  assert.match(panel.textContent, /Tap and hold to copy/i);
+  assert.match(panel.textContent, /Example profile/);
+  assert.match(panel.textContent, /Bendr 2\.0 Multipass/);
+  assert.match(panel.textContent, /Open Bendr profile/);
   assert.equal(panel.querySelector('input'), null);
-  assert.equal(panel.querySelector('.share-url')?.textContent, 'https://helixa.xyz/multipass/');
+  assert.equal(panel.querySelector('a[href="/multipass/bendr-2-1"]')?.textContent, 'Open Bendr profile');
   assert.doesNotMatch(panel.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 
-test('static initial state presents Bendr public profile without preview language', async () => {
+test('static initial state presents Multipass product home instead of Bendr profile', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const activation = root.querySelector('.activation-summary');
-  assert.ok(activation);
-  assert.match(activation.textContent, /Bendr 2\.0 Public Profile/);
-  assert.match(activation.textContent, /Public Helixa profile/);
-  assert.match(activation.textContent, /Binding NFTs to an existing identity is planned for a later adapter release/);
-  assert.doesNotMatch(activation.textContent, /\b(?:Preview|preview|Demo|demo|fixture|Fixture)\b/);
-  assert.doesNotMatch(activation.textContent, /Activated Multipass/);
-  assert.doesNotMatch(activation.textContent, /Activated from NFT/);
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.match(root.querySelector('.product-hero')?.textContent ?? '', /Portable identity profiles for agents/);
+  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
+  assert.match(root.textContent, /View Bendr profile/);
+  assert.equal(root.querySelector('.activation-summary'), null);
+  assert.equal(root.querySelector('.proof-ledger'), null);
+  assert.doesNotMatch(root.textContent, /Bendr 2\.0 Public Profile/);
+  assert.doesNotMatch(root.textContent, /\b(?:Preview|preview|Demo|demo|fixture|Fixture)\b/);
 });
 
 test('successful live resolve shows activated Multipass summary without stale static framing', async () => {
@@ -514,7 +510,7 @@ test('activated page avoids custody and binding overclaims', async () => {
 
 test('render uses live hero note when data supplies one', async () => {
   const data = { ...sampleData(), heroNote: 'Read-only live Helixa API data for Bendr 2.0.', sourceLabel: 'live Helixa API' };
-  const root = setupDom('https://helixa.xyz/multipass/');
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   await createApp({ root, loadDemo: async () => data }).start();
 
   assert.match(root.textContent, /Read-only live Helixa API data for Bendr 2\.0/);
@@ -769,7 +765,7 @@ test('default loader uses safe api query override from window location', async (
 });
 
 
-test('static /multipass/ page loads Bendr public profile without calling API', async () => {
+test('static /multipass/ page loads product home without calling API', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const calls = [];
   globalThis.fetch = async (route) => {
@@ -784,15 +780,11 @@ test('static /multipass/ page loads Bendr public profile without calling API', a
   }
 
   assert.deepEqual(calls, []);
-  assert.doesNotMatch(root.textContent, /Bendr Public Profile/);
-  assert.match(root.textContent, /Bendr public profile/);
-  assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
-  assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
-  assert.match(root.textContent, /Helixa AgentDNA token #1/);
-  assert.match(root.textContent, /Cred score 80/);
-  for (const state of ['verified', 'pending', 'stale', 'historical', 'disputed']) {
-    assert.match(root.textContent, new RegExp(state, 'i'));
-  }
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.match(root.textContent, /Portable identity profiles for agents/);
+  assert.match(root.textContent, /View Bendr profile/);
+  assert.equal(root.querySelector('.fragment-card'), null);
+  assert.equal(root.querySelector('.proof-ledger'), null);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
 });
 
@@ -812,8 +804,8 @@ test('static /multipass/ ignores unsafe api query override without calling API',
   }
 
   assert.deepEqual(calls, []);
-  assert.doesNotMatch(root.textContent, /Bendr Public Profile/);
-  assert.match(root.textContent, /Bendr public profile/);
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.match(root.textContent, /Portable identity profiles for agents/);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
 });
 
@@ -842,7 +834,7 @@ test('resolver submit loads live data and updates source label', async () => {
 
 
 test('Bendr public profile does not require marketplace listing data', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/');
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.equal(root.querySelector('.marketplace-listing'), null);
@@ -896,7 +888,7 @@ test('live resolver renders trust profile compatibility context without executab
 });
 
 test('marketplace listing renderer does not link unsafe URLs', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/');
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   const data = {
     ...sampleData(),
     marketplaceListing: {
@@ -922,7 +914,7 @@ test('marketplace listing renderer does not link unsafe URLs', async () => {
   assert.match(listing.textContent, /Unsafe link/);
 });
 
-test('public profile button restores Bendr public profile after live resolve', async () => {
+test('public profile button restores Multipass home after live resolve from homepage', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver' };
   await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
@@ -933,8 +925,8 @@ test('public profile button restores Bendr public profile after live resolve', a
   await Promise.resolve();
   root.querySelector('[data-action="reset-static-demo"]').click();
 
-  assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /Bendr public profile/);
+  assert.match(root.textContent, /Portable identity profiles for agents/);
+  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
   assert.doesNotMatch(root.textContent, /Live Bendr/);
 });
 
@@ -955,7 +947,7 @@ test('Bendr public profile reset invalidates an in-flight live resolver response
   await Promise.resolve();
 
   assert.doesNotMatch(root.textContent, /Late Live Bendr/);
-  assert.match(root.textContent, /Bendr public profile/);
+  assert.match(root.textContent, /Portable identity profiles for agents/);
 });
 
 test('resolver invalid input shows validation error and keeps static data available', async () => {

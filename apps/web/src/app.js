@@ -13,6 +13,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
 
   let state = {
+    pageKind: getInitialPageKind(),
     expandedCard: null,
     selectedAgentCard: 0,
     resolverInput: '',
@@ -58,6 +59,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const trimmed = String(input ?? '').trim();
     state = {
       ...state,
+      pageKind: 'profile',
       resolverInput: input,
       resolverStatus: 'loading',
       resolverError: null,
@@ -82,6 +84,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       if (requestId !== state.resolverRequestId) return;
       state = {
         ...state,
+        pageKind: 'profile',
         data: liveData,
         resolverStatus: 'loaded',
         resolverError: null,
@@ -125,6 +128,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   function resetStaticDemo() {
     state = {
       ...state,
+      pageKind: getInitialPageKind(),
       data: state.staticData,
       selectedAgentCard: 0,
       expandedCard: null,
@@ -383,6 +387,14 @@ function getInitialResolverInput() {
   return locationUrl.searchParams.get('agent') ?? '';
 }
 
+function getInitialPageKind() {
+  if (typeof window === 'undefined') return 'profile';
+  const locationUrl = new URL(window.location.href);
+  if (getSavedSlugFromLocation(locationUrl)) return 'profile';
+  if (locationUrl.searchParams.has('agent')) return 'profile';
+  return locationUrl.pathname === '/multipass' || locationUrl.pathname === '/multipass/' ? 'product_home' : 'profile';
+}
+
 function defaultLoadDemo({ fetchImpl } = {}) {
   const locationUrl = new URL(window.location.href);
   const apiBase = getApiBaseFromLocation(locationUrl);
@@ -524,6 +536,10 @@ function clearShareUrl() {
 
 function render(root, state, handlers = {}) {
   const { data } = state;
+  if (state.pageKind === 'product_home') {
+    renderProductHome(root, state, handlers);
+    return;
+  }
   const heroCopy = createHeroCopy(data);
   const storyCards = createStoryCards(data);
   const claritySections = createClaritySections(data);
@@ -624,6 +640,77 @@ function render(root, state, handlers = {}) {
   });
 }
 
+function renderProductHome(root, state, handlers = {}) {
+  const data = state.data;
+  const proofCount = countPublicProofSignals(data);
+  root.innerHTML = `
+    <div class="record-shell product-home-shell">
+      <header class="record-header">
+        <div class="brand"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"><span>Multipass</span></div>
+        <div class="header-meta"><span>Agent identity layer</span></div>
+      </header>
+
+      <section class="product-hero">
+        <div class="product-hero-copy">
+          <p class="eyebrow">Helixa Multipass</p>
+          <h1>Portable identity profiles for agents.</h1>
+          <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history. Bendr is one profile, not the homepage.</p>
+          <div class="homepage-actions">
+            <a href="/multipass/bendr-2-1" class="homepage-action primary">View Bendr profile</a>
+            <a href="#live-resolver" class="homepage-action">Activate an agent</a>
+          </div>
+        </div>
+        <aside class="homepage-proof-panel" aria-label="Multipass product summary">
+          <p class="card-label">What it does</p>
+          <h2>One readable profile for identity, proof, custody context, and endpoints.</h2>
+          <div class="homepage-proof-grid">
+            ${renderHeroStat('Example profile', 'Bendr 2.0')}
+            ${renderHeroStat('Public proof signals', proofCount)}
+            ${renderHeroStat('Manager edits', 'Claim-gated')}
+            ${renderHeroStat('Private data', 'Not exposed')}
+          </div>
+        </aside>
+      </section>
+
+      <section class="product-card-grid" aria-label="Multipass overview">
+        <article class="clarity-card"><h3>Separate product from profile</h3><p>The homepage explains Multipass. Agent pages show individual identity profiles like Bendr.</p></article>
+        <article class="clarity-card"><h3>Public proof fragments</h3><p>Wallets, socials, endpoints, standards, and attestations become readable public proof without exposing private credentials.</p></article>
+        <article class="clarity-card"><h3>Claim-gated management</h3><p>Owners or approved managers can update public profile copy and owner-submitted proof. Imported proof stays read-only.</p></article>
+      </section>
+
+      ${renderLiveResolver(state, { showResetButton: false })}
+
+      <section class="share-panel" aria-label="Example Multipass profile">
+        <div>
+          <p class="card-label">Example profile</p>
+          <h2>Bendr 2.0 Multipass</h2>
+          <p>See how an agent profile presents identity, public proof, ownership context, and manager tools.</p>
+        </div>
+        <a class="homepage-action primary" href="/multipass/bendr-2-1">Open Bendr profile</a>
+      </section>
+    </div>
+  `;
+
+  bindProductHomeEvents(root, handlers, state);
+}
+
+function bindProductHomeEvents(root, handlers, state) {
+  root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const input = form.querySelector('input[name="agent"]')?.value ?? '';
+    if (isRetryBlocked(state)) return;
+    if (state.resolverStatus === 'loading' && input.trim() === state.resolverInFlightInput) return;
+    handlers.resolveLiveAgent?.(input);
+  });
+  root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
+  });
+  root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
+  });
+}
+
 function renderHomepageHero(heroCopy, data, agentCarousel) {
   const profileCount = agentCarousel.cards.length;
   const proofCount = countPublicProofSignals(data);
@@ -691,7 +778,8 @@ function renderSharePanel(data, heroCopy) {
   `;
 }
 
-function renderLiveResolver(state) {
+function renderLiveResolver(state, options = {}) {
+  const showResetButton = options.showResetButton !== false;
   return `
     <section id="live-resolver" class="live-resolver" aria-label="Activate a live agent record">
       <form data-action="resolve-live-agent">
@@ -705,7 +793,7 @@ function renderLiveResolver(state) {
           <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
         </label>
         <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
-        <button type="button" data-action="reset-static-demo">View Bendr public profile</button>
+        ${showResetButton ? '<button type="button" data-action="reset-static-demo">Back to Multipass home</button>' : ''}
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}

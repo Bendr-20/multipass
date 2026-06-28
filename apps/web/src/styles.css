@@ -95,7 +95,8 @@ button:focus-visible {
   align-items: start;
 }
 
-.homepage-hero {
+.homepage-hero,
+.product-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.72fr);
   gap: 34px;
@@ -103,7 +104,19 @@ button:focus-visible {
   margin-bottom: 28px;
 }
 
-.homepage-hero-copy {
+.product-home-shell .live-resolver {
+  margin-top: 28px;
+}
+
+.product-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.homepage-hero-copy,
+.product-hero-copy {
   min-height: 560px;
   border: 1px solid var(--ink);
   background:
@@ -1410,6 +1423,8 @@ h1 {
   .record-header,
   .hero-record,
   .homepage-hero,
+  .product-hero,
+  .product-card-grid,
   .share-panel,
   .story-records,
   .ledger-row,
