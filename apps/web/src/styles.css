@@ -1937,6 +1937,8 @@ h1 {
 @media (max-width: 700px) {
   .record-shell {
     width: min(100% - 24px, 1180px);
+    max-width: calc(100vw - 24px);
+    overflow-x: clip;
     padding-top: 20px;
   }
 
@@ -1950,7 +1952,10 @@ h1 {
   }
 
   .product-hero-copy {
+    min-width: 0;
+    max-width: 100%;
     min-height: 0;
+    overflow: hidden;
     padding: 18px;
   }
 
@@ -1982,7 +1987,7 @@ h1 {
   }
 
   .homepage-proof-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .homepage-proof-stat {
@@ -2001,6 +2006,9 @@ h1 {
   }
 
   .profile-visual-strip {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     margin-top: 12px;
   }
 
@@ -2203,12 +2211,28 @@ h1 {
   }
 
   .card-carousel {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     margin-top: 22px;
-    padding: 18px;
+    padding: 12px;
   }
 
   .card-track {
-    grid-auto-columns: minmax(280px, 88vw);
+    width: 100%;
+    max-width: 100%;
+    grid-auto-columns: minmax(0, min(240px, 72vw));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .profile-card.card-button {
+    min-height: 0;
+    grid-template-rows: 122px 1fr;
+  }
+
+  .profile-card-visual {
+    min-height: 122px;
   }
 
   .card-detail,
