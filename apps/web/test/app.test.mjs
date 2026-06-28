@@ -297,16 +297,20 @@ test('homepage leads with Multipass product hero instead of Bendr record sheet',
   assert.equal(root.querySelector('.record-sheet'), null);
 });
 
-test('homepage renders product cards and keeps Bendr as an example link', async () => {
+test('homepage renders agent visuals without extra context copy', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const cards = [...root.querySelectorAll('.product-card-grid .clarity-card')];
-  assert.equal(cards.length, 3);
-  assert.match(root.textContent, /Separate product from profile/);
-  assert.match(root.textContent, /Public proof fragments/);
-  assert.match(root.textContent, /Claim-gated management/);
-  assert.equal(root.querySelector('a[href="/multipass/bendr-2-1"]')?.textContent, 'View Bendr profile');
+  assert.equal(root.querySelector('.product-card-grid'), null);
+  assert.equal(root.querySelector('.share-panel'), null);
+  assert.equal(root.querySelector('a[href="#agent-visuals"]')?.textContent, 'View agents');
+  const strip = root.querySelector('.profile-visual-strip');
+  assert.ok(strip);
+  assert.equal(strip.querySelector('.card-carousel-head'), null);
+  assert.equal(strip.querySelector('.card-detail'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 4);
+  assert.match(strip.textContent, /Bendr 2\.0/);
+  assert.match(strip.textContent, /Quigbot/);
 });
 
 test('initial render shows loading state then product-led Multipass record', async () => {
@@ -393,22 +397,19 @@ test('resolver bar renders without changing default static data', async () => {
   assert.doesNotMatch(resolver.textContent, /Resolve live Helixa agent/);
   assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
+  assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
 });
 
-test('static homepage renders display-only example profile panel', async () => {
+test('static homepage keeps agent visuals display-only', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const panel = root.querySelector('.share-panel');
-  assert.ok(panel);
-  assert.match(panel.textContent, /Example profile/);
-  assert.match(panel.textContent, /Bendr 2\.0 Multipass/);
-  assert.match(panel.textContent, /Open Bendr profile/);
-  assert.equal(panel.querySelector('input'), null);
-  assert.equal(panel.querySelector('a[href="/multipass/bendr-2-1"]')?.textContent, 'Open Bendr profile');
-  assert.doesNotMatch(panel.textContent, /claim|approve|transfer|payment|wallet/i);
+  const strip = root.querySelector('.profile-visual-strip');
+  assert.ok(strip);
+  assert.equal(strip.querySelector('input'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 4);
+  assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 
 test('static initial state presents Multipass product home instead of Bendr profile', async () => {
@@ -417,8 +418,8 @@ test('static initial state presents Multipass product home instead of Bendr prof
 
   assert.ok(root.querySelector('.product-home-shell'));
   assert.match(root.querySelector('.product-hero')?.textContent ?? '', /Portable identity profiles for agents/);
-  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
-  assert.match(root.textContent, /View Bendr profile/);
+  assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
+  assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.activation-summary'), null);
   assert.equal(root.querySelector('.proof-ledger'), null);
   assert.doesNotMatch(root.textContent, /Bendr 2\.0 Public Profile/);
@@ -782,7 +783,7 @@ test('static /multipass/ page loads product home without calling API', async () 
   assert.deepEqual(calls, []);
   assert.ok(root.querySelector('.product-home-shell'));
   assert.match(root.textContent, /Portable identity profiles for agents/);
-  assert.match(root.textContent, /View Bendr profile/);
+  assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.fragment-card'), null);
   assert.equal(root.querySelector('.proof-ledger'), null);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
@@ -926,7 +927,7 @@ test('public profile button restores Multipass home after live resolve from home
   root.querySelector('[data-action="reset-static-demo"]').click();
 
   assert.match(root.textContent, /Portable identity profiles for agents/);
-  assert.match(root.textContent, /Bendr is one profile, not the homepage/);
+  assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.doesNotMatch(root.textContent, /Live Bendr/);
 });
 

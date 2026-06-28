@@ -108,6 +108,14 @@ button:focus-visible {
   margin-top: 28px;
 }
 
+.profile-visual-strip {
+  margin-top: 22px;
+}
+
+.profile-visual-strip .card-track {
+  margin-top: 0;
+}
+
 .product-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

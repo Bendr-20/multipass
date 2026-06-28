@@ -643,6 +643,7 @@ function render(root, state, handlers = {}) {
 function renderProductHome(root, state, handlers = {}) {
   const data = state.data;
   const proofCount = countPublicProofSignals(data);
+  const agentCarousel = createAgentCarousel(data);
   root.innerHTML = `
     <div class="record-shell product-home-shell">
       <header class="record-header">
@@ -654,9 +655,9 @@ function renderProductHome(root, state, handlers = {}) {
         <div class="product-hero-copy">
           <p class="eyebrow">Helixa Multipass</p>
           <h1>Portable identity profiles for agents.</h1>
-          <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history. Bendr is one profile, not the homepage.</p>
+          <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history.</p>
           <div class="homepage-actions">
-            <a href="/multipass/bendr-2-1" class="homepage-action primary">View Bendr profile</a>
+            <a href="#agent-visuals" class="homepage-action primary">View agents</a>
             <a href="#live-resolver" class="homepage-action">Activate an agent</a>
           </div>
         </div>
@@ -672,26 +673,23 @@ function renderProductHome(root, state, handlers = {}) {
         </aside>
       </section>
 
-      <section class="product-card-grid" aria-label="Multipass overview">
-        <article class="clarity-card"><h3>Separate product from profile</h3><p>The homepage explains Multipass. Agent pages show individual identity profiles like Bendr.</p></article>
-        <article class="clarity-card"><h3>Public proof fragments</h3><p>Wallets, socials, endpoints, standards, and attestations become readable public proof without exposing private credentials.</p></article>
-        <article class="clarity-card"><h3>Claim-gated management</h3><p>Owners or approved managers can update public profile copy and owner-submitted proof. Imported proof stays read-only.</p></article>
-      </section>
-
       ${renderLiveResolver(state, { showResetButton: false })}
 
-      <section class="share-panel" aria-label="Example Multipass profile">
-        <div>
-          <p class="card-label">Example profile</p>
-          <h2>Bendr 2.0 Multipass</h2>
-          <p>See how an agent profile presents identity, public proof, ownership context, and manager tools.</p>
-        </div>
-        <a class="homepage-action primary" href="/multipass/bendr-2-1">Open Bendr profile</a>
-      </section>
+      ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
     </div>
   `;
 
   bindProductHomeEvents(root, handlers, state);
+}
+
+function renderAgentVisualStrip(carousel, selectedIndex) {
+  return `
+    <section id="agent-visuals" class="profile-gallery card-carousel profile-visual-strip" aria-label="Agent examples">
+      <div class="card-track" role="tablist" aria-label="Agent examples">
+        ${carousel.cards.map((card, index) => renderAgentCardButton(card, index, selectedIndex)).join('')}
+      </div>
+    </section>
+  `;
 }
 
 function bindProductHomeEvents(root, handlers, state) {
@@ -705,6 +703,13 @@ function bindProductHomeEvents(root, handlers, state) {
   });
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
+  });
+  root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedAgentCard = Number(button.dataset.index);
+      renderProductHome(root, state, handlers);
+      root.querySelector(`[data-action="select-agent-card"][data-index="${state.selectedAgentCard}"]`)?.focus();
+    });
   });
   root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
