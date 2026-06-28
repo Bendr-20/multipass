@@ -403,7 +403,7 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       const bundle = readBundleById(db, profile.multipass_id);
       if (!bundle) throw new Error('Saved record bundle not found.');
       const fragment = normalizeManagerFragmentInput(input, { multipassId: profile.multipass_id, now, randomHex });
-      const fragments = [...bundle.fragments, fragment];
+      const fragments = [fragment, ...bundle.fragments];
       writeFragmentMutation(db, bundle, fragments, {
         now,
         message: `Public fragment added: ${fragment.fragment_type}.`,

@@ -407,6 +407,25 @@ async function patchJsonWithHeaders(api, path, body, headers = {}) {
   return { response, body: await response.json() };
 }
 
+async function createOwnerSession(api) {
+  const nonce = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/nonce', {}, { origin: 'https://multipass.example.test' });
+  const verified = await postJsonWithHeaders(api, '/api/multipass/mp_helixa_agent_1/claim/verify', {
+    mode: 'wallet_signature',
+    wallet: OWNER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${OWNER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  return {
+    cookie: verified.response.headers.get('set-cookie'),
+    csrfToken: verified.body.csrfToken,
+    headers: {
+      origin: 'https://multipass.example.test',
+      cookie: verified.response.headers.get('set-cookie'),
+      'x-csrf-token': verified.body.csrfToken,
+    },
+  };
+}
+
 test('claim nonce route returns a scoped signing message for saved records', async () => {
   const api = makeClaimApi();
 
@@ -485,6 +504,113 @@ test('owner wallet claim verifies signature and creates CSRF protected manager s
   }, { origin: 'https://multipass.example.test', cookie, 'x-csrf-token': verified.body.csrfToken });
   assert.equal(afterLogout.response.status, 403);
   assert.equal(afterLogout.body.error.code, 'forbidden');
+});
+
+test('manager session can create update and revoke public fragments through API', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+
+  const created = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'endpoint',
+    public_value: 'Public profile JSON endpoint.',
+    reference_url: 'https://helixa.xyz/multipass/bendr-2-1',
+    endpoint_ref: {
+      endpoint_id: 'profile-json',
+      url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1',
+      protocol: 'api',
+    },
+  }, headers);
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.fragment.fragment_type, 'endpoint');
+  assert.equal(created.body.fragment.endpoint_ref.protocol, 'api');
+  assert.equal(created.body.profile.public_fragments[0].fragment_id, created.body.fragment.fragment_id);
+
+  const publicRead = await requestJson(api, '/api/multipass/bendr-2-1/fragments');
+  assert.ok(publicRead.body.fragments.some((fragment) => fragment.fragment_id === created.body.fragment.fragment_id));
+
+  const updated = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${created.body.fragment.fragment_id}`, {
+    public_value: 'Updated public profile JSON endpoint.',
+    status: 'stale',
+  }, headers);
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.body.fragment.status, 'stale');
+  assert.equal(updated.body.profile.public_fragments.find((fragment) => fragment.fragment_id === created.body.fragment.fragment_id).status, 'stale');
+
+  const revoked = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${created.body.fragment.fragment_id}/revoke`, {}, headers);
+  assert.equal(revoked.response.status, 200);
+  assert.equal(revoked.body.fragment.status, 'revoked');
+
+  const changes = await requestJson(api, '/api/multipass/bendr-2-1/changes');
+  assert.match(changes.body.entries.at(-1).message, /Public fragment revoked/);
+});
+
+test('fragment write routes enforce manager session csrf origin blocked inputs and imported read-only fragments', async () => {
+  const api = makeClaimApi();
+  const { headers, cookie, csrfToken } = await createOwnerSession(api);
+
+  const missingSession = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'wallet',
+    public_value: OWNER_WALLET,
+  }, { origin: 'https://multipass.example.test', 'x-csrf-token': csrfToken });
+  assert.equal(missingSession.response.status, 401);
+
+  const badCsrf = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'wallet',
+    public_value: OWNER_WALLET,
+  }, { origin: 'https://multipass.example.test', cookie, 'x-csrf-token': 'bad' });
+  assert.equal(badCsrf.response.status, 403);
+
+  const badOrigin = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'wallet',
+    public_value: OWNER_WALLET,
+  }, { origin: 'https://evil.example.test', cookie, 'x-csrf-token': csrfToken });
+  assert.equal(badOrigin.response.status, 403);
+
+  const blockedType = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'risk_summary',
+    public_value: 'Cred 999',
+  }, headers);
+  assert.equal(blockedType.response.status, 400);
+  assert.equal(blockedType.body.error.code, 'invalid_request');
+
+  const unsafeUrl = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', {
+    fragment_type: 'endpoint',
+    public_value: 'HTTP endpoint',
+    endpoint_ref: { endpoint_id: 'bad', url: 'http://example.test', protocol: 'api' },
+  }, headers);
+  assert.equal(unsafeUrl.response.status, 400);
+
+  const publicRead = await requestJson(api, '/api/multipass/bendr-2-1/fragments');
+  const importedFragment = publicRead.body.fragments.find((fragment) => fragment.source?.source_type !== 'owner_submission' || fragment.source?.issuer !== null);
+  assert.ok(importedFragment);
+  const readOnly = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${importedFragment.fragment_id}`, {
+    public_value: 'Manager edited imported fragment.',
+  }, headers);
+  assert.equal(readOnly.response.status, 403);
+
+  const readOnlyRevoke = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${importedFragment.fragment_id}/revoke`, {}, headers);
+  assert.equal(readOnlyRevoke.response.status, 403);
+
+  const missing = await patchJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments/frag_missing', {
+    public_value: 'Missing.',
+  }, headers);
+  assert.equal(missing.response.status, 404);
+
+  const noStoreApi = makeApi();
+  const noStoreCreate = await postJsonWithHeaders(noStoreApi, '/api/multipass/bendr-2/fragments', {
+    fragment_type: 'wallet',
+    public_value: OWNER_WALLET,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(noStoreCreate.response.status, 503);
+  assert.equal(noStoreCreate.body.error.code, 'not_configured');
+
+  const noStorePatch = await patchJsonWithHeaders(noStoreApi, '/api/multipass/bendr-2/fragments/frag_public_wallet', {
+    public_value: OWNER_WALLET,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(noStorePatch.response.status, 503);
+
+  const noStoreRevoke = await postJsonWithHeaders(noStoreApi, '/api/multipass/bendr-2/fragments/frag_public_wallet/revoke', {}, { origin: 'https://multipass.example.test' });
+  assert.equal(noStoreRevoke.response.status, 503);
 });
 
 test('wallet claim rejects signatures from wallets that are not source owner or approved manager', async () => {

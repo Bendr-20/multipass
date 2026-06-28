@@ -194,6 +194,14 @@ async function handlePostRequest(request, parts, context) {
     return handleClaimVerify(request, parts[2], context);
   }
 
+  if (parts[2] && parts[3] === 'fragments' && parts.length === 4) {
+    return handleCreateFragment(request, parts[2], context);
+  }
+
+  if (parts[2] && parts[3] === 'fragments' && parts[4] && parts[5] === 'revoke' && parts.length === 6) {
+    return handleRevokeFragment(request, parts[2], parts[4], context);
+  }
+
   if (parts[2] && parts[3] === 'session' && parts[4] === 'logout' && parts.length === 5) {
     return handleSessionLogout(request, parts[2], context);
   }
@@ -235,10 +243,16 @@ async function handleAdminPost(request, parts, context) {
 }
 
 async function handlePatchRequest(request, parts, context) {
-  if (parts[0] !== 'api' || parts[1] !== 'multipass' || !parts[2] || parts[3] !== 'profile' || parts.length !== 4) {
+  if (parts[0] !== 'api' || parts[1] !== 'multipass' || !parts[2]) {
     return errorResponse(404, 'not_found', 'Route not found.');
   }
-  return handlePatchProfile(request, parts[2], context);
+  if (parts[3] === 'profile' && parts.length === 4) {
+    return handlePatchProfile(request, parts[2], context);
+  }
+  if (parts[3] === 'fragments' && parts[4] && parts.length === 5) {
+    return handlePatchFragment(request, parts[2], parts[4], context);
+  }
+  return errorResponse(404, 'not_found', 'Route not found.');
 }
 
 async function handleActivatePreview(request, activationService) {
@@ -358,22 +372,7 @@ async function handlePatchProfile(request, identifier, context) {
   if (!context.savedRecords) {
     return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
   }
-  assertTrustedOrigin(request, context);
-  const profile = resolveSavedProfile(context.savedRecords, identifier);
-  const sessionId = parseCookies(request.headers.get('cookie')).get(context.cookieName);
-  if (!sessionId) throw new ApiUnauthorizedError('Manager session cookie is required.');
-
-  let session;
-  try {
-    session = context.savedRecords.validateManagerSession({
-      sessionId,
-      multipassId: profile.multipass_id,
-      csrfToken: request.headers.get('x-csrf-token') ?? '',
-    });
-  } catch (error) {
-    throw new ApiForbiddenError(error.message);
-  }
-
+  const { profile, session } = requireManagerSession(request, identifier, context);
   const body = await readJsonBody(request);
   const updated = context.savedRecords.updatePublicProfile(profile.multipass_id, body, {
     actorWallet: session.manager_wallet,
@@ -383,6 +382,71 @@ async function handlePatchProfile(request, identifier, context) {
     changedFields: updated.changedFields,
     profile: updated.profile,
   });
+}
+
+async function handleCreateFragment(request, identifier, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+  }
+  const { profile, session } = requireManagerSession(request, identifier, context);
+  const body = await readJsonBody(request);
+  try {
+    const created = context.savedRecords.createPublicFragment(profile.multipass_id, body, { actorWallet: session.manager_wallet });
+    return jsonResponse({ schema_version: '0.1.0', ...created }, 201);
+  } catch (error) {
+    throw mapFragmentMutationError(error);
+  }
+}
+
+async function handlePatchFragment(request, identifier, fragmentId, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+  }
+  const { profile, session } = requireManagerSession(request, identifier, context);
+  const body = await readJsonBody(request);
+  try {
+    const updated = context.savedRecords.updatePublicFragment(profile.multipass_id, fragmentId, body, { actorWallet: session.manager_wallet });
+    return jsonResponse({ schema_version: '0.1.0', ...updated });
+  } catch (error) {
+    throw mapFragmentMutationError(error);
+  }
+}
+
+function handleRevokeFragment(request, identifier, fragmentId, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+  }
+  const { profile, session } = requireManagerSession(request, identifier, context);
+  try {
+    const revoked = context.savedRecords.revokePublicFragment(profile.multipass_id, fragmentId, { actorWallet: session.manager_wallet });
+    return jsonResponse({ schema_version: '0.1.0', ...revoked });
+  } catch (error) {
+    throw mapFragmentMutationError(error);
+  }
+}
+
+function requireManagerSession(request, identifier, context) {
+  assertTrustedOrigin(request, context);
+  const profile = resolveSavedProfile(context.savedRecords, identifier);
+  const sessionId = parseCookies(request.headers.get('cookie')).get(context.cookieName);
+  if (!sessionId) throw new ApiUnauthorizedError('Manager session cookie is required.');
+  try {
+    const session = context.savedRecords.validateManagerSession({
+      sessionId,
+      multipassId: profile.multipass_id,
+      csrfToken: request.headers.get('x-csrf-token') ?? '',
+    });
+    return { profile, session };
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
+}
+
+function mapFragmentMutationError(error) {
+  const message = error.message ?? 'Fragment mutation failed.';
+  if (/not found/i.test(message)) return new ApiNotFoundError(message);
+  if (/read-only|not editable|imported/i.test(message)) return new ApiForbiddenError(message);
+  return new ApiInputError('invalid_request', message);
 }
 
 function handleSessionLogout(request, identifier, context) {
