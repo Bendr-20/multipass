@@ -27,8 +27,10 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(mobileBlock, /\.record-shell\s*\{[^}]*max-width:\s*calc\(100vw - 24px\);[^}]*overflow-x:\s*clip;/s);
   assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2rem, 8\.8vw, 2\.7rem\);/s);
   assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;[^}]*margin-top:\s*12px;/s);
-  assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-track\s*\{[^}]*grid-auto-columns:\s*minmax\(0, min\(260px, 78vw\)\);[^}]*scroll-snap-type:\s*x proximity;/s);
-  assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*132px auto;/s);
+  assert.match(css, /\.visual-card-viewport\s*\{[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.visual-card-track\s*\{[^}]*display:\s*flex;[^}]*transform:\s*translateX\(calc\(var\(--active-index, 0\) \* -100%\)\);[^}]*transition:\s*transform 320ms ease;/s);
+  assert.match(css, /\.visual-card-button\s*\{[^}]*flex:\s*0 0 100%;/s);
+  assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*156px auto;/s);
   assert.match(mobileBlock, /\.product-hero-copy\s*\{[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-carousel\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-track\s*\{[^}]*width:\s*100%;[^}]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x proximity;/s);

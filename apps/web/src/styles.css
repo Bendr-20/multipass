@@ -112,22 +112,25 @@ button:focus-visible {
   margin-top: 18px;
 }
 
+.visual-card-viewport {
+  max-width: 100%;
+  overflow: hidden;
+}
+
 .visual-card-track {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 0.5fr);
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scroll-snap-type: x proximity;
+  display: flex;
+  width: 100%;
+  transform: translateX(calc(var(--active-index, 0) * -100%));
+  transition: transform 320ms ease;
 }
 
 .visual-card-button {
   display: grid;
+  flex: 0 0 100%;
   grid-template-rows: 150px auto;
   gap: 8px;
+  min-width: 0;
   min-height: 0;
-  scroll-snap-align: start;
   border: 1px solid var(--line);
   background: var(--paper);
   color: var(--ink);
@@ -151,6 +154,44 @@ button:focus-visible {
 .visual-card-button.selected {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.visual-carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.visual-carousel-controls > button {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.visual-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.visual-carousel-dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+}
+
+.visual-carousel-dot.selected {
+  background: var(--ink);
 }
 
 .product-card-grid {
@@ -2014,22 +2055,19 @@ h1 {
 
   .profile-visual-strip .visual-card-track {
     width: 100%;
-    max-width: 100%;
-    grid-auto-columns: minmax(0, min(260px, 78vw));
-    gap: 10px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scroll-padding-inline: 2px;
-    scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
   }
 
   .profile-visual-strip .visual-card-button {
-    grid-template-rows: 132px auto;
+    grid-template-rows: 156px auto;
   }
 
   .profile-visual-strip .visual-card-button .profile-card-visual {
-    min-height: 132px;
+    min-height: 156px;
+  }
+
+  .visual-carousel-controls > button {
+    padding: 7px 9px;
+    font-size: 10px;
   }
 
   .prototype-ribbon,
