@@ -51,7 +51,9 @@ test('renderFragmentManagerPanel exposes public-only safety copy editable fields
 
   const panel = root.querySelector('.fragment-manager-panel');
   assert.ok(panel);
-  assert.match(panel.textContent, /Public fragments only/i);
+  assert.match(panel.textContent, /Publish public proof/i);
+  assert.match(panel.textContent, /Safe public edits/i);
+  assert.match(panel.textContent, /Private data stays private/i);
   assert.match(panel.textContent, /Does not edit Cred score/i);
   assert.match(panel.textContent, /Fragment update failed/);
 

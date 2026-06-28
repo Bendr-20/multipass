@@ -4,11 +4,20 @@ export function renderFragmentManagerPanel(state = {}) {
     <section class="fragment-manager-panel" aria-label="Fragment manager">
       <div class="fragment-manager-copy">
         <p class="card-label">Fragment manager</p>
-        <h3>Manage public fragments.</h3>
-        <p>Public fragments only. Does not edit Cred score, grant tools, transfer custody, expose credentials, or change live authority.</p>
+        <h3>Publish public proof.</h3>
+        <p>Safe public edits for wallet, social, endpoint, standard, and attestation fragments. Does not edit Cred score, grant tools, transfer custody, expose credentials, or change live authority.</p>
+        <div class="fragment-safety-strip" aria-label="Fragment manager boundaries">
+          <span>Safe public edits</span>
+          <span>Private data stays private</span>
+          <span>Imported proof stays read-only</span>
+        </div>
         ${state.fragmentError ? `<p class="resolver-message error">${escapeHtml(state.fragmentError)}</p>` : ''}
       </div>
       ${renderCreateFragmentForm(state)}
+      <div class="managed-fragment-toolbar">
+        <strong>${fragments.length} public fragment${fragments.length === 1 ? '' : 's'}</strong>
+        <span>Owner-submitted rows can be edited. Imported rows are preserved as evidence.</span>
+      </div>
       <div class="managed-fragment-list">
         ${fragments.length ? fragments.map((fragment) => renderManagedFragment(fragment, state)).join('') : '<p class="resolver-message">No public fragments saved yet.</p>'}
       </div>
@@ -82,17 +91,21 @@ function addEndpointRefFromFormData(target, formData) {
 function renderCreateFragmentForm(state) {
   return `
     <form class="fragment-create-form" data-action="create-public-fragment">
-      <label><span>Fragment type</span>${renderFragmentTypeSelect()}</label>
-      <label><span>Public value</span><input name="public_value" /></label>
-      <label><span>Reference URL</span><input name="reference_url" /></label>
-      <label><span>Proof reference</span><input name="proof_reference" /></label>
-      <label><span>Transfer policy</span>${renderTransferPolicySelect()}</label>
+      <div class="fragment-form-heading">
+        <strong>Add public proof</strong>
+        <span>Use this for things people should be able to verify from the public profile.</span>
+      </div>
+      <label><span>Type</span>${renderFragmentTypeSelect()}</label>
+      <label><span>Public value</span><input name="public_value" placeholder="Public wallet, handle, endpoint, or attestation summary" /></label>
+      <label><span>Reference URL</span><input name="reference_url" placeholder="https://..." /></label>
+      <label><span>Proof note</span><input name="proof_reference" placeholder="Optional context for the manager/audit trail" /></label>
+      <label><span>Transfer behavior</span>${renderTransferPolicySelect()}</label>
       <div class="endpoint-fields" data-endpoint-fields hidden>
         <label><span>Endpoint ID</span><input name="endpoint_id" /></label>
         <label><span>Endpoint URL</span><input name="endpoint_url" /></label>
         <label><span>Endpoint protocol</span>${renderEndpointProtocolSelect()}</label>
       </div>
-      <button type="submit" ${state.fragmentStatus === 'creating_fragment' ? 'disabled' : ''}>${state.fragmentStatus === 'creating_fragment' ? 'Adding...' : 'Add public fragment'}</button>
+      <button type="submit" ${state.fragmentStatus === 'creating_fragment' ? 'disabled' : ''}>${state.fragmentStatus === 'creating_fragment' ? 'Adding...' : 'Publish fragment'}</button>
     </form>
   `;
 }
@@ -101,9 +114,9 @@ function renderManagedFragment(fragment, state) {
   const editable = fragment.source?.source_type === 'owner_submission' && fragment.source?.issuer === null;
   return `
     <article class="managed-fragment-card ${editable ? 'editable' : 'readonly'}">
-      <div>
-        <strong>${escapeHtml(fragment.fragment_type)}</strong>
-        <span>${escapeHtml(fragment.status)} · ${escapeHtml(fragment.assurance_level)} · ${escapeHtml(fragment.transfer_policy)}</span>
+      <div class="managed-fragment-summary">
+        <div class="managed-fragment-title"><strong>${escapeHtml(formatFragmentType(fragment.fragment_type))}</strong><span>${editable ? 'Editable' : 'Read-only'}</span></div>
+        <span>${escapeHtml(fragment.status)} · ${escapeHtml(fragment.assurance_level)} · ${escapeHtml(formatTransferPolicy(fragment.transfer_policy))}</span>
         <p>${escapeHtml(fragment.public_value ?? 'No public value')}</p>
       </div>
       ${editable ? renderManagedFragmentEditForm(fragment, state) : '<p class="resolver-message">Imported fragment. Read-only here.</p>'}
@@ -116,12 +129,14 @@ function renderManagedFragmentEditForm(fragment, state) {
     <form class="fragment-edit-form" data-action="update-public-fragment" data-fragment-id="${escapeAttribute(fragment.fragment_id)}">
       <label><span>Public value</span><input name="public_value" value="${escapeAttribute(fragment.public_value ?? '')}" /></label>
       <label><span>Reference URL</span><input name="reference_url" value="${escapeAttribute(fragment.reference_url ?? fragment.source?.reference_url ?? '')}" /></label>
-      <label><span>Proof reference</span><input name="proof_reference" value="${escapeAttribute(fragment.proof_reference ?? '')}" /></label>
+      <label><span>Proof note</span><input name="proof_reference" value="${escapeAttribute(fragment.proof_reference ?? '')}" /></label>
       <label><span>Status</span>${renderStatusSelect(fragment.status)}</label>
       <label><span>Transfer policy</span>${renderTransferPolicySelect(fragment.transfer_policy)}</label>
       ${fragment.fragment_type === 'endpoint' ? renderEndpointEditFields(fragment) : ''}
-      <button type="submit" ${state.fragmentStatus === 'updating_fragment' ? 'disabled' : ''}>Save fragment</button>
-      <button type="button" data-action="revoke-public-fragment" data-fragment-id="${escapeAttribute(fragment.fragment_id)}" ${fragment.status === 'revoked' ? 'disabled' : ''}>Revoke</button>
+      <div class="fragment-edit-actions">
+        <button type="submit" ${state.fragmentStatus === 'updating_fragment' ? 'disabled' : ''}>Save changes</button>
+        <button class="secondary-button" type="button" data-action="revoke-public-fragment" data-fragment-id="${escapeAttribute(fragment.fragment_id)}" ${fragment.status === 'revoked' ? 'disabled' : ''}>Revoke proof</button>
+      </div>
     </form>
   `;
 }
@@ -139,6 +154,14 @@ function renderEndpointEditFields(fragment) {
 
 function renderFragmentTypeSelect() {
   return '<select name="fragment_type"><option value="wallet">wallet</option><option value="social">social</option><option value="endpoint">endpoint</option><option value="standard_ref">standard_ref</option><option value="attestation">attestation</option></select>';
+}
+
+function formatFragmentType(type) {
+  return String(type ?? '').replaceAll('_', ' ');
+}
+
+function formatTransferPolicy(policy) {
+  return String(policy ?? 'no transfer behavior set').replaceAll('_', ' ');
 }
 
 function renderStatusSelect(selected = 'pending') {

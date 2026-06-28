@@ -2199,6 +2199,7 @@ h1 {
 }
 
 .fragment-manager-panel,
+.fragment-manager-copy,
 .fragment-create-form,
 .managed-fragment-card,
 .fragment-edit-form,
@@ -2212,20 +2213,59 @@ h1 {
   padding-top: 1rem;
 }
 
+.fragment-safety-strip,
+.managed-fragment-toolbar,
+.managed-fragment-title,
+.fragment-edit-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.fragment-safety-strip span,
+.managed-fragment-title span {
+  border: 1px solid rgba(110, 236, 216, 0.22);
+  border-radius: 999px;
+  background: rgba(110, 236, 216, 0.08);
+  color: var(--muted);
+  padding: 0.32rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.fragment-create-form,
+.managed-fragment-card {
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.fragment-form-heading,
+.managed-fragment-summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.fragment-form-heading span,
+.managed-fragment-toolbar span,
+.managed-fragment-summary span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .managed-fragment-list {
   display: grid;
   gap: 0.75rem;
 }
 
-.managed-fragment-card {
-  padding: 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
 .managed-fragment-card.readonly {
   opacity: 0.78;
+}
+
+.secondary-button {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .profile-edit-actions {
