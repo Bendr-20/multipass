@@ -541,8 +541,6 @@ function render(root, state, handlers = {}) {
     return;
   }
   const heroCopy = createHeroCopy(data);
-  const storyCards = createStoryCards(data);
-  const claritySections = createClaritySections(data);
   const agentCarousel = createAgentCarousel(data);
   const selectedAgent = agentCarousel.cards[state.selectedAgentCard] ?? agentCarousel.cards[0];
   const activationState = getActivationState(data, state);
@@ -574,10 +572,6 @@ function render(root, state, handlers = {}) {
       ${renderAgentAuraProvenanceDrawer(data.visualIdentity?.provenanceDrawer)}
 
       ${renderMarketplaceListing(data.marketplaceListing)}
-
-      <section class="story-records">${storyCards.map(renderStoryCard).join('')}</section>
-
-      <section class="clarity-grid">${claritySections.map(renderClarityCard).join('')}</section>
 
       ${renderFragmentTrustMap(fragmentTrustMap)}
 

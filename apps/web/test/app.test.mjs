@@ -340,11 +340,11 @@ test('initial render shows loading state then product-led Multipass record', asy
   const brandLogo = root.querySelector('.brand-logo');
   assert.equal(brandLogo?.getAttribute('src'), '/multipass/helixa-logo.png');
   assert.equal(brandLogo?.getAttribute('alt'), '');
-  assert.match(root.textContent, /What is Multipass/);
-  assert.match(root.textContent, /What the card shows/);
-  assert.match(root.textContent, /What proof adds/);
-  assert.match(root.textContent, /portable agent trust profile/i);
-  assert.match(root.textContent, /raw protocol details/i);
+  assert.match(root.textContent, /MULTIPASS/);
+  assert.doesNotMatch(root.textContent, /What the card shows/);
+  assert.doesNotMatch(root.textContent, /What proof adds/);
+  assert.doesNotMatch(root.textContent, /Proof below/);
+  assert.doesNotMatch(root.textContent, /Portable by design/);
   assert.match(root.textContent, /MULTIPASS/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
@@ -352,7 +352,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /Bendr 2\.0 Public Profile/);
   assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
   assert.match(root.textContent, /Proof ledger/);
-  assert.match(root.textContent, /Card first/);
+  assert.doesNotMatch(root.textContent, /Card first/);
   assert.match(root.textContent, /Example trust profiles/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /Quigbot/);
@@ -370,8 +370,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.ok(root.querySelector('.record-shell'));
   assert.equal(root.querySelector('.record-sheet'), null);
   assert.ok(root.querySelector('.prototype-ribbon'));
-  assert.ok(root.querySelector('.clarity-grid'));
-  assert.equal(root.querySelectorAll('.clarity-card').length, 3);
+  assert.equal(root.querySelector('.clarity-grid'), null);
+  assert.equal(root.querySelectorAll('.clarity-card').length, 0);
   assert.ok(root.querySelector('.card-carousel'));
   assert.equal(root.querySelectorAll('.card-button').length, 4);
   assert.match(root.querySelector('.card-detail').textContent, /Helixa ID/);
@@ -680,12 +680,16 @@ test('proof section follows selected card', async () => {
   assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Quigbot identity/);
 });
 
-test('landing page leads with product explanation and keeps raw fragment ids out of default view', async () => {
+test('profile page keeps product education cards and raw fragment ids out of default view', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  assert.match(root.textContent, /What is Multipass/i);
-  assert.match(root.textContent, /portable agent trust profile/i);
+  assert.match(root.textContent, /MULTIPASS/i);
+  assert.doesNotMatch(root.textContent, /Card first/i);
+  assert.doesNotMatch(root.textContent, /Proof below/i);
+  assert.doesNotMatch(root.textContent, /Portable by design/i);
+  assert.equal(root.querySelector('.story-records'), null);
+  assert.equal(root.querySelector('.clarity-grid'), null);
   assert.match(root.textContent, /Inspect proof/i);
   assert.equal(root.textContent.includes('frag_bendr_'), false);
 
