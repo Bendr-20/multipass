@@ -306,19 +306,19 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.equal(root.querySelector('a[href="#agent-visuals"]')?.textContent, 'View agents');
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
-  assert.ok(strip.querySelector('.card-carousel-head'));
-  assert.match(strip.querySelector('.card-carousel-head')?.textContent ?? '', /Example trust profiles/);
+  assert.equal(strip.querySelector('.card-carousel-head'), null);
   assert.equal(strip.querySelector('.card-detail'), null);
   assert.equal(strip.querySelector('.visual-card-viewport'), null);
-  assert.equal(strip.querySelector('.visual-card-track'), null);
-  assert.ok(strip.querySelector('.card-track'));
-  assert.equal(strip.querySelector('.card-track')?.hasAttribute('style'), false);
-  assert.equal(strip.querySelectorAll('a.profile-card.visual-profile-link').length, 4);
+  assert.ok(strip.querySelector('.visual-card-track'));
+  assert.equal(strip.querySelector('.visual-card-track')?.hasAttribute('style'), false);
+  assert.equal(strip.querySelector('.card-track'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 0);
+  assert.equal(strip.querySelectorAll('a.visual-card-button').length, 4);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
-  assert.equal(strip.querySelector('a.visual-profile-link[href="/multipass/?agent=1"]')?.textContent.includes('Cred 80'), true);
-  assert.equal(strip.querySelector('a.visual-profile-link[href="/multipass/?agent=81"]')?.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
-  assert.equal(root.querySelector('.product-hero-copy')?.contains(strip), false);
-  assert.ok(root.querySelector('.product-hero')?.nextElementSibling?.contains(strip));
+  assert.equal(strip.querySelector('a.visual-card-button[href="/multipass/?agent=1"]')?.textContent.includes('Open profile'), true);
+  assert.equal(strip.querySelector('a.visual-card-button[href="/multipass/?agent=81"]')?.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
+  assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
+  assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
   assert.match(strip.textContent, /Quigbot/);
 });
@@ -329,21 +329,21 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
 
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
-  const track = strip.querySelector('.card-track');
+  const track = strip.querySelector('.visual-card-track');
   assert.ok(track);
   assert.match(track.getAttribute('aria-label') ?? '', /Swipe through/i);
   assert.equal(track.hasAttribute('style'), false);
   assert.equal(strip.querySelector('button[aria-label="Next agent"]'), null);
   assert.equal(strip.querySelector('button[aria-label="Previous agent"]'), null);
-  assert.equal(strip.querySelector('button.card-button'), null);
-  assert.deepEqual([...strip.querySelectorAll('a.visual-profile-link')].map((link) => link.getAttribute('href')), [
+  assert.equal(strip.querySelector('button.visual-card-button'), null);
+  assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
     '/multipass/?agent=1',
     '/multipass/?agent=81',
     '/multipass/?agent=0',
     '/multipass/',
   ]);
-  assert.equal(strip.querySelector('a.visual-profile-link[href^="https://helixa.xyz/agent/"]'), null);
-  assert.equal(strip.querySelector('a.visual-profile-link[href^="https://helixa.xyz/swarm/"]'), null);
+  assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/agent/"]'), null);
+  assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
 
@@ -456,10 +456,10 @@ test('static homepage keeps agent visuals display-only', async () => {
   assert.ok(strip);
   assert.equal(strip.querySelector('input'), null);
   assert.equal(strip.querySelector('.visual-card-viewport'), null);
-  assert.equal(strip.querySelector('.visual-card-track'), null);
-  assert.ok(strip.querySelector('.card-track'));
-  assert.equal(strip.querySelectorAll('button.card-button').length, 0);
-  assert.equal(strip.querySelectorAll('a.visual-profile-link').length, 4);
+  assert.ok(strip.querySelector('.visual-card-track'));
+  assert.equal(strip.querySelector('.card-track'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 0);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
   assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });

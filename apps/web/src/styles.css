@@ -109,7 +109,7 @@ button:focus-visible {
 }
 
 .profile-visual-strip {
-  margin: 28px 0;
+  margin-top: 18px;
 }
 
 .visual-card-track {
@@ -194,23 +194,6 @@ button:focus-visible {
 .visual-card-button.selected {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 2px var(--ink);
-}
-
-.profile-visual-strip .visual-profile-link {
-  color: var(--ink);
-  text-decoration: none;
-}
-
-.profile-visual-strip .visual-profile-link:hover,
-.profile-visual-strip .visual-profile-link:focus-visible {
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 2px var(--ink);
-  outline: none;
-}
-
-.profile-visual-strip .visual-profile-link .profile-card-visual img {
-  object-fit: contain;
-  background: var(--paper-soft);
 }
 
 
@@ -2075,30 +2058,20 @@ h1 {
     max-width: 100%;
     min-width: 0;
     overflow: hidden;
-    margin-top: 22px;
+    margin-top: 12px;
   }
 
-  .profile-visual-strip .card-carousel-head {
-    margin-bottom: 14px;
-  }
-
-  .profile-visual-strip .card-track {
+  .profile-visual-strip .visual-card-track {
     width: 100%;
-    grid-auto-columns: minmax(0, min(340px, 88vw));
-    gap: 14px;
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
   }
 
-  .profile-visual-strip .visual-profile-link {
-    min-height: 380px;
-    grid-template-rows: 190px 1fr;
-    scroll-snap-align: start;
+  .profile-visual-strip .visual-card-button {
+    grid-template-rows: auto auto auto;
   }
 
-  .profile-visual-strip .visual-profile-link .profile-card-visual {
-    min-height: 190px;
+  .profile-visual-strip .visual-card-button .profile-card-visual {
+    min-height: 0;
+    aspect-ratio: 1 / 1;
   }
 
 
