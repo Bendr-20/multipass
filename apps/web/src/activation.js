@@ -25,12 +25,12 @@ export function getActivationState(data = {}, resolverState = {}) {
   if (!isLoadedLive) {
     return {
       kind: 'preview',
-      title: 'Preview Multipass',
+      title: 'Bendr 2.0 Public Profile',
       subject,
       resolvedId,
-      sourceLabel: data.sourceLabel ?? 'bundled fixture',
-      originLabel: 'Preview from bundled public data',
-      summary: 'This preview shows the Multipass trust profile shape before a live record is activated.',
+      sourceLabel: data.sourceLabel ?? 'Bendr public profile',
+      originLabel: 'Public Helixa profile',
+      summary: 'This public profile shows Bendr 2.0 as a readable Multipass trust profile.',
       showFutureBindNote: true,
     };
   }

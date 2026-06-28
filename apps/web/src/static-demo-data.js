@@ -1,6 +1,6 @@
 export const STATIC_DEMO_DATA = {
-  "modeLabel": "Bundled Fixture",
-  "sourceLabel": "bundled fixture",
+  "modeLabel": "Bendr 2.0 Public Profile",
+  "sourceLabel": "Bendr public profile",
   "profile": {
     "schema_version": "0.1.0",
     "multipass_id": "mp_bendr_2",
@@ -12,7 +12,7 @@ export const STATIC_DEMO_DATA = {
       "owner_state": "unclaimed",
       "verification_status": "none",
       "visibility": "public",
-      "summary": "Demo ownership state for public static preview."
+      "summary": "Public ownership state for this Multipass profile."
     },
     "custody_epoch": null,
     "public_fragments": [
@@ -140,8 +140,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T00:00:00Z",
           "reference_url": null
         },
-        "public_value": "Bendr 2.0 profile claim checked by the Helixa fixture.",
-        "proof_reference": "fixture:profile-check",
+        "public_value": "Bendr 2.0 profile claim checked by the Helixa record.",
+        "proof_reference": "record:profile-check",
         "created_at": "2026-06-24T00:00:00Z",
         "updated_at": "2026-06-24T00:00:00Z",
         "verified_at": "2026-06-24T00:00:00Z"
@@ -190,7 +190,7 @@ export const STATIC_DEMO_DATA = {
           "reference_url": null
         },
         "public_value": "ERC-8004 adapter reference that needs a fresh check before stronger claims.",
-        "proof_reference": "fixture:standard-ref",
+        "proof_reference": "record:standard-ref",
         "created_at": "2026-06-24T00:00:00Z",
         "updated_at": "2026-06-24T00:00:00Z",
         "verified_at": "2026-06-24T00:00:00Z",
@@ -233,8 +233,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T00:00:00Z",
           "reference_url": null
         },
-        "public_value": "Route claim intentionally marked disputed in the fixture.",
-        "proof_reference": "fixture:route-dispute",
+        "public_value": "Route claim intentionally marked disputed in the record.",
+        "proof_reference": "record:route-dispute",
         "created_at": "2026-06-24T00:00:00Z",
         "updated_at": "2026-06-24T00:00:00Z",
         "verification_ref": {
@@ -334,8 +334,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T23:50:00Z",
           "reference_url": "https://helixa.xyz/agent/81"
         },
-        "public_value": "Quigbot identity checked by the Helixa fixture.",
-        "proof_reference": "fixture:quigbot-identity",
+        "public_value": "Quigbot identity checked by the Helixa record.",
+        "proof_reference": "record:quigbot-identity",
         "created_at": "2026-06-24T23:50:00Z",
         "updated_at": "2026-06-24T23:50:00Z",
         "verified_at": "2026-06-24T23:50:00Z"
@@ -357,7 +357,7 @@ export const STATIC_DEMO_DATA = {
           "reference_url": "https://helixa.xyz/agent/81"
         },
         "public_value": "Quigbot Cred score 75, Prime tier.",
-        "proof_reference": "fixture:quigbot-cred",
+        "proof_reference": "record:quigbot-cred",
         "created_at": "2026-06-24T23:50:00Z",
         "updated_at": "2026-06-24T23:50:00Z",
         "verified_at": "2026-06-24T23:50:00Z"
@@ -379,7 +379,7 @@ export const STATIC_DEMO_DATA = {
           "reference_url": "https://helixa.xyz/agent/0"
         },
         "public_value": "E2ETest is a low-assurance test record.",
-        "proof_reference": "fixture:e2etest-identity",
+        "proof_reference": "record:e2etest-identity",
         "created_at": "2026-06-24T23:50:00Z",
         "updated_at": "2026-06-24T23:50:00Z"
       },
@@ -399,8 +399,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T23:50:00Z",
           "reference_url": "https://helixa.xyz/agent/0"
         },
-        "public_value": "Lower trust context for a test/demo agent.",
-        "proof_reference": "fixture:e2etest-cred",
+        "public_value": "Lower trust context for a test agent.",
+        "proof_reference": "record:e2etest-cred",
         "created_at": "2026-06-24T23:50:00Z",
         "updated_at": "2026-06-24T23:50:00Z"
       },
@@ -420,8 +420,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T23:38:00Z",
           "reference_url": "https://helixa.xyz/multipass/"
         },
-        "public_value": "Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents as one collection roster.",
-        "proof_reference": "fixture:helixa-swarm-roster",
+        "public_value": "Parent Multipass manages Bendr, Quigbot, and E2ETest agents as one collection roster.",
+        "proof_reference": "record:helixa-swarm-roster",
         "created_at": "2026-06-24T23:38:00Z",
         "updated_at": "2026-06-24T23:38:00Z",
         "verified_at": "2026-06-24T23:38:00Z"
@@ -442,8 +442,8 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T23:38:00Z",
           "reference_url": "https://helixa.xyz/multipass/"
         },
-        "public_value": "Shared tool policy preview for routes, permissions, and approvals across the swarm.",
-        "proof_reference": "fixture:helixa-swarm-tools",
+        "public_value": "Shared tool policy context for routes, permissions, and approvals across the swarm.",
+        "proof_reference": "record:helixa-swarm-tools",
         "created_at": "2026-06-24T23:38:00Z",
         "updated_at": "2026-06-24T23:38:00Z",
         "endpoint_ref": {
@@ -470,7 +470,7 @@ export const STATIC_DEMO_DATA = {
           "reference_url": "https://helixa.xyz/multipass/"
         },
         "public_value": "Aggregate Cred context summarizes the roster without erasing each agent's individual profile.",
-        "proof_reference": "fixture:helixa-swarm-cred",
+        "proof_reference": "record:helixa-swarm-cred",
         "created_at": "2026-06-24T23:38:00Z",
         "updated_at": "2026-06-24T23:38:00Z",
         "verified_at": "2026-06-24T23:38:00Z",
@@ -494,7 +494,7 @@ export const STATIC_DEMO_DATA = {
       {
         "capability_id": "profile_lookup",
         "label": "Profile lookup",
-        "description": "Read public Multipass profile data from the static preview.",
+        "description": "Read public Multipass profile data from the Bendr profile.",
         "visibility": "public"
       },
       {
@@ -528,7 +528,7 @@ export const STATIC_DEMO_DATA = {
       {
         "endpoint_id": "multipass_preview",
         "url": "https://helixa.xyz/multipass/",
-        "description": "Hidden Multipass prototype preview.",
+        "description": "Public Multipass profile record.",
         "visibility": "public"
       }
     ],
@@ -552,7 +552,7 @@ export const STATIC_DEMO_DATA = {
     "contact_policy": {
       "mode": "approval_required",
       "requires_owner_approval": true,
-      "policy_note": "Static demo only."
+      "policy_note": "Bendr public profile only."
     },
     "standards_refs": [
       {
@@ -631,7 +631,7 @@ export const STATIC_DEMO_DATA = {
         "endpoint_id": "lookup",
         "url": "/multipass/",
         "method": "GET",
-        "description": "Sample CRED-gated profile lookup route for public static preview.",
+        "description": "CRED-gated profile lookup route for a public Multipass profile.",
         "price": {
           "amount": "1",
           "decimals": 18
@@ -663,7 +663,7 @@ export const STATIC_DEMO_DATA = {
     "created_at": "2026-06-24T00:00:00Z",
     "response_class": "success",
     "settlement_reference": null,
-    "redaction_note": "Sample public static receipt. No private request or response payload is included."
+    "redaction_note": "Public receipt record. No private request or response payload is included."
   },
   "routes": {},
   "agentCards": [
@@ -712,7 +712,7 @@ export const STATIC_DEMO_DATA = {
         "reviewAction": "No public review action"
       },
       "changeReviewLedger": [
-        { "event": "Identity context imported", "source": "Helixa fixture", "impact": "Agent card updated", "reviewState": "Verified" },
+        { "event": "Identity context imported", "source": "Helixa record", "impact": "Agent card updated", "reviewState": "Verified" },
         { "event": "Cred import refreshed", "source": "Helixa API", "impact": "Cred context updated", "reviewState": "Verified" },
         { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
       ]
@@ -728,8 +728,8 @@ export const STATIC_DEMO_DATA = {
       "profileUrl": "https://helixa.xyz/agent/0",
       "proofFragmentIds": ["frag_e2etest_identity", "frag_e2etest_cred"],
       "ownerSnapshot": {
-        "owner": "Demo owner pending",
-        "operator": "Test fixture",
+        "owner": "Owner pending",
+        "operator": "Helixa record",
         "custodyEpoch": "Draft epoch",
         "permissionState": "Review required before active routes",
         "visibility": "Public test profile",
@@ -737,7 +737,7 @@ export const STATIC_DEMO_DATA = {
         "reviewAction": "Verify owner before production use"
       },
       "changeReviewLedger": [
-        { "event": "Low-assurance test record imported", "source": "Test fixture", "impact": "Routes remain inactive", "reviewState": "Review required" },
+        { "event": "Low-assurance test record imported", "source": "Helixa record", "impact": "Routes remain inactive", "reviewState": "Review required" },
         { "event": "Owner verification missing", "source": "Owner registry", "impact": "Production use blocked", "reviewState": "Reverify" },
         { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
       ]

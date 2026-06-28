@@ -54,7 +54,7 @@ export async function fetchHelixaAgent(tokenId, fetchImpl = fetch) {
 export async function fetchHelixaAgentDirectory(fetchImpl = fetch) {
   const body = await fetchHelixaJson(HELIXA_AGENTS_DIRECTORY_URL, fetchImpl, 'GET Helixa agents failed');
   if (!Array.isArray(body?.['agents'])) {
-    throw new HelixaResolverError('invalid_json', 'Helixa returned a directory response this prototype cannot read yet.');
+    throw new HelixaResolverError('invalid_json', 'Helixa returned a directory response Multipass cannot read yet.');
   }
   return body['agents'];
 }
@@ -68,7 +68,7 @@ async function fetchHelixaJson(url, fetchImpl, failurePrefix) {
       headers: { Accept: 'application/json' },
     });
   } catch (error) {
-    throw new HelixaResolverError('network_error', 'Could not reach the Helixa API. Static demo is still available.', { cause: error.message });
+    throw new HelixaResolverError('network_error', 'Could not reach the Helixa API. Bendr public profile is still available.', { cause: error.message });
   }
 
   if (!response.ok) {
@@ -85,7 +85,7 @@ async function fetchHelixaJson(url, fetchImpl, failurePrefix) {
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new HelixaResolverError('invalid_json', 'Helixa returned a response this prototype cannot read yet.', { cause: error.message });
+    throw new HelixaResolverError('invalid_json', 'Helixa returned a response Multipass cannot read yet.', { cause: error.message });
   }
 }
 
@@ -484,7 +484,7 @@ function createLiveTransferPreview(agent) {
     privateAccessAction: 'Rotate private access on custody change',
     historyState: 'Public history preserved',
     credContinuity: 'Cred continues with ownership-change context if custody changes.',
-    note: 'Transfer state preview preserves public history but does not transfer secrets, private credentials, or active authority.',
+    note: 'Ownership state preserves public history but does not transfer secrets, private credentials, or active authority.',
   };
 }
 

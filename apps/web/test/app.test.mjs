@@ -28,7 +28,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'historical_on_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Bendr profile checked by Helixa fixture.',
+          public_value: 'Bendr profile checked by Helixa record.',
         },
         {
           fragment_id: 'frag_bendr_endpoint',
@@ -69,7 +69,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'never_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Route claim intentionally marked disputed in the fixture.',
+          public_value: 'Route claim intentionally marked disputed in the record.',
         },
         {
           fragment_id: 'frag_bendr_helixa_identity',
@@ -99,7 +99,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'historical_on_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Quigbot identity checked by Helixa fixture.',
+          public_value: 'Quigbot identity checked by Helixa record.',
         },
         {
           fragment_id: 'frag_quigbot_cred',
@@ -129,7 +129,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'never_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Lower trust context for a test/demo agent.',
+          public_value: 'Lower trust context for a test agent.',
         },
         {
           fragment_id: 'frag_helixa_swarm_roster',
@@ -139,7 +139,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'pause_on_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents as one collection roster.',
+          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest agents as one collection roster.',
         },
         {
           fragment_id: 'frag_helixa_swarm_tools',
@@ -149,7 +149,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'pause_on_transfer',
           source: { source_type: 'owner_submission', issuer: 'Helixa' },
-          public_value: 'Shared tool policy preview for routes, permissions, and approvals across the swarm.',
+          public_value: 'Shared tool policy context for routes, permissions, and approvals across the swarm.',
           endpoint_ref: { protocol: 'api' },
         },
         {
@@ -333,7 +333,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /visual identity graph/i);
   assert.doesNotMatch(root.textContent, /Internal Prototype/);
   assert.doesNotMatch(root.textContent, /Hidden Prototype/);
-  assert.doesNotMatch(root.textContent, /Static Demo/);
+  assert.doesNotMatch(root.textContent, /Bendr Public Profile/);
   assert.match(root.textContent, /agent builders/i);
   const brandLogo = root.querySelector('.brand-logo');
   assert.equal(brandLogo?.getAttribute('src'), '/multipass/helixa-logo.png');
@@ -347,7 +347,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /bendr-2/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.match(root.textContent, /Bendr 2\.0 Public Profile/);
+  assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
   assert.match(root.textContent, /Proof ledger/);
   assert.match(root.textContent, /Card first/);
   assert.match(root.textContent, /Example trust profiles/);
@@ -396,7 +397,8 @@ test('resolver bar renders without changing default static data', async () => {
   assert.doesNotMatch(resolver.textContent, /Resolve live Helixa agent/);
   assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.match(root.textContent, /Bendr 2\.0 Public Profile/);
+  assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
 });
 
 test('static homepage renders display-only share panel', async () => {
@@ -413,15 +415,16 @@ test('static homepage renders display-only share panel', async () => {
   assert.doesNotMatch(panel.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 
-test('static initial state shows preview Multipass instead of activated Multipass', async () => {
+test('static initial state presents Bendr public profile without preview language', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   const activation = root.querySelector('.activation-summary');
   assert.ok(activation);
-  assert.match(activation.textContent, /Preview Multipass/);
-  assert.match(activation.textContent, /Preview from bundled public data/);
+  assert.match(activation.textContent, /Bendr 2\.0 Public Profile/);
+  assert.match(activation.textContent, /Public Helixa profile/);
   assert.match(activation.textContent, /Binding NFTs to an existing identity is planned for a later adapter release/);
+  assert.doesNotMatch(activation.textContent, /\b(?:Preview|preview|Demo|demo|fixture|Fixture)\b/);
   assert.doesNotMatch(activation.textContent, /Activated Multipass/);
   assert.doesNotMatch(activation.textContent, /Activated from NFT/);
 });
@@ -515,7 +518,7 @@ test('render uses live hero note when data supplies one', async () => {
   await createApp({ root, loadDemo: async () => data }).start();
 
   assert.match(root.textContent, /Read-only live Helixa API data for Bendr 2\.0/);
-  assert.doesNotMatch(root.textContent, /public fixture data/);
+  assert.doesNotMatch(root.textContent, /public record data/);
 });
 
 test('agent card carousel switches selected card detail', async () => {
@@ -632,7 +635,7 @@ test('selected card renders change review ledger below owner snapshot without ex
   assert.ok(ledger.compareDocumentPosition(transfer) & root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING);
 });
 
-test('selected card renders transfer state preview with paused permissions and preserved history', async () => {
+test('selected card renders ownership state with paused permissions and preserved history', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -640,7 +643,8 @@ test('selected card renders transfer state preview with paused permissions and p
 
   const preview = root.querySelector('.transfer-preview');
   assert.ok(preview);
-  assert.match(preview.textContent, /Transfer State Preview/);
+  assert.match(preview.textContent, /Ownership State/);
+  assert.doesNotMatch(preview.textContent, /\bpreview\b/i);
   assert.match(preview.textContent, /Current owner/);
   assert.match(preview.textContent, /0x3395\.\.\.480E0/);
   assert.match(preview.textContent, /Custody epoch/);
@@ -765,7 +769,7 @@ test('default loader uses safe api query override from window location', async (
 });
 
 
-test('static /multipass/ page loads bundled fixture without calling API', async () => {
+test('static /multipass/ page loads Bendr public profile without calling API', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const calls = [];
   globalThis.fetch = async (route) => {
@@ -780,8 +784,8 @@ test('static /multipass/ page loads bundled fixture without calling API', async 
   }
 
   assert.deepEqual(calls, []);
-  assert.doesNotMatch(root.textContent, /Static Demo/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.doesNotMatch(root.textContent, /Bendr Public Profile/);
+  assert.match(root.textContent, /Bendr public profile/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
@@ -808,8 +812,8 @@ test('static /multipass/ ignores unsafe api query override without calling API',
   }
 
   assert.deepEqual(calls, []);
-  assert.doesNotMatch(root.textContent, /Static Demo/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.doesNotMatch(root.textContent, /Bendr Public Profile/);
+  assert.match(root.textContent, /Bendr public profile/);
   assert.equal(root.innerHTML.includes('/multipass-api'), false);
 });
 
@@ -837,12 +841,12 @@ test('resolver submit loads live data and updates source label', async () => {
 });
 
 
-test('static demo does not require marketplace listing data', async () => {
+test('Bendr public profile does not require marketplace listing data', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.equal(root.querySelector('.marketplace-listing'), null);
-  assert.doesNotMatch(root.innerHTML, /Marketplace listing preview/);
+  assert.doesNotMatch(root.innerHTML, /Marketplace listing context/);
   assert.match(root.innerHTML, /Example trust profiles/);
 });
 
@@ -918,7 +922,7 @@ test('marketplace listing renderer does not link unsafe URLs', async () => {
   assert.match(listing.textContent, /Unsafe link/);
 });
 
-test('static demo button restores bundled fixture after live resolve', async () => {
+test('public profile button restores Bendr public profile after live resolve', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver' };
   await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
@@ -930,11 +934,11 @@ test('static demo button restores bundled fixture after live resolve', async () 
   root.querySelector('[data-action="reset-static-demo"]').click();
 
   assert.match(root.textContent, /Bendr 2\.0/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.match(root.textContent, /Bendr public profile/);
   assert.doesNotMatch(root.textContent, /Live Bendr/);
 });
 
-test('static demo reset invalidates an in-flight live resolver response', async () => {
+test('Bendr public profile reset invalidates an in-flight live resolver response', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   let resolveLive;
   await createApp({
@@ -951,7 +955,7 @@ test('static demo reset invalidates an in-flight live resolver response', async 
   await Promise.resolve();
 
   assert.doesNotMatch(root.textContent, /Late Live Bendr/);
-  assert.match(root.textContent, /bundled fixture/);
+  assert.match(root.textContent, /Bendr public profile/);
 });
 
 test('resolver invalid input shows validation error and keeps static data available', async () => {
@@ -1038,7 +1042,7 @@ test('failed lookup after live activation returns to preview state without stale
   await Promise.resolve();
 
   assert.match(root.textContent, /No Helixa agent found for that ID/);
-  assert.match(root.querySelector('.activation-summary').textContent, /Preview Multipass/);
+  assert.match(root.querySelector('.activation-summary').textContent, /Bendr 2.0 Public Profile/);
   assert.doesNotMatch(root.textContent, /Quigbot Live/);
   assert.doesNotMatch(root.textContent, /Activated Multipass/);
   assert.equal(new URL(window.location.href).searchParams.get('agent'), null);
@@ -1489,7 +1493,7 @@ test('direct saved slug route loads saved Multipass from API instead of static p
 
   assert.match(root.textContent, /Saved Bendr/);
   assert.match(root.textContent, /Saved Multipass/);
-  assert.doesNotMatch(root.textContent, /Preview Multipass/);
+  assert.doesNotMatch(root.textContent, /Bendr 2.0 Public Profile/);
   assert.ok(fetches.some((url) => String(url).includes('/api/multipass/bendr-2-1')));
 });
 

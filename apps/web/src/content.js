@@ -117,7 +117,7 @@ export function createFragmentTrustMap(data, selectedAgent = null) {
     body: V02_COPY.body,
     cards: fragments.map(createFragmentCard),
     legends: FRAGMENT_LEGENDS,
-    emptyPrivateNote: 'Private and hidden fragments are not rendered in this public prototype.',
+    emptyPrivateNote: 'Private and hidden fragments are not rendered in this public profile.',
   };
 }
 
@@ -206,7 +206,7 @@ function normalizeTransferPreview(preview, card) {
   if (!preview) return null;
 
   return {
-    title: 'Transfer State Preview',
+    title: 'Ownership State',
     currentOwner: preview.currentOwner ?? 'Owner pending',
     custodyEpoch: preview.custodyEpoch ?? card.custody ?? 'Custody epoch pending',
     claimAction: normalizeClaimAction(preview.claimAction),
@@ -215,7 +215,7 @@ function normalizeTransferPreview(preview, card) {
     privateAccessAction: preview.privateAccessAction ?? 'Rotate private access',
     historyState: preview.historyState ?? 'History preserved',
     credContinuity: preview.credContinuity ?? 'Cred continues with ownership-change context.',
-    note: preview.note ?? 'Transfer preview preserves public history but does not transfer secrets, private credentials, or active authority.',
+    note: preview.note ?? 'Ownership state preserves public history but does not transfer secrets, private credentials, or active authority.',
   };
 }
 
@@ -308,7 +308,7 @@ export const HERO_COPY = {
   eyebrow: 'MULTIPASS',
   headline: 'Portable agent trust profiles for AI-native systems.',
   body: 'Multipass gives agents, humans, swarms, collections, projects, organizations, and AI-native systems a visual identity graph with public proof, custody context, routes, Cred, and discovery data in one readable profile.',
-  note: 'Homepage prototype using Helixa AgentDNA examples and live resolver data.',
+  note: 'Built from Helixa AgentDNA examples and live resolver data.',
 };
 
 export function createClaritySections() {

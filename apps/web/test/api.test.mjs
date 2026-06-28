@@ -48,7 +48,7 @@ test('getWritableApiBaseFromLocation rejects cross-origin api overrides for clai
 });
 
 
-test('static demo mode is used for /multipass/ unless api override is present', () => {
+test('Bendr public profile mode is used for /multipass/ unless api override is present', () => {
   assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/')), true);
   assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=http://127.0.0.1:9999')), false);
   assert.equal(shouldUseStaticDemo(new URL('https://helixa.xyz/multipass/?api=not-a-url')), true);
@@ -56,14 +56,14 @@ test('static demo mode is used for /multipass/ unless api override is present', 
   assert.equal(shouldUseStaticDemo(new URL('http://localhost/')), false);
 });
 
-test('static demo data is public API shaped and sanitized', async () => {
+test('Bendr public profile data is public API shaped and sanitized', async () => {
   const data = await loadStaticMultipassDemo();
   assert.equal(data.profile.multipass_id, 'mp_bendr_2');
   assert.equal(data.fragments.fragments.every((fragment) => fragment.visibility === 'public'), true);
   assert.equal(JSON.stringify(data).includes('frag_bendr_private_placeholder'), false);
   assert.equal(JSON.stringify(data).includes('private_fragments'), false);
-  assert.equal(data.sourceLabel, 'bundled fixture');
-  assert.equal(data.modeLabel, 'Bundled Fixture');
+  assert.equal(data.sourceLabel, 'Bendr public profile');
+  assert.equal(data.modeLabel, 'Bendr 2.0 Public Profile');
 });
 
 test('loadJson throws clear errors for failed routes and invalid JSON', async () => {

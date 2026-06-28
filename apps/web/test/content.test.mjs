@@ -221,7 +221,7 @@ test('agent carousel exposes transfer state preview without transferring secrets
   });
 
   const transfer = carousel.cards[0].transferPreview;
-  assert.equal(transfer.title, 'Transfer State Preview');
+  assert.equal(transfer.title, 'Ownership State');
   assert.equal(transfer.currentOwner, '0x3395...480E0');
   assert.equal(transfer.claimAction, 'New owner claim required');
   assert.equal(transfer.permissionsState, 'Permissions paused');
@@ -345,7 +345,7 @@ test('fragment trust map names swarm proof signals without raw ids as titles', (
           assurance_level: 'platform_verified',
           visibility: 'public',
           transfer_policy: 'pause_on_transfer',
-          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest demo agents.',
+          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest agents.',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
         },
       ],
@@ -405,7 +405,7 @@ test('fragment trust map keeps public fragments separate and explains transfer p
   assert.match(map.emptyPrivateNote, /private and hidden fragments are not rendered/i);
 });
 
-test('summary helpers produce display strings from fixture-shaped documents', () => {
+test('summary helpers produce display strings from record-shaped documents', () => {
   const summary = summarizeProfile({
     display_name: 'Bendr 2.0',
     status: 'link_ready',

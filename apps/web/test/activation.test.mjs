@@ -4,7 +4,7 @@ import test from 'node:test';
 import { getActivationState } from '../src/activation.js';
 
 const baseData = {
-  sourceLabel: 'bundled fixture',
+  sourceLabel: 'Bendr public profile',
   profile: { display_name: 'Bendr 2.0' },
   liveProfilePage: { headerMeta: 'Local demo · 8453:1' },
   resolver: { canonicalId: '8453:1', tokenId: '1' },
@@ -14,8 +14,8 @@ test('getActivationState renders static data as preview only', () => {
   const state = getActivationState(baseData, { resolverStatus: null });
 
   assert.equal(state.kind, 'preview');
-  assert.equal(state.title, 'Preview Multipass');
-  assert.equal(state.originLabel, 'Preview from bundled public data');
+  assert.equal(state.title, 'Bendr 2.0 Public Profile');
+  assert.equal(state.originLabel, 'Public Helixa profile');
   assert.equal(state.showFutureBindNote, true);
 });
 

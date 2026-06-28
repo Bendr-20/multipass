@@ -513,7 +513,7 @@ function render(root, state, handlers = {}) {
 
       <footer class="footer-note">${escapeHtml(['activated', 'saved'].includes(activationState.kind)
         ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
-        : 'This is a static public preview. It does not include auth, persistence, contract reads, or payment settlement.'
+        : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
       )}</footer>
     </div>
   `;
@@ -589,7 +589,7 @@ function renderHomepageHero(heroCopy, data, agentCarousel) {
         <div class="homepage-proof-grid">
           ${renderHeroStat('Profiles', profileCount)}
           ${renderHeroStat('Public proof', proofCount)}
-          ${renderHeroStat('Live source', data.sourceLabel ?? 'bundled fixture')}
+          ${renderHeroStat('Profile source', data.sourceLabel ?? 'Bendr 2.0 Public Profile')}
           ${renderHeroStat('Primary use', 'Discovery')}
         </div>
       </aside>
@@ -645,7 +645,7 @@ function renderLiveResolver(state) {
           <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
         </label>
         <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
-        <button type="button" data-action="reset-static-demo">View static demo</button>
+        <button type="button" data-action="reset-static-demo">View Bendr public profile</button>
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
@@ -781,7 +781,7 @@ function lookupMatchesFromError(error) {
 
 function userResolverMessage(error) {
   if (error instanceof HelixaResolverError) return error.message;
-  return 'Could not reach the Helixa API. Static demo is still available.';
+  return 'Could not reach the Helixa API. Bendr public profile is still available.';
 }
 
 export function retryStateFromError(error, nowMs = Date.now()) {
