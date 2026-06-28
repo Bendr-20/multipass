@@ -22,20 +22,22 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
 
   assert.equal(resolverColumnRules.at(-1), '1fr', 'the last resolver grid declaration must stay single-column on mobile');
-  assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2\.2rem, 9\.5vw, 3rem\);/s);
+  assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2rem, 8\.8vw, 2\.7rem\);/s);
+  assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*margin-top:\s*12px;/s);
+  assert.match(mobileBlock, /\.visual-card-track\s*\{[^}]*grid-auto-columns:\s*minmax\(132px, 42vw\);/s);
   assert.match(mobileBlock, /\.live-resolver\s*\{[^}]*padding:\s*16px;/s);
   assert.doesNotMatch(mobileBlock, /\.live-resolver form\s*\{[^}]*minmax\(180px, 260px\)[^}]*auto auto/s);
 });
 
 
-test('mobile hero lead copy keeps readable density', async () => {
+test('mobile hero lead copy keeps tight first-screen density', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
   const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
   const leadBlock = mobileBlock.match(/\.lead\s*\{(?<body>[^}]*)\}/s)?.groups.body ?? '';
 
-  assert.match(leadBlock, /font-size:\s*16px;/);
-  assert.match(leadBlock, /line-height:\s*1\.5;/);
-  assert.match(leadBlock, /margin-bottom:\s*20px;/);
+  assert.match(leadBlock, /font-size:\s*14px;/);
+  assert.match(leadBlock, /line-height:\s*1\.35;/);
+  assert.match(leadBlock, /margin-bottom:\s*12px;/);
 });
 
 test('marketplace listing uses responsive marketplace-card grids', async () => {
