@@ -654,7 +654,6 @@ function renderProductHome(root, state, handlers = {}) {
             <a href="#agent-visuals" class="homepage-action primary">View agents</a>
             <a href="#live-resolver" class="homepage-action">Activate an agent</a>
           </div>
-          ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
         </div>
         <aside class="homepage-proof-panel" aria-label="Multipass product summary">
           <p class="card-label">What it does</p>
@@ -668,6 +667,7 @@ function renderProductHome(root, state, handlers = {}) {
         </aside>
       </section>
 
+      ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
       ${renderLiveResolver(state, { showResetButton: false })}
     </div>
   `;
@@ -679,27 +679,38 @@ function renderAgentVisualStrip(carousel, selectedIndex) {
   const activeIndex = Math.max(0, Math.min(selectedIndex, carousel.cards.length - 1));
 
   return `
-    <section id="agent-visuals" class="profile-visual-strip" aria-label="Agent examples">
-      <div class="visual-card-track" aria-label="Swipe through agent Multipass profiles">
-        ${carousel.cards.map((card, index) => renderAgentVisualLink(card, index, activeIndex)).join('')}
+    <section id="agent-visuals" class="profile-gallery card-carousel profile-visual-strip" aria-label="Agent examples">
+      <div class="card-carousel-head">
+        <p class="eyebrow">${escapeHtml(carousel.eyebrow)}</p>
+        <h2>${escapeHtml(carousel.title)}</h2>
+        <p>${escapeHtml(carousel.body)}</p>
+      </div>
+      <div class="card-track" aria-label="Swipe through agent Multipass profiles">
+        ${carousel.cards.map((card, index) => renderAgentVisualProfileLink(card, index, activeIndex)).join('')}
       </div>
     </section>
   `;
 }
 
-function renderAgentVisualLink(card, index, selectedIndex) {
+function renderAgentVisualProfileLink(card, index, selectedIndex) {
   const selected = index === selectedIndex;
   const href = getHomepageMultipassProfileHref(card);
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
   return `
-    <a class="visual-card-button${selected ? ' selected' : ''}" href="${escapeAttribute(href)}" aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
+    <a class="profile-card card-button visual-profile-link${selected ? ' selected' : ''}" href="${escapeAttribute(href)}" aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
         ${imageUrl ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(label)}" loading="eager" decoding="async" data-visual-card-image="true" />` : ''}
         <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
       </span>
-      <strong>${escapeHtml(card.name)}</strong>
-      <em>Open profile</em>
+      <span class="profile-card-copy">
+        <span class="card-name">${escapeHtml(card.name)}</span>
+        <span>${escapeHtml(card.role)} · ${escapeHtml(card.memberLabel)}</span>
+        <span>${escapeHtml(card.helixaId)}</span>
+        <span>${escapeHtml(card.custody)}</span>
+        <span>${escapeHtml(card.proofSummary)}</span>
+        <strong>${escapeHtml(card.credLabel)} · ${escapeHtml(card.verifiedLabel)}</strong>
+      </span>
     </a>
   `;
 }
