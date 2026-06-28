@@ -680,23 +680,27 @@ function renderAgentVisualStrip(carousel, selectedIndex) {
 
   return `
     <section id="agent-visuals" class="profile-visual-strip" aria-label="Agent examples">
-      <div class="visual-card-track" role="tablist" aria-label="Swipe through agent examples">
-        ${carousel.cards.map((card, index) => renderAgentVisualButton(card, index, activeIndex)).join('')}
+      <div class="visual-card-track" aria-label="Swipe through agent Multipass profiles">
+        ${carousel.cards.map((card, index) => renderAgentVisualLink(card, index, activeIndex)).join('')}
       </div>
     </section>
   `;
 }
 
-function renderAgentVisualButton(card, index, selectedIndex) {
+function renderAgentVisualLink(card, index, selectedIndex) {
   const selected = index === selectedIndex;
+  const href = isRenderablePublicUrl(card.profileUrl) ? card.profileUrl : `/multipass/?agent=${encodeURIComponent(card.tokenId ?? card.helixaId ?? card.name)}`;
+  const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
+  const label = card.visual?.label ?? `${card.name} visual identity`;
   return `
-    <button class="visual-card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
-      <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(card.visual?.label ?? `${card.name} visual identity`)}">
-        ${card.visual?.imageUrl ? `<img src="${escapeAttribute(card.visual.imageUrl)}" alt="${escapeAttribute(card.visual.label)}" loading="lazy" />` : ''}
+    <a class="visual-card-button${selected ? ' selected' : ''}" href="${escapeAttribute(href)}" aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
+      <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
+        ${imageUrl ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(label)}" loading="eager" decoding="async" data-visual-card-image="true" />` : ''}
         <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
       </span>
       <strong>${escapeHtml(card.name)}</strong>
-    </button>
+      <em>Open profile</em>
+    </a>
   `;
 }
 
@@ -712,6 +716,7 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
   });
+  bindVisualImageFallbacks(root);
   root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedAgentCard = Number(button.dataset.index);
@@ -721,6 +726,17 @@ function bindProductHomeEvents(root, handlers, state) {
   });
   root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
+  });
+}
+
+function bindVisualImageFallbacks(root) {
+  root.querySelectorAll('img[data-visual-card-image="true"]').forEach((image) => {
+    const markFailed = () => {
+      image.hidden = true;
+      image.closest('.profile-card-visual')?.classList.add('image-failed');
+    };
+    if (image.complete && image.naturalWidth === 0) markFailed();
+    image.addEventListener('error', markFailed, { once: true });
   });
 }
 

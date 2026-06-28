@@ -313,15 +313,17 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.equal(strip.querySelector('.visual-card-track')?.hasAttribute('style'), false);
   assert.equal(strip.querySelector('.card-track'), null);
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
+  assert.equal(strip.querySelectorAll('a.visual-card-button').length, 4);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
+  assert.equal(strip.querySelector('a.visual-card-button[href="https://helixa.xyz/agent/1"]')?.textContent.includes('Open profile'), true);
+  assert.equal(strip.querySelector('a.visual-card-button[href="https://helixa.xyz/agent/81"]')?.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
   assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
   assert.match(strip.textContent, /Quigbot/);
 });
 
-test('homepage visual carousel is native swipeable scroll snap, not a button slider', async () => {
+test('homepage visual carousel is native swipeable linked profiles, not a button slider', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -329,11 +331,31 @@ test('homepage visual carousel is native swipeable scroll snap, not a button sli
   assert.ok(strip);
   const track = strip.querySelector('.visual-card-track');
   assert.ok(track);
-  assert.equal(track.getAttribute('role'), 'tablist');
   assert.match(track.getAttribute('aria-label') ?? '', /Swipe through/i);
   assert.equal(track.hasAttribute('style'), false);
   assert.equal(strip.querySelector('button[aria-label="Next agent"]'), null);
   assert.equal(strip.querySelector('button[aria-label="Previous agent"]'), null);
+  assert.equal(strip.querySelector('button.visual-card-button'), null);
+  assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
+    'https://helixa.xyz/agent/1',
+    'https://helixa.xyz/agent/81',
+    'https://helixa.xyz/agent/0',
+    'https://helixa.xyz/swarm/helixa',
+  ]);
+});
+
+
+test('homepage visual image failures fall back to initials instead of broken panels', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const image = root.querySelector('.profile-visual-strip img[data-visual-card-image="true"]');
+  assert.ok(image);
+  image.dispatchEvent(new root.ownerDocument.defaultView.Event('error'));
+
+  assert.equal(image.hidden, true);
+  assert.equal(image.closest('.profile-card-visual')?.classList.contains('image-failed'), true);
+  assert.match(image.closest('.profile-card-visual')?.textContent ?? '', /B/);
 });
 
 test('initial render shows loading state then product-led Multipass record', async () => {
