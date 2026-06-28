@@ -315,8 +315,8 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
   assert.equal(strip.querySelectorAll('a.visual-card-button').length, 4);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
-  assert.equal(strip.querySelector('a.visual-card-button[href="https://helixa.xyz/agent/1"]')?.textContent.includes('Open profile'), true);
-  assert.equal(strip.querySelector('a.visual-card-button[href="https://helixa.xyz/agent/81"]')?.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
+  assert.equal(strip.querySelector('a.visual-card-button[href="/multipass/?agent=1"]')?.textContent.includes('Open profile'), true);
+  assert.equal(strip.querySelector('a.visual-card-button[href="/multipass/?agent=81"]')?.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
   assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
@@ -337,11 +337,13 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.equal(strip.querySelector('button[aria-label="Previous agent"]'), null);
   assert.equal(strip.querySelector('button.visual-card-button'), null);
   assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
-    'https://helixa.xyz/agent/1',
-    'https://helixa.xyz/agent/81',
-    'https://helixa.xyz/agent/0',
-    'https://helixa.xyz/swarm/helixa',
+    '/multipass/?agent=1',
+    '/multipass/?agent=81',
+    '/multipass/?agent=0',
+    '/multipass/',
   ]);
+  assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/agent/"]'), null);
+  assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
 

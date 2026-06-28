@@ -689,7 +689,7 @@ function renderAgentVisualStrip(carousel, selectedIndex) {
 
 function renderAgentVisualLink(card, index, selectedIndex) {
   const selected = index === selectedIndex;
-  const href = isRenderablePublicUrl(card.profileUrl) ? card.profileUrl : `/multipass/?agent=${encodeURIComponent(card.tokenId ?? card.helixaId ?? card.name)}`;
+  const href = getHomepageMultipassProfileHref(card);
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
   return `
@@ -702,6 +702,26 @@ function renderAgentVisualLink(card, index, selectedIndex) {
       <em>Open profile</em>
     </a>
   `;
+}
+
+function getHomepageMultipassProfileHref(card) {
+  const tokenId = String(card.tokenId ?? '').trim();
+  if (/^\d+$/.test(tokenId)) return `/multipass/?agent=${encodeURIComponent(tokenId)}`;
+
+  const helixaId = String(card.helixaId ?? '').trim();
+  if (/^\d+:\d+$/.test(helixaId)) return `/multipass/?agent=${encodeURIComponent(helixaId)}`;
+
+  if (card.profileUrl) {
+    try {
+      const parsed = new URL(String(card.profileUrl), 'https://helixa.xyz');
+      const sharePath = `${parsed.pathname}${parsed.search}`;
+      if (isSafeMultipassSharePath(sharePath)) return sharePath;
+    } catch {
+      // Fall through to the Multipass home rather than leaking old Helixa profile routes.
+    }
+  }
+
+  return '/multipass/';
 }
 
 function bindProductHomeEvents(root, handlers, state) {
