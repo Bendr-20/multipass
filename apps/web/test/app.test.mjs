@@ -1805,3 +1805,93 @@ test('saved profile owner wallet claim enables safe public profile edits', async
   assert.deepEqual(calls[2], ['verify', 'bendr-2-1', '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', 'nonce-1', '0xsig']);
   assert.deepEqual(calls[3], ['update', 'bendr-2-1', 'csrf-1', { display_name: 'Bendr Managed', summary: 'Managed public profile copy.' }]);
 });
+
+test('claimed saved profile can create update revoke and show fragment errors', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const fragment = {
+    schema_version: '0.1.0',
+    fragment_id: 'frag_manager_endpoint_1',
+    multipass_id: 'mp_helixa_agent_1',
+    fragment_type: 'endpoint',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: { source_type: 'owner_submission', source_id: 'manager:frag_manager_endpoint_1', issuer: null, observed_at: '2026-06-27T00:10:00.000Z' },
+    public_value: 'Profile JSON endpoint',
+    endpoint_ref: { endpoint_id: 'profile-json', url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1', protocol: 'api' },
+    created_at: '2026-06-27T00:10:00.000Z',
+    updated_at: '2026-06-27T00:10:00.000Z',
+  };
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1' } }),
+    createMultipassFragment: async ({ id, csrfToken, fragment: input }) => {
+      calls.push(['create-fragment', id, csrfToken, input]);
+      if (calls.filter(([type]) => type === 'create-fragment').length === 1) throw new Error('Unsafe URL rejected.');
+      return { fragment, fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [fragment] }, profile: { ...sampleData().profile, slug: 'bendr-2-1', public_fragments: [{ fragment_id: fragment.fragment_id, fragment_type: 'endpoint', status: 'pending', assurance_level: 'self_attested', visibility: 'public', updated_at: fragment.updated_at }] } };
+    },
+    updateMultipassFragment: async ({ id, fragmentId, csrfToken, patch }) => {
+      calls.push(['update-fragment', id, fragmentId, csrfToken, patch]);
+      const updated = { ...fragment, public_value: patch.public_value, status: patch.status, transfer_policy: patch.transfer_policy, endpoint_ref: patch.endpoint_ref ?? fragment.endpoint_ref, updated_at: '2026-06-27T00:15:00.000Z' };
+      return { fragment: updated, fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [updated] }, profile: { ...sampleData().profile, slug: 'bendr-2-1' } };
+    },
+    revokeMultipassFragment: async ({ id, fragmentId, csrfToken }) => {
+      calls.push(['revoke-fragment', id, fragmentId, csrfToken]);
+      const revoked = { ...fragment, status: 'revoked', revoked_at: '2026-06-27T00:20:00.000Z' };
+      return { fragment: revoked, fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [revoked] }, profile: { ...sampleData().profile, slug: 'bendr-2-1' } };
+    },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.ok(root.querySelector('.fragment-manager-panel'));
+  let createForm = root.querySelector('[data-action="create-public-fragment"]');
+  createForm.querySelector('select[name="fragment_type"]').value = 'endpoint';
+  createForm.querySelector('select[name="fragment_type"]').dispatchEvent(new window.Event('change', { bubbles: true }));
+  createForm.querySelector('input[name="public_value"]').value = 'Profile JSON endpoint';
+  createForm.querySelector('input[name="reference_url"]').value = 'https://helixa.xyz/multipass/bendr-2-1';
+  createForm.querySelector('input[name="endpoint_id"]').value = 'profile-json';
+  createForm.querySelector('input[name="endpoint_url"]').value = 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1';
+  createForm.querySelector('select[name="endpoint_protocol"]').value = 'api';
+  createForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.fragment-manager-panel').textContent, /Unsafe URL rejected/);
+
+  createForm = root.querySelector('[data-action="create-public-fragment"]');
+  createForm.querySelector('select[name="fragment_type"]').value = 'endpoint';
+  createForm.querySelector('select[name="fragment_type"]').dispatchEvent(new window.Event('change', { bubbles: true }));
+  createForm.querySelector('input[name="public_value"]').value = 'Profile JSON endpoint';
+  createForm.querySelector('input[name="reference_url"]').value = 'https://helixa.xyz/multipass/bendr-2-1';
+  createForm.querySelector('input[name="endpoint_id"]').value = 'profile-json';
+  createForm.querySelector('input[name="endpoint_url"]').value = 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1';
+  createForm.querySelector('select[name="endpoint_protocol"]').value = 'api';
+  createForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.fragment-manager-panel').textContent, /Profile JSON endpoint/);
+
+  const editForm = root.querySelector('[data-action="update-public-fragment"]');
+  editForm.querySelector('input[name="public_value"]').value = 'Updated profile JSON endpoint';
+  editForm.querySelector('input[name="reference_url"]').value = 'https://helixa.xyz/multipass/bendr-2-1';
+  editForm.querySelector('input[name="proof_reference"]').value = 'owner note';
+  editForm.querySelector('select[name="status"]').value = 'stale';
+  editForm.querySelector('select[name="transfer_policy"]').value = 'pause_on_transfer';
+  editForm.querySelector('input[name="endpoint_id"]').value = 'profile-json-v2';
+  editForm.querySelector('input[name="endpoint_url"]').value = 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1';
+  editForm.querySelector('select[name="endpoint_protocol"]').value = 'mcp';
+  editForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  root.querySelector('[data-action="revoke-public-fragment"]').click();
+  await flushAsyncEvents();
+
+  const expectedEndpointInput = { fragment_type: 'endpoint', public_value: 'Profile JSON endpoint', reference_url: 'https://helixa.xyz/multipass/bendr-2-1', endpoint_ref: { endpoint_id: 'profile-json', url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1', protocol: 'api' } };
+  assert.deepEqual(calls[0], ['create-fragment', 'bendr-2-1', 'csrf-1', expectedEndpointInput]);
+  assert.deepEqual(calls[1], ['create-fragment', 'bendr-2-1', 'csrf-1', expectedEndpointInput]);
+  assert.deepEqual(calls[2], ['update-fragment', 'bendr-2-1', 'frag_manager_endpoint_1', 'csrf-1', { public_value: 'Updated profile JSON endpoint', reference_url: 'https://helixa.xyz/multipass/bendr-2-1', proof_reference: 'owner note', status: 'stale', transfer_policy: 'pause_on_transfer', endpoint_ref: { endpoint_id: 'profile-json-v2', url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1', protocol: 'mcp' } }]);
+  assert.deepEqual(calls[3], ['revoke-fragment', 'bendr-2-1', 'frag_manager_endpoint_1', 'csrf-1']);
+});

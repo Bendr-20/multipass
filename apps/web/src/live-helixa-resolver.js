@@ -513,7 +513,7 @@ export function createLiveMarketplaceListing(agent, tokenId, fragments, profileU
     paymentReferences: createPaymentReferences(agent),
     proof: createListingProof(fragments),
     links: createListingLinks(agent, profileUrl),
-    safetyNote: 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or credential release.',
+    safetyNote: 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.',
   };
 }
 

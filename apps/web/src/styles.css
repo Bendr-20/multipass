@@ -2198,6 +2198,36 @@ h1 {
   width: fit-content;
 }
 
+.fragment-manager-panel,
+.fragment-create-form,
+.managed-fragment-card,
+.fragment-edit-form,
+.endpoint-fields {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.fragment-manager-panel {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  padding-top: 1rem;
+}
+
+.managed-fragment-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.managed-fragment-card {
+  padding: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.managed-fragment-card.readonly {
+  opacity: 0.78;
+}
+
 .profile-edit-actions {
   display: flex;
   gap: 0.75rem;

@@ -1,7 +1,8 @@
 import { getActivationState } from './activation.js';
 import { getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
-import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -303,6 +304,61 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
+  async function createPublicFragment(event) {
+    const id = getManageIdentifier(state);
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !csrfToken) return;
+    const fragment = compactFragmentInput(createFormData(event?.currentTarget));
+    state = { ...state, fragmentStatus: 'creating_fragment', fragmentError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl });
+      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_created', fragmentError: null });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  async function updatePublicFragment(event) {
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    const patch = compactFragmentPatch(createFormData(event.currentTarget));
+    state = { ...state, fragmentStatus: 'updating_fragment', fragmentError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl });
+      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_updated', fragmentError: null });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
+  async function revokePublicFragment(event) {
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    state = { ...state, fragmentStatus: 'revoking_fragment', fragmentError: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await claimApi.revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl });
+      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_revoked', fragmentError: null });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
+      render(root, state, handlers);
+    }
+  }
+
   async function logoutManagerSession() {
     const id = getManageIdentifier(state);
     if (!id) return;
@@ -315,7 +371,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, logoutManagerSession };
 
   return { start };
 }
@@ -350,6 +406,9 @@ const defaultClaimApi = {
   verifyClaimSignature,
   submitManualReviewClaim,
   updateMultipassProfile,
+  createMultipassFragment,
+  updateMultipassFragment,
+  revokeMultipassFragment,
   logoutMultipassSession,
 };
 
@@ -555,6 +614,7 @@ function render(root, state, handlers = {}) {
     handlers.updatePublicProfile?.(event);
   });
   root.querySelector('[data-action="logout-manager-session"]')?.addEventListener('click', () => handlers.logoutManagerSession?.());
+  bindFragmentManager(root, handlers);
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
@@ -697,6 +757,7 @@ function renderClaimManagementPanel(state) {
         </form>
       </div>
       ${canEdit ? renderPublicProfileEditForm(profile, state) : ''}
+      ${canEdit ? renderFragmentManagerPanel(state) : ''}
     </section>
   `;
 }
@@ -1118,7 +1179,7 @@ function renderMarketplaceListing(listing) {
       </section>
       ${renderListingProofStrip(listing.proof)}
       ${renderListingLinks(listing.links)}
-      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or credential release.')}</p>
+      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.')}</p>
     </section>
   `;
 }
