@@ -12,7 +12,8 @@ test('mobile layout does not squeeze fragment cards into narrow desktop columns'
   assert.equal(css.includes('grid-template-columns: repeat(5, minmax(0, 1fr));'), false);
   assert.match(css, /\.fragment-cards\s*{[^}]*minmax\(280px, 1fr\)/s);
   assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-cards\s*{[\s\S]*grid-template-columns: 1fr;/);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns:\s*minmax\(0, min\(240px, 72vw\)\);/);
+  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);/);
+  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*scroll-snap-type:\s*x proximity;/);
   assert.doesNotMatch(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns: minmax\(280px, 88vw\);/);
 });
 
@@ -28,7 +29,8 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;[^}]*margin-top:\s*12px;/s);
   assert.match(mobileBlock, /\.product-hero-copy\s*\{[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-carousel\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
-  assert.match(mobileBlock, /\.card-track\s*\{[^}]*width:\s*100%;[^}]*grid-auto-columns:\s*minmax\(0, min\(240px, 72vw\)\);[^}]*overflow-x:\s*auto;/s);
+  assert.match(mobileBlock, /\.card-track\s*\{[^}]*width:\s*100%;[^}]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x proximity;/s);
+  assert.match(mobileBlock, /\.profile-card\.card-button\s*\{[^}]*min-height:\s*300px;[^}]*grid-template-rows:\s*150px 1fr;[^}]*scroll-snap-align:\s*start;/s);
   assert.doesNotMatch(mobileBlock, /grid-auto-columns: minmax\(280px, 88vw\);/s);
   assert.match(mobileBlock, /\.homepage-proof-panel h2\s*\{[^}]*font-size:\s*clamp\(1\.45rem, 7vw, 2\.15rem\);/s);
   assert.match(mobileBlock, /\.homepage-proof-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
