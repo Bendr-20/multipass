@@ -308,8 +308,9 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.ok(strip);
   assert.equal(strip.querySelector('.card-carousel-head'), null);
   assert.equal(strip.querySelector('.card-detail'), null);
-  assert.equal(strip.querySelectorAll('.card-button').length, 4);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 0);
+  assert.equal(strip.querySelector('.card-track'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 0);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
   assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
   assert.match(strip.textContent, /Bendr 2\.0/);
@@ -411,8 +412,9 @@ test('static homepage keeps agent visuals display-only', async () => {
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
   assert.equal(strip.querySelector('input'), null);
-  assert.equal(strip.querySelectorAll('.card-button').length, 4);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 0);
+  assert.equal(strip.querySelector('.card-track'), null);
+  assert.equal(strip.querySelectorAll('.card-button').length, 0);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
   assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });
 

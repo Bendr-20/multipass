@@ -2012,6 +2012,26 @@ h1 {
     margin-top: 12px;
   }
 
+  .profile-visual-strip .visual-card-track {
+    width: 100%;
+    max-width: 100%;
+    grid-auto-columns: minmax(0, min(260px, 78vw));
+    gap: 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 2px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .profile-visual-strip .visual-card-button {
+    grid-template-rows: 132px auto;
+  }
+
+  .profile-visual-strip .visual-card-button .profile-card-visual {
+    min-height: 132px;
+  }
+
   .prototype-ribbon,
   .note,
   .header-meta {
