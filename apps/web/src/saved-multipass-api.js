@@ -78,6 +78,47 @@ export async function updateMultipassProfile({ id, apiBase, csrfToken, patch, fe
   });
 }
 
+export async function createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/fragments`,
+    method: 'POST',
+    body: fragment ?? {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Fragment create failed',
+  });
+}
+
+export async function updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  const safeFragmentId = requireFragmentIdentifier(fragmentId);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/fragments/${encodeURIComponent(safeFragmentId)}`,
+    method: 'PATCH',
+    body: patch ?? {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Fragment update failed',
+  });
+}
+
+export async function revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  const safeFragmentId = requireFragmentIdentifier(fragmentId);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/fragments/${encodeURIComponent(safeFragmentId)}/revoke`,
+    method: 'POST',
+    body: {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Fragment revoke failed',
+  });
+}
+
 export async function logoutMultipassSession({ id, apiBase, csrfToken, fetchImpl = fetch } = {}) {
   const safeId = requireMultipassIdentifier(id);
   return requestSavedJson({
@@ -113,6 +154,12 @@ async function requestSavedJson({ apiBase, path, method, body, csrfToken, fetchI
 function requireMultipassIdentifier(value) {
   const id = String(value ?? '').trim();
   if (!id) throw new SavedMultipassError('Saved Multipass id is required.');
+  return id;
+}
+
+function requireFragmentIdentifier(value) {
+  const id = String(value ?? '').trim();
+  if (!id) throw new SavedMultipassError('Fragment id is required.');
   return id;
 }
 

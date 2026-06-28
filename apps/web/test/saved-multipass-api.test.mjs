@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClaimNonce, logoutMultipassSession, saveActivatedMultipass, submitManualReviewClaim, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
 
 test('saveActivatedMultipass posts agent input and returns saved payload', async () => {
   const calls = [];
@@ -121,4 +121,31 @@ test('manual review helper submits review claim metadata', async () => {
     contactRoute: 'agentmail:team@example.test',
     note: 'Please review.',
   });
+});
+
+test('fragment helpers create update and revoke with credentials and CSRF', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (init.method === 'POST' && String(url).endsWith('/fragments')) return new Response(JSON.stringify({ fragment: { fragment_id: 'frag_1' } }), { status: 201 });
+    if (init.method === 'PATCH' && String(url).endsWith('/fragments/frag_1')) return new Response(JSON.stringify({ fragment: { fragment_id: 'frag_1', status: 'stale' } }), { status: 200 });
+    if (init.method === 'POST' && String(url).endsWith('/fragments/frag_1/revoke')) return new Response(JSON.stringify({ fragment: { fragment_id: 'frag_1', status: 'revoked' } }), { status: 200 });
+    throw new Error(`unexpected URL ${url}`);
+  };
+
+  const endpointRef = { endpoint_id: 'profile-json', url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1', protocol: 'api' };
+  assert.deepEqual(await createMultipassFragment({ id: 'bendr-2-1', apiBase: '/multipass-api', csrfToken: 'csrf-1', fragment: { fragment_type: 'endpoint', public_value: 'Profile JSON endpoint', endpoint_ref: endpointRef }, fetchImpl }), { fragment: { fragment_id: 'frag_1' } });
+  assert.deepEqual(await updateMultipassFragment({ id: 'bendr-2-1', fragmentId: 'frag_1', apiBase: '/multipass-api', csrfToken: 'csrf-1', patch: { status: 'stale', endpoint_ref: { ...endpointRef, protocol: 'mcp' } }, fetchImpl }), { fragment: { fragment_id: 'frag_1', status: 'stale' } });
+  assert.deepEqual(await revokeMultipassFragment({ id: 'bendr-2-1', fragmentId: 'frag_1', apiBase: '/multipass-api', csrfToken: 'csrf-1', fetchImpl }), { fragment: { fragment_id: 'frag_1', status: 'revoked' } });
+
+  assert.deepEqual(calls.map((call) => [call.url, call.init.method, call.init.credentials, call.init.headers['x-csrf-token']]), [
+    ['/multipass-api/api/multipass/bendr-2-1/fragments', 'POST', 'include', 'csrf-1'],
+    ['/multipass-api/api/multipass/bendr-2-1/fragments/frag_1', 'PATCH', 'include', 'csrf-1'],
+    ['/multipass-api/api/multipass/bendr-2-1/fragments/frag_1/revoke', 'POST', 'include', 'csrf-1'],
+  ]);
+  assert.deepEqual(calls.map((call) => JSON.parse(call.init.body)), [
+    { fragment_type: 'endpoint', public_value: 'Profile JSON endpoint', endpoint_ref: endpointRef },
+    { status: 'stale', endpoint_ref: { ...endpointRef, protocol: 'mcp' } },
+    {},
+  ]);
 });
