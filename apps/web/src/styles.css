@@ -863,6 +863,7 @@ h1 {
 }
 
 .aura-share-action {
+  appearance: none;
   position: absolute;
   top: 18px;
   right: 18px;
@@ -876,6 +877,7 @@ h1 {
   background: rgba(255, 250, 241, 0.92);
   color: var(--ink);
   box-shadow: 0 12px 28px rgba(46, 40, 30, 0.14);
+  cursor: pointer;
 }
 
 .aura-share-action:hover,

@@ -710,6 +710,9 @@ function bindProfileEvents(root, state, handlers = {}) {
     handlers.updatePublicProfile?.(event);
   });
   root.querySelector('[data-action="logout-manager-session"]')?.addEventListener('click', () => handlers.logoutManagerSession?.());
+  root.querySelectorAll('[data-action="share-profile"]').forEach((button) => {
+    button.addEventListener('click', () => shareProfileFromButton(button));
+  });
   bindFragmentManager(root, handlers);
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
@@ -1319,12 +1322,32 @@ function isSafeAuraSharePath(value) {
 
 function renderAuraShareAction(sharePath, title) {
   return `
-    <a class="aura-share-action" href="${escapeAttribute(sharePath)}" aria-label="Share ${escapeAttribute(title)} Multipass profile">
+    <button class="aura-share-action" type="button" data-action="share-profile" data-share-url="${escapeAttribute(sharePath)}" data-share-title="${escapeAttribute(title)}" aria-label="Share ${escapeAttribute(title)} Multipass profile">
       <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
         <path d="M18 16.1c-.76 0-1.44.3-1.96.77L8.91 12.7a3.27 3.27 0 0 0 0-1.39l7.05-4.13A2.99 2.99 0 1 0 15 5c0 .24.03.47.08.69L8.03 9.82a3 3 0 1 0 0 4.36l7.12 4.18c-.04.2-.06.41-.06.64a2.91 2.91 0 1 0 2.91-2.9Z" />
       </svg>
-    </a>
+    </button>
   `;
+}
+
+async function shareProfileFromButton(button) {
+  const sharePath = button.getAttribute('data-share-url');
+  if (!isSafeAuraSharePath(sharePath)) return;
+  const title = `${button.getAttribute('data-share-title') || 'Multipass profile'} Multipass`;
+  const url = new URL(sharePath, 'https://helixa.xyz').href;
+  const browserNavigator = typeof window !== 'undefined' ? window.navigator : (typeof navigator !== 'undefined' ? navigator : null);
+  try {
+    if (typeof browserNavigator?.share === 'function') {
+      await browserNavigator.share({ title, text: title, url });
+      return;
+    }
+    if (browserNavigator?.clipboard?.writeText) {
+      await browserNavigator.clipboard.writeText(url);
+      button.setAttribute('aria-label', 'Copied share link');
+    }
+  } catch {
+    // User-cancelled share sheets should not navigate away from the profile.
+  }
 }
 
 function renderAgentAuraProvenanceDrawer(drawer) {

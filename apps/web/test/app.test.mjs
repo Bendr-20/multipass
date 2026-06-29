@@ -1541,8 +1541,8 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context')?.contains(root.querySelector('.marketplace-listing')));
   assert.equal(auraCard.querySelector('h2')?.textContent, 'Quigbot');
   assert.doesNotMatch(auraCard.textContent, /Helixa Agent Aura/);
-  const shareAction = auraCard.querySelector('.aura-share-action');
-  assert.equal(shareAction?.getAttribute('href'), '/multipass/share/81/');
+  const shareAction = auraCard.querySelector('button.aura-share-action[data-action="share-profile"]');
+  assert.equal(shareAction?.getAttribute('data-share-url'), '/multipass/share/81/');
   assert.equal(shareAction?.getAttribute('aria-label'), 'Share Quigbot Multipass profile');
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
@@ -1559,6 +1559,37 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.doesNotMatch(root.textContent, /Default visual identity/);
   assert.doesNotMatch(root.textContent, /Default Helixa Agent Aura/);
   assert.doesNotMatch(root.textContent, /agent NFT, collection NFT, or custom visual/);
+});
+
+test('aura share icon opens native share without navigating to crawler preview page', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const shares = [];
+  Object.defineProperty(window.navigator, 'share', {
+    configurable: true,
+    value: async (payload) => { shares.push(payload); },
+  });
+  const data = {
+    ...sampleData(),
+    liveProfilePage: { headline: 'Quigbot Multipass', sharePath: '/multipass/?agent=81' },
+    visualIdentity: {
+      source: 'helixa_aura',
+      label: 'Helixa Agent Aura',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png',
+      initials: 'Q',
+      tone: 'prime',
+      chips: ['Cred 75'],
+    },
+  };
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const shareAction = root.querySelector('button.aura-share-action');
+  shareAction.click();
+  await Promise.resolve();
+
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
+  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: 'https://helixa.xyz/multipass/share/81/' }]);
 });
 
 test('Agent Aura provenance drawer is optional and skips empty rows', async () => {
