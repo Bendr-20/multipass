@@ -87,11 +87,20 @@ button:focus-visible {
   mix-blend-mode: multiply;
 }
 
+.brand-stack {
+  display: grid;
+  gap: 4px;
+}
+
 .brand-wordmark {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 18px;
   align-items: center;
   color: var(--ink);
+  line-height: 1;
+}
+
+.brand .header-meta {
   line-height: 1;
 }
 

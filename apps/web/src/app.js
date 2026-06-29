@@ -534,15 +534,17 @@ function clearShareUrl() {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
-function renderRecordHeader(metaLabel = 'Multipass') {
+function renderRecordHeader(metaLabel = 'Portable Agent Identities') {
   return `
     <header class="record-header">
       <div class="brand">
         <span class="brand-logo-frame"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"></span>
-        <span class="brand-wordmark">Multipass</span>
+        <span class="brand-stack">
+          <span class="brand-wordmark">Multipass</span>
+          <span class="header-meta">${escapeHtml(metaLabel)}</span>
+        </span>
       </div>
       <div class="header-actions">
-        <div class="header-meta"><span>${escapeHtml(metaLabel)}</span></div>
         <button class="site-menu-button" type="button" aria-label="Open Multipass navigation" aria-expanded="false">
           <span aria-hidden="true"></span>
           <span aria-hidden="true"></span>
@@ -565,9 +567,12 @@ function render(root, state, handlers = {}) {
   const activationState = getActivationState(data, state);
   const fragmentTrustMap = createFragmentTrustMap(data, selectedAgent);
   const proofCards = createProofCards(data, selectedAgent);
+  const headerMeta = state.resolverStatus === 'loaded' && data.liveProfilePage?.headerMeta
+    ? data.liveProfilePage.headerMeta
+    : 'Portable Agent Identities';
   root.innerHTML = `
     <div class="record-shell">
-      ${renderRecordHeader(data.liveProfilePage?.headerMeta ?? data.sourceLabel ?? 'Multipass')}
+      ${renderRecordHeader(headerMeta)}
 
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
 
@@ -693,7 +698,7 @@ function renderProductHome(root, state, handlers = {}) {
   const agentCarousel = createAgentCarousel(data);
   root.innerHTML = `
     <div class="record-shell product-home-shell">
-      ${renderRecordHeader('Agent identity layer')}
+      ${renderRecordHeader('Portable Agent Identities')}
 
       <section class="product-hero">
         <div class="product-hero-copy">

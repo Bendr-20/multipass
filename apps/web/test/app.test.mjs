@@ -387,6 +387,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.equal(brandLogo?.getAttribute('alt'), '');
   assert.ok(root.querySelector('.brand-logo-frame'));
   assert.equal(root.querySelector('.brand-wordmark')?.textContent, 'Multipass');
+  assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Portable Agent Identities');
+  assert.equal(root.querySelector('.header-actions .header-meta'), null);
   const menuButton = root.querySelector('.site-menu-button');
   assert.equal(menuButton?.getAttribute('type'), 'button');
   assert.equal(menuButton?.getAttribute('aria-label'), 'Open Multipass navigation');
