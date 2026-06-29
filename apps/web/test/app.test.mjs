@@ -1539,7 +1539,11 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.ok(root.querySelector('.aura-item-meta'));
   assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Visual provenance')?.contains(drawer));
   assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context')?.contains(root.querySelector('.marketplace-listing')));
-  assert.match(root.textContent, /Helixa Agent Aura/);
+  assert.equal(auraCard.querySelector('h2')?.textContent, 'Quigbot');
+  assert.doesNotMatch(auraCard.textContent, /Helixa Agent Aura/);
+  const shareAction = auraCard.querySelector('.aura-share-action');
+  assert.equal(shareAction?.getAttribute('href'), '/multipass/share/81/');
+  assert.equal(shareAction?.getAttribute('aria-label'), 'Share Quigbot Multipass profile');
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
   assert.match(drawer?.textContent ?? '', /AgentDNA token ID/);

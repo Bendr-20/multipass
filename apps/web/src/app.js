@@ -649,11 +649,14 @@ function renderProfilePage(root, state, handlers = {}) {
   const visualIdentity = createProfileVisualIdentity(data, selectedAgent);
   const headerMeta = data.liveProfilePage?.headerMeta ?? 'Portable Agent Identities';
 
+  const auraTitle = getProfileAuraTitle(data, selectedAgent);
+  const auraSharePath = getProfileAuraSharePath(data, selectedAgent);
+
   root.innerHTML = `
     <div class="record-shell">
       ${renderRecordHeader(headerMeta)}
       <main class="multipass-profile-page">
-        ${renderAgentAura(visualIdentity)}
+        ${renderAgentAura(visualIdentity, { title: auraTitle, sharePath: auraSharePath })}
         ${renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state })}
         <footer class="footer-note">
           <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
@@ -719,7 +722,7 @@ function bindProfileEvents(root, state, handlers = {}) {
 
 function selectProfileAgent(data, carousel, selectedIndex = 0) {
   const cards = carousel.cards ?? [];
-  const resolverTokenId = data.resolver?.tokenId ?? data.profile?.token_id ?? data.profile?.tokenId;
+  const resolverTokenId = data.resolver?.tokenId ?? data.profile?.token_id ?? data.profile?.tokenId ?? getTokenIdFromMultipassSharePath(data.liveProfilePage?.sharePath);
   const resolverCanonicalId = data.resolver?.canonicalId ?? data.profile?.helixa_id ?? data.profile?.helixaId;
   const displayName = data.profile?.display_name ?? data.liveProfilePage?.headline;
 
@@ -734,6 +737,17 @@ function selectProfileAgent(data, carousel, selectedIndex = 0) {
   if (byName) return byName;
 
   return cards[selectedIndex] ?? cards[0] ?? null;
+}
+
+function getTokenIdFromMultipassSharePath(sharePath) {
+  try {
+    const parsed = new URL(String(sharePath ?? ''), 'https://helixa.xyz');
+    if (parsed.pathname !== '/multipass/') return null;
+    const agent = parsed.searchParams.get('agent');
+    return /^\d+$/.test(String(agent ?? '')) ? agent : null;
+  } catch {
+    return null;
+  }
 }
 
 function findAgentCard(cards, predicate) {
@@ -778,6 +792,23 @@ function createProfileVisualIdentity(data, selectedAgent) {
       safetyNote: 'Display-only visual context. This does not grant ownership, custody, approvals, or route authority.',
     },
   };
+}
+
+function getProfileAuraTitle(data, selectedAgent) {
+  const rawTitle = selectedAgent?.name ?? data.profile?.display_name ?? data.liveProfilePage?.headline ?? data.visualIdentity?.label ?? 'Multipass profile';
+  return String(rawTitle).replace(/\s+Multipass$/i, '').trim() || 'Multipass profile';
+}
+
+function getProfileAuraSharePath(data, selectedAgent) {
+  const candidates = [
+    selectedAgent?.tokenId,
+    data.resolver?.tokenId,
+    data.profile?.token_id,
+    String(data.resolver?.canonicalId ?? '').match(/^\d+:(\d+)$/)?.[1],
+    String(data.profile?.multipass_id ?? '').match(/^\d+:(\d+)$/)?.[1],
+  ];
+  const tokenId = candidates.map((value) => String(value ?? '').trim()).find((value) => /^\d+$/.test(value));
+  return tokenId ? `/multipass/share/${encodeURIComponent(tokenId)}/` : null;
 }
 
 function initialsForDisplayName(value) {
@@ -1256,12 +1287,15 @@ function safeHttpsUrl(value) {
   }
 }
 
-function renderAgentAura(visualIdentity) {
+function renderAgentAura(visualIdentity, options = {}) {
   if (!visualIdentity || !['helixa_aura', 'aura'].includes(visualIdentity.source)) return '';
   const safeImageUrl = safeHttpsUrl(visualIdentity.imageUrl);
   const label = visualIdentity.label ?? 'Helixa Agent Aura';
+  const title = options.title ?? label;
+  const sharePath = isSafeAuraSharePath(options.sharePath) ? options.sharePath : null;
   return `
     <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual for trust profile">
+      ${sharePath ? renderAuraShareAction(sharePath, title) : ''}
       <div class="aura-asset-frame">
         <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}">
           ${safeImageUrl ? `<img src="${escapeAttribute(safeImageUrl)}" alt="${escapeAttribute(label)}" loading="lazy" />` : ''}
@@ -1270,12 +1304,26 @@ function renderAgentAura(visualIdentity) {
       </div>
       <div class="aura-item-meta">
         <p class="card-label">Visual</p>
-        <h2>${escapeHtml(label)}</h2>
+        <h2>${escapeHtml(title)}</h2>
         <div class="aura-chips" aria-label="Agent Aura traits">
           ${(visualIdentity.chips ?? []).map((chip) => `<span>${escapeHtml(chip)}</span>`).join('')}
         </div>
       </div>
     </section>
+  `;
+}
+
+function isSafeAuraSharePath(value) {
+  return typeof value === 'string' && /^\/multipass\/share\/\d+\/$/.test(value);
+}
+
+function renderAuraShareAction(sharePath, title) {
+  return `
+    <a class="aura-share-action" href="${escapeAttribute(sharePath)}" aria-label="Share ${escapeAttribute(title)} Multipass profile">
+      <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M18 16.1c-.76 0-1.44.3-1.96.77L8.91 12.7a3.27 3.27 0 0 0 0-1.39l7.05-4.13A2.99 2.99 0 1 0 15 5c0 .24.03.47.08.69L8.03 9.82a3 3 0 1 0 0 4.36l7.12 4.18c-.04.2-.06.41-.06.64a2.91 2.91 0 1 0 2.91-2.9Z" />
+      </svg>
+    </a>
   `;
 }
 

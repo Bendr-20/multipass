@@ -848,6 +848,7 @@ h1 {
 }
 
 .aura-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(280px, 0.88fr) minmax(260px, 1fr);
   gap: 28px;
@@ -859,6 +860,34 @@ h1 {
     linear-gradient(180deg, var(--paper), rgba(255, 250, 241, 0.88));
   box-shadow: var(--shadow);
   padding: 18px;
+}
+
+.aura-share-action {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 5;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid rgba(46, 40, 30, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.92);
+  color: var(--ink);
+  box-shadow: 0 12px 28px rgba(46, 40, 30, 0.14);
+}
+
+.aura-share-action:hover,
+.aura-share-action:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px rgba(46, 40, 30, 0.18);
+}
+
+.aura-share-action svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .aura-asset-frame {

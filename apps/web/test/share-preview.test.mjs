@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const indexPath = join(webRoot, 'index.html');
 const ogImagePath = join(webRoot, 'public', 'og-preview.png');
+const shareRoot = join(webRoot, 'public', 'share');
 
 test('index contains Multipass portable agent identity share metadata', async () => {
   const html = await readFile(indexPath, 'utf8');
@@ -27,4 +28,26 @@ test('index contains Multipass portable agent identity share metadata', async ()
 
 test('share preview image exists as a static public asset', () => {
   assert.equal(existsSync(ogImagePath), true);
+});
+
+test('agent share routes expose per-agent social preview metadata', async () => {
+  const cases = [
+    { tokenId: '1', name: 'Bendr 2.0' },
+    { tokenId: '81', name: 'Quigbot' },
+  ];
+
+  for (const { tokenId, name } of cases) {
+    const htmlPath = join(shareRoot, tokenId, 'index.html');
+    const imagePath = join(shareRoot, `${tokenId}.png`);
+    assert.equal(existsSync(htmlPath), true);
+    assert.equal(existsSync(imagePath), true);
+    assert.ok(statSync(imagePath).size > 20_000);
+
+    const html = await readFile(htmlPath, 'utf8');
+    assert.match(html, new RegExp(`<title>${name} Multipass<\\/title>`));
+    assert.match(html, new RegExp(`<meta property="og:title" content="${name} Multipass" \\/>`));
+    assert.match(html, new RegExp(`<meta property="og:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
+    assert.match(html, new RegExp(`<meta name="twitter:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
+    assert.match(html, new RegExp(`url=https:\\/\\/helixa\\.xyz\\/multipass\\/\\?agent=${tokenId}`));
+  }
 });
