@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createInjectedWalletClient,
   createLegacyWalletClient,
+  encodePersonalSignMessage,
   getWalletErrorMessage,
   shortenAddress,
 } from '../src/wallet-client.js';
@@ -34,6 +35,10 @@ test('createLegacyWalletClient wraps wallet signer callback', async () => {
   assert.deepEqual(calls, ['hello']);
 });
 
+test('encodePersonalSignMessage converts claim text to UTF-8 hex for personal_sign', () => {
+  assert.equal(encodePersonalSignMessage('Sign Quigbot claim'), '0x5369676e2051756967626f7420636c61696d');
+});
+
 test('createInjectedWalletClient requests accounts before personal_sign and stores wallet label', async () => {
   const wallet = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const calls = [];
@@ -54,7 +59,7 @@ test('createInjectedWalletClient requests accounts before personal_sign and stor
   assert.deepEqual(await client.signMessage('hello'), { wallet, signature: '0xsig' });
   assert.deepEqual(calls, [
     { method: 'eth_requestAccounts' },
-    { method: 'personal_sign', params: ['hello', wallet] },
+    { method: 'personal_sign', params: ['0x68656c6c6f', wallet] },
   ]);
   assert.deepEqual(client.getSnapshot(), {
     ready: true,

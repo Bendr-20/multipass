@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect } from 'react';
 import { useConnectWallet, usePrivy, useWallets } from '@privy-io/react-auth';
 
-import { defaultWalletSnapshot, shortenAddress } from './wallet-client.js';
+import { defaultWalletSnapshot, requestPersonalSign, shortenAddress } from './wallet-client.js';
 
 const LOADING_WALLET_MESSAGE = 'Wallet options are still loading.';
 const WALLET_NOT_CONFIGURED_MESSAGE = 'Wallet login is not configured for this build.';
@@ -208,10 +208,7 @@ export function PrivyWalletBridge({ client, configured }) {
         if (!wallet) throw new Error(CONNECT_EVM_WALLET_MESSAGE);
         const provider = await wallet.getEthereumProvider();
         if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
-        const signature = await provider.request({
-          method: 'personal_sign',
-          params: [message, wallet.address],
-        });
+        const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
       },
     });

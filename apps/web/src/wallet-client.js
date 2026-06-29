@@ -17,6 +17,15 @@ export function defaultWalletSnapshot(overrides = {}) {
   };
 }
 
+export function encodePersonalSignMessage(message) {
+  const bytes = new TextEncoder().encode(String(message ?? ''));
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export async function requestPersonalSign(provider, address, message) {
+  return provider.request({ method: 'personal_sign', params: [encodePersonalSignMessage(message), address] });
+}
+
 export function getWalletErrorMessage(error) {
   const messages = [
     error?.message,
@@ -95,7 +104,7 @@ export function createInjectedWalletClient({ getWindow = () => globalThis.window
       if (!address) await connect();
       if (!address) throw new Error('Connect an Ethereum wallet to sign the owner claim.');
       const provider = getProvider();
-      const signature = await provider.request({ method: 'personal_sign', params: [message, address] });
+      const signature = await requestPersonalSign(provider, address, message);
       return { wallet: address, signature };
     },
   };
