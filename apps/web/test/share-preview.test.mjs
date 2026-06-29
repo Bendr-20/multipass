@@ -30,7 +30,7 @@ test('share preview image exists as a static public asset', () => {
   assert.equal(existsSync(ogImagePath), true);
 });
 
-test('agent share routes expose per-agent social preview metadata', async () => {
+test('agent share routes expose per-agent X-compatible JPEG social preview metadata', async () => {
   const cases = [
     { tokenId: '1', name: 'Bendr 2.0' },
     { tokenId: '81', name: 'Quigbot' },
@@ -38,18 +38,24 @@ test('agent share routes expose per-agent social preview metadata', async () => 
 
   for (const { tokenId, name } of cases) {
     const htmlPath = join(shareRoot, tokenId, 'index.html');
-    const imagePath = join(shareRoot, `${tokenId}.png`);
+    const imagePath = join(shareRoot, `${tokenId}.jpg`);
     assert.equal(existsSync(htmlPath), true);
     assert.equal(existsSync(imagePath), true);
     assert.ok(statSync(imagePath).size > 20_000);
 
     const html = await readFile(htmlPath, 'utf8');
-    assert.match(html, new RegExp(`<title>${name} Multipass<\\/title>`));
-    assert.match(html, new RegExp(`<meta property="og:title" content="${name} Multipass" \\/>`));
-    assert.match(html, new RegExp(`<meta property="og:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
-    assert.match(html, new RegExp(`<meta name="twitter:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
-    assert.match(html, new RegExp(`<img src="\\.\\.\\/${tokenId}\\.png" alt="${name} Multipass preview" \\/>`));
-    assert.match(html, new RegExp(`<a class="open-profile" href="https:\\/\\/helixa\\.xyz\\/multipass\\/\\?agent=${tokenId}">Open Multipass profile<\\/a>`));
+    const shareUrl = `https://helixa.xyz/multipass/share/${tokenId}/`;
+    const imageUrl = `https://helixa.xyz/multipass/share/${tokenId}.jpg`;
+    assert.ok(html.includes(`<title>${name} Multipass</title>`));
+    assert.ok(html.includes(`<link rel="canonical" href="${shareUrl}" />`));
+    assert.ok(html.includes(`<meta property="og:title" content="${name} Multipass" />`));
+    assert.ok(html.includes(`<meta property="og:image" content="${imageUrl}" />`));
+    assert.ok(html.includes(`<meta property="og:image:secure_url" content="${imageUrl}" />`));
+    assert.ok(html.includes('<meta property="og:image:type" content="image/jpeg" />'));
+    assert.ok(html.includes(`<meta name="twitter:image" content="${imageUrl}" />`));
+    assert.ok(html.includes(`<meta name="twitter:image:alt" content="${name} Multipass preview" />`));
+    assert.ok(html.includes(`<img src="../${tokenId}.jpg" alt="${name} Multipass preview" />`));
+    assert.ok(html.includes(`<a class="open-profile" href="https://helixa.xyz/multipass/?agent=${tokenId}">Open Multipass profile</a>`));
     assert.doesNotMatch(html, /http-equiv="refresh"/);
     assert.doesNotMatch(html, /window\.location\.replace/);
   }
