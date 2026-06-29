@@ -310,6 +310,83 @@ button:focus-visible {
   letter-spacing: -0.04em;
 }
 
+.multipass-system-panel {
+  gap: 24px;
+  min-height: 0;
+  justify-content: flex-start;
+}
+
+.system-panel-copy {
+  max-width: 900px;
+}
+
+.system-panel-copy p:not(.card-label) {
+  max-width: 780px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.multipass-system-map {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.system-node {
+  position: relative;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 241, 0.72);
+  padding: 16px;
+}
+
+.system-node p,
+.system-node strong {
+  display: block;
+  margin-bottom: 12px;
+  font-family: var(--display);
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.system-node div,
+.multipass-protocol-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.system-node span,
+.multipass-protocol-strip span {
+  border: 1px solid rgba(46, 40, 30, 0.14);
+  background: var(--paper-soft);
+  color: var(--muted);
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.system-node-core {
+  min-width: min(220px, 100%);
+  background: var(--ink);
+  color: var(--paper);
+  text-align: center;
+}
+
+.system-node-core span {
+  border-color: rgba(255, 250, 241, 0.22);
+  background: rgba(255, 250, 241, 0.08);
+  color: rgba(255, 250, 241, 0.86);
+}
+
+.multipass-protocol-strip {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
 .eyebrow,
 .card-label {
   margin: 0 0 16px;
@@ -2041,6 +2118,19 @@ h1 {
   .homepage-proof-stat strong {
     margin-top: 6px;
     font-size: 14px;
+  }
+
+  .multipass-system-panel {
+    gap: 18px;
+  }
+
+  .multipass-system-map {
+    grid-template-columns: 1fr;
+  }
+
+  .system-node-core {
+    min-width: 0;
+    text-align: left;
   }
 
   .profile-visual-strip {

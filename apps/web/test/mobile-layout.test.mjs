@@ -24,6 +24,12 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
 
   assert.equal(resolverColumnRules.at(-1), '1fr', 'the last resolver grid declaration must stay single-column on mobile');
+  assert.match(css, /\.multipass-system-panel\s*\{/s);
+  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
+  assert.match(css, /\.system-node-core\s*\{/s);
+  assert.match(css, /\.multipass-protocol-strip\s*\{/s);
+  assert.match(mobileBlock, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.doesNotMatch(css, /Wiretap|ClawBank/);
   assert.match(mobileBlock, /\.record-shell\s*\{[^}]*max-width:\s*calc\(100vw - 24px\);[^}]*overflow-x:\s*clip;/s);
   assert.match(mobileBlock, /h1\s*\{[^}]*font-size:\s*clamp\(2rem, 8\.8vw, 2\.7rem\);/s);
   assert.match(mobileBlock, /\.profile-visual-strip\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;[^}]*margin-top:\s*12px;/s);

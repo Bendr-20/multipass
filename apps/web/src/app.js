@@ -634,9 +634,46 @@ function render(root, state, handlers = {}) {
   });
 }
 
+const MULTIPASS_INPUT_SIGNALS = ['AgentDNA', 'Owner wallet', 'Manager agent', 'Endpoints', 'NFT provenance'];
+const MULTIPASS_CORE_SIGNALS = ['Human-owned', 'Agent-managed', 'Standards-readable'];
+const MULTIPASS_PROFILE_SIGNALS = ['Public proof', 'Permissions', 'Work routes', 'Trust context', 'Shareable profile'];
+const MULTIPASS_PROTOCOL_CHIPS = ['ERC-8004', 'AgentDNA', 'Cred', 'x402', 'MCP/A2A'];
+
+function renderMultipassSignalList(items) {
+  return items.map((item) => `<span>${escapeHtml(item)}</span>`).join('');
+}
+
+function renderMultipassWhatItDoesPanel() {
+  return `
+    <aside class="homepage-proof-panel multipass-system-panel" aria-label="What Multipass does">
+      <div class="system-panel-copy">
+        <p class="card-label">What it does</p>
+        <h2>Multipass turns scattered agent identity into one readable trust profile.</h2>
+        <p>It connects identity, ownership, permissions, endpoints, proof, work history, and Cred context into one portable profile humans and agents can verify.</p>
+      </div>
+      <div class="multipass-system-map" aria-label="Multipass identity system map">
+        <section class="system-node system-node-inputs">
+          <p>Identity inputs</p>
+          <div>${renderMultipassSignalList(MULTIPASS_INPUT_SIGNALS)}</div>
+        </section>
+        <section class="system-node system-node-core">
+          <strong>Multipass</strong>
+          <div>${renderMultipassSignalList(MULTIPASS_CORE_SIGNALS)}</div>
+        </section>
+        <section class="system-node system-node-profile">
+          <p>Usable profile</p>
+          <div>${renderMultipassSignalList(MULTIPASS_PROFILE_SIGNALS)}</div>
+        </section>
+      </div>
+      <div class="multipass-protocol-strip" aria-label="Supported protocol context">
+        ${renderMultipassSignalList(MULTIPASS_PROTOCOL_CHIPS)}
+      </div>
+    </aside>
+  `;
+}
+
 function renderProductHome(root, state, handlers = {}) {
   const data = state.data;
-  const proofCount = countPublicProofSignals(data);
   const agentCarousel = createAgentCarousel(data);
   root.innerHTML = `
     <div class="record-shell product-home-shell">
@@ -659,16 +696,7 @@ function renderProductHome(root, state, handlers = {}) {
         ${renderLiveResolver(state, { showResetButton: false })}
       </section>
 
-      <aside class="homepage-proof-panel" aria-label="Multipass product summary">
-        <p class="card-label">What it does</p>
-        <h2>One readable profile for identity, proof, custody context, and endpoints.</h2>
-        <div class="homepage-proof-grid">
-          ${renderHeroStat('Example profile', 'Bendr 2.0')}
-          ${renderHeroStat('Public proof signals', proofCount)}
-          ${renderHeroStat('Manager edits', 'Claim-gated')}
-          ${renderHeroStat('Private data', 'Not exposed')}
-        </div>
-      </aside>
+      ${renderMultipassWhatItDoesPanel()}
     </div>
   `;
 
