@@ -260,6 +260,70 @@ test('serves site-level discovery pointer', async () => {
   assert.equal(body.routes.profile, 'https://multipass.example.test/api/multipass/{id}');
 });
 
+test('serves public Multipass discovery alias and OpenAPI document', async () => {
+  const api = makeApi();
+
+  const discovery = await requestJson(api, '/.well-known/multipass.json');
+  assert.equal(discovery.response.status, 200);
+  assert.equal(discovery.body.routes.openapi, 'https://multipass.example.test/api/openapi.json');
+  assert.equal(discovery.body.routes.resolve, 'https://multipass.example.test/api/resolve?agent={input}');
+  assert.equal(discovery.body.routes.search, 'https://multipass.example.test/api/search?q={query}');
+  assert.equal(discovery.body.routes.versioned_profile, 'https://multipass.example.test/api/v0/multipass/{id}');
+
+  const openapi = await requestJson(api, '/api/openapi.json');
+  assert.equal(openapi.response.status, 200);
+  assert.equal(openapi.body.openapi, '3.1.0');
+  assert.equal(openapi.body.info.title, 'Helixa Multipass API');
+  assert.ok(openapi.body.paths['/api/multipass/{id}']);
+  assert.ok(openapi.body.paths['/api/v0/multipass/{id}']);
+  assert.ok(openapi.body.paths['/api/resolve']);
+  assert.ok(openapi.body.paths['/api/search']);
+});
+
+test('serves versioned public read aliases and receipt collections', async () => {
+  const api = makeApi();
+
+  const versioned = await requestJson(api, '/api/v0/multipass/bendr-2');
+  assert.equal(versioned.response.status, 200);
+  assert.equal(versioned.body.multipass_id, 'mp_bendr');
+
+  const receipts = await requestJson(api, '/api/multipass/bendr-2/receipts');
+  assert.equal(receipts.response.status, 200);
+  assert.deepEqual(receipts.body.receipts.map((item) => item.receipt_id), ['receipt_1']);
+});
+
+test('resolves saved records and live activation previews through public resolver endpoint', async () => {
+  const api = makeSaveApi();
+  await postJson(api, '/api/multipass', { agent: '1' });
+
+  const saved = await requestJson(api, '/api/resolve?agent=bendr-2-1');
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.state, 'saved_record');
+  assert.equal(saved.body.profile.slug, 'bendr-2-1');
+  assert.equal(saved.body.routes.profile, 'https://multipass.example.test/api/multipass/bendr-2-1');
+
+  const live = await requestJson(api, '/api/resolve?agent=1');
+  assert.equal(live.response.status, 200);
+  assert.equal(live.body.state, 'activated_unsaved');
+  assert.equal(live.body.source.canonicalId, '8453:1');
+  assert.equal(live.body.save_url, 'https://multipass.example.test/api/multipass');
+});
+
+test('search returns conservative public profile matches only', async () => {
+  const api = makeSaveApi();
+  await postJson(api, '/api/multipass', { agent: '1' });
+
+  const result = await requestJson(api, '/api/search?q=bend');
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.body.matches.map((match) => match.slug), ['bendr-2-1', 'bendr-2']);
+  assert.deepEqual(result.body.matches.map((match) => match.kind), ['saved', 'fixture']);
+  assert.ok(result.body.matches.every((match) => !('fragments' in match)));
+
+  const short = await requestJson(api, '/api/search?q=b');
+  assert.equal(short.response.status, 400);
+  assert.equal(short.body.error.code, 'invalid_request');
+});
+
 test('returns structured 404 errors', async () => {
   const api = makeApi();
 

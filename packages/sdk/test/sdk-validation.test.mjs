@@ -7,6 +7,12 @@ import test from 'node:test';
 import {
   MultipassValidationError,
   assertMultipassProfile,
+  getActivationSummary,
+  getAgentCard,
+  getMultipassProfile,
+  getPublicFragments,
+  isClaimed,
+  resolveMultipass,
   getSchema,
   loadAgentCardFromFile,
   loadIdentityFragmentFromFile,
@@ -259,3 +265,71 @@ test('file loaders read and validate every public document shape', async () => {
 
 // Keep readFile imported intentionally covered by the file loader behavior above.
 void readFile;
+
+
+test('API helpers fetch and validate public Multipass documents', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push([url, init.method ?? 'GET']);
+    const pathName = new URL(url).pathname;
+    if (pathName === '/api/multipass/bendr-2') {
+      return new Response(JSON.stringify(profile), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (pathName === '/api/multipass/bendr-2/agent-card') {
+      return new Response(JSON.stringify(agentCard), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (pathName === '/api/multipass/bendr-2/fragments') {
+      return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_bendr', fragments: [identityFragment] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (pathName === '/api/resolve') {
+      return new Response(JSON.stringify({ schema_version: '0.1.0', state: 'saved_record', profile }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected URL ${url}`);
+  };
+
+  assert.deepEqual(await getMultipassProfile('bendr-2', { apiBase: 'https://helixa.xyz', fetchImpl }), profile);
+  assert.deepEqual(await getAgentCard('bendr-2', { apiBase: 'https://helixa.xyz', fetchImpl }), agentCard);
+  assert.deepEqual(await getPublicFragments('bendr-2', { apiBase: 'https://helixa.xyz', fetchImpl }), [identityFragment]);
+  assert.equal((await resolveMultipass('bendr-2', { apiBase: 'https://helixa.xyz', fetchImpl })).state, 'saved_record');
+  assert.deepEqual(calls.map(([url]) => url), [
+    'https://helixa.xyz/api/multipass/bendr-2',
+    'https://helixa.xyz/api/multipass/bendr-2/agent-card',
+    'https://helixa.xyz/api/multipass/bendr-2/fragments',
+    'https://helixa.xyz/api/resolve?agent=bendr-2',
+  ]);
+});
+
+test('API helpers surface useful HTTP and validation errors', async () => {
+  await assert.rejects(
+    () => getMultipassProfile('missing', {
+      apiBase: 'https://helixa.xyz/',
+      fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'not here' } }), { status: 404 }),
+    }),
+    /GET https:\/\/helixa\.xyz\/api\/multipass\/missing failed with 404: not here/,
+  );
+
+  await assert.rejects(
+    () => getMultipassProfile('bad', {
+      apiBase: 'https://helixa.xyz',
+      fetchImpl: async () => new Response(JSON.stringify({ ...profile, subject_type: 'robot' }), { status: 200 }),
+    }),
+    MultipassValidationError,
+  );
+});
+
+test('profile summary helpers expose claimed state and activation summary without overclaiming', () => {
+  assert.equal(isClaimed(profile), false);
+  assert.equal(isClaimed({ ...profile, owner_summary: { ...profile.owner_summary, owner_state: 'verified' } }), true);
+  assert.deepEqual(getActivationSummary(profile), {
+    multipassId: 'mp_bendr',
+    slug: 'bendr-2',
+    displayName: 'Bendr 2.0',
+    status: 'draft',
+    ownerState: 'unclaimed',
+    verificationStatus: 'none',
+    trustState: 'none',
+    publicFragmentCount: 0,
+    supportedStandards: ['ERC-8004'],
+    paidEndpointsEnabled: false,
+  });
+});

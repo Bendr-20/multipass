@@ -142,8 +142,17 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       return readBundleById(db, multipassId)?.x402Manifest ?? null;
     },
 
+    getReceiptFragments(multipassId) {
+      return readBundleById(db, multipassId)?.receipts ?? [];
+    },
+
     getReceiptFragment(multipassId, receiptId) {
       return readBundleById(db, multipassId)?.receipts.find((receipt) => receipt.receipt_id === receiptId) ?? null;
+    },
+
+    searchProfiles(query, options = {}) {
+      const rows = db.prepare(`SELECT profile_json FROM saved_records ORDER BY created_at DESC, rowid DESC LIMIT 250`).all();
+      return searchProfileList(rows.map((row) => JSON.parse(row.profile_json)), query, options);
     },
 
     getChangeLog(multipassId) {
@@ -641,6 +650,18 @@ function assertBundleMultipassIds({ profile, fragments, agentCard, standardsProf
   assertDocumentMultipassId(x402Manifest, multipassId, 'x402Manifest');
   fragments.forEach((fragment, index) => assertDocumentMultipassId(fragment, multipassId, `fragments[${index}]`));
   receipts.forEach((receipt, index) => assertDocumentMultipassId(receipt, multipassId, `receipts[${index}]`));
+}
+
+function searchProfileList(profiles, query, options = {}) {
+  const needle = String(query ?? '').toLowerCase();
+  const limit = options.limit ?? 10;
+  return profiles
+    .filter((profile) => {
+      const fields = [profile.slug, profile.multipass_id, profile.display_name, ...(profile.discovery_profile?.tags ?? [])]
+        .map((field) => String(field ?? '').toLowerCase());
+      return fields.some((field) => field === needle || field.startsWith(needle));
+    })
+    .slice(0, limit);
 }
 
 function assertDocumentMultipassId(document, expectedMultipassId, label) {

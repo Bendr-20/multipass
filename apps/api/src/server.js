@@ -19,6 +19,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     allowedOrigins: parseOriginList(env.MULTIPASS_ALLOWED_ORIGINS),
     adminSecret: env.MULTIPASS_ADMIN_SECRET || null,
     cookieSecure: parseOptionalBoolean(env.MULTIPASS_COOKIE_SECURE, 'MULTIPASS_COOKIE_SECURE'),
+    publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -31,6 +32,8 @@ export function parseServerOptions(argv = [], env = process.env) {
       options.port = parsePort(argv[++index], DEFAULT_PORT, '--port');
     } else if (arg === '--database') {
       options.databasePath = argv[++index];
+    } else if (arg === '--public-base-url') {
+      options.publicBaseUrl = normalizeOptionalBaseUrl(argv[++index], '--public-base-url');
     }
   }
 
@@ -46,13 +49,15 @@ export async function startServer(options = {}) {
     allowedOrigins: options.allowedOrigins ?? [],
     adminSecret: options.adminSecret ?? null,
     cookieSecure: options.cookieSecure ?? null,
+    publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
   const ownsSavedRecords = Boolean(parsed.databasePath && !options.savedRecords);
   const savedRecords = options.savedRecords ?? (parsed.databasePath ? createSqliteSavedRecords({ databasePath: parsed.databasePath }) : null);
   const activationService = options.activationService ?? activateHelixaRecord;
   let api;
-  let baseUrl;
+  let listeningUrl;
+  let apiBaseUrl;
 
   const nodeServer = http.createServer(async (req, res) => {
     try {
@@ -64,7 +69,7 @@ export async function startServer(options = {}) {
         requestInit.body = req;
         requestInit.duplex = 'half';
       }
-      const request = new Request(new URL(req.url || '/', baseUrl), requestInit);
+      const request = new Request(new URL(req.url || '/', apiBaseUrl), requestInit);
       const response = await api.handleRequest(request);
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
       res.end(await response.text());
@@ -87,10 +92,11 @@ export async function startServer(options = {}) {
 
   const address = nodeServer.address();
   const port = typeof address === 'object' && address ? address.port : parsed.port;
-  baseUrl = `http://${parsed.host}:${port}`;
+  listeningUrl = `http://${parsed.host}:${port}`;
+  apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
   api = createMultipassApi({
     store,
-    baseUrl,
+    baseUrl: apiBaseUrl,
     savedRecords,
     activationService,
     allowedOrigins: parsed.allowedOrigins,
@@ -102,7 +108,8 @@ export async function startServer(options = {}) {
     fixtureName,
     host: parsed.host,
     port,
-    url: baseUrl,
+    url: listeningUrl,
+    publicBaseUrl: apiBaseUrl,
     databasePath: parsed.databasePath,
     server: nodeServer,
     close: () => new Promise((resolve, reject) => {
@@ -138,6 +145,19 @@ function parseOriginList(value) {
     .filter(Boolean);
 }
 
+function normalizeOptionalBaseUrl(value, source) {
+  if (value === undefined || value === null || value === '') return null;
+  try {
+    const url = new URL(String(value));
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new Error('unsupported protocol');
+    }
+    return url.href.endsWith('/') ? url.href.slice(0, -1) : url.href;
+  } catch {
+    throw new Error(`Invalid URL for ${source}: ${value}`);
+  }
+}
+
 function parseOptionalBoolean(value, source) {
   if (value === undefined || value === null || value === '') return null;
   if (['1', 'true', 'yes'].includes(String(value).toLowerCase())) return true;
@@ -148,6 +168,7 @@ function parseOptionalBoolean(value, source) {
 async function main() {
   const server = await startServer(parseServerOptions(process.argv.slice(2), process.env));
   console.log(`Multipass API server listening at ${server.url}`);
+  if (server.publicBaseUrl !== server.url) console.log(`Public base URL: ${server.publicBaseUrl}`);
   console.log(`Fixture: ${server.fixtureName}`);
   if (server.databasePath) console.log(`Database: ${server.databasePath}`);
 }

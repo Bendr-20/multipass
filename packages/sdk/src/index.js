@@ -244,3 +244,90 @@ function isValidUrl(value) {
     return false;
   }
 }
+
+export async function getMultipassProfile(identifier, options = {}) {
+  return assertMultipassProfile(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}`), options));
+}
+
+export async function getAgentCard(identifier, options = {}) {
+  return assertAgentCard(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/agent-card`), options));
+}
+
+export async function getPublicFragments(identifier, options = {}) {
+  const body = await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/fragments`), options);
+  return (body.fragments ?? []).map(assertIdentityFragment);
+}
+
+export async function getStandardsProfile(identifier, options = {}) {
+  return assertStandardsProfile(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/standards`), options));
+}
+
+export async function getX402Manifest(identifier, options = {}) {
+  return assertX402Manifest(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/x402`), options));
+}
+
+export async function getReceiptFragment(identifier, receiptId, options = {}) {
+  return assertReceiptFragment(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/receipts/${encodeURIComponent(receiptId)}`), options));
+}
+
+export async function resolveMultipass(agent, options = {}) {
+  const url = buildApiUrl(options.apiBase, '/api/resolve');
+  url.searchParams.set('agent', agent);
+  const body = await fetchJson(url, options);
+  if (body.profile) assertMultipassProfile(body.profile);
+  return body;
+}
+
+export async function searchMultipass(query, options = {}) {
+  const url = buildApiUrl(options.apiBase, '/api/search');
+  url.searchParams.set('q', query);
+  return fetchJson(url, options);
+}
+
+export function isClaimed(profile) {
+  return ['claimed', 'verified'].includes(profile?.owner_summary?.owner_state);
+}
+
+export function getActivationSummary(profile) {
+  const valid = assertMultipassProfile(profile);
+  return {
+    multipassId: valid.multipass_id,
+    slug: valid.slug,
+    displayName: valid.display_name,
+    status: valid.status,
+    ownerState: valid.owner_summary.owner_state,
+    verificationStatus: valid.owner_summary.verification_status,
+    trustState: valid.cred_summary.trust_state,
+    publicFragmentCount: valid.public_fragments.length,
+    supportedStandards: valid.standards_profile.supported_standard_ids,
+    paidEndpointsEnabled: valid.payment_profile.paid_endpoints_enabled,
+  };
+}
+
+async function fetchJson(url, options = {}) {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Multipass SDK requires a fetch implementation.');
+  }
+  const method = options.method ?? 'GET';
+  const response = await fetchImpl(url.href, { method, headers: options.headers });
+  const text = await response.text();
+  let body = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${method} ${url.href} returned invalid JSON: ${error.message}`);
+    }
+  }
+  if (!response.ok) {
+    const message = body?.error?.message ?? response.statusText ?? 'request failed';
+    throw new Error(`${method} ${url.href} failed with ${response.status}: ${message}`);
+  }
+  return body;
+}
+
+function buildApiUrl(apiBase = 'https://helixa.xyz', pathName) {
+  const base = String(apiBase || 'https://helixa.xyz').replace(/\/+$/, '');
+  return new URL(`${base}${pathName}`);
+}

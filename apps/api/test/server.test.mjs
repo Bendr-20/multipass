@@ -17,6 +17,7 @@ test('parseServerOptions returns safe defaults', () => {
     allowedOrigins: [],
     adminSecret: null,
     cookieSecure: null,
+    publicBaseUrl: null,
   });
 });
 
@@ -35,6 +36,7 @@ test('CLI flags override environment values', () => {
       allowedOrigins: [],
       adminSecret: null,
       cookieSecure: null,
+      publicBaseUrl: null,
     },
   );
 });
@@ -44,6 +46,7 @@ test('parseServerOptions accepts claim management security env', () => {
     MULTIPASS_ALLOWED_ORIGINS: 'https://helixa.xyz, https://www.helixa.xyz',
     MULTIPASS_ADMIN_SECRET: 'secret',
     MULTIPASS_COOKIE_SECURE: '1',
+    MULTIPASS_PUBLIC_BASE_URL: 'https://helixa.xyz',
   }), {
     fixture: 'generic',
     host: '127.0.0.1',
@@ -52,6 +55,7 @@ test('parseServerOptions accepts claim management security env', () => {
     allowedOrigins: ['https://helixa.xyz', 'https://www.helixa.xyz'],
     adminSecret: 'secret',
     cookieSecure: true,
+    publicBaseUrl: 'https://helixa.xyz',
   });
 });
 
@@ -63,6 +67,20 @@ test('parseServerOptions rejects invalid ports', () => {
 test('parseServerOptions accepts database path from env or CLI', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_DB_PATH: '/tmp/multipass.sqlite' }).databasePath, '/tmp/multipass.sqlite');
   assert.equal(parseServerOptions(['--database', '/tmp/cli.sqlite'], {}).databasePath, '/tmp/cli.sqlite');
+});
+
+test('startServer can advertise a public base URL while listening locally', async () => {
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0, publicBaseUrl: 'https://helixa.xyz' });
+
+  try {
+    const discovery = await fetch(`${server.url}/.well-known/multipass.json`);
+    assert.equal(discovery.status, 200);
+    const discoveryBody = await discovery.json();
+    assert.equal(discoveryBody.routes.profile, 'https://helixa.xyz/api/multipass/{id}');
+    assert.equal(discoveryBody.routes.openapi, 'https://helixa.xyz/api/openapi.json');
+  } finally {
+    await server.close();
+  }
 });
 
 test('startServer serves discovery and profile routes on an ephemeral port', async () => {

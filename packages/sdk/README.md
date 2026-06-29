@@ -1,6 +1,6 @@
 # @helixa/multipass-sdk
 
-Small validation and loading helpers for Multipass schema contracts.
+Small validation, loading, and public API helpers for Multipass schema contracts.
 
 The SDK consumes the schema registry from `@helixa/multipass-types` and exposes helpers for the six public document shapes:
 
@@ -11,4 +11,45 @@ The SDK consumes the schema registry from `@helixa/multipass-types` and exposes 
 - x402 manifests
 - Receipt fragments
 
-This package intentionally starts small. It validates local objects, parses JSON strings, and loads JSON files without hiding schema errors.
+## Local validation
+
+Use the validators when you already have JSON or local files:
+
+```js
+import {
+  assertMultipassProfile,
+  loadMultipassProfileFromFile,
+  parseAgentCardJson,
+} from '@helixa/multipass-sdk';
+
+const profile = assertMultipassProfile(rawProfile);
+const saved = await loadMultipassProfileFromFile('./profile.json');
+const card = parseAgentCardJson(rawJson);
+```
+
+## Public API helpers
+
+Use the fetch helpers when reading from a Multipass API deployment:
+
+```js
+import {
+  getActivationSummary,
+  getAgentCard,
+  getMultipassProfile,
+  getPublicFragments,
+  resolveMultipass,
+  searchMultipass,
+} from '@helixa/multipass-sdk';
+
+const profile = await getMultipassProfile('bendr-2', {
+  apiBase: 'https://helixa.xyz',
+});
+
+const card = await getAgentCard('bendr-2', { apiBase: 'https://helixa.xyz' });
+const fragments = await getPublicFragments('bendr-2', { apiBase: 'https://helixa.xyz' });
+const resolved = await resolveMultipass('bendr-2', { apiBase: 'https://helixa.xyz' });
+const matches = await searchMultipass('bend', { apiBase: 'https://helixa.xyz' });
+const summary = getActivationSummary(profile);
+```
+
+Helpers validate returned documents before handing them back. Public fragment helpers only consume public fragments returned by the API. The SDK does not expose private fields, authorize manager edits, or treat payment receipts as trust.
