@@ -108,6 +108,19 @@ button:focus-visible {
   margin-top: 28px;
 }
 
+.product-hero > .live-resolver {
+  display: flex;
+  min-height: 560px;
+  flex-direction: column;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.product-hero > .live-resolver form {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
 .profile-visual-strip {
   margin-top: 18px;
 }

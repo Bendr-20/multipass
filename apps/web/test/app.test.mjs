@@ -469,8 +469,13 @@ test('static initial state presents Multipass product home instead of Bendr prof
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.ok(root.querySelector('.product-home-shell'));
-  assert.match(root.querySelector('.product-hero')?.textContent ?? '', /Portable identity profiles for agents/);
-  assert.match(root.querySelector('.homepage-proof-panel')?.textContent ?? '', /What it does/);
+  const hero = root.querySelector('.product-hero');
+  assert.match(hero?.textContent ?? '', /Portable identity profiles for agents/);
+  assert.match(hero?.querySelector('.live-resolver')?.textContent ?? '', /Activate a live agent record/);
+  assert.equal(hero?.querySelector('.homepage-proof-panel'), null);
+  const proofPanel = root.querySelector('.homepage-proof-panel');
+  assert.match(proofPanel?.textContent ?? '', /What it does/);
+  assert.equal(proofPanel?.previousElementSibling, hero);
   assert.equal(root.querySelectorAll('.homepage-proof-stat').length, 4);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);

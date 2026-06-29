@@ -656,19 +656,19 @@ function renderProductHome(root, state, handlers = {}) {
           </div>
           ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
         </div>
-        <aside class="homepage-proof-panel" aria-label="Multipass product summary">
-          <p class="card-label">What it does</p>
-          <h2>One readable profile for identity, proof, custody context, and endpoints.</h2>
-          <div class="homepage-proof-grid">
-            ${renderHeroStat('Example profile', 'Bendr 2.0')}
-            ${renderHeroStat('Public proof signals', proofCount)}
-            ${renderHeroStat('Manager edits', 'Claim-gated')}
-            ${renderHeroStat('Private data', 'Not exposed')}
-          </div>
-        </aside>
+        ${renderLiveResolver(state, { showResetButton: false })}
       </section>
 
-      ${renderLiveResolver(state, { showResetButton: false })}
+      <aside class="homepage-proof-panel" aria-label="Multipass product summary">
+        <p class="card-label">What it does</p>
+        <h2>One readable profile for identity, proof, custody context, and endpoints.</h2>
+        <div class="homepage-proof-grid">
+          ${renderHeroStat('Example profile', 'Bendr 2.0')}
+          ${renderHeroStat('Public proof signals', proofCount)}
+          ${renderHeroStat('Manager edits', 'Claim-gated')}
+          ${renderHeroStat('Private data', 'Not exposed')}
+        </div>
+      </aside>
     </div>
   `;
 
