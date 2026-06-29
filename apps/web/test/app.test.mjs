@@ -223,6 +223,54 @@ async function savedProfileFetch(url) {
   throw new Error(`Unexpected URL ${url}`);
 }
 
+async function savedQuigbotFetch(url) {
+  const value = String(url);
+  if (value.endsWith('/api/multipass/quigbot-81')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      display_name: 'Quigbot',
+      slug: 'quigbot-81',
+      multipass_id: 'mp_helixa_agent_81',
+      status: 'active',
+      subject_type: 'agent',
+      owner_summary: { owner_state: 'verified', verification_status: 'verified', visibility: 'public' },
+      cred_summary: { trust_state: 'building', public_note: 'Public Cred score 75 observed from the live Helixa source record.' },
+      discovery_profile: { tags: ['helixa', 'agentdna', 'multipass', 'openclaw'], visibility: 'public' },
+      updated_at: '2026-06-29T20:40:40.613Z',
+    }), { status: 200 });
+  }
+  if (value.endsWith('/fragments')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      multipass_id: 'mp_helixa_agent_81',
+      fragments: [
+        { fragment_id: 'frag_helixa_agent_81_source', fragment_type: 'attestation', status: 'verified', assurance_level: 'platform_verified', visibility: 'public', transfer_policy: 'historical_on_transfer', source: { source_id: '8453:81', reference_url: 'https://api.helixa.xyz/api/v2/agent/81' }, public_value: 'Quigbot was saved from public Helixa AgentDNA token #81.' },
+        { fragment_id: 'frag_helixa_agent_81_cred', fragment_type: 'risk_summary', status: 'pending', assurance_level: 'platform_verified', visibility: 'public', transfer_policy: 'reverify_on_transfer', source: { source_id: '8453:81' }, public_value: 'Public Cred score 75 observed from the live Helixa source record.' },
+      ],
+    }), { status: 200 });
+  }
+  if (value.endsWith('/card') || value.endsWith('/agent-card')) {
+    return new Response(JSON.stringify({
+      ...sampleData().card,
+      multipass_id: 'mp_helixa_agent_81',
+      name: 'Quigbot',
+      standards_refs: [{ standard_id: 'ERC-8004', support_status: 'imported_unverified', record_id: '8453:81' }],
+      trust_summary: { identity_status: 'verified', assurance_level: 'platform_verified', last_updated_at: '2026-06-29T20:40:40.613Z' },
+    }), { status: 200 });
+  }
+  if (value.endsWith('/standards')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      multipass_id: 'mp_helixa_agent_81',
+      primary_refs: { helixa_agent: '8453:81' },
+      standard_refs: [{ standard_id: 'ERC-8004', status: 'imported_unverified', record_id: '8453:81' }],
+    }), { status: 200 });
+  }
+  if (value.endsWith('/x402')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_81', endpoints: [] }), { status: 200 });
+  if (value.endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_81', entries: [{ message: 'Management claim owner-wallet verified.' }] }), { status: 200 });
+  throw new Error(`Unexpected URL ${url}`);
+}
+
 function createWalletClientFixture({ snapshot, connect, signMessage } = {}) {
   let currentSnapshot = {
     ready: true,
@@ -631,6 +679,19 @@ test('saved and static profile routes render profile-first visual pages without 
   assert.equal(staticRoot.querySelector('.multipass-profile-page .live-resolver'), null);
   assert.equal(staticRoot.querySelector('.multipass-profile-page .profile-gallery'), null);
   assert.ok(staticRoot.querySelector('.multipass-profile-page > .aura-card'));
+});
+
+test('refreshed saved Quigbot profile keeps aura image and source stats', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/quigbot-81?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedQuigbotFetch }).start();
+
+  const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.ok(auraCard);
+  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
+  assert.match(auraCard.textContent ?? '', /8453:81/);
+  assert.match(auraCard.textContent ?? '', /Cred 75/);
+  assert.match(auraCard.textContent ?? '', /verified/);
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/');
 });
 
 test('resolver transitional states keep the live resolver shell instead of profile-first layout', async () => {
