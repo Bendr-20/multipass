@@ -385,6 +385,12 @@ test('initial render shows loading state then product-led Multipass record', asy
   const brandLogo = root.querySelector('.brand-logo');
   assert.equal(brandLogo?.getAttribute('src'), '/multipass/helixa-logo.png');
   assert.equal(brandLogo?.getAttribute('alt'), '');
+  assert.ok(root.querySelector('.brand-logo-frame'));
+  assert.equal(root.querySelector('.brand-wordmark')?.textContent, 'Multipass');
+  const menuButton = root.querySelector('.site-menu-button');
+  assert.equal(menuButton?.getAttribute('type'), 'button');
+  assert.equal(menuButton?.getAttribute('aria-label'), 'Open Multipass navigation');
+  assert.equal(menuButton?.querySelectorAll('span').length, 3);
   assert.match(root.textContent, /MULTIPASS/);
   assert.doesNotMatch(root.textContent, /What the card shows/);
   assert.doesNotMatch(root.textContent, /What proof adds/);

@@ -534,6 +534,25 @@ function clearShareUrl() {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
+function renderRecordHeader(metaLabel = 'Multipass') {
+  return `
+    <header class="record-header">
+      <div class="brand">
+        <span class="brand-logo-frame"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"></span>
+        <span class="brand-wordmark">Multipass</span>
+      </div>
+      <div class="header-actions">
+        <div class="header-meta"><span>${escapeHtml(metaLabel)}</span></div>
+        <button class="site-menu-button" type="button" aria-label="Open Multipass navigation" aria-expanded="false">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+  `;
+}
+
 function render(root, state, handlers = {}) {
   const { data } = state;
   if (state.pageKind === 'product_home') {
@@ -548,10 +567,7 @@ function render(root, state, handlers = {}) {
   const proofCards = createProofCards(data, selectedAgent);
   root.innerHTML = `
     <div class="record-shell">
-      <header class="record-header">
-        <div class="brand"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"><span>Multipass</span></div>
-        <div class="header-meta"><span>${escapeHtml(data.liveProfilePage?.headerMeta ?? data.sourceLabel ?? 'Multipass')}</span></div>
-      </header>
+      ${renderRecordHeader(data.liveProfilePage?.headerMeta ?? data.sourceLabel ?? 'Multipass')}
 
       ${renderHomepageHero(heroCopy, data, agentCarousel)}
 
@@ -677,10 +693,7 @@ function renderProductHome(root, state, handlers = {}) {
   const agentCarousel = createAgentCarousel(data);
   root.innerHTML = `
     <div class="record-shell product-home-shell">
-      <header class="record-header">
-        <div class="brand"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"><span>Multipass</span></div>
-        <div class="header-meta"><span>Agent identity layer</span></div>
-      </header>
+      ${renderRecordHeader('Agent identity layer')}
 
       <section class="product-hero">
         <div class="product-hero-copy">
