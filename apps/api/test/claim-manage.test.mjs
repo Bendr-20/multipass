@@ -265,11 +265,19 @@ test('manager public profile edits are allowlisted and logged', () => {
   });
 
   assert.deepEqual(updated.changedFields, ['display_name', 'summary', 'avatar_url', 'tags']);
+  const visibility = store.updatePublicProfile('bendr-2-1', {
+    visibility: 'hidden',
+  }, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:06:00.000Z',
+  });
+  assert.deepEqual(visibility.changedFields, ['visibility']);
   const profile = store.resolveProfile('mp_helixa_agent_1');
   assert.equal(profile.display_name, 'Bendr Prime');
   assert.equal(profile.discovery_profile.summary, 'Public profile summary managed through Multipass.');
   assert.equal(profile.discovery_profile.avatar_url, 'https://assets.example.test/bendr.png');
   assert.deepEqual(profile.discovery_profile.tags, ['helixa', 'operator', 'agent']);
+  assert.equal(profile.owner_summary.visibility, 'hidden');
   assert.equal(store.getAgentCard('mp_helixa_agent_1').name, 'Bendr Prime');
   assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public profile updated/);
 
@@ -280,6 +288,10 @@ test('manager public profile edits are allowlisted and logged', () => {
   assert.throws(
     () => store.updatePublicProfile('mp_helixa_agent_1', { avatar_url: 'javascript:alert(1)' }, { actorWallet: OWNER, now: NOW }),
     /avatar_url/,
+  );
+  assert.throws(
+    () => store.updatePublicProfile('mp_helixa_agent_1', { visibility: 'secret' }, { actorWallet: OWNER, now: NOW }),
+    /visibility/,
   );
 });
 

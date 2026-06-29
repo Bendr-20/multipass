@@ -1916,6 +1916,19 @@ test('direct saved slug route renders display-only claim management panel', asyn
   assert.doesNotMatch(panel.textContent, /move secrets|grant permissions|transfer ownership/i);
 });
 
+test('saved profile owner dashboard shows visibility and recent changes', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedProfileFetch }).start();
+
+  const dashboard = root.querySelector('.owner-dashboard-panel');
+  assert.ok(dashboard);
+  assert.match(dashboard.textContent, /Owner dashboard/);
+  assert.match(dashboard.textContent, /Visibility/);
+  assert.match(dashboard.textContent, /public/);
+  assert.match(dashboard.textContent, /Recent changes/);
+  assert.match(dashboard.textContent, /Multipass saved from live public source record/);
+});
+
 test('claim button renders connected wallet shortened address', async () => {
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
   const walletClient = createWalletClientFixture({
@@ -2104,7 +2117,11 @@ test('saved profile owner wallet claim enables safe public profile edits', async
     },
     updateMultipassProfile: async ({ id, csrfToken, patch }) => {
       calls.push(['update', id, csrfToken, patch]);
-      return { changedFields: Object.keys(patch), profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: patch.display_name, summary: patch.summary } };
+      return {
+        changedFields: Object.keys(patch),
+        profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: patch.display_name, summary: patch.summary, owner_summary: { ...sampleData().profile.owner_summary, visibility: patch.visibility } },
+        changes: { multipass_id: 'mp_helixa_agent_1', entries: [{ message: 'Public profile updated: display_name, summary, visibility.' }] },
+      };
     },
   };
   const walletSigner = async (message) => {
@@ -2129,15 +2146,18 @@ test('saved profile owner wallet claim enables safe public profile edits', async
   assert.ok(form);
   form.querySelector('input[name="display_name"]').value = 'Bendr Managed';
   form.querySelector('textarea[name="summary"]').value = 'Managed public profile copy.';
+  form.querySelector('select[name="visibility"]').value = 'hidden';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await Promise.resolve();
   await Promise.resolve();
 
   assert.match(root.textContent, /Bendr Managed/);
+  assert.match(root.querySelector('.owner-dashboard-panel').textContent, /hidden/);
+  assert.match(root.querySelector('.owner-dashboard-panel').textContent, /Public profile updated: display_name, summary, visibility/);
   assert.deepEqual(calls[0], ['nonce', 'bendr-2-1', '/multipass-api']);
   assert.deepEqual(calls[1], ['sign', 'Sign Bendr claim']);
   assert.deepEqual(calls[2], ['verify', 'bendr-2-1', '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', 'nonce-1', '0xsig']);
-  assert.deepEqual(calls[3], ['update', 'bendr-2-1', 'csrf-1', { display_name: 'Bendr Managed', summary: 'Managed public profile copy.' }]);
+  assert.deepEqual(calls[3], ['update', 'bendr-2-1', 'csrf-1', { display_name: 'Bendr Managed', summary: 'Managed public profile copy.', visibility: 'hidden' }]);
 });
 
 test('claimed saved profile can create update revoke and show fragment errors', async () => {

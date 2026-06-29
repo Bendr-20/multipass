@@ -570,6 +570,26 @@ test('owner wallet claim verifies signature and creates CSRF protected manager s
   assert.equal(afterLogout.body.error.code, 'forbidden');
 });
 
+test('manager visibility edits remove saved records from public search without hiding exact reads', async () => {
+  const { api } = makeClaimApiWithRecords();
+  const { headers } = await createOwnerSession(api);
+
+  const hidden = await patchJsonWithHeaders(api, '/api/multipass/bendr-2-1/profile', {
+    visibility: 'hidden',
+  }, headers);
+  assert.equal(hidden.response.status, 200);
+  assert.deepEqual(hidden.body.changedFields, ['visibility']);
+  assert.equal(hidden.body.profile.owner_summary.visibility, 'hidden');
+
+  const exact = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(exact.response.status, 200);
+  assert.equal(exact.body.owner_summary.visibility, 'hidden');
+
+  const search = await requestJson(api, '/api/search?q=bend');
+  assert.equal(search.response.status, 200);
+  assert.deepEqual(search.body.matches.map((match) => [match.kind, match.slug]), [['fixture', 'bendr-2']]);
+});
+
 test('manager session can create update and revoke public fragments through API', async () => {
   const api = makeClaimApi();
   const { headers } = await createOwnerSession(api);

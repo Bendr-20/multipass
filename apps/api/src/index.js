@@ -401,6 +401,7 @@ async function handlePatchProfile(request, identifier, context) {
     schema_version: '0.1.0',
     changedFields: updated.changedFields,
     profile: updated.profile,
+    changes: context.savedRecords.getChangeLog?.(profile.multipass_id),
   });
 }
 

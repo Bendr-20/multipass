@@ -293,6 +293,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       summary: formData.get('summary'),
       avatar_url: formData.get('avatar_url'),
       tags: formData.get('tags'),
+      visibility: formData.get('visibility'),
     });
     state = { ...state, claimStatus: 'updating_profile', claimError: null };
     render(root, state, handlers);
@@ -458,6 +459,7 @@ function mergeClaimProfileState(current, result, patch = {}) {
     data: {
       ...current.data,
       profile: nextProfile,
+      changes: result?.changes ?? current.data.changes,
       liveProfilePage: current.data.liveProfilePage ? {
         ...current.data.liveProfilePage,
         headline: `${nextProfile.display_name ?? current.data.liveProfilePage.headline ?? 'Saved'} Multipass`,
@@ -1182,14 +1184,39 @@ function renderClaimManagementPanel(state) {
           <button type="submit">Request manual review</button>
         </form>
       </div>
+      ${renderOwnerDashboardPanel(profile, state)}
       ${canEdit ? renderPublicProfileEditForm(profile, state) : ''}
       ${canEdit ? renderFragmentManagerPanel(state) : ''}
     </section>
   `;
 }
 
+function renderOwnerDashboardPanel(profile, state) {
+  const ownerSummary = profile.owner_summary ?? {};
+  const entries = Array.isArray(state.data?.changes?.entries) ? state.data.changes.entries.slice(-4).reverse() : [];
+  return `
+    <section class="owner-dashboard-panel" aria-label="Owner dashboard">
+      <div>
+        <p class="card-label">Owner dashboard</p>
+        <h3>Public profile controls.</h3>
+        <p>Display-only settings for the public Multipass. Visibility affects public search and discovery, not custody, tools, credentials, or ownership.</p>
+      </div>
+      <dl class="owner-dashboard-facts">
+        <div><dt>Status</dt><dd>${escapeHtml(ownerSummary.owner_state ?? 'unclaimed')}</dd></div>
+        <div><dt>Visibility</dt><dd>${escapeHtml(ownerSummary.visibility ?? 'public')}</dd></div>
+        <div><dt>Verification</dt><dd>${escapeHtml(ownerSummary.verification_status ?? 'none')}</dd></div>
+      </dl>
+      <div class="owner-change-log" aria-label="Recent changes">
+        <strong>Recent changes</strong>
+        ${entries.length ? `<ol>${entries.map((entry) => `<li><span>${escapeHtml(entry.message)}</span><time>${escapeHtml(formatShortDate(entry.created_at))}</time></li>`).join('')}</ol>` : '<p class="resolver-message">No public changes logged yet.</p>'}
+      </div>
+    </section>
+  `;
+}
+
 function renderPublicProfileEditForm(profile, state) {
   const discovery = profile.discovery_profile ?? {};
+  const ownerSummary = profile.owner_summary ?? {};
   const summary = profile.summary ?? discovery.summary ?? '';
   const avatarUrl = profile.avatar_url ?? discovery.avatar_url ?? '';
   const tags = Array.isArray(profile.tags) ? profile.tags : (Array.isArray(discovery.tags) ? discovery.tags : []);
@@ -1200,12 +1227,22 @@ function renderPublicProfileEditForm(profile, state) {
       <label><span>Summary</span><textarea name="summary" rows="3">${escapeHtml(summary)}</textarea></label>
       <label><span>Avatar URL</span><input name="avatar_url" value="${escapeAttribute(avatarUrl)}" /></label>
       <label><span>Tags</span><input name="tags" value="${escapeAttribute(tags.join(', '))}" /></label>
+      <label><span>Visibility</span>${renderVisibilitySelect(ownerSummary.visibility ?? 'public')}</label>
       <div class="profile-edit-actions">
         <button type="submit" ${state.claimStatus === 'updating_profile' ? 'disabled' : ''}>${state.claimStatus === 'updating_profile' ? 'Saving...' : 'Save public edits'}</button>
         <button type="button" data-action="logout-manager-session">Sign out</button>
       </div>
     </form>
   `;
+}
+
+function renderVisibilitySelect(selected = 'public') {
+  return `<select name="visibility">${['public', 'gated', 'private', 'hidden'].map((visibility) => `<option value="${visibility}" ${visibility === selected ? 'selected' : ''}>${visibility}</option>`).join('')}</select>`;
+}
+
+function formatShortDate(value) {
+  const text = String(value ?? '').trim();
+  return text ? text.replace(/\.000Z$/, 'Z') : '';
 }
 
 function renderActivationSummary(activationState) {

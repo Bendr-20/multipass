@@ -62,7 +62,8 @@ const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
 
 const DEFAULT_CLAIM_NONCE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MANAGER_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const EDITABLE_PROFILE_FIELDS = new Set(['display_name', 'summary', 'avatar_url', 'tags']);
+const EDITABLE_PROFILE_FIELDS = new Set(['display_name', 'summary', 'avatar_url', 'tags', 'visibility']);
+const EDITABLE_PROFILE_VISIBILITY = new Set(['public', 'gated', 'private', 'hidden']);
 
 export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
   const db = new DatabaseSync(databasePath);
@@ -490,6 +491,13 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
         nextProfile.discovery_profile.tags = normalized.tags;
         changedFields.push('tags');
       }
+      if ('visibility' in normalized && normalized.visibility !== profile.owner_summary.visibility) {
+        nextProfile.owner_summary = {
+          ...nextProfile.owner_summary,
+          visibility: normalized.visibility,
+        };
+        changedFields.push('visibility');
+      }
 
       if (changedFields.length === 0) {
         return { profile, changedFields: [] };
@@ -657,6 +665,7 @@ function searchProfileList(profiles, query, options = {}) {
   const limit = options.limit ?? 10;
   return profiles
     .filter((profile) => {
+      if ((profile.owner_summary?.visibility ?? 'public') !== 'public') return false;
       const fields = [profile.slug, profile.multipass_id, profile.display_name, ...(profile.discovery_profile?.tags ?? [])]
         .map((field) => String(field ?? '').toLowerCase());
       return fields.some((field) => field === needle || field.startsWith(needle));
@@ -892,7 +901,18 @@ function normalizePublicProfileEdits(edits) {
     if (!Array.isArray(edits.tags)) throw new TypeError('tags must be an array.');
     normalized.tags = [...new Set(edits.tags.map((tag) => normalizeTag(tag)))].slice(0, 12);
   }
+  if ('visibility' in edits) {
+    normalized.visibility = normalizeEditableVisibility(edits.visibility);
+  }
   return normalized;
+}
+
+function normalizeEditableVisibility(value) {
+  const visibility = String(value ?? '').trim().toLowerCase();
+  if (!EDITABLE_PROFILE_VISIBILITY.has(visibility)) {
+    throw new TypeError('visibility must be public, gated, private, or hidden.');
+  }
+  return visibility;
 }
 
 function normalizeTag(value) {
