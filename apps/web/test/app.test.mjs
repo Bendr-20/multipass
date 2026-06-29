@@ -1187,6 +1187,26 @@ test('public profile button restores Multipass home after live resolve from home
   assert.doesNotMatch(root.textContent, /Live Bendr/);
 });
 
+test('back to Multipass home from direct agent query clears profile route state', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  const liveData = {
+    ...sampleData(),
+    profile: { ...sampleData().profile, display_name: 'Quigbot' },
+    resolver: { canonicalId: '8453:81', tokenId: '81' },
+    liveProfilePage: { headline: 'Quigbot Multipass', headerMeta: 'Live profile · 8453:81', sharePath: '/multipass/?agent=81' },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+  root.querySelector('[data-action="reset-static-demo"]').click();
+
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.equal(root.querySelector('.multipass-profile-page'), null);
+  assert.equal(root.querySelector('.record-sheet'), null);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/');
+});
+
 test('Bendr public profile reset invalidates an in-flight live resolver response', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   let resolveLive;

@@ -126,9 +126,11 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   }
 
   function resetStaticDemo() {
+    clearShareUrl();
+    syncMultipassHomeUrl();
     state = {
       ...state,
-      pageKind: getInitialPageKind(),
+      pageKind: 'product_home',
       data: state.staticData,
       selectedAgentCard: 0,
       expandedCard: null,
@@ -149,7 +151,6 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       claimCsrfToken: null,
       claimSessionStatus: null,
     };
-    clearShareUrl();
     render(root, state, handlers);
   }
 
@@ -532,6 +533,11 @@ function clearShareUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete('agent');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function syncMultipassHomeUrl() {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState(null, '', '/multipass/');
 }
 
 function renderRecordHeader(metaLabel = 'Portable Agent Identities') {
