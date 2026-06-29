@@ -441,6 +441,9 @@ test('resolver bar renders without changing default static data', async () => {
   assert.match(resolver.textContent, /Activate a live agent record/);
   assert.match(resolver.textContent, /Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name/);
   assert.match(resolver.textContent, /Activate Multipass/);
+  assert.equal(resolver.querySelector('.resolver-examples'), null);
+  assert.doesNotMatch(resolver.textContent, /Examples/);
+  assert.doesNotMatch(resolver.textContent, /Try\s/);
   assert.doesNotMatch(resolver.textContent, /Resolve live Helixa agent/);
   assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
@@ -1433,30 +1436,16 @@ test('invalid agent query shows the same format validation error', async () => {
 
 
 
-test('resolver example chips resolve live agents through the existing flow', async () => {
+test('resolver omits example chips and keeps activation focused on manual input', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
-  const calls = [];
-  await createApp({
-    root,
-    loadDemo: async () => sampleData(),
-    loadLiveDemo: async (input) => {
-      calls.push(input);
-      return {
-        ...sampleData(),
-        liveProfilePage: { headline: `${input} Multipass`, sharePath: '/multipass/?agent=81' },
-      };
-    },
-  }).start();
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  const chips = [...root.querySelectorAll('[data-action="resolve-example-agent"]')].map((button) => button.textContent.trim());
-  assert.deepEqual(chips, ['Bendr', 'Quigbot', '81']);
-
-  root.querySelector('[data-action="resolve-example-agent"][data-agent="Quigbot"]').click();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.deepEqual(calls, ['Quigbot']);
-  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
+  const resolver = root.querySelector('.live-resolver');
+  assert.ok(resolver);
+  assert.equal(resolver.querySelector('.resolver-examples'), null);
+  assert.equal(resolver.querySelectorAll('[data-action="resolve-example-agent"]').length, 0);
+  assert.doesNotMatch(resolver.textContent, /Examples|Try\s/);
+  assert.ok(resolver.querySelector('[data-action="resolve-live-agent"]'));
 });
 
 test('ambiguous name lookup renders selectable live agent matches', async () => {

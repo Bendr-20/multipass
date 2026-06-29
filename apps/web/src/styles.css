@@ -110,9 +110,10 @@ button:focus-visible {
 
 .product-hero > .live-resolver {
   display: flex;
-  min-height: 560px;
+  align-self: start;
+  min-height: 0;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   margin: 0;
 }
 
@@ -585,31 +586,6 @@ h1 {
 
 .resolver-message.error {
   color: #8a3a28;
-}
-
-.resolver-examples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-top: 14px;
-}
-
-.resolver-examples span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.live-resolver .resolver-examples button {
-  border: 1px solid rgba(46, 40, 30, 0.18);
-  background: var(--paper-soft);
-  color: var(--ink);
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-size: 12px;
 }
 
 .lookup-matches {

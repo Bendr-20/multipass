@@ -835,7 +835,7 @@ function renderLiveResolver(state, options = {}) {
         <div>
           <p class="card-label">Activate a live agent record</p>
           <h2>Build a Multipass from live AgentDNA data.</h2>
-          <p>Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name. Try <code>1</code>, <code>8453:1</code>, <code>Bendr 2.0</code>, or <code>Quigbot</code>.</p>
+          <p>Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name.</p>
         </div>
         <label>
           <span>AgentDNA ID, ERC-8004-style ID, token ID, or agent name</span>
@@ -846,7 +846,6 @@ function renderLiveResolver(state, options = {}) {
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
-      ${renderResolverExamples()}
       ${renderLookupMatches(state.lookupMatches)}
       ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : ''}
     </section>
@@ -940,16 +939,6 @@ function renderActivationSummary(activationState) {
       </div>
       ${futureBindNote}
     </section>
-  `;
-}
-
-function renderResolverExamples() {
-  const examples = ['Bendr', 'Quigbot', '81'];
-  return `
-    <div class="resolver-examples" aria-label="Example Helixa lookups">
-      <span>Examples</span>
-      ${examples.map((example) => `<button type="button" data-action="resolve-example-agent" data-agent="${escapeAttribute(example)}">${escapeHtml(example)}</button>`).join('')}
-    </div>
   `;
 }
 

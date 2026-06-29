@@ -33,6 +33,8 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.visual-card-button\s*\{[^}]*flex:\s*0 0 min\(300px, 86%\);[^}]*grid-template-rows:\s*auto auto auto;[^}]*scroll-snap-align:\s*start;[^}]*border-radius:\s*18px;/s);
   assert.match(css, /\.visual-card-button \.profile-card-visual\s*\{[^}]*aspect-ratio:\s*1 \/ 1;[^}]*border-radius:\s*12px;/s);
   assert.match(css, /\.visual-card-button \.profile-card-visual img\s*\{[^}]*object-fit:\s*contain;/s);
+  assert.match(css, /\.product-hero > \.live-resolver\s*\{[^}]*align-self:\s*start;[^}]*min-height:\s*0;[^}]*justify-content:\s*flex-start;[^}]*margin:\s*0;/s);
+  assert.doesNotMatch(css, /\.product-hero > \.live-resolver\s*\{[^}]*min-height:\s*560px;/s);
   assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*auto auto auto;/s);
   assert.match(mobileBlock, /\.product-hero-copy\s*\{[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-carousel\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
