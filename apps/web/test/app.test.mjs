@@ -381,6 +381,45 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
+test('homepage profile card click resolves in place without showing stale profile shell', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  let resolveLive;
+  const liveData = {
+    ...sampleData(),
+    profile: { ...sampleData().profile, display_name: 'Bendr 2.0' },
+    resolver: { canonicalId: '8453:1', tokenId: '1' },
+    liveProfilePage: { headline: 'Bendr Multipass', headerMeta: 'Live profile · 8453:1', sharePath: '/multipass/?agent=1' },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return new Promise((resolve) => { resolveLive = () => resolve(liveData); });
+    },
+  }).start();
+
+  const card = root.querySelector('a.visual-card-button[href="/multipass/?agent=1"]');
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  card.dispatchEvent(click);
+  await Promise.resolve();
+
+  assert.equal(click.defaultPrevented, true);
+  assert.deepEqual(calls, ['1']);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/');
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.equal(root.querySelector('.multipass-profile-page'), null);
+  assert.equal(root.querySelector('.record-sheet'), null);
+
+  resolveLive();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.ok(root.querySelector('.multipass-profile-page'));
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
+});
+
 
 test('homepage visual image failures fall back to initials instead of broken panels', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
@@ -1312,7 +1351,8 @@ test('failed lookup after live activation returns to preview state without stale
   await Promise.resolve();
 
   assert.match(root.textContent, /No Helixa agent found for that ID/);
-  assert.match(root.querySelector('.activation-summary').textContent, /Bendr 2.0 Public Profile/);
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.equal(root.querySelector('.multipass-profile-page'), null);
   assert.doesNotMatch(root.textContent, /Quigbot Live/);
   assert.doesNotMatch(root.textContent, /Activated Multipass/);
   assert.equal(new URL(window.location.href).searchParams.get('agent'), null);

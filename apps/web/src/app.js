@@ -57,9 +57,10 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
 
   async function resolveLiveAgent(input) {
     const trimmed = String(input ?? '').trim();
+    const loadingPageKind = state.pageKind === 'product_home' ? 'product_home' : 'profile';
     state = {
       ...state,
-      pageKind: 'profile',
+      pageKind: loadingPageKind,
       resolverInput: input,
       resolverStatus: 'loading',
       resolverError: null,
@@ -904,7 +905,7 @@ function renderProductHome(root, state, handlers = {}) {
           </div>
           ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
         </div>
-        ${renderLiveResolver(state, { showResetButton: false })}
+        ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
       </section>
 
       ${renderMultipassWhatItDoesPanel()}
@@ -929,10 +930,12 @@ function renderAgentVisualStrip(carousel, selectedIndex) {
 function renderAgentVisualLink(card, index, selectedIndex) {
   const selected = index === selectedIndex;
   const href = getHomepageMultipassProfileHref(card);
+  const agent = getHomepageMultipassProfileAgent(card);
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
+  const resolveAttrs = agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}"` : '';
   return `
-    <a class="visual-card-button${selected ? ' selected' : ''}" href="${escapeAttribute(href)}" aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
+    <a class="visual-card-button${selected ? ' selected' : ''}" href="${escapeAttribute(href)}"${resolveAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
         ${imageUrl ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(label)}" loading="eager" decoding="async" data-visual-card-image="true" />` : ''}
         <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
@@ -943,12 +946,19 @@ function renderAgentVisualLink(card, index, selectedIndex) {
   `;
 }
 
-function getHomepageMultipassProfileHref(card) {
+function getHomepageMultipassProfileAgent(card) {
   const tokenId = String(card.tokenId ?? '').trim();
-  if (/^\d+$/.test(tokenId)) return `/multipass/?agent=${encodeURIComponent(tokenId)}`;
+  if (/^\d+$/.test(tokenId)) return tokenId;
 
   const helixaId = String(card.helixaId ?? '').trim();
-  if (/^\d+:\d+$/.test(helixaId)) return `/multipass/?agent=${encodeURIComponent(helixaId)}`;
+  if (/^\d+:\d+$/.test(helixaId)) return helixaId;
+
+  return null;
+}
+
+function getHomepageMultipassProfileHref(card) {
+  const agent = getHomepageMultipassProfileAgent(card);
+  if (agent) return `/multipass/?agent=${encodeURIComponent(agent)}`;
 
   if (card.profileUrl) {
     try {
@@ -974,6 +984,13 @@ function bindProductHomeEvents(root, handlers, state) {
   });
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
+  });
+  root.querySelectorAll('[data-action="resolve-home-profile"]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      handlers.resolveLiveAgent?.(link.getAttribute('data-agent') ?? '');
+    });
   });
   bindVisualImageFallbacks(root);
   root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
