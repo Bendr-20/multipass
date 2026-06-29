@@ -6,6 +6,8 @@ import { createApp } from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
+const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
+
 function sampleData() {
   return {
     profile: {
@@ -235,7 +237,7 @@ async function savedQuigbotFetch(url) {
       subject_type: 'agent',
       owner_summary: { owner_state: 'verified', verification_status: 'verified', visibility: 'public' },
       cred_summary: { trust_state: 'building', public_note: 'Public Cred score 75 observed from the live Helixa source record.' },
-      discovery_profile: { tags: ['helixa', 'agentdna', 'multipass', 'openclaw'], visibility: 'public' },
+      discovery_profile: { tags: ['helixa', 'agentdna', 'multipass', 'openclaw'], visibility: 'public', avatar_url: NAKAMIGO_2432_IMAGE },
       updated_at: '2026-06-29T20:40:40.613Z',
     }), { status: 200 });
   }
@@ -681,16 +683,18 @@ test('saved and static profile routes render profile-first visual pages without 
   assert.ok(staticRoot.querySelector('.multipass-profile-page > .aura-card'));
 });
 
-test('refreshed saved Quigbot profile keeps aura image and source stats', async () => {
+test('refreshed saved Quigbot profile uses holder-editable avatar image and source stats', async () => {
   const root = setupDom('https://helixa.xyz/multipass/quigbot-81?api=https://api.example.test');
   await createApp({ root, fetchImpl: savedQuigbotFetch }).start();
 
   const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
   assert.ok(auraCard);
-  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
+  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NAKAMIGO_2432_IMAGE);
+  assert.notEqual(auraCard.querySelector('img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
   assert.match(auraCard.textContent ?? '', /8453:81/);
   assert.match(auraCard.textContent ?? '', /Cred 75/);
   assert.match(auraCard.textContent ?? '', /verified/);
+  assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
   assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/');
 });
 

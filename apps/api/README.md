@@ -91,3 +91,23 @@ curl -s http://127.0.0.1:8787/api/multipass \
 ```
 
 `POST /api/multipass/activate` is preview-only. `POST /api/multipass` is the public save path in A1.
+
+## ERC-8004 import
+
+Activation checks the canonical Base ERC-8004 Identity Registry for identities already held by the live Helixa agent owner, agent address, or configured platform wallets. Matching identities are imported as public `standard_ref` fragments and reflected in the standards profile.
+
+Custody labels:
+
+- `agent_owned` - held by the agent custody wallet or an AGENT_SIWA source owner
+- `owner_owned` - held by the public Helixa source owner
+- `platform_held_mirror` - held by a configured Helixa/platform wallet
+- `candidate_match` - metadata matched, but custody could not be classified
+
+Optional environment:
+
+```bash
+MULTIPASS_ERC8004_PLATFORM_WALLETS=0x...,0x...
+MULTIPASS_ERC8004_REGISTRY_ADDRESS=0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+MULTIPASS_ERC8004_BLOCKSCOUT_API=https://base.blockscout.com/api
+BASE_RPC_URL=https://mainnet.base.org
+```

@@ -772,6 +772,11 @@ function createProfileVisualIdentity(data, selectedAgent) {
   const name = selectedAgent?.name ?? data.profile?.display_name ?? data.liveProfilePage?.headline ?? 'Multipass visual';
   const tokenId = selectedAgent?.tokenId ?? data.resolver?.tokenId ?? data.profile?.token_id;
   const helixaId = selectedAgent?.helixaId ?? data.resolver?.canonicalId ?? data.profile?.multipass_id;
+  const managerAvatarUrl = safeHttpsUrl(data.profile?.discovery_profile?.avatar_url ?? data.profile?.avatar_url);
+  const imageUrl = managerAvatarUrl
+    ?? selectedAgent?.visual?.imageUrl
+    ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null);
+  const visualSourceLabel = managerAvatarUrl ? 'Manager public avatar URL' : (tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials');
   const chips = [
     helixaId,
     selectedAgent?.credLabel,
@@ -784,7 +789,7 @@ function createProfileVisualIdentity(data, selectedAgent) {
     label: `${name} visual identity`,
     initials: selectedAgent?.visual?.initials ?? initialsForDisplayName(name),
     tone: selectedAgent?.visual?.tone ?? String(data.profile?.cred_summary?.trust_state ?? 'pending').toLowerCase(),
-    imageUrl: selectedAgent?.visual?.imageUrl ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null),
+    imageUrl,
     chips,
     provenanceDrawer: {
       title: `${name} visual provenance`,
@@ -792,7 +797,7 @@ function createProfileVisualIdentity(data, selectedAgent) {
       facts: [
         { label: 'Profile', value: name },
         { label: 'Identifier', value: helixaId ?? 'Public identifier pending' },
-        { label: 'Visual source', value: tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials' },
+        { label: 'Visual source', value: visualSourceLabel },
       ],
       safetyNote: 'Display-only visual context. This does not grant ownership, custody, approvals, or route authority.',
     },
