@@ -28,8 +28,8 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.brand-stack\s*\{[^}]*display:\s*grid;[^}]*gap:\s*4px;/s);
   assert.match(css, /\.brand-wordmark\s*\{[^}]*min-height:\s*18px;[^}]*align-items:\s*center;/s);
   assert.match(css, /\.brand \.header-meta\s*\{[^}]*line-height:\s*1;/s);
-  assert.match(css, /\.site-menu-button\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*1px solid var\(--ink\);[^}]*background:\s*var\(--ink\);/s);
-  assert.match(css, /\.site-menu-button span\s*\{[^}]*height:\s*2px;[^}]*background:\s*var\(--paper\);/s);
+  assert.match(css, /\.site-menu-button\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*0;[^}]*background:\s*transparent;/s);
+  assert.match(css, /\.site-menu-button span\s*\{[^}]*height:\s*2px;[^}]*background:\s*var\(--ink\);/s);
   assert.match(css, /\.multipass-system-panel\s*\{/s);
   assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
   assert.match(css, /\.system-node-core\s*\{/s);
