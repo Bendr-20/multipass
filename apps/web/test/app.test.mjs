@@ -284,6 +284,40 @@ async function renderClaimFailureText(error) {
 
 
 
+function quigbotLiveData(overrides = {}) {
+  return {
+    ...sampleData(),
+    modeLabel: 'Live Profile',
+    sourceLabel: 'live Helixa API',
+    profile: { ...sampleData().profile, display_name: 'Quigbot', ...(overrides.profile ?? {}) },
+    resolver: { canonicalId: '8453:81', tokenId: '81', ...(overrides.resolver ?? {}) },
+    liveProfilePage: {
+      headline: 'Quigbot Multipass',
+      headerMeta: 'Live profile · 8453:81',
+      sharePath: '/multipass/?agent=81',
+      ...(overrides.liveProfilePage ?? {}),
+    },
+    ...overrides,
+  };
+}
+
+async function renderResolvedQuigbotProfile(liveData = quigbotLiveData()) {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81');
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData }).start();
+  await flushAsyncEvents();
+  return root;
+}
+
+function profileDrawerTitles(profile) {
+  return [...profile.querySelectorAll('.profile-detail-drawer summary span')].map((node) => node.textContent);
+}
+
+function profileDrawerByTitle(profile, title) {
+  return [...profile.querySelectorAll('.profile-detail-drawer')].find((drawer) => drawer.querySelector('summary span')?.textContent === title);
+}
+
+
+
 test('homepage leads with Multipass product hero instead of Bendr record sheet', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
@@ -521,6 +555,126 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.doesNotMatch(root.textContent, /Bendr 2\.0 Public Profile/);
   assert.doesNotMatch(root.textContent, /\b(?:Preview|preview|Demo|demo|fixture|Fixture)\b/);
 });
+
+
+test('resolved live profile renders visual-first drawers without homepage or resolver chrome', async () => {
+  const root = await renderResolvedQuigbotProfile();
+
+  const profile = root.querySelector('.multipass-profile-page');
+  assert.ok(profile);
+  assert.ok(profile.querySelector(':scope > .aura-card'));
+  assert.equal(profile.querySelector('.live-resolver'), null);
+  assert.equal(profile.querySelector('.profile-gallery'), null);
+  assert.equal(profile.querySelector('.homepage-hero'), null);
+  assert.equal(profile.querySelectorAll('.profile-detail-drawer').length >= 5, true);
+  assert.deepEqual(profileDrawerTitles(profile), [
+    'Share and status',
+    'Ownership and management',
+    'Visual provenance',
+    'Trust context',
+    'Public proof fragments',
+    'Proof ledger',
+  ]);
+  assert.match(profile.querySelector('.profile-detail-drawers')?.textContent ?? '', /Proof ledger/);
+});
+
+test('saved and static profile routes render profile-first visual pages without gallery chrome', async () => {
+  const savedRoot = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root: savedRoot, fetchImpl: savedProfileFetch }).start();
+
+  assert.equal(savedRoot.querySelector('.multipass-profile-page .live-resolver'), null);
+  assert.equal(savedRoot.querySelector('.multipass-profile-page .profile-gallery'), null);
+  assert.ok(savedRoot.querySelector('.multipass-profile-page > .aura-card'));
+
+  const staticRoot = setupDom('https://helixa.xyz/profile/bendr-2');
+  await createApp({ root: staticRoot, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(staticRoot.querySelector('.multipass-profile-page .live-resolver'), null);
+  assert.equal(staticRoot.querySelector('.multipass-profile-page .profile-gallery'), null);
+  assert.ok(staticRoot.querySelector('.multipass-profile-page > .aura-card'));
+});
+
+test('resolver transitional states keep the live resolver shell instead of profile-first layout', async () => {
+  const invalidRoot = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root: invalidRoot,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => { throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.'); },
+  }).start();
+  invalidRoot.querySelector('.live-resolver input').value = 'not an id';
+  invalidRoot.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.ok(invalidRoot.querySelector('.live-resolver'));
+  assert.equal(invalidRoot.querySelector('.multipass-profile-page'), null);
+
+  const ambiguousRoot = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root: ambiguousRoot,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => {
+      throw new HelixaResolverError('ambiguous_lookup', 'Multiple Helixa agents matched that name.', {
+        matches: [
+          { tokenId: '1', name: 'Bendr 2.0', helixaId: '8453:1', framework: 'openclaw', credScore: 80, verified: true },
+          { tokenId: '81', name: 'Quigbot', helixaId: '8453:81', framework: 'openclaw', credScore: 75, verified: true },
+        ],
+      });
+    },
+  }).start();
+  ambiguousRoot.querySelector('.live-resolver input').value = 'agent';
+  ambiguousRoot.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.ok(ambiguousRoot.querySelector('.live-resolver'));
+  assert.ok(ambiguousRoot.querySelector('.lookup-matches'));
+  assert.equal(ambiguousRoot.querySelector('.multipass-profile-page'), null);
+
+  const loadingRoot = setupDom('https://helixa.xyz/multipass/?agent=81');
+  await createApp({
+    root: loadingRoot,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => new Promise(() => {}),
+  }).start();
+  assert.ok(loadingRoot.querySelector('.live-resolver'));
+  assert.equal(loadingRoot.querySelector('.multipass-profile-page'), null);
+});
+
+test('resolved profile synthesizes a fallback visual from the live selected agent', async () => {
+  const root = await renderResolvedQuigbotProfile(quigbotLiveData({ visualIdentity: null }));
+
+  const card = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.ok(card);
+  assert.match(card.textContent ?? '', /Quigbot/);
+  assert.doesNotMatch(card.textContent ?? '', /Bendr 2\.0/);
+});
+
+test('profile detail drawers keep secondary content collapsed and JSON toggles working', async () => {
+  const root = await renderResolvedQuigbotProfile();
+  const profile = root.querySelector('.multipass-profile-page');
+  assert.ok(profile);
+  assert.deepEqual(profileDrawerTitles(profile), [
+    'Share and status',
+    'Ownership and management',
+    'Visual provenance',
+    'Trust context',
+    'Public proof fragments',
+    'Proof ledger',
+  ]);
+
+  assert.equal(profile.querySelectorAll('.profile-detail-drawer[open]').length <= 1, true);
+  assert.equal(profile.querySelectorAll(':scope > .proof-ledger').length, 0);
+  assert.equal(profile.querySelectorAll('.proof-ledger').length, 1);
+
+  const proofDrawer = profileDrawerByTitle(profile, 'Proof ledger');
+  assert.ok(proofDrawer);
+  const firstToggle = proofDrawer.querySelector('[data-action="toggle-json"]');
+  assert.ok(firstToggle);
+  assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(proofDrawer.querySelector('pre'), null);
+  firstToggle.click();
+  const expandedProofDrawer = profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Proof ledger');
+  assert.equal(expandedProofDrawer.querySelector('[data-action="toggle-json"]')?.getAttribute('aria-expanded'), 'true');
+  assert.match(expandedProofDrawer.querySelector('pre')?.textContent ?? '', /Quigbot/);
+});
+
 
 test('successful live resolve shows activated Multipass summary without stale static framing', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=81');
@@ -938,9 +1092,11 @@ test('Bendr public profile does not require marketplace listing data', async () 
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
+  assert.ok(root.querySelector('.multipass-profile-page'));
   assert.equal(root.querySelector('.marketplace-listing'), null);
   assert.doesNotMatch(root.innerHTML, /Marketplace listing context/);
-  assert.match(root.innerHTML, /Example trust profiles/);
+  assert.doesNotMatch(root.innerHTML, /Example trust profiles/);
+  assert.match(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context')?.textContent ?? '', /not published for this profile yet/);
 });
 
 test('live resolver renders trust profile compatibility context without executable controls', async () => {
@@ -1129,6 +1285,7 @@ test('failed lookup after live activation returns to preview state without stale
   await Promise.resolve();
   assert.match(root.querySelector('.activation-summary').textContent, /Activated Multipass/);
 
+  root.querySelector('[data-action="reset-static-demo"]').click();
   root.querySelector('.live-resolver input').value = '999999';
   root.querySelector('.live-resolver form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await Promise.resolve();
@@ -1252,11 +1409,12 @@ test('resolved live agent takes over the page hero and record surface', async ()
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(root.querySelector('.homepage-hero h1').textContent, 'Quigbot Multipass');
-  assert.match(root.querySelector('.homepage-proof-panel').textContent, /Trust profile stack/);
+  const profile = root.querySelector('.multipass-profile-page');
+  assert.ok(profile);
+  assert.equal(root.querySelector('.homepage-hero'), null);
   assert.match(root.querySelector('.header-meta').textContent, /Live profile · 8453:81/);
-  assert.equal(root.querySelector('.share-link')?.getAttribute('href'), '/multipass/?agent=81');
-  assert.match(root.querySelector('.share-link')?.textContent ?? '', /\/multipass\/\?agent=81/);
+  assert.match(profile.querySelector('.aura-card')?.textContent ?? '', /Quigbot/);
+  assert.equal(root.querySelector('.share-link'), null);
   assert.equal(root.querySelector('.share-panel .share-url')?.textContent, 'https://helixa.xyz/multipass/?agent=81');
   assert.match(root.querySelector('.share-panel')?.textContent ?? '', /Quigbot Multipass/);
 });
@@ -1319,8 +1477,8 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.match(auraCard?.getAttribute('aria-label') ?? '', /trust profile/i);
   assert.ok(root.querySelector('.aura-asset-frame'));
   assert.ok(root.querySelector('.aura-item-meta'));
-  assert.equal(auraCard?.nextElementSibling, drawer);
-  assert.equal(drawer?.nextElementSibling, root.querySelector('.marketplace-listing'));
+  assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Visual provenance')?.contains(drawer));
+  assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context')?.contains(root.querySelector('.marketplace-listing')));
   assert.match(root.textContent, /Helixa Agent Aura/);
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
@@ -1520,7 +1678,9 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
   await Promise.resolve();
 
   assert.deepEqual(calls, ['bot', '81']);
-  assert.equal(root.querySelector('.homepage-hero h1').textContent, 'Quigbot Multipass');
+  assert.ok(root.querySelector('.multipass-profile-page'));
+  assert.equal(root.querySelector('.homepage-hero'), null);
+  assert.match(root.querySelector('.aura-card')?.textContent ?? '', /Quigbot/);
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
 });
 

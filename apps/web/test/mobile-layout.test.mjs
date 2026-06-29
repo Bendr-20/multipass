@@ -89,3 +89,15 @@ test('mobile marketplace listing collapses to one readable column', async () => 
   assert.match(mobileBlock, /\.listing-identity\s*{[^}]*grid-template-columns:\s*1fr;/s);
   assert.match(mobileBlock, /\.listing-sections\s*{[^}]*grid-template-columns:\s*1fr;/s);
 });
+
+test('profile-first layout and drawers have dedicated responsive selectors', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(css, /\.multipass-profile-page\s*\{/s);
+  assert.match(css, /\.profile-detail-drawers\s*\{/s);
+  assert.match(css, /\.profile-detail-drawer\s*\{/s);
+  assert.match(css, /\.profile-detail-drawer summary\s*\{/s);
+  assert.match(css, /\.profile-detail-drawer-body\s*\{/s);
+  assert.match(mobileBlock, /\.multipass-profile-page\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+});

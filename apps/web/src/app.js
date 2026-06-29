@@ -561,6 +561,29 @@ function render(root, state, handlers = {}) {
     renderProductHome(root, state, handlers);
     return;
   }
+
+  if (isResolvedProfileView(state)) {
+    renderProfilePage(root, state, handlers);
+    return;
+  }
+
+  renderLegacyProfileShell(root, state, handlers);
+}
+
+function isResolvedProfileView(state) {
+  if (state.pageKind === 'product_home') return false;
+  if (state.resolverStatus === 'loading' || state.resolverStatus === 'error') return false;
+  if (Array.isArray(state.lookupMatches) && state.lookupMatches.length > 0) return false;
+  if (!state.data) return false;
+  if (state.resolverStatus === 'loaded') return true;
+  if (typeof window === 'undefined') return false;
+  const locationUrl = new URL(window.location.href);
+  if (getSavedSlugFromLocation(locationUrl)) return true;
+  return /^\/(profile|agent)\//.test(locationUrl.pathname);
+}
+
+function renderLegacyProfileShell(root, state, handlers = {}) {
+  const { data } = state;
   const heroCopy = createHeroCopy(data);
   const agentCarousel = createAgentCarousel(data);
   const selectedAgent = agentCarousel.cards[state.selectedAgentCard] ?? agentCarousel.cards[0];
@@ -596,10 +619,7 @@ function render(root, state, handlers = {}) {
 
       ${renderFragmentTrustMap(fragmentTrustMap)}
 
-      <section class="proof-ledger">
-        <div class="ledger-title"><h2>Proof ledger</h2><span>Expandable API records</span></div>
-        ${proofCards.map((card, index) => renderProofRow(card, index, state.expandedCard)).join('')}
-      </section>
+      ${renderProofLedger(proofCards, state.expandedCard)}
 
       <footer class="footer-note">${escapeHtml(['activated', 'saved'].includes(activationState.kind)
         ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
@@ -608,6 +628,41 @@ function render(root, state, handlers = {}) {
     </div>
   `;
 
+  bindProfileEvents(root, state, handlers);
+}
+
+function renderProfilePage(root, state, handlers = {}) {
+  const { data } = state;
+  const heroCopy = createHeroCopy(data);
+  const agentCarousel = createAgentCarousel(data);
+  const selectedAgent = selectProfileAgent(data, agentCarousel, state.selectedAgentCard);
+  const activationState = getActivationState(data, state);
+  const fragmentTrustMap = createFragmentTrustMap(data, selectedAgent);
+  const proofCards = createProofCards(data, selectedAgent);
+  const visualIdentity = createProfileVisualIdentity(data, selectedAgent);
+  const headerMeta = data.liveProfilePage?.headerMeta ?? 'Portable Agent Identities';
+
+  root.innerHTML = `
+    <div class="record-shell">
+      ${renderRecordHeader(headerMeta)}
+      <main class="multipass-profile-page">
+        ${renderAgentAura(visualIdentity)}
+        ${renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state })}
+        <footer class="footer-note">
+          <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
+          <span>${escapeHtml(['activated', 'saved'].includes(activationState.kind)
+            ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
+            : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
+          )}</span>
+        </footer>
+      </main>
+    </div>
+  `;
+
+  bindProfileEvents(root, state, handlers);
+}
+
+function bindProfileEvents(root, state, handlers = {}) {
   root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedAgentCard = Number(button.dataset.index);
@@ -654,6 +709,138 @@ function render(root, state, handlers = {}) {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
   });
 }
+
+function selectProfileAgent(data, carousel, selectedIndex = 0) {
+  const cards = carousel.cards ?? [];
+  const resolverTokenId = data.resolver?.tokenId ?? data.profile?.token_id ?? data.profile?.tokenId;
+  const resolverCanonicalId = data.resolver?.canonicalId ?? data.profile?.helixa_id ?? data.profile?.helixaId;
+  const displayName = data.profile?.display_name ?? data.liveProfilePage?.headline;
+
+  const byToken = findAgentCard(cards, (card) => String(card.tokenId ?? '') === String(resolverTokenId ?? ''));
+  if (byToken) return byToken;
+
+  const byHelixa = findAgentCard(cards, (card) => String(card.helixaId ?? '') === String(resolverCanonicalId ?? ''));
+  if (byHelixa) return byHelixa;
+
+  const normalizedName = normalizeAgentName(displayName);
+  const byName = findAgentCard(cards, (card) => normalizeAgentName(card.name) === normalizedName);
+  if (byName) return byName;
+
+  return cards[selectedIndex] ?? cards[0] ?? null;
+}
+
+function findAgentCard(cards, predicate) {
+  return cards.find((card) => predicate(card)) ?? null;
+}
+
+function normalizeAgentName(value) {
+  return String(value ?? '')
+    .replace(/\bMultipass\b/gi, '')
+    .trim()
+    .toLowerCase();
+}
+
+function createProfileVisualIdentity(data, selectedAgent) {
+  if (data.visualIdentity && ['helixa_aura', 'aura'].includes(data.visualIdentity.source)) return data.visualIdentity;
+
+  const name = selectedAgent?.name ?? data.profile?.display_name ?? data.liveProfilePage?.headline ?? 'Multipass visual';
+  const tokenId = selectedAgent?.tokenId ?? data.resolver?.tokenId ?? data.profile?.token_id;
+  const helixaId = selectedAgent?.helixaId ?? data.resolver?.canonicalId ?? data.profile?.multipass_id;
+  const chips = [
+    helixaId,
+    selectedAgent?.credLabel,
+    selectedAgent?.verifiedLabel,
+    selectedAgent?.custody,
+  ].filter(hasRenderableValue);
+
+  return {
+    source: 'helixa_aura',
+    label: `${name} visual identity`,
+    initials: selectedAgent?.visual?.initials ?? initialsForDisplayName(name),
+    tone: selectedAgent?.visual?.tone ?? String(data.profile?.cred_summary?.trust_state ?? 'pending').toLowerCase(),
+    imageUrl: selectedAgent?.visual?.imageUrl ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null),
+    chips,
+    provenanceDrawer: {
+      title: `${name} visual provenance`,
+      summary: 'Visual identity is synthesized from public Multipass profile context when no dedicated aura metadata is published.',
+      facts: [
+        { label: 'Profile', value: name },
+        { label: 'Identifier', value: helixaId ?? 'Public identifier pending' },
+        { label: 'Visual source', value: tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials' },
+      ],
+      safetyNote: 'Display-only visual context. This does not grant ownership, custody, approvals, or route authority.',
+    },
+  };
+}
+
+function initialsForDisplayName(value) {
+  const words = String(value ?? 'MP').match(/[a-z0-9]+/gi) ?? ['M', 'P'];
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? '').join('') || 'MP';
+}
+
+function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state }) {
+  const shareAndStatus = [
+    data.heroNote ? renderProfileInfoPanel('Profile note', data.heroNote) : '',
+    state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : '',
+    renderSharePanel(data, heroCopy),
+    renderSavePanel(state),
+    renderActivationSummary(activationState),
+  ].join('');
+  const claimManagement = renderClaimManagementPanel(state) || renderProfileInfoPanel(
+    'Ownership and management',
+    'No management controls are available for this public view. Multipass is display-only here and cannot transfer custody, expose private credentials, or change live routes.'
+  );
+  const provenance = renderAgentAuraProvenanceDrawer(visualIdentity?.provenanceDrawer) || renderProfileInfoPanel(
+    'Visual provenance',
+    'No dedicated visual provenance has been published for this profile yet.'
+  );
+  const trustContext = renderMarketplaceListing(data.marketplaceListing) || renderProfileInfoPanel(
+    'Trust context',
+    'Marketplace and route compatibility context is not published for this profile yet. Public proof remains available below.'
+  );
+
+  return `
+    <section class="profile-detail-drawers" aria-label="Multipass profile details">
+      ${renderProfileDrawer('Share and status', 'Public URL and display state', shareAndStatus)}
+      ${renderProfileDrawer('Ownership and management', 'Display-only authority context', claimManagement)}
+      ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
+      ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext)}
+      ${renderProfileDrawer('Public proof fragments', 'Visible profile evidence', renderFragmentTrustMap(fragmentTrustMap))}
+      ${renderProfileDrawer('Proof ledger', 'Expandable API records', renderProofLedger(proofCards, state.expandedCard))}
+    </section>
+  `;
+}
+
+function renderProfileDrawer(title, subtitle, html, options = {}) {
+  if (!String(html ?? '').trim()) return '';
+  const open = options.open ? ' open' : '';
+  const subtitleHtml = subtitle ? `<small>${escapeHtml(subtitle)}</small>` : '';
+  return `
+    <details class="profile-detail-drawer"${open}>
+      <summary><span>${escapeHtml(title)}</span>${subtitleHtml}</summary>
+      <div class="profile-detail-drawer-body">${html}</div>
+    </details>
+  `;
+}
+
+function renderProfileInfoPanel(title, body) {
+  return `
+    <section class="profile-info-panel">
+      <p class="card-label">${escapeHtml(title)}</p>
+      <p>${escapeHtml(body)}</p>
+    </section>
+  `;
+}
+
+function renderProofLedger(proofCards, expandedCard) {
+  return `
+    <section class="proof-ledger">
+      <div class="ledger-title"><h2>Proof ledger</h2><span>Expandable API records</span></div>
+      ${proofCards.map((card, index) => renderProofRow(card, index, expandedCard)).join('')}
+    </section>
+  `;
+}
+
 
 const MULTIPASS_INPUT_SIGNALS = ['AgentDNA', 'Owner wallet', 'Manager agent', 'Endpoints', 'NFT provenance'];
 const MULTIPASS_CORE_SIGNALS = ['Human-owned', 'Agent-managed', 'Standards-readable'];
