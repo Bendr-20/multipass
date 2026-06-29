@@ -386,7 +386,10 @@ test('initial render shows loading state then product-led Multipass record', asy
   const brandLogo = root.querySelector('.brand-logo');
   assert.equal(brandLogo?.getAttribute('src'), '/multipass/helixa-logo.png');
   assert.equal(brandLogo?.getAttribute('alt'), '');
-  assert.ok(root.querySelector('.brand-logo-frame'));
+  const brandLogoLink = root.querySelector('.brand-logo-link');
+  assert.equal(brandLogoLink?.getAttribute('href'), '/multipass/');
+  assert.equal(brandLogoLink?.getAttribute('aria-label'), 'Go to Multipass home');
+  assert.ok(brandLogoLink?.querySelector('.brand-logo-frame'));
   assert.equal(root.querySelector('.brand-wordmark')?.textContent, 'Multipass');
   assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Portable Agent Identities');
   assert.equal(root.querySelector('.header-actions .header-meta'), null);

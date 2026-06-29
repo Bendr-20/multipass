@@ -538,7 +538,7 @@ function renderRecordHeader(metaLabel = 'Portable Agent Identities') {
   return `
     <header class="record-header">
       <div class="brand">
-        <span class="brand-logo-frame"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"></span>
+        <a class="brand-logo-link" href="/multipass/" aria-label="Go to Multipass home"><span class="brand-logo-frame"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"></span></a>
         <span class="brand-stack">
           <span class="brand-wordmark">Multipass</span>
           <span class="header-meta">${escapeHtml(metaLabel)}</span>
