@@ -290,7 +290,8 @@ test('homepage leads with Multipass product hero instead of Bendr record sheet',
 
   const hero = root.querySelector('.product-hero');
   assert.ok(hero);
-  assert.match(hero.textContent, /Multipass/i);
+  assert.equal(hero.querySelector('.eyebrow')?.textContent, 'What it is');
+  assert.doesNotMatch(hero.querySelector('.eyebrow')?.textContent ?? '', /Helixa Multipass/i);
   assert.match(hero.textContent, /Portable identity profiles for agents/i);
   assert.doesNotMatch(hero.textContent, /mp_bendr_2/);
   assert.doesNotMatch(hero.textContent, /receipt_bendr_lookup/);

@@ -702,7 +702,7 @@ function renderProductHome(root, state, handlers = {}) {
 
       <section class="product-hero">
         <div class="product-hero-copy">
-          <p class="eyebrow">Helixa Multipass</p>
+          <p class="eyebrow">What it is</p>
           <h1>Portable identity profiles for agents.</h1>
           <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history.</p>
           <div class="homepage-actions">
