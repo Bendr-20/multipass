@@ -48,6 +48,9 @@ test('agent share routes expose per-agent social preview metadata', async () => 
     assert.match(html, new RegExp(`<meta property="og:title" content="${name} Multipass" \\/>`));
     assert.match(html, new RegExp(`<meta property="og:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
     assert.match(html, new RegExp(`<meta name="twitter:image" content="https:\\/\\/helixa\\.xyz\\/multipass\\/share\\/${tokenId}\\.png" \\/>`));
-    assert.match(html, new RegExp(`url=https:\\/\\/helixa\\.xyz\\/multipass\\/\\?agent=${tokenId}`));
+    assert.match(html, new RegExp(`<img src="\\.\\.\\/${tokenId}\\.png" alt="${name} Multipass preview" \\/>`));
+    assert.match(html, new RegExp(`<a class="open-profile" href="https:\\/\\/helixa\\.xyz\\/multipass\\/\\?agent=${tokenId}">Open Multipass profile<\\/a>`));
+    assert.doesNotMatch(html, /http-equiv="refresh"/);
+    assert.doesNotMatch(html, /window\.location\.replace/);
   }
 });
