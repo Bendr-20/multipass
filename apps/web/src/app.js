@@ -7,10 +7,13 @@ import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMes
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
+  const liveProfileCache = new Map();
+  const liveProfileInFlight = new Map();
+  const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
 
   let state = {
     pageKind: getInitialPageKind(),
@@ -49,6 +52,8 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       const resolverInput = getInitialResolverInput();
       if (resolverInput !== null) {
         resolveLiveAgent(resolverInput);
+      } else if (state.pageKind === 'product_home') {
+        scheduleHomepageProfilePrefetch(data);
       }
     } catch (error) {
       renderError(root, error);
@@ -58,6 +63,36 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   async function resolveLiveAgent(input, options = {}) {
     const trimmed = String(input ?? '').trim();
     const selectedAgentCard = Number.isInteger(options.selectedAgentCard) ? options.selectedAgentCard : state.selectedAgentCard;
+    const cachedLiveData = getCachedLiveProfile(trimmed);
+    if (cachedLiveData) {
+      state = {
+        ...state,
+        pageKind: 'profile',
+        data: cachedLiveData,
+        resolverInput: input,
+        resolverStatus: 'loaded',
+        resolverError: null,
+        retryUntil: 0,
+        retryMessage: null,
+        selectedAgentCard: 0,
+        expandedCard: null,
+        resolverInFlightInput: null,
+        resolverRequestId: state.resolverRequestId + 1,
+        lookupMatches: [],
+        saveStatus: null,
+        saveError: null,
+        savedSharePath: null,
+        savedProfile: null,
+        claimStatus: null,
+        claimError: null,
+        claimCsrfToken: null,
+        claimSessionStatus: null,
+      };
+      syncShareUrl(cachedLiveData?.liveProfilePage?.sharePath);
+      render(root, state, handlers);
+      return;
+    }
+
     const loadingPageKind = state.pageKind === 'product_home' ? 'product_home' : 'profile';
     state = {
       ...state,
@@ -83,8 +118,16 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     render(root, state, handlers);
 
     try {
-      const liveData = await loadLiveDemo(trimmed);
-      const hydratedLiveData = await overlaySavedProfileVisual(liveData, { fetchImpl });
+      const liveProfileKey = getLiveProfileCacheKey(trimmed);
+      const inFlightLiveData = liveProfileInFlight.get(liveProfileKey);
+      let hydratedLiveData;
+      if (inFlightLiveData) {
+        hydratedLiveData = await inFlightLiveData;
+      } else {
+        const liveData = await loadLiveDemo(liveProfileKey);
+        hydratedLiveData = await overlaySavedProfileVisual(liveData, { fetchImpl });
+        setCachedLiveProfile(liveProfileKey, hydratedLiveData);
+      }
       if (requestId !== state.resolverRequestId) return;
       state = {
         ...state,
@@ -156,6 +199,59 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       claimSessionStatus: null,
     };
     render(root, state, handlers);
+    scheduleHomepageProfilePrefetch(state.data);
+  }
+
+  function getCachedLiveProfile(input) {
+    return liveProfileCache.get(getLiveProfileCacheKey(input)) ?? null;
+  }
+
+  function setCachedLiveProfile(input, data) {
+    const keys = [
+      input,
+      data?.resolver?.tokenId,
+      data?.resolver?.canonicalId,
+      data?.profile?.token_id,
+      data?.profile?.tokenId,
+    ]
+      .map(getLiveProfileCacheKey)
+      .filter(Boolean);
+    for (const key of keys) liveProfileCache.set(key, data);
+  }
+
+  async function loadAndCacheLiveProfile(input) {
+    const key = getLiveProfileCacheKey(input);
+    const cached = getCachedLiveProfile(key);
+    if (cached) return cached;
+    const inFlight = liveProfileInFlight.get(key);
+    if (inFlight) return inFlight;
+
+    const request = loadLiveDemo(key)
+      .then((liveData) => overlaySavedProfileVisual(liveData, { fetchImpl }))
+      .then((hydratedLiveData) => {
+        setCachedLiveProfile(key, hydratedLiveData);
+        return hydratedLiveData;
+      })
+      .finally(() => {
+        liveProfileInFlight.delete(key);
+      });
+    liveProfileInFlight.set(key, request);
+    return request;
+  }
+
+  function scheduleHomepageProfilePrefetch(data) {
+    if (!shouldPrefetchProfiles || typeof window === 'undefined') return;
+    window.setTimeout(() => prefetchHomepageProfiles(data), 0);
+  }
+
+  function prefetchHomepageProfiles(data) {
+    const carousel = createAgentCarousel(data);
+    const agents = [...new Set((carousel.cards ?? [])
+      .map(getHomepageMultipassProfileAgent)
+      .filter(isPrefetchableHomepageAgent))];
+    for (const agent of agents) {
+      void loadAndCacheLiveProfile(agent).catch(() => {});
+    }
   }
 
   async function saveCurrentMultipass() {
@@ -1058,6 +1154,16 @@ function getHomepageMultipassProfileAgent(card) {
   if (/^\d+:\d+$/.test(helixaId)) return helixaId;
 
   return null;
+}
+
+function getLiveProfileCacheKey(input) {
+  return String(input ?? '').trim();
+}
+
+function isPrefetchableHomepageAgent(agent) {
+  const value = getLiveProfileCacheKey(agent);
+  if (/^[1-9]\d*$/.test(value)) return true;
+  return /^8453:[1-9]\d*$/.test(value);
 }
 
 function getHomepageMultipassProfileHref(card) {

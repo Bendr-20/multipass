@@ -202,6 +202,11 @@ async function flushAsyncEvents(count = 8) {
   for (let index = 0; index < count; index += 1) await Promise.resolve();
 }
 
+async function flushHomepagePrefetch() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushAsyncEvents(20);
+}
+
 async function savedProfileFetch(url) {
   if (String(url).endsWith('/api/multipass/bendr-2-1')) {
     return new Response(JSON.stringify({
@@ -500,6 +505,62 @@ test('homepage profile card click keeps clicked agent selected while loading', a
 
   const bendrCard = root.querySelector('a.visual-card-button[href="/multipass/?agent=1"]');
   assert.equal(bendrCard?.classList.contains('selected'), false);
+});
+
+test('homepage silently prefetches valid visible agent profiles', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return quigbotLiveData({
+        profile: { ...sampleData().profile, display_name: input === '81' ? 'Quigbot Prefetched' : 'Bendr Prefetched' },
+        resolver: { canonicalId: `8453:${input}`, tokenId: input },
+        liveProfilePage: { headline: `${input} Multipass`, headerMeta: `Live profile · 8453:${input}`, sharePath: `/multipass/?agent=${input}` },
+      });
+    },
+    prefetchProfiles: true,
+  }).start();
+  await flushHomepagePrefetch();
+
+  assert.deepEqual(calls.sort(), ['1', '81']);
+  assert.ok(root.querySelector('.product-home-shell'));
+  assert.equal(root.querySelector('.multipass-profile-page'), null);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/');
+});
+
+test('homepage profile card click uses prefetched cache immediately', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return quigbotLiveData({
+        profile: { ...sampleData().profile, display_name: input === '81' ? 'Quigbot Prefetched' : 'Bendr Prefetched' },
+        resolver: { canonicalId: `8453:${input}`, tokenId: input },
+        liveProfilePage: { headline: `${input} Multipass`, headerMeta: `Live profile · 8453:${input}`, sharePath: `/multipass/?agent=${input}` },
+      });
+    },
+    prefetchProfiles: true,
+  }).start();
+  await flushHomepagePrefetch();
+
+  const beforeClickCalls = [...calls];
+  const card = root.querySelector('a.visual-card-button[href="/multipass/?agent=81"]');
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  card.dispatchEvent(click);
+  await Promise.resolve();
+
+  assert.equal(click.defaultPrevented, true);
+  assert.deepEqual(calls, beforeClickCalls);
+  assert.ok(root.querySelector('.multipass-profile-page'));
+  assert.match(root.textContent, /Quigbot Prefetched/);
+  assert.doesNotMatch(root.textContent, /Opening Quigbot/);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
 });
 
 
