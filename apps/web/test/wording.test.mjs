@@ -10,6 +10,7 @@ const repoRoot = join(webRoot, '../..');
 const checkedFiles = [
   join(webRoot, 'src/content.js'),
   join(webRoot, 'src/app.js'),
+  join(webRoot, 'src/route-manager.js'),
   join(webRoot, 'src/api.js'),
   join(webRoot, 'src/live-helixa-resolver.js'),
   join(webRoot, 'src/static-demo-data.js'),
@@ -57,6 +58,7 @@ test('Multipass UI copy avoids executable marketplace and transfer overclaims', 
   const uiFiles = [
     join(webRoot, 'src/content.js'),
     join(webRoot, 'src/app.js'),
+    join(webRoot, 'src/route-manager.js'),
     join(webRoot, 'src/live-helixa-resolver.js'),
   ];
   for (const file of uiFiles) {

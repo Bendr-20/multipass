@@ -55,13 +55,15 @@ test('renderFragmentManagerPanel exposes public-only safety copy editable fields
   assert.match(panel.textContent, /Safe public edits/i);
   assert.match(panel.textContent, /Private data stays private/i);
   assert.match(panel.textContent, /Does not edit Cred score/i);
+  assert.match(panel.textContent, /Routes have their own public route manager/i);
   assert.match(panel.textContent, /Fragment update failed/);
 
   const createForm = root.querySelector('[data-action="create-public-fragment"]');
   assert.ok(createForm.querySelector('select[name="fragment_type"]'));
+  assert.equal(createForm.querySelector('select[name="fragment_type"] option[value="endpoint"]'), null);
   assert.ok(createForm.querySelector('input[name="reference_url"]'));
   assert.ok(createForm.querySelector('input[name="proof_reference"]'));
-  assert.ok(createForm.querySelector('[data-endpoint-fields]'));
+  assert.equal(createForm.querySelector('[data-endpoint-fields]'), null);
 
   const editForm = root.querySelector('[data-action="update-public-fragment"]');
   assert.equal(editForm.dataset.fragmentId, 'frag_manager_wallet_1');
@@ -74,36 +76,24 @@ test('renderFragmentManagerPanel exposes public-only safety copy editable fields
   assert.match(panel.textContent, /Imported fragment. Read-only here./);
 });
 
-test('compactFragmentInput includes endpoint_ref only for endpoint fragments', () => {
+test('compactFragmentInput builds generic public proof fragments without endpoint refs', () => {
   const form = setup(`
     <form>
-      <select name="fragment_type"><option value="endpoint" selected>endpoint</option></select>
-      <input name="public_value" value="Profile JSON endpoint" />
-      <input name="reference_url" value="https://helixa.xyz/multipass/bendr-2-1" />
+      <select name="fragment_type"><option value="wallet" selected>wallet</option></select>
+      <input name="public_value" value="Primary public wallet" />
+      <input name="reference_url" value="https://basescan.org/address/0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea" />
       <input name="proof_reference" value="owner note" />
       <select name="transfer_policy"><option value="pause_on_transfer" selected>pause_on_transfer</option></select>
-      <input name="endpoint_id" value="profile-json" />
-      <input name="endpoint_url" value="https://helixa.xyz/multipass-api/api/multipass/bendr-2-1" />
-      <select name="endpoint_protocol"><option value="api" selected>api</option></select>
     </form>
   `).querySelector('form');
-  const formData = new window.FormData(form);
 
-  assert.deepEqual(compactFragmentInput(formData), {
-    fragment_type: 'endpoint',
-    public_value: 'Profile JSON endpoint',
-    reference_url: 'https://helixa.xyz/multipass/bendr-2-1',
+  assert.deepEqual(compactFragmentInput(new window.FormData(form)), {
+    fragment_type: 'wallet',
+    public_value: 'Primary public wallet',
+    reference_url: 'https://basescan.org/address/0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
     proof_reference: 'owner note',
     transfer_policy: 'pause_on_transfer',
-    endpoint_ref: {
-      endpoint_id: 'profile-json',
-      url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1',
-      protocol: 'api',
-    },
   });
-
-  form.querySelector('select[name="fragment_type"]').value = 'wallet';
-  assert.equal(compactFragmentInput(new window.FormData(form)).endpoint_ref, undefined);
 });
 
 test('compactFragmentPatch covers all safe update fields', () => {
@@ -114,9 +104,6 @@ test('compactFragmentPatch covers all safe update fields', () => {
       <input name="proof_reference" value="owner note" />
       <select name="status"><option value="stale" selected>stale</option></select>
       <select name="transfer_policy"><option value="pause_on_transfer" selected>pause_on_transfer</option></select>
-      <input name="endpoint_id" value="profile-json" />
-      <input name="endpoint_url" value="https://helixa.xyz/multipass-api/api/multipass/bendr-2-1" />
-      <select name="endpoint_protocol"><option value="api" selected>api</option></select>
     </form>
   `).querySelector('form');
 
@@ -126,15 +113,10 @@ test('compactFragmentPatch covers all safe update fields', () => {
     proof_reference: 'owner note',
     status: 'stale',
     transfer_policy: 'pause_on_transfer',
-    endpoint_ref: {
-      endpoint_id: 'profile-json',
-      url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1',
-      protocol: 'api',
-    },
   });
 });
 
-test('bindFragmentManager dispatches create update revoke and toggles endpoint fields', () => {
+test('bindFragmentManager dispatches create update and revoke handlers', () => {
   const root = setup(renderFragmentManagerPanel({ data: { fragments: { fragments: [OWNER_FRAGMENT] } } }));
   const calls = [];
   bindFragmentManager(root, {
@@ -142,13 +124,6 @@ test('bindFragmentManager dispatches create update revoke and toggles endpoint f
     updatePublicFragment: (event) => calls.push(['update', event.currentTarget.dataset.fragmentId]),
     revokePublicFragment: (event) => calls.push(['revoke', event.currentTarget.dataset.fragmentId]),
   });
-
-  const typeSelect = root.querySelector('[data-action="create-public-fragment"] select[name="fragment_type"]');
-  const endpointFields = root.querySelector('[data-endpoint-fields]');
-  assert.equal(endpointFields.hidden, true);
-  typeSelect.value = 'endpoint';
-  typeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
-  assert.equal(endpointFields.hidden, false);
 
   root.querySelector('[data-action="create-public-fragment"]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   root.querySelector('[data-action="update-public-fragment"]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));

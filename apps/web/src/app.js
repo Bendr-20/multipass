@@ -3,6 +3,7 @@ import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, get
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
+import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -415,17 +416,15 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const csrfToken = state.claimCsrfToken;
     if (!id || !csrfToken) return;
     const fragment = compactFragmentInput(createFormData(event?.currentTarget));
-    state = { ...state, fragmentStatus: 'creating_fragment', fragmentError: null };
-    render(root, state, handlers);
-    try {
-      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const result = await claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl });
-      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_created', fragmentError: null });
-      render(root, state, handlers);
-    } catch (error) {
-      state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
-      render(root, state, handlers);
-    }
+    await mutatePublicFragment({ status: 'creating_fragment', successStatus: 'fragment_created', operation: ({ apiBase }) => claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl }) });
+  }
+
+  async function createPublicRoute(event) {
+    const id = getManageIdentifier(state);
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !csrfToken) return;
+    const fragment = compactRouteInput(createFormData(event?.currentTarget), getPublicRouteFragments(state.data));
+    await mutatePublicFragment({ status: 'creating_fragment', successStatus: 'fragment_created', operation: ({ apiBase }) => claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl }) });
   }
 
   async function updatePublicFragment(event) {
@@ -434,17 +433,17 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const csrfToken = state.claimCsrfToken;
     if (!id || !fragmentId || !csrfToken) return;
     const patch = compactFragmentPatch(createFormData(event.currentTarget));
-    state = { ...state, fragmentStatus: 'updating_fragment', fragmentError: null };
-    render(root, state, handlers);
-    try {
-      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const result = await claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl });
-      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_updated', fragmentError: null });
-      render(root, state, handlers);
-    } catch (error) {
-      state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
-      render(root, state, handlers);
-    }
+    await mutatePublicFragment({ status: 'updating_fragment', successStatus: 'fragment_updated', operation: ({ apiBase }) => claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl }) });
+  }
+
+  async function updatePublicRoute(event) {
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    const currentRoute = getPublicRouteFragments(state.data).find((route) => route.fragment_id === fragmentId) ?? {};
+    const patch = compactRoutePatch(createFormData(event.currentTarget), currentRoute);
+    await mutatePublicFragment({ status: 'updating_fragment', successStatus: 'fragment_updated', operation: ({ apiBase }) => claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl }) });
   }
 
   async function revokePublicFragment(event) {
@@ -452,12 +451,20 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const fragmentId = event?.currentTarget?.dataset.fragmentId;
     const csrfToken = state.claimCsrfToken;
     if (!id || !fragmentId || !csrfToken) return;
-    state = { ...state, fragmentStatus: 'revoking_fragment', fragmentError: null };
+    await mutatePublicFragment({ status: 'revoking_fragment', successStatus: 'fragment_revoked', operation: ({ apiBase }) => claimApi.revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl }) });
+  }
+
+  async function revokePublicRoute(event) {
+    return revokePublicFragment(event);
+  }
+
+  async function mutatePublicFragment({ status, successStatus, operation }) {
+    state = { ...state, fragmentStatus: status, fragmentError: null };
     render(root, state, handlers);
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const result = await claimApi.revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl });
-      state = mergeFragmentMutationState(state, result, { fragmentStatus: 'fragment_revoked', fragmentError: null });
+      const result = await operation({ apiBase });
+      state = mergeFragmentMutationState(state, result, { fragmentStatus: successStatus, fragmentError: null });
       render(root, state, handlers);
     } catch (error) {
       state = { ...state, fragmentStatus: 'error', fragmentError: error.message };
@@ -477,7 +484,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, logoutManagerSession };
 
   return { start };
 }
@@ -873,6 +880,7 @@ function bindProfileEvents(root, state, handlers = {}) {
     button.addEventListener('click', () => shareProfileFromButton(button));
   });
   bindFragmentManager(root, handlers);
+  bindRouteManager(root, handlers);
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
@@ -999,7 +1007,8 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
     'Visual provenance',
     'No dedicated visual provenance has been published for this profile yet.'
   );
-  const trustContext = renderMarketplaceListing(data.marketplaceListing) || renderProfileInfoPanel(
+  const publicRoutes = renderPublicRoutesPanel(data);
+  const trustContext = [publicRoutes, renderMarketplaceListing(data.marketplaceListing)].filter(Boolean).join('') || renderProfileInfoPanel(
     'Trust context',
     'Marketplace and route compatibility context is not published for this profile yet. Public proof remains available below.'
   );
@@ -1364,6 +1373,7 @@ function renderClaimManagementPanel(state) {
       </div>
       ${renderOwnerDashboardPanel(profile, state)}
       ${canEdit ? renderPublicProfileEditForm(profile, state) : ''}
+      ${canEdit ? renderPublicRoutesManagerPanel(state) : ''}
       ${canEdit ? renderFragmentManagerPanel(state) : ''}
     </section>
   `;
@@ -1400,10 +1410,12 @@ function renderPublicProfileEditForm(profile, state) {
   const tags = Array.isArray(profile.tags) ? profile.tags : (Array.isArray(discovery.tags) ? discovery.tags : []);
   return `
     <form class="public-profile-edit-form" data-action="update-public-profile" aria-label="Edit public Multipass profile">
-      <p class="card-label">Public profile editor</p>
+      <p class="card-label">Edit public profile</p>
+      <p class="field-help">Safe public fields for the saved Multipass profile.</p>
       <label><span>Display name</span><input name="display_name" value="${escapeAttribute(profile.display_name ?? '')}" /></label>
       <label><span>Summary</span><textarea name="summary" rows="3">${escapeHtml(summary)}</textarea></label>
-      <label><span>Avatar URL</span><input name="avatar_url" value="${escapeAttribute(avatarUrl)}" /></label>
+      <label><span>Profile image URL</span><input name="avatar_url" value="${escapeAttribute(avatarUrl)}" placeholder="https://..." /></label>
+      <p class="field-help profile-field-helper">Updates the public Multipass visual only. HTTPS only; leave blank to clear it. This does not change custody, tools, credentials, ownership, or the source AgentDNA record.</p>
       <label><span>Tags</span><input name="tags" value="${escapeAttribute(tags.join(', '))}" /></label>
       <label><span>Visibility</span>${renderVisibilitySelect(ownerSummary.visibility ?? 'public')}</label>
       <div class="profile-edit-actions">

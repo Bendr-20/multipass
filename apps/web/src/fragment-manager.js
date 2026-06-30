@@ -5,7 +5,7 @@ export function renderFragmentManagerPanel(state = {}) {
       <div class="fragment-manager-copy">
         <p class="card-label">Fragment manager</p>
         <h3>Publish public proof.</h3>
-        <p>Safe public edits for wallet, social, endpoint, standard, and attestation fragments. Does not edit Cred score, grant tools, transfer custody, expose credentials, or change live authority.</p>
+        <p>Safe public edits for wallet, social, standard, and attestation fragments. Routes have their own public route manager. Does not edit Cred score, grant tools, transfer custody, expose credentials, or change live authority.</p>
         <div class="fragment-safety-strip" aria-label="Fragment manager boundaries">
           <span>Safe public edits</span>
           <span>Private data stays private</span>
@@ -42,10 +42,6 @@ export function bindFragmentManager(root, handlers = {}) {
     button.addEventListener('click', (event) => handlers.revokePublicFragment?.(event));
   });
 
-  root.querySelector('[data-action="create-public-fragment"] select[name="fragment_type"]')?.addEventListener('change', (event) => {
-    const fields = root.querySelector('[data-endpoint-fields]');
-    if (fields) fields.hidden = event.currentTarget.value !== 'endpoint';
-  });
 }
 
 export function mergeFragmentMutationState(current, result, patch = {}) {
@@ -65,7 +61,6 @@ export function compactFragmentInput(formData) {
   const fragment = compactFragmentPatch(formData);
   const fragmentType = String(formData.get('fragment_type') ?? '').trim();
   if (fragmentType) fragment.fragment_type = fragmentType;
-  if (fragmentType !== 'endpoint') delete fragment.endpoint_ref;
   return fragment;
 }
 
@@ -75,17 +70,7 @@ export function compactFragmentPatch(formData) {
     const value = String(formData.get(key) ?? '').trim();
     if (value) patch[key] = value;
   }
-  addEndpointRefFromFormData(patch, formData);
   return patch;
-}
-
-function addEndpointRefFromFormData(target, formData) {
-  const endpointUrl = String(formData.get('endpoint_url') ?? '').trim();
-  const endpointId = String(formData.get('endpoint_id') ?? '').trim();
-  const endpointProtocol = String(formData.get('endpoint_protocol') ?? '').trim();
-  if (endpointUrl && endpointId && endpointProtocol) {
-    target.endpoint_ref = { endpoint_id: endpointId, url: endpointUrl, protocol: endpointProtocol };
-  }
 }
 
 function renderCreateFragmentForm(state) {
@@ -96,15 +81,10 @@ function renderCreateFragmentForm(state) {
         <span>Use this for things people should be able to verify from the public profile.</span>
       </div>
       <label><span>Type</span>${renderFragmentTypeSelect()}</label>
-      <label><span>Public value</span><input name="public_value" placeholder="Public wallet, handle, endpoint, or attestation summary" /></label>
+      <label><span>Public value</span><input name="public_value" placeholder="Public wallet, handle, standard reference, or attestation summary" /></label>
       <label><span>Reference URL</span><input name="reference_url" placeholder="https://..." /></label>
       <label><span>Proof note</span><input name="proof_reference" placeholder="Optional context for the manager/audit trail" /></label>
       <label><span>Transfer behavior</span>${renderTransferPolicySelect()}</label>
-      <div class="endpoint-fields" data-endpoint-fields hidden>
-        <label><span>Endpoint ID</span><input name="endpoint_id" /></label>
-        <label><span>Endpoint URL</span><input name="endpoint_url" /></label>
-        <label><span>Endpoint protocol</span>${renderEndpointProtocolSelect()}</label>
-      </div>
       <button type="submit" ${state.fragmentStatus === 'creating_fragment' ? 'disabled' : ''}>${state.fragmentStatus === 'creating_fragment' ? 'Adding...' : 'Publish fragment'}</button>
     </form>
   `;
@@ -132,7 +112,6 @@ function renderManagedFragmentEditForm(fragment, state) {
       <label><span>Proof note</span><input name="proof_reference" value="${escapeAttribute(fragment.proof_reference ?? '')}" /></label>
       <label><span>Status</span>${renderStatusSelect(fragment.status)}</label>
       <label><span>Transfer policy</span>${renderTransferPolicySelect(fragment.transfer_policy)}</label>
-      ${fragment.fragment_type === 'endpoint' ? renderEndpointEditFields(fragment) : ''}
       <div class="fragment-edit-actions">
         <button type="submit" ${state.fragmentStatus === 'updating_fragment' ? 'disabled' : ''}>Save changes</button>
         <button class="secondary-button" type="button" data-action="revoke-public-fragment" data-fragment-id="${escapeAttribute(fragment.fragment_id)}" ${fragment.status === 'revoked' ? 'disabled' : ''}>Revoke proof</button>
@@ -141,19 +120,8 @@ function renderManagedFragmentEditForm(fragment, state) {
   `;
 }
 
-function renderEndpointEditFields(fragment) {
-  const endpoint = fragment.endpoint_ref ?? {};
-  return `
-    <div class="endpoint-fields">
-      <label><span>Endpoint ID</span><input name="endpoint_id" value="${escapeAttribute(endpoint.endpoint_id ?? '')}" /></label>
-      <label><span>Endpoint URL</span><input name="endpoint_url" value="${escapeAttribute(endpoint.url ?? '')}" /></label>
-      <label><span>Endpoint protocol</span>${renderEndpointProtocolSelect(endpoint.protocol)}</label>
-    </div>
-  `;
-}
-
 function renderFragmentTypeSelect() {
-  return '<select name="fragment_type"><option value="wallet">wallet</option><option value="social">social</option><option value="endpoint">endpoint</option><option value="standard_ref">standard_ref</option><option value="attestation">attestation</option></select>';
+  return '<select name="fragment_type"><option value="wallet">wallet</option><option value="social">social</option><option value="standard_ref">standard_ref</option><option value="attestation">attestation</option></select>';
 }
 
 function formatFragmentType(type) {
@@ -170,10 +138,6 @@ function renderStatusSelect(selected = 'pending') {
 
 function renderTransferPolicySelect(selected = '') {
   return `<select name="transfer_policy"><option value=""></option>${['reverify_on_transfer', 'pause_on_transfer', 'historical_on_transfer', 'never_transfer'].map((policy) => `<option value="${policy}" ${policy === selected ? 'selected' : ''}>${policy}</option>`).join('')}</select>`;
-}
-
-function renderEndpointProtocolSelect(selected = 'api') {
-  return `<select name="endpoint_protocol">${['api', 'web', 'mcp', 'a2a', 'x402'].map((protocol) => `<option value="${protocol}" ${protocol === selected ? 'selected' : ''}>${protocol}</option>`).join('')}</select>`;
 }
 
 function escapeHtml(value) {
