@@ -56,7 +56,8 @@ test('agent share routes expose per-agent X-compatible JPEG social preview metad
     assert.ok(html.includes(`<meta name="twitter:image:alt" content="${name} Multipass preview" />`));
     assert.ok(html.includes(`<img src="../${tokenId}.jpg" alt="${name} Multipass preview" />`));
     assert.ok(html.includes(`<a class="open-profile" href="https://helixa.xyz/multipass/?agent=${tokenId}">Open Multipass profile</a>`));
+    assert.ok(html.includes(`window.location.replace('https://helixa.xyz/multipass/?agent=${tokenId}')`));
+    assert.match(html, /bot|crawl|spider/i);
     assert.doesNotMatch(html, /http-equiv="refresh"/);
-    assert.doesNotMatch(html, /window\.location\.replace/);
   }
 });

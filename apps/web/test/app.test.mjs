@@ -718,6 +718,19 @@ test('agent query refresh keeps saved holder avatar overlay when a saved profile
         ...quigbotLiveData().profile,
         discovery_profile: { ...quigbotLiveData().profile.discovery_profile, avatar_url: null },
       },
+      visualIdentity: {
+        source: 'helixa_aura',
+        label: 'Quigbot visual identity',
+        imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png',
+        initials: 'Q',
+        tone: 'building',
+        chips: ['8453:81'],
+        provenanceDrawer: {
+          title: 'Quigbot visual provenance',
+          summary: 'Live Helixa aura metadata.',
+          facts: [{ label: 'Visual source', value: 'Helixa aura route for token 81' }],
+        },
+      },
       liveProfilePage: { headline: 'Quigbot Multipass', headerMeta: 'Live profile · 8453:81', sharePath: '/multipass/?agent=81' },
       resolver: { chainId: 8453, tokenId: '81', canonicalId: '8453:81' },
     }),
@@ -773,6 +786,9 @@ test('resolver transitional states keep the live resolver shell instead of profi
   }).start();
   assert.ok(loadingRoot.querySelector('.live-resolver'));
   assert.equal(loadingRoot.querySelector('.multipass-profile-page'), null);
+  assert.equal(loadingRoot.querySelector('.homepage-hero'), null);
+  assert.equal(loadingRoot.querySelector('.profile-visual-strip'), null);
+  assert.doesNotMatch(loadingRoot.textContent, /Bendr 2\.0/);
 });
 
 test('resolved profile synthesizes a fallback visual from the live selected agent', async () => {

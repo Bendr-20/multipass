@@ -609,6 +609,11 @@ function render(root, state, handlers = {}) {
     return;
   }
 
+  if (state.resolverStatus === 'loading') {
+    renderProfileLoadingShell(root, state, handlers);
+    return;
+  }
+
   if (isResolvedProfileView(state)) {
     renderProfilePage(root, state, handlers);
     return;
@@ -672,6 +677,22 @@ function renderLegacyProfileShell(root, state, handlers = {}) {
         ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
         : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
       )}</footer>
+    </div>
+  `;
+
+  bindProfileEvents(root, state, handlers);
+}
+
+function renderProfileLoadingShell(root, state, handlers = {}) {
+  const input = String(state.resolverInFlightInput ?? state.resolverInput ?? '').trim();
+  const label = input || 'this agent';
+  root.innerHTML = `
+    <div class="record-shell profile-loading-shell">
+      ${renderRecordHeader('Loading live Multipass')}
+      <main class="profile-loading-view" aria-label="Loading live Multipass profile">
+        ${renderLiveResolver(state)}
+        <p class="resolver-message">Loading live Multipass for ${escapeHtml(label)}. No stale profile content is shown while the live record resolves.</p>
+      </main>
     </div>
   `;
 
@@ -805,12 +826,12 @@ function normalizeAgentName(value) {
 }
 
 function createProfileVisualIdentity(data, selectedAgent) {
-  if (data.visualIdentity && ['helixa_aura', 'aura'].includes(data.visualIdentity.source)) return data.visualIdentity;
+  const managerAvatarUrl = safeHttpsUrl(data.profile?.discovery_profile?.avatar_url ?? data.profile?.avatar_url);
+  if (!managerAvatarUrl && data.visualIdentity && ['helixa_aura', 'aura'].includes(data.visualIdentity.source)) return data.visualIdentity;
 
   const name = selectedAgent?.name ?? data.profile?.display_name ?? data.liveProfilePage?.headline ?? 'Multipass visual';
   const tokenId = selectedAgent?.tokenId ?? data.resolver?.tokenId ?? data.profile?.token_id;
   const helixaId = selectedAgent?.helixaId ?? data.resolver?.canonicalId ?? data.profile?.multipass_id;
-  const managerAvatarUrl = safeHttpsUrl(data.profile?.discovery_profile?.avatar_url ?? data.profile?.avatar_url);
   const imageUrl = managerAvatarUrl
     ?? selectedAgent?.visual?.imageUrl
     ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null);
