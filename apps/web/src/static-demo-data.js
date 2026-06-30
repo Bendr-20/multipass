@@ -701,6 +701,11 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Prime",
       "verified": true,
       "profileUrl": "https://helixa.xyz/agent/81",
+      "visual": {
+        "imageUrl": "https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432",
+        "label": "Nakamigo #2432 visual identity",
+        "tone": "prime"
+      },
       "proofFragmentIds": ["frag_quigbot_identity", "frag_quigbot_cred"],
       "ownerSnapshot": {
         "owner": "0x17d7...bDe4",

@@ -244,19 +244,36 @@ function defaultRoleForCard(card) {
 function createProfileCardVisual(card) {
   const tokenId = card.tokenId;
   const isNumericToken = /^\d+$/.test(String(tokenId ?? ''));
-  const type = card.subjectType ?? 'agent';
-  const tone = type === 'swarm'
+  const type = card.visual?.type ?? card.subjectType ?? 'agent';
+  const tone = card.visual?.tone ?? (type === 'swarm'
     ? 'swarm'
     : card.verified
       ? String(card.credTier ?? 'verified').toLowerCase()
-      : 'review';
+      : 'review');
+  const explicitImageUrl = safeProfileVisualUrl(
+    card.visual?.imageUrl
+    ?? card.visual?.image_url
+    ?? card.avatarUrl
+    ?? card.avatar_url
+    ?? card.discovery_profile?.avatar_url,
+  );
   return {
     type,
     tone,
-    initials: initialsForName(card.name),
-    imageUrl: isNumericToken ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null,
-    label: `${card.name} visual identity`,
+    initials: card.visual?.initials ?? initialsForName(card.name),
+    imageUrl: explicitImageUrl ?? (isNumericToken ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null),
+    label: card.visual?.label ?? `${card.name} visual identity`,
   };
+}
+
+function safeProfileVisualUrl(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(String(value));
+    return parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function initialsForName(name) {
