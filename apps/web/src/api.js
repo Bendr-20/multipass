@@ -27,7 +27,7 @@ function parseSafeApiOverride(locationUrl) {
 }
 
 export function getSavedSlugFromLocation(locationUrl) {
-  const match = locationUrl.pathname.match(/^\/multipass\/([a-z0-9][a-z0-9-]{1,80})$/);
+  const match = locationUrl.pathname.match(/^\/multipass\/([a-z0-9][a-z0-9-]{1,80})\/?$/);
   if (!match) return null;
   const sharePath = `/multipass/${match[1]}`;
   return isSafeMultipassSharePath(sharePath) ? match[1] : null;

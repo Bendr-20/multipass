@@ -1,5 +1,5 @@
 import { getActivationState } from './activation.js';
-import { getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
+import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
@@ -82,11 +82,12 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
 
     try {
       const liveData = await loadLiveDemo(trimmed);
+      const hydratedLiveData = await overlaySavedProfileVisual(liveData, { fetchImpl });
       if (requestId !== state.resolverRequestId) return;
       state = {
         ...state,
         pageKind: 'profile',
-        data: liveData,
+        data: hydratedLiveData,
         resolverStatus: 'loaded',
         resolverError: null,
         retryUntil: 0,
@@ -100,7 +101,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         savedSharePath: null,
         savedProfile: null,
       };
-      syncShareUrl(liveData?.liveProfilePage?.sharePath);
+      syncShareUrl(hydratedLiveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
     } catch (error) {
       if (requestId !== state.resolverRequestId) return;
@@ -381,6 +382,43 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, logoutManagerSession };
 
   return { start };
+}
+
+async function overlaySavedProfileVisual(liveData, { fetchImpl } = {}) {
+  const activeFetch = fetchImpl ?? (typeof window !== 'undefined' ? window.fetch?.bind(window) : null);
+  if (typeof window === 'undefined' || !activeFetch) return liveData;
+
+  const candidateIds = [
+    liveData?.resolver?.tokenId ? `mp_helixa_agent_${liveData.resolver.tokenId}` : null,
+    liveData?.profile?.multipass_id,
+    liveData?.profile?.slug,
+  ].filter(Boolean);
+  const uniqueCandidateIds = [...new Set(candidateIds)];
+  if (uniqueCandidateIds.length === 0) return liveData;
+
+  const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+  for (const identifier of uniqueCandidateIds) {
+    try {
+      const savedProfile = await loadJson(buildSavedRoutes(apiBase, identifier).profile, activeFetch);
+      const savedAvatarUrl = savedProfile?.discovery_profile?.avatar_url ?? savedProfile?.avatar_url ?? null;
+      if (!savedAvatarUrl) continue;
+
+      return {
+        ...liveData,
+        profile: {
+          ...liveData.profile,
+          discovery_profile: {
+            ...liveData.profile?.discovery_profile,
+            avatar_url: savedAvatarUrl,
+          },
+        },
+      };
+    } catch {
+      // Saved profiles are optional overlays for live records. Keep the live profile if a probe misses.
+    }
+  }
+
+  return liveData;
 }
 
 function getInitialResolverInput() {

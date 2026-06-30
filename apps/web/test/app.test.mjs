@@ -227,7 +227,7 @@ async function savedProfileFetch(url) {
 
 async function savedQuigbotFetch(url) {
   const value = String(url);
-  if (value.endsWith('/api/multipass/quigbot-81')) {
+  if (value.endsWith('/api/multipass/quigbot-81') || value.endsWith('/api/multipass/mp_helixa_agent_81')) {
     return new Response(JSON.stringify({
       schema_version: '0.1.0',
       display_name: 'Quigbot',
@@ -463,8 +463,7 @@ test('homepage profile card click resolves in place without showing stale profil
   assert.equal(root.querySelector('.record-sheet'), null);
 
   resolveLive();
-  await Promise.resolve();
-  await Promise.resolve();
+  await flushAsyncEvents(20);
 
   assert.ok(root.querySelector('.multipass-profile-page'));
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
@@ -696,6 +695,41 @@ test('refreshed saved Quigbot profile uses holder-editable avatar image and sour
   assert.match(auraCard.textContent ?? '', /verified/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
   assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/');
+});
+
+test('saved Quigbot profile refresh survives trailing slash route', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/quigbot-81/?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedQuigbotFetch }).start();
+
+  const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.ok(auraCard);
+  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NAKAMIGO_2432_IMAGE);
+  assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
+});
+
+test('agent query refresh keeps saved holder avatar overlay when a saved profile exists', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=81&api=https://api.example.test');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async () => ({
+      ...quigbotLiveData(),
+      profile: {
+        ...quigbotLiveData().profile,
+        discovery_profile: { ...quigbotLiveData().profile.discovery_profile, avatar_url: null },
+      },
+      liveProfilePage: { headline: 'Quigbot Multipass', headerMeta: 'Live profile · 8453:81', sharePath: '/multipass/?agent=81' },
+      resolver: { chainId: 8453, tokenId: '81', canonicalId: '8453:81' },
+    }),
+    fetchImpl: savedQuigbotFetch,
+  }).start();
+
+  await flushAsyncEvents(20);
+  const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.ok(auraCard);
+  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NAKAMIGO_2432_IMAGE);
+  assert.notEqual(auraCard.querySelector('img')?.getAttribute('src'), 'https://api.helixa.xyz/api/v2/aura/81.png');
+  assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
 });
 
 test('resolver transitional states keep the live resolver shell instead of profile-first layout', async () => {
