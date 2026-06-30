@@ -625,7 +625,7 @@ git commit -m "Add Multipass public routes manager"
 **Files:**
 - Modify if needed: `apps/web/test/wording.test.mjs`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -635,7 +635,7 @@ pnpm test
 
 Expected: PASS with all repository tests green.
 
-- [ ] **Step 2: Run web build**
+- [x] **Step 2: Run web build**
 
 Run:
 
@@ -645,7 +645,7 @@ MULTIPASS_BASE=/multipass/ pnpm --filter @helixa/multipass-web build
 
 Expected: PASS and produce `apps/web/dist`.
 
-- [ ] **Step 3: Run whitespace gate**
+- [x] **Step 3: Run whitespace gate**
 
 Run:
 
@@ -655,7 +655,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 4: Run mandatory route wording scan**
+- [x] **Step 4: Run mandatory route wording scan**
 
 Update `apps/web/test/wording.test.mjs` or add a targeted route-manager wording assertion so route cards and route manager copy reject these banned control phrases:
 
@@ -687,7 +687,7 @@ Expected: PASS. Scope bare `connect` and `transfer` checks to route-card and rou
 **Files:**
 - Deploy artifact: `apps/web/dist/` -> `/var/www/helixa.xyz/multipass/`
 
-- [ ] **Step 1: Deploy static bundle**
+- [x] **Step 1: Deploy static bundle**
 
 Run:
 
@@ -697,7 +697,7 @@ rsync -av --delete apps/web/dist/ /var/www/helixa.xyz/multipass/
 
 Expected: deployed asset list includes the new hashed `index-*.js` and `index-*.css`.
 
-- [ ] **Step 2: Smoke live HTML and fetch referenced assets**
+- [x] **Step 2: Smoke live HTML and fetch referenced assets**
 
 Run:
 
@@ -711,7 +711,7 @@ done
 
 Expected: output lists current hashed JS/CSS assets, and every referenced asset returns HTTP 200.
 
-- [ ] **Step 3: Smoke saved profile and manager surface in browser**
+- [x] **Step 3: Smoke saved profile and manager surface in browser**
 
 Use headless Chromium or the existing smoke pattern to open this exact saved profile URL:
 
@@ -729,13 +729,13 @@ Assert from the live DOM:
 
 If `bendr-2-1` has no endpoint fragments in live data, record that route-card live rendering was covered by tests and smoke only the saved-profile manager surface plus public profile render. Do not fabricate live route data.
 
-- [ ] **Step 4: Smoke unsafe route URL handling before deploy finalization**
+- [x] **Step 4: Smoke unsafe route URL handling before deploy finalization**
 
 Before treating the deployment as complete, run a public-render smoke against a test fixture page in the built app if available, or a local JSDOM/browser smoke, with a route fragment whose `endpoint_ref.url` is unsafe or missing. Assert unsafe route URLs are not linked in rendered route cards.
 
 If no live saved profile contains an unsafe route, do not mutate live data just to create one. Rely on the route-manager unit test for unsafe route rendering and record live unsafe-route smoke as not applicable.
 
-- [ ] **Step 5: Smoke manager error boundaries if API/session access is available**
+- [x] **Step 5: Smoke manager error boundaries if API/session access is available**
 
 If a live manager session is not available, do not fake one. Instead smoke public read behavior and rely on API tests for manager writes.
 
@@ -750,7 +750,7 @@ If a manager session is available, verify:
 **Files:**
 - Modify: `/home/ubuntu/.openclaw/workspace/memory/2026-06-30.md`
 
-- [ ] **Step 1: Check status**
+- [x] **Step 1: Check status**
 
 Run:
 
