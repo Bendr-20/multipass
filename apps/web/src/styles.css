@@ -267,6 +267,19 @@ button:focus-visible {
   box-shadow: inset 0 0 0 2px var(--ink);
 }
 
+.visual-card-button.loading {
+  cursor: wait;
+  opacity: 0.92;
+}
+
+.visual-card-button.loading .profile-card-visual {
+  box-shadow: inset 0 0 0 2px rgba(25, 27, 28, 0.18);
+}
+
+.visual-card-button.loading em {
+  color: var(--ink);
+}
+
 
 .product-card-grid {
   display: grid;

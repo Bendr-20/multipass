@@ -55,12 +55,14 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  async function resolveLiveAgent(input) {
+  async function resolveLiveAgent(input, options = {}) {
     const trimmed = String(input ?? '').trim();
+    const selectedAgentCard = Number.isInteger(options.selectedAgentCard) ? options.selectedAgentCard : state.selectedAgentCard;
     const loadingPageKind = state.pageKind === 'product_home' ? 'product_home' : 'profile';
     state = {
       ...state,
       pageKind: loadingPageKind,
+      selectedAgentCard,
       resolverInput: input,
       resolverStatus: 'loading',
       resolverError: null,
@@ -1003,7 +1005,7 @@ function renderProductHome(root, state, handlers = {}) {
             <a href="#agent-visuals" class="homepage-action primary">View agents</a>
             <a href="#live-resolver" class="homepage-action">Activate an agent</a>
           </div>
-          ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard)}
+          ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard, state)}
         </div>
         ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
       </section>
@@ -1015,33 +1017,35 @@ function renderProductHome(root, state, handlers = {}) {
   bindProductHomeEvents(root, handlers, state);
 }
 
-function renderAgentVisualStrip(carousel, selectedIndex) {
+function renderAgentVisualStrip(carousel, selectedIndex, state = {}) {
   const activeIndex = Math.max(0, Math.min(selectedIndex, carousel.cards.length - 1));
+  const loadingAgent = state.resolverStatus === 'loading' ? String(state.resolverInFlightInput ?? '').trim() : null;
 
   return `
     <section id="agent-visuals" class="profile-visual-strip" aria-label="Agent examples">
       <div class="visual-card-track" aria-label="Swipe through agent Multipass profiles">
-        ${carousel.cards.map((card, index) => renderAgentVisualLink(card, index, activeIndex)).join('')}
+        ${carousel.cards.map((card, index) => renderAgentVisualLink(card, index, activeIndex, loadingAgent)).join('')}
       </div>
     </section>
   `;
 }
 
-function renderAgentVisualLink(card, index, selectedIndex) {
+function renderAgentVisualLink(card, index, selectedIndex, loadingAgent = null) {
   const selected = index === selectedIndex;
   const href = getHomepageMultipassProfileHref(card);
   const agent = getHomepageMultipassProfileAgent(card);
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
-  const resolveAttrs = agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}"` : '';
+  const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
+  const resolveAttrs = agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}" data-index="${index}"` : '';
   return `
-    <a class="visual-card-button${selected ? ' selected' : ''}" href="${escapeAttribute(href)}"${resolveAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}>
+    <a class="visual-card-button${selected ? ' selected' : ''}${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${resolveAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}${loading ? ' aria-busy="true"' : ''}>
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
         ${imageUrl ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(label)}" loading="eager" decoding="async" data-visual-card-image="true" />` : ''}
         <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
       </span>
       <strong>${escapeHtml(card.name)}</strong>
-      <em>Open profile</em>
+      <em>${escapeHtml(loading ? `Opening ${card.name}...` : 'Open profile')}</em>
     </a>
   `;
 }
@@ -1089,7 +1093,11 @@ function bindProductHomeEvents(root, handlers, state) {
     link.addEventListener('click', (event) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
-      handlers.resolveLiveAgent?.(link.getAttribute('data-agent') ?? '');
+      const selectedAgentCard = Number(link.dataset.index);
+      handlers.resolveLiveAgent?.(
+        link.getAttribute('data-agent') ?? '',
+        Number.isInteger(selectedAgentCard) ? { selectedAgentCard } : undefined,
+      );
     });
   });
   bindVisualImageFallbacks(root);

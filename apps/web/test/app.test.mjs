@@ -471,6 +471,37 @@ test('homepage profile card click resolves in place without showing stale profil
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
 });
 
+test('homepage profile card click keeps clicked agent selected while loading', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return new Promise(() => {});
+    },
+  }).start();
+
+  const card = root.querySelector('a.visual-card-button[href="/multipass/?agent=81"]');
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  card.dispatchEvent(click);
+  await Promise.resolve();
+
+  assert.equal(click.defaultPrevented, true);
+  assert.deepEqual(calls, ['81']);
+  assert.ok(root.querySelector('.product-home-shell'));
+
+  const selectedCard = root.querySelector('.visual-card-button.selected');
+  assert.match(selectedCard?.textContent ?? '', /Quigbot/);
+  assert.doesNotMatch(selectedCard?.textContent ?? '', /Bendr 2\.0/);
+  assert.equal(selectedCard?.getAttribute('aria-busy'), 'true');
+  assert.match(selectedCard?.textContent ?? '', /Opening Quigbot/);
+
+  const bendrCard = root.querySelector('a.visual-card-button[href="/multipass/?agent=1"]');
+  assert.equal(bendrCard?.classList.contains('selected'), false);
+});
+
 
 test('homepage visual image failures fall back to initials instead of broken panels', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
