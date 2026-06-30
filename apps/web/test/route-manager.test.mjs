@@ -10,6 +10,8 @@ import {
   getPublicRouteFragments,
   renderPublicRoutesManagerPanel,
   renderPublicRoutesPanel,
+  validateRouteInput,
+  validateRoutePatch,
 } from '../src/route-manager.js';
 
 const OWNER_ROUTE = {
@@ -110,6 +112,131 @@ test('renderPublicRoutesManagerPanel marks imported routes read-only and exposes
   assert.match(panel.textContent, /Imported route\. Read-only here\./);
   assert.match(panel.textContent, /Review behavior/);
   assert.doesNotMatch(panel.textContent, /execute|approve|connect|authorize|grant tool access|release credentials|credential release|tool control|transfer|activate tools/i);
+});
+
+test('validateRouteInput rejects unsafe route create values before API writes', () => {
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: '',
+    endpoint_ref: { endpoint_id: 'empty-label', url: 'https://helixa.xyz/a', protocol: 'web' },
+  }, []), /Route label is required/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Missing URL',
+    endpoint_ref: { endpoint_id: 'missing-url', url: '', protocol: 'web' },
+  }, []), /HTTPS URL/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'HTTP URL',
+    endpoint_ref: { endpoint_id: 'http-url', url: 'http://example.test/not-safe', protocol: 'web' },
+  }, []), /HTTPS URL/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Unsafe URL',
+    endpoint_ref: { endpoint_id: 'unsafe-url', url: 'javascript:alert(1)', protocol: 'web' },
+  }, []), /HTTPS URL/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Duplicate route',
+    endpoint_ref: { endpoint_id: 'imported-profile', url: 'https://helixa.xyz/a', protocol: 'web' },
+  }, [IMPORTED_ROUTE]), /already exists/);
+
+  assert.deepEqual(validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Valid route',
+    endpoint_ref: { endpoint_id: 'valid-route', url: 'https://helixa.xyz/a', protocol: 'mcp' },
+  }, []), {
+    fragment_type: 'endpoint',
+    public_value: 'Valid route',
+    endpoint_ref: { endpoint_id: 'valid-route', url: 'https://helixa.xyz/a', protocol: 'mcp' },
+  });
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Bad ID',
+    endpoint_ref: { endpoint_id: 'bad id', url: 'https://helixa.xyz/a', protocol: 'web' },
+  }, []), /Route ID/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Bad protocol',
+    endpoint_ref: { endpoint_id: 'bad-protocol', url: 'https://helixa.xyz/a', protocol: 'ftp' },
+  }, []), /Route type/);
+});
+
+test('validateRoutePatch excludes current route from duplicate checks and rejects read-only routes', () => {
+  assert.doesNotThrow(() => validateRoutePatch({
+    public_value: 'Primary public profile',
+    endpoint_ref: { endpoint_id: 'primary-public-profile', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    status: 'pending',
+  }, OWNER_ROUTE, [OWNER_ROUTE, IMPORTED_ROUTE]));
+
+  assert.throws(() => validateRoutePatch({
+    public_value: 'Collision',
+    endpoint_ref: { endpoint_id: 'imported-profile', url: 'https://helixa.xyz/a', protocol: 'web' },
+    status: 'pending',
+  }, OWNER_ROUTE, [OWNER_ROUTE, IMPORTED_ROUTE]), /already exists/);
+
+  assert.throws(() => validateRoutePatch({
+    public_value: 'Imported edit',
+    endpoint_ref: { endpoint_id: 'imported-profile', url: 'https://api.helixa.xyz/api/v2/agent/1', protocol: 'api' },
+    status: 'pending',
+  }, IMPORTED_ROUTE, [OWNER_ROUTE, IMPORTED_ROUTE]), /Imported routes are read-only/);
+
+  assert.throws(() => validateRoutePatch({
+    public_value: 'Verified self-claim',
+    endpoint_ref: { endpoint_id: 'primary-public-profile', url: 'https://helixa.xyz/a', protocol: 'web' },
+    status: 'verified',
+  }, OWNER_ROUTE, [OWNER_ROUTE]), /Route status/);
+});
+
+test('renderPublicRoutesManagerPanel renders route scoped messages and active pending labels', () => {
+  const creating = setup(renderPublicRoutesManagerPanel({
+    data: { fragments: { fragments: [OWNER_ROUTE] } },
+    routeStatus: 'creating_route',
+  }));
+  assert.match(creating.textContent, /Publishing/);
+
+  const error = setup(renderPublicRoutesManagerPanel({
+    data: { fragments: { fragments: [OWNER_ROUTE] } },
+    routeStatus: 'error',
+    routeError: 'Route URL must be an HTTPS URL.',
+  }));
+  assert.match(error.querySelector('.route-manager-panel')?.textContent ?? '', /Route URL must be an HTTPS URL/);
+
+  const updated = setup(renderPublicRoutesManagerPanel({
+    data: { fragments: { fragments: [OWNER_ROUTE] } },
+    routeStatus: 'route_updated',
+    routeActiveFragmentId: OWNER_ROUTE.fragment_id,
+  }));
+  assert.match(updated.querySelector('.route-manager-status')?.textContent ?? '', /Public route saved/);
+
+  const saving = setup(renderPublicRoutesManagerPanel({
+    data: { fragments: { fragments: [OWNER_ROUTE, { ...OWNER_ROUTE, fragment_id: 'frag_manager_route_2', endpoint_ref: { endpoint_id: 'second-route', url: 'https://helixa.xyz/second', protocol: 'web' }, updated_at: '2026-06-27T00:08:00.000Z' }] } },
+    routeStatus: 'updating_route',
+    routeActiveFragmentId: OWNER_ROUTE.fragment_id,
+  }));
+  assert.match(saving.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="update-public-route"] button[type="submit"]')?.textContent ?? '', /Saving/);
+  assert.equal(saving.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="update-public-route"] button[type="submit"]')?.disabled, true);
+  assert.equal(saving.querySelector('[data-fragment-id="frag_manager_route_2"] [data-action="update-public-route"] button[type="submit"]')?.textContent, 'Save route');
+
+  const retiring = setup(renderPublicRoutesManagerPanel({
+    data: { fragments: { fragments: [OWNER_ROUTE, { ...OWNER_ROUTE, fragment_id: 'frag_manager_route_2', endpoint_ref: { endpoint_id: 'second-route', url: 'https://helixa.xyz/second', protocol: 'web' }, updated_at: '2026-06-27T00:08:00.000Z' }] } },
+    routeStatus: 'retiring_route',
+    routeActiveFragmentId: OWNER_ROUTE.fragment_id,
+  }));
+  assert.match(retiring.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="revoke-public-route"]')?.textContent ?? '', /Retiring/);
+  assert.equal(retiring.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="revoke-public-route"]')?.disabled, true);
+  assert.equal(retiring.querySelector('[data-fragment-id="frag_manager_route_2"] [data-action="revoke-public-route"]')?.textContent, 'Retire route');
+  assert.equal(retiring.querySelector('[data-fragment-id="frag_manager_route_2"] [data-action="revoke-public-route"]')?.disabled, false);
+
+  assert.match(creating.querySelector('select[name="route_type"]')?.textContent ?? '', /Web reference/);
+  assert.match(creating.querySelector('.route-field-helper')?.textContent ?? '', /Classifies the public reference only/);
+  assert.doesNotMatch(creating.querySelector('.route-field-helper')?.textContent ?? '', /authorize|execute|connect|credential/i);
 });
 
 test('compactRouteInput and compactRoutePatch build endpoint fragment payloads', () => {
