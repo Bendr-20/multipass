@@ -2587,3 +2587,146 @@ test('claimed saved profile can create update and retire public route cards', as
   }]);
   assert.deepEqual(calls[2], ['retire-route', 'bendr-2-1', 'frag_manager_route_1', 'csrf-1']);
 });
+
+test('claimed route manager shows validation errors without calling route create API', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1' } }),
+    createMultipassFragment: async () => { calls.push('create'); throw new Error('should not call create'); },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: savedProfileFetch }).start();
+  assert.ok(root.querySelector('.claim-management-panel'));
+  const claimButton = root.querySelector('[data-action="claim-with-wallet"]');
+  assert.ok(claimButton);
+  claimButton.click();
+  await flushAsyncEvents();
+
+  const createForm = root.querySelector('[data-action="create-public-route"]');
+  createForm.querySelector('input[name="route_label"]').value = 'Bad route';
+  createForm.querySelector('input[name="route_url"]').value = 'http://example.test/not-safe';
+  createForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  const routePanel = root.querySelector('.route-manager-panel');
+  assert.match(routePanel.textContent, /Route URL must be an HTTPS URL/);
+  assert.equal(calls.length, 0);
+  assert.equal(root.querySelector('.fragment-manager-panel .resolver-message.error'), null);
+});
+
+test('failed route update keeps existing route cards visible and shows route error', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const route = {
+    schema_version: '0.1.0',
+    fragment_id: 'frag_manager_route_1',
+    multipass_id: 'mp_helixa_agent_1',
+    fragment_type: 'endpoint',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: { source_type: 'owner_submission', source_id: 'manager:frag_manager_route_1', issuer: null, observed_at: '2026-06-27T00:10:00.000Z' },
+    public_value: 'Primary profile route',
+    endpoint_ref: { endpoint_id: 'primary-profile-route', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    created_at: '2026-06-27T00:10:00.000Z',
+    updated_at: '2026-06-27T00:10:00.000Z',
+  };
+  const fetchWithRoute = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/api/multipass/bendr-2-1')) {
+      return new Response(JSON.stringify({
+        ...sampleData().profile,
+        display_name: 'Saved Bendr',
+        slug: 'bendr-2-1',
+        multipass_id: 'mp_helixa_agent_1',
+        status: 'active',
+        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved display-only profile. Management is unclaimed.' },
+      }), { status: 200 });
+    }
+    if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });
+    return savedProfileFetch(url);
+  };
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1' } }),
+    updateMultipassFragment: async () => { throw new Error('Manager session expired.'); },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: fetchWithRoute }).start();
+  assert.ok(root.querySelector('.claim-management-panel'));
+  const claimButton = root.querySelector('[data-action="claim-with-wallet"]');
+  assert.ok(claimButton);
+  claimButton.click();
+  await flushAsyncEvents();
+
+  const editForm = root.querySelector('[data-action="update-public-route"]');
+  editForm.querySelector('input[name="route_label"]').value = 'Primary profile route';
+  editForm.querySelector('input[name="route_url"]').value = 'https://helixa.xyz/multipass/bendr-2-1?route=main';
+  editForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.route-manager-panel').textContent, /Manager session expired/);
+  assert.match(root.querySelector('.public-routes-panel').textContent, /Primary profile route/);
+  assert.ok(root.querySelector('[data-action="update-public-route"]'));
+  assert.ok(root.querySelector('.claim-management-panel'));
+  assert.equal(root.querySelector('.fragment-manager-panel .resolver-message.error'), null);
+});
+
+test('failed route retire keeps route visible with old status', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const route = {
+    schema_version: '0.1.0',
+    fragment_id: 'frag_manager_route_1',
+    multipass_id: 'mp_helixa_agent_1',
+    fragment_type: 'endpoint',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: { source_type: 'owner_submission', source_id: 'manager:frag_manager_route_1', issuer: null, observed_at: '2026-06-27T00:10:00.000Z' },
+    public_value: 'Primary profile route',
+    endpoint_ref: { endpoint_id: 'primary-profile-route', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    created_at: '2026-06-27T00:10:00.000Z',
+    updated_at: '2026-06-27T00:10:00.000Z',
+  };
+  const fetchWithRoute = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/api/multipass/bendr-2-1')) {
+      return new Response(JSON.stringify({
+        ...sampleData().profile,
+        display_name: 'Saved Bendr',
+        slug: 'bendr-2-1',
+        multipass_id: 'mp_helixa_agent_1',
+        status: 'active',
+        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved display-only profile. Management is unclaimed.' },
+      }), { status: 200 });
+    }
+    if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });
+    return savedProfileFetch(url);
+  };
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1' } }),
+    revokeMultipassFragment: async () => { throw new Error('Manager session cookie is required.'); },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: fetchWithRoute }).start();
+  assert.ok(root.querySelector('.claim-management-panel'));
+  const claimButton = root.querySelector('[data-action="claim-with-wallet"]');
+  assert.ok(claimButton);
+  claimButton.click();
+  await flushAsyncEvents();
+
+  root.querySelector('[data-action="revoke-public-route"]').click();
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.route-manager-panel').textContent, /Manager session cookie is required/);
+  assert.match(root.querySelector('.public-route-card').textContent, /Review required/);
+  assert.match(root.querySelector('.public-route-card').textContent, /Primary profile route/);
+  assert.equal(root.querySelector('.fragment-manager-panel .resolver-message.error'), null);
+});

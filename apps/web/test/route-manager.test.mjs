@@ -163,8 +163,20 @@ test('validateRouteInput rejects unsafe route create values before API writes', 
 
   assert.throws(() => validateRouteInput({
     fragment_type: 'endpoint',
+    public_value: 'Spaced ID',
+    endpoint_ref: { endpoint_id: ' spaced-route ', url: 'https://helixa.xyz/a', protocol: 'web' },
+  }, []), /Route ID/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
     public_value: 'Bad protocol',
     endpoint_ref: { endpoint_id: 'bad-protocol', url: 'https://helixa.xyz/a', protocol: 'ftp' },
+  }, []), /Route type/);
+
+  assert.throws(() => validateRouteInput({
+    fragment_type: 'endpoint',
+    public_value: 'Spaced protocol',
+    endpoint_ref: { endpoint_id: 'spaced-protocol', url: 'https://helixa.xyz/a', protocol: ' web ' },
   }, []), /Route type/);
 });
 

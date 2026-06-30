@@ -406,7 +406,7 @@ Expected: PASS with no blocked UI wording.
 **Files:**
 - Modify: `apps/web/test/app.test.mjs`
 
-- [ ] **Step 1: Add invalid route create test**
+- [x] **Step 1: Add invalid route create test**
 
 Append near the existing claimed route manager test:
 
@@ -438,7 +438,7 @@ test('claimed route manager shows validation errors without calling route create
 });
 ```
 
-- [ ] **Step 2: Add failed route update test**
+- [x] **Step 2: Add failed route update test**
 
 Append:
 
@@ -500,7 +500,7 @@ test('failed route update keeps existing route cards visible and shows route err
 });
 ```
 
-- [ ] **Step 3: Add failed route retire test**
+- [x] **Step 3: Add failed route retire test**
 
 Append:
 
@@ -558,7 +558,7 @@ test('failed route retire keeps route visible with old status', async () => {
 });
 ```
 
-- [ ] **Step 4: Run focused app tests and confirm failure**
+- [x] **Step 4: Run focused app tests and confirm failure**
 
 Run:
 
@@ -574,7 +574,7 @@ Expected: FAIL because route handlers still use generic fragment state and do no
 - Modify: `apps/web/src/app.js`
 - Modify: `apps/web/src/styles.css`
 
-- [ ] **Step 1: Add route state to initial state and resets**
+- [x] **Step 1: Add route state to initial state and resets**
 
 Add to the initial `state` object:
 
@@ -600,7 +600,7 @@ When resetting profile/session-related state in `resolveLiveAgent()`, `resetStat
 
 Do not clear route data on failed route mutations.
 
-- [ ] **Step 2: Catch create route validation errors**
+- [x] **Step 2: Catch create route validation errors**
 
 Update `createPublicRoute(event)`:
 
@@ -624,7 +624,7 @@ async function createPublicRoute(event) {
 }
 ```
 
-- [ ] **Step 3: Catch update route validation errors**
+- [x] **Step 3: Catch update route validation errors**
 
 Update `updatePublicRoute(event)`:
 
@@ -652,7 +652,7 @@ async function updatePublicRoute(event) {
 }
 ```
 
-- [ ] **Step 4: Use route-specific retire mutation**
+- [x] **Step 4: Use route-specific retire mutation**
 
 Replace `revokePublicRoute()` with:
 
@@ -671,7 +671,7 @@ async function revokePublicRoute(event) {
 }
 ```
 
-- [ ] **Step 5: Add route mutation helpers**
+- [x] **Step 5: Add route mutation helpers**
 
 Add near `mutatePublicFragment()`:
 
@@ -705,11 +705,11 @@ async function mutatePublicRoute({ status, successStatus, activeFragmentId = nul
 }
 ```
 
-- [ ] **Step 6: Keep fragment mutation state separate**
+- [x] **Step 6: Keep fragment mutation state separate**
 
 Ensure `mutatePublicFragment()` still uses only `fragmentStatus` and `fragmentError`. Route writes must not set `fragmentError`, and generic fragment writes must not set `routeError`.
 
-- [ ] **Step 7: Add route styles**
+- [x] **Step 7: Add route styles**
 
 Add to `apps/web/src/styles.css` near existing route manager styles:
 
@@ -727,7 +727,7 @@ Add to `apps/web/src/styles.css` near existing route manager styles:
 
 Adjust selectors if existing spacing needs tighter fit.
 
-- [ ] **Step 8: Run focused app tests**
+- [x] **Step 8: Run focused app tests**
 
 Run:
 
@@ -737,7 +737,7 @@ node --test apps/web/test/app.test.mjs --test-name-pattern "route manager|route 
 
 Expected: PASS.
 
-- [ ] **Step 9: Run route and app tests together**
+- [x] **Step 9: Run route and app tests together**
 
 Run:
 
@@ -747,7 +747,7 @@ node --test apps/web/test/route-manager.test.mjs apps/web/test/app.test.mjs --te
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit Chunk 1 and Chunk 2 together**
+- [x] **Step 10: Commit Chunk 1 and Chunk 2 together**
 
 Run:
 

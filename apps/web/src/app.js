@@ -36,6 +36,9 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     claimError: null,
     claimCsrfToken: null,
     claimSessionStatus: null,
+    routeStatus: null,
+    routeError: null,
+    routeActiveFragmentId: null,
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -88,6 +91,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         claimError: null,
         claimCsrfToken: null,
         claimSessionStatus: null,
+        ...clearedRouteState(),
       };
       syncShareUrl(cachedLiveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
@@ -114,6 +118,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       claimError: null,
       claimCsrfToken: null,
       claimSessionStatus: null,
+      ...clearedRouteState(),
     };
     const requestId = state.resolverRequestId;
     render(root, state, handlers);
@@ -146,6 +151,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         saveError: null,
         savedSharePath: null,
         savedProfile: null,
+        ...clearedRouteState(),
       };
       syncShareUrl(hydratedLiveData?.liveProfilePage?.sharePath);
       render(root, state, handlers);
@@ -167,6 +173,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         saveError: null,
         savedSharePath: null,
         savedProfile: null,
+        ...clearedRouteState(),
       };
       clearShareUrl();
       render(root, state, handlers);
@@ -198,6 +205,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       claimError: null,
       claimCsrfToken: null,
       claimSessionStatus: null,
+      ...clearedRouteState(),
     };
     render(root, state, handlers);
     scheduleHomepageProfilePrefetch(state.data);
@@ -273,6 +281,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         saveError: null,
         savedSharePath: saved.sharePath,
         savedProfile: saved.profile,
+        ...clearedRouteState(),
         data: {
           ...state.data,
           liveProfilePage: {
@@ -293,7 +302,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   async function claimWithWallet() {
     const id = getManageIdentifier(state);
     if (!id) return;
-    state = { ...state, claimStatus: 'signing', claimError: null };
+    state = { ...state, claimStatus: 'signing', claimError: null, ...clearedRouteState() };
     render(root, state, handlers);
 
     try {
@@ -343,6 +352,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
         claimCsrfToken: verified.csrfToken ?? null,
         claimError: null,
         claimSessionStatus: 'active',
+        ...clearedRouteState(),
       });
       render(root, state, handlers);
     } catch (error) {
@@ -351,7 +361,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   }
 
   function renderClaimFailure(claimError) {
-    state = { ...state, claimStatus: 'error', claimError };
+    state = { ...state, claimStatus: 'error', claimError, ...clearedRouteState() };
     render(root, state, handlers);
   }
 
@@ -360,7 +370,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     if (!id) return;
     const form = event?.currentTarget;
     const formData = createFormData(form);
-    state = { ...state, claimStatus: 'submitting_review', claimError: null };
+    state = { ...state, claimStatus: 'submitting_review', claimError: null, ...clearedRouteState() };
     render(root, state, handlers);
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
@@ -375,10 +385,11 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       state = mergeClaimProfileState(state, result, {
         claimStatus: result.claim_status ?? 'claim_pending',
         claimError: null,
+        ...clearedRouteState(),
       });
       render(root, state, handlers);
     } catch (error) {
-      state = { ...state, claimStatus: 'error', claimError: error.message };
+      state = { ...state, claimStatus: 'error', claimError: error.message, ...clearedRouteState() };
       render(root, state, handlers);
     }
   }
@@ -423,8 +434,18 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const id = getManageIdentifier(state);
     const csrfToken = state.claimCsrfToken;
     if (!id || !csrfToken) return;
-    const fragment = compactRouteInput(createFormData(event?.currentTarget), getPublicRouteFragments(state.data));
-    await mutatePublicFragment({ status: 'creating_fragment', successStatus: 'fragment_created', operation: ({ apiBase }) => claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl }) });
+    let fragment;
+    try {
+      fragment = compactRouteInput(createFormData(event?.currentTarget), getPublicRouteFragments(state.data));
+    } catch (error) {
+      setRouteMutationError(error);
+      return;
+    }
+    await mutatePublicRoute({
+      status: 'creating_route',
+      successStatus: 'route_created',
+      operation: ({ apiBase }) => claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl }),
+    });
   }
 
   async function updatePublicFragment(event) {
@@ -441,9 +462,21 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const fragmentId = event?.currentTarget?.dataset.fragmentId;
     const csrfToken = state.claimCsrfToken;
     if (!id || !fragmentId || !csrfToken) return;
-    const currentRoute = getPublicRouteFragments(state.data).find((route) => route.fragment_id === fragmentId) ?? {};
-    const patch = compactRoutePatch(createFormData(event.currentTarget), currentRoute);
-    await mutatePublicFragment({ status: 'updating_fragment', successStatus: 'fragment_updated', operation: ({ apiBase }) => claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl }) });
+    const routes = getPublicRouteFragments(state.data);
+    const currentRoute = routes.find((route) => route.fragment_id === fragmentId) ?? {};
+    let patch;
+    try {
+      patch = compactRoutePatch(createFormData(event.currentTarget), currentRoute, routes);
+    } catch (error) {
+      setRouteMutationError(error, fragmentId);
+      return;
+    }
+    await mutatePublicRoute({
+      status: 'updating_route',
+      successStatus: 'route_updated',
+      activeFragmentId: fragmentId,
+      operation: ({ apiBase }) => claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl }),
+    });
   }
 
   async function revokePublicFragment(event) {
@@ -455,7 +488,16 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
   }
 
   async function revokePublicRoute(event) {
-    return revokePublicFragment(event);
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    await mutatePublicRoute({
+      status: 'retiring_route',
+      successStatus: 'route_retired',
+      activeFragmentId: fragmentId,
+      operation: ({ apiBase }) => claimApi.revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl }),
+    });
   }
 
   async function mutatePublicFragment({ status, successStatus, operation }) {
@@ -472,6 +514,34 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
+  function setRouteMutationError(error, activeFragmentId = null) {
+    state = {
+      ...state,
+      routeStatus: 'error',
+      routeError: error.message,
+      routeActiveFragmentId: activeFragmentId,
+    };
+    render(root, state, handlers);
+  }
+
+  async function mutatePublicRoute({ status, successStatus, activeFragmentId = null, operation }) {
+    state = { ...state, routeStatus: status, routeError: null, routeActiveFragmentId: activeFragmentId };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await operation({ apiBase });
+      state = mergeFragmentMutationState(state, result, {
+        routeStatus: successStatus,
+        routeError: null,
+        routeActiveFragmentId: activeFragmentId,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, routeStatus: 'error', routeError: error.message, routeActiveFragmentId: activeFragmentId };
+      render(root, state, handlers);
+    }
+  }
+
   async function logoutManagerSession() {
     const id = getManageIdentifier(state);
     if (!id) return;
@@ -479,7 +549,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       await claimApi.logoutMultipassSession?.({ id, apiBase, csrfToken: state.claimCsrfToken, fetchImpl });
     } finally {
-      state = { ...state, claimCsrfToken: null, claimSessionStatus: null, claimStatus: 'signed_out' };
+      state = { ...state, claimCsrfToken: null, claimSessionStatus: null, claimStatus: 'signed_out', ...clearedRouteState() };
       render(root, state, handlers);
     }
   }
@@ -592,6 +662,10 @@ function getClaimApiErrorMessage(error) {
 
 function isSavedManageRecord(state) {
   return Boolean(state.savedProfile?.slug || state.data?.activation?.state === 'saved_record' || state.data?.modeLabel === 'Saved Multipass');
+}
+
+function clearedRouteState() {
+  return { routeStatus: null, routeError: null, routeActiveFragmentId: null };
 }
 
 function mergeClaimProfileState(current, result, patch = {}) {

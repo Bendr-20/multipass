@@ -291,14 +291,16 @@ function renderRouteProtocolSelect(selected = 'web') {
 }
 
 function validateRouteId(value) {
-  const routeId = String(value ?? '').trim();
+  const rawRouteId = String(value ?? '');
+  const routeId = rawRouteId.trim();
   if (!routeId) throw new Error('Route ID is required.');
-  if (!ROUTE_ID_PATTERN.test(routeId)) throw new Error('Route ID can use letters, numbers, dots, underscores, colons, and hyphens only.');
+  if (routeId !== rawRouteId || !ROUTE_ID_PATTERN.test(routeId)) throw new Error('Route ID can use letters, numbers, dots, underscores, colons, and hyphens only.');
 }
 
 function validateRouteProtocol(value) {
-  const protocol = String(value ?? '').trim();
-  if (!ROUTE_PROTOCOLS.includes(protocol)) throw new Error('Route type is not available.');
+  const rawProtocol = String(value ?? '');
+  const protocol = rawProtocol.trim();
+  if (protocol !== rawProtocol || !ROUTE_PROTOCOLS.includes(protocol)) throw new Error('Route type is not available.');
 }
 
 function assertUniqueRouteIdForRoutes(routeId, existingRoutes = [], currentFragmentId = null) {

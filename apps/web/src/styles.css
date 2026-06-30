@@ -2902,6 +2902,16 @@ h1 {
   padding-top: 1rem;
 }
 
+.route-field-helper {
+  margin: -0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.route-manager-status {
+  margin: 0.65rem 0 0;
+}
+
 .public-routes-panel {
   padding: 1rem;
   border: 1px solid var(--soft-line);
