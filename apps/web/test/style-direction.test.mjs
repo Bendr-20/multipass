@@ -28,6 +28,17 @@ test('share panel is styled as a share card instead of an input form on mobile',
 });
 
 
+test('desktop Multipass profile uses a tighter polished profile layout', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const desktopBlock = css.slice(css.indexOf('@media (min-width: 901px)'));
+
+  assert.match(desktopBlock, /\.multipass-profile-page > \.aura-card\s*{[^}]*grid-template-columns:\s*minmax\(300px, 380px\) minmax\(0, 1fr\);/s);
+  assert.match(desktopBlock, /\.multipass-profile-page > \.aura-card \.aura-asset-frame\s*{[^}]*max-width:\s*380px;[^}]*justify-self:\s*start;/s);
+  assert.match(desktopBlock, /\.multipass-profile-page > \.aura-card \.aura-item-meta\s*{[^}]*min-height:\s*0;[^}]*align-self:\s*stretch;[^}]*align-content:\s*center;/s);
+  assert.match(desktopBlock, /\.profile-detail-drawers\s*{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(desktopBlock, /\.profile-detail-drawer\[open\]\s*{[^}]*grid-column:\s*1 \/ -1;/s);
+});
+
 test('change review ledger tones only the review state column', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 

@@ -1755,6 +1755,95 @@ h1 {
   line-height: 1.55;
 }
 
+@media (min-width: 901px) {
+  .multipass-profile-page {
+    gap: 16px;
+  }
+
+  .multipass-profile-page > .aura-card {
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    gap: 22px;
+    align-items: stretch;
+    margin-bottom: 8px;
+    padding: 20px;
+  }
+
+  .multipass-profile-page > .aura-card .aura-asset-frame {
+    width: 100%;
+    max-width: 380px;
+    justify-self: start;
+    border-radius: 22px;
+    padding: 10px;
+  }
+
+  .multipass-profile-page > .aura-card .aura-orb {
+    border-radius: 16px;
+  }
+
+  .multipass-profile-page > .aura-card .aura-item-meta {
+    min-height: 0;
+    align-self: stretch;
+    display: grid;
+    align-content: center;
+    gap: 14px;
+    padding: 26px 64px 24px 26px;
+  }
+
+  .multipass-profile-page > .aura-card .aura-item-meta h2 {
+    max-width: 440px;
+    margin-bottom: 4px;
+    font-size: clamp(2.5rem, 4vw, 3.65rem);
+  }
+
+  .multipass-profile-page > .aura-card .aura-chips {
+    max-width: 520px;
+    margin-top: 4px;
+  }
+
+  .multipass-profile-page > .aura-card .aura-share-action {
+    top: 30px;
+    right: 30px;
+    background: var(--paper);
+    box-shadow: none;
+  }
+
+  .profile-detail-drawers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  .profile-detail-drawer {
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 18px;
+  }
+
+  .profile-detail-drawer[open] {
+    grid-column: 1 / -1;
+  }
+
+  .profile-detail-drawer summary {
+    min-height: 68px;
+    padding: 16px 18px;
+  }
+
+  .profile-detail-drawer summary small {
+    text-align: right;
+  }
+
+  .profile-detail-drawer-body {
+    padding: 0 18px 18px;
+  }
+
+  .multipass-profile-page .footer-note {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+  }
+}
 
 @media (max-width: 900px) {
   .live-resolver form {
