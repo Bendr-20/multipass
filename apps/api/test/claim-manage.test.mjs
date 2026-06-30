@@ -122,6 +122,30 @@ function makeImportedRiskFragment(overrides = {}) {
   };
 }
 
+function makeImportedEndpointFragment(overrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    fragment_id: overrides.fragment_id ?? 'frag_imported_endpoint_profile',
+    multipass_id: overrides.multipass_id ?? 'mp_helixa_agent_1',
+    fragment_type: 'endpoint',
+    status: 'verified',
+    assurance_level: 'platform_verified',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: {
+      source_type: 'registry_import',
+      source_id: 'helixa-api:endpoint:profile',
+      issuer: 'Helixa',
+      observed_at: NOW,
+      reference_url: 'https://api.helixa.xyz/api/v2/agent/1',
+    },
+    public_value: 'Imported profile API route.',
+    endpoint_ref: { endpoint_id: 'profile', url: 'https://api.helixa.xyz/api/v2/agent/1', protocol: 'api' },
+    created_at: NOW,
+    updated_at: NOW,
+  };
+}
+
 function makeStore() {
   const store = createSqliteSavedRecords({ databasePath: ':memory:' });
   store.saveActivatedRecord(makeSavedRecord());
@@ -279,7 +303,27 @@ test('manager public profile edits are allowlisted and logged', () => {
   assert.deepEqual(profile.discovery_profile.tags, ['helixa', 'operator', 'agent']);
   assert.equal(profile.owner_summary.visibility, 'hidden');
   assert.equal(store.getAgentCard('mp_helixa_agent_1').name, 'Bendr Prime');
-  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public profile updated/);
+  assert.match(
+    store.getChangeLog('mp_helixa_agent_1').entries.at(-2).message,
+    /Public profile updated: display name, summary, profile image, tags\./,
+  );
+
+  store.updatePublicProfile('bendr-2-1', {
+    avatar_url: 'https://assets.example.test/bendr-v2.png',
+  }, { actorWallet: OWNER, now: '2026-06-27T00:07:00.000Z' });
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public profile updated: profile image\./);
+
+  const cleared = store.updatePublicProfile('bendr-2-1', {
+    avatar_url: '',
+  }, { actorWallet: OWNER, now: '2026-06-27T00:08:00.000Z' });
+  assert.equal(cleared.profile.discovery_profile.avatar_url, null);
+
+  assert.throws(
+    () => store.updatePublicProfile('bendr-2-1', {
+      avatar_url: 'http://assets.example.test/not-safe.png',
+    }, { actorWallet: OWNER, now: '2026-06-27T00:09:00.000Z' }),
+    /avatar_url|profile image|https/i,
+  );
 
   assert.throws(
     () => store.updatePublicProfile('mp_helixa_agent_1', { cred_summary: { trust_state: 'established' } }, { actorWallet: OWNER, now: NOW }),
@@ -357,6 +401,109 @@ test('manager public fragment mutations refresh fragments profile summary change
   assert.equal(store.getPublicFragments('mp_helixa_agent_1')[0].status, 'revoked');
   assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public fragment revoked: wallet/);
   assert.equal(store.getAuditEvents('mp_helixa_agent_1').at(-1).event_type, 'public_fragment_revoked');
+});
+
+test('manager endpoint routes use canonical endpoint url and route-safe constraints', () => {
+  const store = makeStore();
+
+  const created = store.createPublicFragment('bendr-2-1', {
+    fragment_type: 'endpoint',
+    public_value: 'Primary public profile',
+    reference_url: 'https://ignored.example.test/proof',
+    endpoint_ref: { endpoint_id: 'profile', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+  }, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:25:00.000Z',
+  });
+
+  assert.equal(created.fragment.endpoint_ref.url, 'https://helixa.xyz/multipass/bendr-2-1');
+  assert.equal(created.fragment.source.reference_url, created.fragment.endpoint_ref.url);
+  assert.equal('reference_url' in created.fragment, false);
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public route added: Primary public profile\./);
+
+  const updated = store.updatePublicFragment('bendr-2-1', created.fragment.fragment_id, {
+    public_value: 'Primary public route',
+    reference_url: 'https://ignored.example.test/updated-proof',
+    endpoint_ref: { endpoint_id: 'profile-main', url: 'https://helixa.xyz/multipass/bendr-2-1?route=main', protocol: 'web' },
+  }, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:30:00.000Z',
+  });
+
+  assert.equal(updated.fragment.endpoint_ref.url, 'https://helixa.xyz/multipass/bendr-2-1?route=main');
+  assert.equal(updated.fragment.source.reference_url, updated.fragment.endpoint_ref.url);
+  assert.equal('reference_url' in updated.fragment, false);
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public route updated: Primary public route\./);
+
+  const revoked = store.revokePublicFragment('bendr-2-1', created.fragment.fragment_id, {
+    actorWallet: OWNER,
+    now: '2026-06-27T00:35:00.000Z',
+  });
+
+  assert.equal(revoked.fragment.status, 'revoked');
+  assert.match(store.getChangeLog('mp_helixa_agent_1').entries.at(-1).message, /Public route revoked: Primary public route\./);
+
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      public_value: 'Duplicate public route',
+      endpoint_ref: { endpoint_id: 'profile-main', url: 'https://helixa.xyz/multipass/duplicate', protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /endpoint ID|duplicate/i,
+  );
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      public_value: 'Missing public route URL',
+      endpoint_ref: { endpoint_id: 'missing-url', protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /endpoint_ref\.url|required/i,
+  );
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      public_value: 'Null public route URL',
+      endpoint_ref: { endpoint_id: 'null-url', url: null, protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /endpoint_ref\.url|required/i,
+  );
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      public_value: 'Unsafe public route URL',
+      endpoint_ref: { endpoint_id: 'unsafe-url', url: 'http://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /endpoint_ref\.url|https/i,
+  );
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      status: 'verified',
+      public_value: 'Verified public route',
+      endpoint_ref: { endpoint_id: 'verified-create', url: 'https://helixa.xyz/multipass/verified-create', protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /status|verified|not editable/i,
+  );
+  assert.throws(
+    () => store.updatePublicFragment('bendr-2-1', created.fragment.fragment_id, {
+      status: 'verified',
+    }, { actorWallet: OWNER, now: NOW }),
+    /status|verified|not allowed/i,
+  );
+});
+
+test('manager endpoint route IDs cannot collide with imported endpoint routes', () => {
+  const store = createSqliteSavedRecords({ databasePath: ':memory:' });
+  store.saveActivatedRecord(makeSavedRecord({ fragments: [makeImportedEndpointFragment()] }));
+
+  assert.throws(
+    () => store.createPublicFragment('bendr-2-1', {
+      fragment_type: 'endpoint',
+      public_value: 'Manager profile route',
+      endpoint_ref: { endpoint_id: 'profile', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    }, { actorWallet: OWNER, now: NOW }),
+    /endpoint ID|duplicate/i,
+  );
 });
 
 test('manager fragment mutations reject blocked types imported fragments unsafe URLs and wrong endpoint refs', () => {

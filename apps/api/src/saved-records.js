@@ -64,6 +64,13 @@ const DEFAULT_CLAIM_NONCE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MANAGER_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const EDITABLE_PROFILE_FIELDS = new Set(['display_name', 'summary', 'avatar_url', 'tags', 'visibility']);
 const EDITABLE_PROFILE_VISIBILITY = new Set(['public', 'gated', 'private', 'hidden']);
+const PUBLIC_PROFILE_FIELD_LABELS = new Map([
+  ['display_name', 'display name'],
+  ['summary', 'summary'],
+  ['avatar_url', 'profile image'],
+  ['tags', 'tags'],
+  ['visibility', 'visibility'],
+]);
 
 export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
   const db = new DatabaseSync(databasePath);
@@ -412,11 +419,14 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
       const bundle = readBundleById(db, profile.multipass_id);
       if (!bundle) throw new Error('Saved record bundle not found.');
-      const fragment = normalizeManagerFragmentInput(input, { multipassId: profile.multipass_id, now, randomHex });
+      const fragment = prepareEndpointRouteFragment(
+        normalizeManagerFragmentInput(input, { multipassId: profile.multipass_id, now, randomHex }),
+      );
+      assertUniqueEndpointId(bundle.fragments, fragment);
       const fragments = [fragment, ...bundle.fragments];
       writeFragmentMutation(db, bundle, fragments, {
         now,
-        message: `Public fragment added: ${fragment.fragment_type}.`,
+        message: fragmentChangeMessage('added', fragment),
         auditType: 'public_fragment_created',
         auditPayload: { actorWallet, fragmentId: fragment.fragment_id, fragmentType: fragment.fragment_type },
       });
@@ -432,11 +442,12 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       const index = bundle.fragments.findIndex((fragment) => fragment.fragment_id === fragmentId);
       if (index === -1) throw new Error('Fragment not found.');
       assertManagerEditableFragment(bundle.fragments[index]);
-      const nextFragment = normalizeManagerFragmentPatch(bundle.fragments[index], patch, { now });
+      const nextFragment = prepareEndpointRouteFragment(normalizeManagerFragmentPatch(bundle.fragments[index], patch, { now }));
+      assertUniqueEndpointId(bundle.fragments, nextFragment, fragmentId);
       const fragments = bundle.fragments.with(index, nextFragment);
       writeFragmentMutation(db, bundle, fragments, {
         now,
-        message: `Public fragment updated: ${nextFragment.fragment_type}.`,
+        message: fragmentChangeMessage('updated', nextFragment),
         auditType: 'public_fragment_updated',
         auditPayload: { actorWallet, fragmentId, fragmentType: nextFragment.fragment_type },
       });
@@ -452,11 +463,11 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       const index = bundle.fragments.findIndex((fragment) => fragment.fragment_id === fragmentId);
       if (index === -1) throw new Error('Fragment not found.');
       assertManagerEditableFragment(bundle.fragments[index]);
-      const nextFragment = assertIdentityFragment({ ...bundle.fragments[index], status: 'revoked', revoked_at: now, updated_at: now });
+      const nextFragment = prepareEndpointRouteFragment(assertIdentityFragment({ ...bundle.fragments[index], status: 'revoked', revoked_at: now, updated_at: now }));
       const fragments = bundle.fragments.with(index, nextFragment);
       writeFragmentMutation(db, bundle, fragments, {
         now,
-        message: `Public fragment revoked: ${nextFragment.fragment_type}.`,
+        message: fragmentChangeMessage('revoked', nextFragment),
         auditType: 'public_fragment_revoked',
         auditPayload: { actorWallet, fragmentId, fragmentType: nextFragment.fragment_type },
       });
@@ -515,7 +526,7 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
           now,
           profile.multipass_id,
         );
-        appendChangeLog(db, profile.multipass_id, `Public profile updated: ${changedFields.join(', ')}.`, now);
+        appendChangeLog(db, profile.multipass_id, `Public profile updated: ${formatPublicProfileFieldList(changedFields)}.`, now);
         appendAuditEvent(db, profile.multipass_id, 'public_profile_updated', { actorWallet, changedFields }, now);
         db.exec('COMMIT');
       } catch (error) {
@@ -875,6 +886,59 @@ function appendAuditEvent(db, multipassId, eventType, event, createdAt) {
   );
 }
 
+function formatPublicProfileFieldList(fields) {
+  return fields.map((field) => PUBLIC_PROFILE_FIELD_LABELS.get(field) ?? field).join(', ');
+}
+
+function isEndpointFragment(fragment) {
+  return fragment?.fragment_type === 'endpoint';
+}
+
+function prepareEndpointRouteFragment(fragment) {
+  if (!isEndpointFragment(fragment)) return fragment;
+  assertEndpointRouteRef(fragment);
+  return assertIdentityFragment({
+    ...fragment,
+    endpoint_ref: {
+      ...fragment.endpoint_ref,
+      url: parseHttpsUrl(fragment.endpoint_ref.url, 'endpoint_ref.url'),
+    },
+    source: {
+      ...fragment.source,
+      reference_url: parseHttpsUrl(fragment.endpoint_ref.url, 'endpoint_ref.url'),
+    },
+  });
+}
+
+function assertEndpointRouteRef(fragment) {
+  if (!isEndpointFragment(fragment)) return;
+  if (!fragment.endpoint_ref?.endpoint_id) throw new TypeError('endpoint_ref.endpoint_id is required for endpoint routes.');
+  if (!fragment.endpoint_ref?.url) throw new TypeError('endpoint_ref.url is required for endpoint routes.');
+  parseHttpsUrl(fragment.endpoint_ref.url, 'endpoint_ref.url');
+}
+
+function assertUniqueEndpointId(fragments, candidate, currentFragmentId = null) {
+  if (!isEndpointFragment(candidate)) return;
+  assertEndpointRouteRef(candidate);
+  const candidateId = candidate.endpoint_ref.endpoint_id;
+  const collision = fragments.find((fragment) => (
+    fragment.fragment_id !== currentFragmentId
+    && fragment.fragment_type === 'endpoint'
+    && fragment.endpoint_ref?.endpoint_id === candidateId
+  ));
+  if (collision) throw new TypeError(`endpoint_ref.endpoint_id duplicates an existing endpoint route: ${candidateId}`);
+}
+
+function routeChangeLabel(fragment) {
+  if (fragment?.fragment_type !== 'endpoint') return fragment?.fragment_type ?? 'fragment';
+  return fragment.public_value ?? fragment.endpoint_ref?.endpoint_id ?? 'route';
+}
+
+function fragmentChangeMessage(action, fragment) {
+  if (fragment?.fragment_type === 'endpoint') return `Public route ${action}: ${routeChangeLabel(fragment)}.`;
+  return `Public fragment ${action}: ${fragment.fragment_type}.`;
+}
+
 function readClaimRequest(db, claimId) {
   return db.prepare(`SELECT * FROM claim_requests WHERE claim_id = ?`).get(claimId) ?? null;
 }
@@ -924,15 +988,20 @@ function normalizeTag(value) {
 
 function normalizeOptionalUrl(value, field) {
   if (value === null || value === undefined || String(value).trim() === '') return null;
-  const raw = String(value).trim();
+  return parseHttpsUrl(String(value).trim(), field);
+}
+
+function parseHttpsUrl(value, field) {
+  const raw = String(value ?? '').trim();
+  if (!raw) throw new TypeError(`${field} is required.`);
   let parsed;
   try {
     parsed = new URL(raw);
   } catch {
     throw new TypeError(`${field} must be a valid URL.`);
   }
-  if (!['https:', 'http:'].includes(parsed.protocol)) {
-    throw new TypeError(`${field} must use http or https.`);
+  if (parsed.protocol !== 'https:') {
+    throw new TypeError(`${field} must use https.`);
   }
   return parsed.toString();
 }

@@ -625,7 +625,7 @@ test('manager session can create update and revoke public fragments through API'
   assert.equal(revoked.body.fragment.status, 'revoked');
 
   const changes = await requestJson(api, '/api/multipass/bendr-2-1/changes');
-  assert.match(changes.body.entries.at(-1).message, /Public fragment revoked/);
+  assert.match(changes.body.entries.at(-1).message, /Public route revoked: Updated public profile JSON endpoint\./);
 });
 
 test('fragment write routes enforce manager session csrf origin blocked inputs and imported read-only fragments', async () => {
