@@ -24,6 +24,7 @@ Public profile reads:
 - `GET /api/multipass/{id}`
 - `GET /api/v0/multipass/{id}`
 - `GET /api/multipass/{id}/fragments`
+- `GET /api/multipass/{id}/tools` public tool and service cards
 - `GET /api/multipass/{id}/agent-card` canonical agent-readable card
 - `GET /api/multipass/{id}/card` compatibility alias for the agent-readable card
 - `GET /api/multipass/{id}/standards`
@@ -32,7 +33,7 @@ Public profile reads:
 - `GET /api/multipass/{id}/receipts/{receipt_id}`
 - `GET /api/multipass/{id}/changes`
 
-Manager routes are session and CSRF protected. Public fragment responses return public fragments only. Saved records are public display records until a claim flow verifies a manager.
+Manager routes are session and CSRF protected. Public fragment responses return public fragments only. Public tool cards are discovery metadata only, not tool execution, credentials, payments, or access grants. Saved records are public display records until a claim flow verifies a manager.
 
 Canonical route notes:
 
@@ -78,6 +79,7 @@ Useful routes:
 - `GET /api/search?q=demo`
 - `GET /api/multipass/demo-agent`
 - `GET /api/multipass/demo-agent/fragments`
+- `GET /api/multipass/demo-agent/tools`
 - `GET /api/multipass/demo-agent/agent-card`
 - `GET /api/multipass/demo-agent/card` compatibility alias
 - `GET /api/multipass/demo-agent/standards`

@@ -24,6 +24,7 @@ Public API:
 - `GET /api/multipass/{id}` - public profile JSON
 - `GET /api/v0/multipass/{id}` - versioned public profile alias
 - `GET /api/multipass/{id}/fragments` - public fragments only
+- `GET /api/multipass/{id}/tools` - public tool and service discovery cards only
 - `GET /api/multipass/{id}/agent-card` - canonical agent-readable card
 - `GET /api/multipass/{id}/card` - compatibility alias for the agent-readable card
 - `GET /api/multipass/{id}/standards` - standards compatibility profile
@@ -39,7 +40,7 @@ Multipass V0 can:
 - Activate a live Helixa AgentDNA record into a read-only preview.
 - Save a durable public Multipass record from live public AgentDNA data.
 - Resolve profiles by stable slug, Multipass ID, and supported source identifiers.
-- Return public profile JSON, public fragments, agent cards, standards profiles, x402 metadata, receipt collections, and change logs.
+- Return public profile JSON, public fragments, public tool cards, agent cards, standards profiles, x402 metadata, receipt collections, and change logs.
 - Import matching Base ERC-8004 identities as public `standard_ref` fragments.
 - Support owner-wallet and review-approved manager claim states for saved records.
 - Let verified managers edit allowlisted public profile fields and manager-created public fragments/routes.
@@ -51,7 +52,7 @@ The live API is public and display-only by default. It does not:
 
 - Transfer wallet custody.
 - Reveal private fields or credentials.
-- Grant tool access.
+- Grant tool access or execute tools.
 - Mutate runtime routes outside Multipass metadata.
 - Make payments or receipts count as trust.
 - Edit Helixa AgentDNA source records.

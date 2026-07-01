@@ -8,6 +8,11 @@ import {
 } from '@helixa/multipass-sdk';
 
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
+import {
+  deriveAgentCardServiceUpdates,
+  deriveX402ManifestFromTools,
+  summarizeToolsResponse,
+} from './tool-manifest.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -73,8 +78,14 @@ export function createMemoryStore(input = {}) {
       return (fragmentsByProfile.get(multipassId) ?? []).filter((fragment) => fragment.visibility === 'public');
     },
 
-    getAgentCard(multipassId) {
-      return agentCardsByProfile.get(multipassId) ?? null;
+    getTools(multipassId) {
+      return summarizeToolsResponse(multipassId, fragmentsByProfile.get(multipassId) ?? []);
+    },
+
+    getAgentCard(multipassId, options = {}) {
+      const agentCard = agentCardsByProfile.get(multipassId) ?? null;
+      if (!agentCard) return null;
+      return deriveAgentCardServiceUpdates(agentCard, fragmentsByProfile.get(multipassId) ?? [], options.baseUrl ?? '');
     },
 
     getStandardsProfile(multipassId) {
@@ -82,6 +93,8 @@ export function createMemoryStore(input = {}) {
     },
 
     getX402Manifest(multipassId) {
+      const derived = deriveX402ManifestFromTools(multipassId, fragmentsByProfile.get(multipassId) ?? []);
+      if (derived.endpoints.length > 0) return derived;
       return x402ByProfile.get(multipassId) ?? null;
     },
 
@@ -554,7 +567,7 @@ function handleSearch(url, context) {
   });
 }
 
-function handlePublicRead(parts, { store, savedRecords }) {
+function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
   const readParts = normalizePublicReadParts(parts);
   if (!readParts) {
     return errorResponse(404, 'not_found', 'Route not found.');
@@ -579,8 +592,12 @@ function handlePublicRead(parts, { store, savedRecords }) {
     });
   }
 
+  if (readParts.resource === 'tools' && !readParts.resourceId) {
+    return jsonResponse(getToolsResponse(sourceStore, profile.multipass_id));
+  }
+
   if ((readParts.resource === 'agent-card' || readParts.resource === 'card') && !readParts.resourceId) {
-    return jsonOrNotFound(sourceStore.getAgentCard(profile.multipass_id), 'Agent card not found.');
+    return jsonOrNotFound(sourceStore.getAgentCard(profile.multipass_id, { baseUrl: normalizedBaseUrl }), 'Agent card not found.');
   }
 
   if (readParts.resource === 'standards' && !readParts.resourceId) {
@@ -628,6 +645,13 @@ function resolvePublicProfile(identifier, { store, savedRecords }) {
   if (savedProfile) return { profile: savedProfile, sourceStore: savedRecords };
   const profile = store.resolveProfile(identifier);
   return profile ? { profile, sourceStore: store } : null;
+}
+
+function getToolsResponse(sourceStore, multipassId) {
+  if (typeof sourceStore.getTools === 'function') {
+    return sourceStore.getTools(multipassId);
+  }
+  return summarizeToolsResponse(multipassId, sourceStore.getPublicFragments?.(multipassId) ?? []);
 }
 
 function resolveSavedProfile(savedRecords, identifier) {
@@ -728,6 +752,7 @@ function createDiscoveryDocument(baseUrl) {
       card: `${baseUrl}/api/multipass/{id}/card`,
       agent_card: `${baseUrl}/api/multipass/{id}/agent-card`,
       fragments: `${baseUrl}/api/multipass/{id}/fragments`,
+      tools: `${baseUrl}/api/multipass/{id}/tools`,
       standards: `${baseUrl}/api/multipass/{id}/standards`,
       x402: `${baseUrl}/api/multipass/{id}/x402`,
       receipts: `${baseUrl}/api/multipass/{id}/receipts`,
@@ -764,6 +789,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}': { get: { summary: 'Fetch a public Multipass profile by id or slug', parameters: [pathParameter('id')], responses: { 200: profileResponse } } },
       '/api/v0/multipass/{id}': { get: { summary: 'Versioned alias for fetching a public Multipass profile', parameters: [pathParameter('id')], responses: { 200: profileResponse } } },
       '/api/multipass/{id}/fragments': { get: { summary: 'Fetch public fragments only', parameters: [pathParameter('id')], responses: { 200: { description: 'Public fragment collection' } } } },
+      '/api/multipass/{id}/tools': { get: { summary: 'Fetch public tool and service cards', parameters: [pathParameter('id')], responses: { 200: { description: 'Public tool and service card collection' } } } },
       '/api/multipass/{id}/card': { get: { summary: 'Compatibility alias for fetching the agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/agent-card': { get: { summary: 'Fetch agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/standards': { get: { summary: 'Fetch standards compatibility profile', parameters: [pathParameter('id')], responses: { 200: { description: 'Standards profile' } } } },
@@ -798,6 +824,7 @@ function createProfileRoutes(baseUrl, identifier) {
     card: `${baseUrl}/api/multipass/${encoded}/card`,
     agent_card: `${baseUrl}/api/multipass/${encoded}/agent-card`,
     fragments: `${baseUrl}/api/multipass/${encoded}/fragments`,
+    tools: `${baseUrl}/api/multipass/${encoded}/tools`,
     standards: `${baseUrl}/api/multipass/${encoded}/standards`,
     x402: `${baseUrl}/api/multipass/${encoded}/x402`,
     receipts: `${baseUrl}/api/multipass/${encoded}/receipts`,

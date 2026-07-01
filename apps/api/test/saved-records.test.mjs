@@ -6,8 +6,10 @@ import test from 'node:test';
 
 import { createSqliteSavedRecords } from '../src/saved-records.js';
 
+const NOW = '2026-06-26T20:00:00.000Z';
+
 function makeSavedRecord(overrides = {}) {
-  const now = '2026-06-26T20:00:00.000Z';
+  const now = NOW;
   return {
     source: {
       sourceType: 'helixa_agent',
@@ -144,6 +146,56 @@ function makeSavedRecord(overrides = {}) {
   };
 }
 
+function makeToolFragment(overrides = {}, refOverrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    fragment_id: overrides.fragment_id ?? 'saved_tool_lookup',
+    multipass_id: overrides.multipass_id ?? 'mp_helixa_agent_1',
+    fragment_type: overrides.fragment_type ?? 'tool_manifest',
+    status: overrides.status ?? 'verified',
+    assurance_level: overrides.assurance_level ?? 'platform_verified',
+    visibility: overrides.visibility ?? 'public',
+    transfer_policy: overrides.transfer_policy ?? 'pause_on_transfer',
+    source: overrides.source ?? {
+      source_type: 'registry_import',
+      source_id: 'bankr_x402_cloud:saved-lookup',
+      issuer: 'bankr_x402_cloud',
+      observed_at: NOW,
+    },
+    tool_manifest_ref: overrides.tool_manifest_ref === undefined ? {
+      tool_id: refOverrides.tool_id ?? 'saved-lookup',
+      registry: refOverrides.registry ?? 'bankr_x402_cloud',
+      name: refOverrides.name ?? 'Saved Lookup Tool',
+      description: refOverrides.description ?? 'Looks up saved Multipass state.',
+      endpoint_url: refOverrides.endpoint_url ?? 'https://api.example.test/tools/saved-lookup',
+      manifest_url: refOverrides.manifest_url ?? 'https://api.example.test/tools/saved-lookup/manifest.json',
+      manifest_hash: refOverrides.manifest_hash ?? 'sha256:savedlookup',
+      creator_address: refOverrides.creator_address ?? '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+      pricing: refOverrides.pricing ?? {
+        model: 'fixed',
+        amount: '0.05',
+        asset: 'USDC',
+        chain_id: 8453,
+      },
+      access: refOverrides.access ?? {
+        summary: 'Public x402 access.',
+        requires_owner_approval: false,
+      },
+      schemas: refOverrides.schemas ?? {
+        input_summary: 'Multipass id or slug.',
+        output_summary: 'Saved Multipass data.',
+      },
+      verifiability: refOverrides.verifiability ?? {
+        tier: 'provider_verified',
+        summary: 'Imported from Bankr x402 Cloud.',
+      },
+      last_checked_at: refOverrides.last_checked_at ?? NOW,
+    } : overrides.tool_manifest_ref,
+    created_at: overrides.created_at ?? NOW,
+    updated_at: overrides.updated_at ?? NOW,
+  };
+}
+
 test('createSqliteSavedRecords saves and resolves by id slug and source', () => {
   const store = createSqliteSavedRecords({ databasePath: ':memory:' });
   const saved = store.saveActivatedRecord(makeSavedRecord());
@@ -179,6 +231,82 @@ test('saved repository returns public document bundle and sanitized source conte
   assert.equal('credential' in sourceContext.sourceSnapshot.socials, false);
   assert.equal('accessToken' in sourceContext.sourceSnapshot.socials, false);
   assert.equal('privateKey' in sourceContext.sourceSnapshot, false);
+});
+
+test('saved repository returns public tools and derives x402 and agent-card from active tools', () => {
+  const store = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecord();
+  record.fragments = [
+    ...record.fragments,
+    makeToolFragment(),
+    makeToolFragment(
+      { fragment_id: 'saved_hidden_tool', visibility: 'hidden' },
+      {
+        tool_id: 'hidden-lookup',
+        name: 'Hidden Lookup Tool',
+        endpoint_url: 'https://api.example.test/tools/hidden-lookup',
+        manifest_url: 'https://api.example.test/tools/hidden-lookup/manifest.json',
+      },
+    ),
+  ];
+  store.saveActivatedRecord(record);
+
+  const tools = store.getTools('mp_helixa_agent_1');
+  assert.equal(tools.schema_version, '0.1.0');
+  assert.equal(tools.multipass_id, 'mp_helixa_agent_1');
+  assert.deepEqual(tools.tools.map((tool) => tool.tool_id), ['saved-lookup']);
+
+  const x402 = store.getX402Manifest('mp_helixa_agent_1');
+  assert.deepEqual(x402.endpoints.map((endpoint) => endpoint.endpoint_id), ['saved-lookup']);
+  assert.equal(x402.endpoints[0].url, 'https://api.example.test/tools/saved-lookup');
+
+  const card = store.getAgentCard('mp_helixa_agent_1', { baseUrl: 'https://multipass.example.test/' });
+  assert.equal(card.x402_manifest_url, 'https://multipass.example.test/api/multipass/mp_helixa_agent_1/x402');
+  assert.deepEqual(card.service_endpoints.map((endpoint) => endpoint.endpoint_id), ['saved-lookup']);
+});
+
+test('saved repository falls back to persisted x402 and agent-card without public active tools', () => {
+  const store = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecord();
+  record.agentCard = {
+    ...record.agentCard,
+    service_endpoints: [
+      {
+        endpoint_id: 'authored-status',
+        url: 'https://api.example.test/status',
+        description: 'Authored status endpoint.',
+        visibility: 'public',
+      },
+    ],
+    x402_manifest_url: 'https://api.example.test/x402.json',
+  };
+  record.x402Manifest = {
+    schema_version: '0.1.0',
+    multipass_id: 'mp_helixa_agent_1',
+    endpoints: [
+      {
+        endpoint_id: 'persisted-status',
+        url: 'https://api.example.test/status',
+        method: 'GET',
+        description: 'Persisted status endpoint.',
+        price: { amount: '1', decimals: 18 },
+        asset: 'CRED',
+        chain_id: 8453,
+        provider: 'bankr_x402_cloud',
+        settlement_reference_policy: 'provider_receipt',
+        rate_limit: { requests: 10, window_seconds: 60 },
+        visibility: 'public',
+        requires_owner_approval: false,
+      },
+    ],
+  };
+  store.saveActivatedRecord(record);
+
+  assert.deepEqual(store.getTools('mp_helixa_agent_1').tools, []);
+  assert.deepEqual(store.getX402Manifest('mp_helixa_agent_1').endpoints.map((endpoint) => endpoint.endpoint_id), ['persisted-status']);
+  const card = store.getAgentCard('mp_helixa_agent_1', { baseUrl: 'https://multipass.example.test/' });
+  assert.deepEqual(card.service_endpoints.map((endpoint) => endpoint.endpoint_id), ['authored-status']);
+  assert.equal(card.x402_manifest_url, 'https://api.example.test/x402.json');
 });
 
 test('saveActivatedRecord validates source and change metadata', () => {

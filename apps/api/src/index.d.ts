@@ -14,7 +14,8 @@ export interface MemoryStoreInput {
 export interface MemoryStore {
   resolveProfile(identifier: string): unknown | null;
   getPublicFragments(multipassId: string): unknown[];
-  getAgentCard(multipassId: string): unknown | null;
+  getTools(multipassId: string): unknown;
+  getAgentCard(multipassId: string, options?: { baseUrl?: string }): unknown | null;
   getStandardsProfile(multipassId: string): unknown | null;
   getX402Manifest(multipassId: string): unknown | null;
   getReceiptFragment(multipassId: string, receiptId: string): unknown | null;

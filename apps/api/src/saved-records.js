@@ -16,6 +16,11 @@ import {
   normalizeManagerFragmentPatch,
   summarizePublicFragments,
 } from './fragment-manager.js';
+import {
+  deriveAgentCardServiceUpdates,
+  deriveX402ManifestFromTools,
+  summarizeToolsResponse,
+} from './tool-manifest.js';
 
 const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
   'apiUrl',
@@ -138,8 +143,14 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       return readBundleById(db, multipassId)?.fragments.filter((fragment) => fragment.visibility === 'public') ?? [];
     },
 
-    getAgentCard(multipassId) {
-      return readBundleById(db, multipassId)?.agentCard ?? null;
+    getTools(multipassId) {
+      return summarizeToolsResponse(multipassId, readBundleById(db, multipassId)?.fragments ?? []);
+    },
+
+    getAgentCard(multipassId, options = {}) {
+      const bundle = readBundleById(db, multipassId);
+      if (!bundle) return null;
+      return deriveAgentCardServiceUpdates(bundle.agentCard, bundle.fragments, options.baseUrl ?? '');
     },
 
     getStandardsProfile(multipassId) {
@@ -147,7 +158,11 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
     },
 
     getX402Manifest(multipassId) {
-      return readBundleById(db, multipassId)?.x402Manifest ?? null;
+      const bundle = readBundleById(db, multipassId);
+      if (!bundle) return null;
+      const derived = deriveX402ManifestFromTools(multipassId, bundle.fragments);
+      if (derived.endpoints.length > 0) return derived;
+      return bundle.x402Manifest;
     },
 
     getReceiptFragments(multipassId) {

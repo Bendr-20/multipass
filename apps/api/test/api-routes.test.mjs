@@ -71,6 +71,56 @@ const privateFragment = {
   visibility: 'private',
 };
 
+function makeToolFragment(overrides = {}, refOverrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    fragment_id: overrides.fragment_id ?? 'frag_tool_paid_chat',
+    multipass_id: overrides.multipass_id ?? 'mp_bendr',
+    fragment_type: overrides.fragment_type ?? 'tool_manifest',
+    status: overrides.status ?? 'verified',
+    assurance_level: overrides.assurance_level ?? 'platform_verified',
+    visibility: overrides.visibility ?? 'public',
+    transfer_policy: overrides.transfer_policy ?? 'pause_on_transfer',
+    source: overrides.source ?? {
+      source_type: 'registry_import',
+      source_id: 'bankr_x402_cloud:paid-chat',
+      issuer: 'bankr_x402_cloud',
+      observed_at: '2026-06-24T00:00:00Z',
+    },
+    tool_manifest_ref: overrides.tool_manifest_ref === undefined ? {
+      tool_id: refOverrides.tool_id ?? 'paid-chat',
+      registry: refOverrides.registry ?? 'bankr_x402_cloud',
+      name: refOverrides.name ?? 'Paid Chat Tool',
+      description: refOverrides.description ?? 'Runs a paid chat turn.',
+      endpoint_url: refOverrides.endpoint_url ?? 'https://api.example.test/tools/paid-chat',
+      manifest_url: refOverrides.manifest_url ?? 'https://api.example.test/tools/paid-chat/manifest.json',
+      manifest_hash: refOverrides.manifest_hash ?? 'sha256:paidchat',
+      creator_address: refOverrides.creator_address ?? '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+      pricing: refOverrides.pricing ?? {
+        model: 'fixed',
+        amount: '0.25',
+        asset: 'USDC',
+        chain_id: 8453,
+      },
+      access: refOverrides.access ?? {
+        summary: 'Public x402 access.',
+        requires_owner_approval: false,
+      },
+      schemas: refOverrides.schemas ?? {
+        input_summary: 'Chat request.',
+        output_summary: 'Chat response.',
+      },
+      verifiability: refOverrides.verifiability ?? {
+        tier: 'provider_verified',
+        summary: 'Imported from Bankr x402 Cloud.',
+      },
+      last_checked_at: refOverrides.last_checked_at ?? '2026-06-24T00:05:00Z',
+    } : overrides.tool_manifest_ref,
+    created_at: overrides.created_at ?? '2026-06-24T00:00:00Z',
+    updated_at: overrides.updated_at ?? '2026-06-24T00:00:00Z',
+  };
+}
+
 const agentCard = {
   schema_version: '0.1.0',
   multipass_id: 'mp_bendr',
@@ -179,6 +229,24 @@ function createFixtureStore() {
   });
 }
 
+function createCustomFixtureStore({ fragments = [publicFragment, privateFragment], agentCards = [agentCard], x402Manifests = [x402Manifest] } = {}) {
+  return createMemoryStore({
+    profiles: [profile],
+    fragments,
+    agentCards,
+    standardsProfiles: [standardsProfile],
+    x402Manifests,
+    receiptFragments: [receipt],
+  });
+}
+
+function makeCustomApi(options = {}) {
+  return createMultipassApi({
+    store: createCustomFixtureStore(options),
+    baseUrl: 'https://multipass.example.test',
+  });
+}
+
 function makeSavedRecord() {
   return buildSavedRecordFromHelixaAgent({
     tokenId: '1',
@@ -240,6 +308,37 @@ test('serves public fragments without leaking private fragments', async () => {
   assert.deepEqual(body.fragments.map((fragment) => fragment.fragment_id), ['frag_public_wallet']);
 });
 
+test('serves public tool cards without leaking non-public tool manifests', async () => {
+  const publicTool = makeToolFragment();
+  const hiddenTool = makeToolFragment(
+    { fragment_id: 'frag_tool_hidden', visibility: 'hidden' },
+    {
+      tool_id: 'secret-tool',
+      name: 'Secret Tool',
+      description: 'Hidden tool should not leave the server.',
+      endpoint_url: 'https://api.example.test/tools/secret-tool',
+      manifest_url: 'https://api.example.test/tools/secret-tool/manifest.json',
+    },
+  );
+  const api = makeCustomApi({ fragments: [publicFragment, publicTool, hiddenTool] });
+
+  const bySlug = await requestJson(api, '/api/multipass/bendr-2/tools');
+  const byId = await requestJson(api, '/api/multipass/mp_bendr/tools');
+
+  assert.equal(bySlug.response.status, 200);
+  assert.equal(byId.response.status, 200);
+  assert.equal(bySlug.body.schema_version, '0.1.0');
+  assert.equal(bySlug.body.multipass_id, 'mp_bendr');
+  assert.equal(bySlug.body.summary.total, 1);
+  assert.equal(bySlug.body.tools[0].tool_id, 'paid-chat');
+  assert.equal(bySlug.body.tools[0].registry, 'bankr_x402_cloud');
+  assert.equal(bySlug.body.tools[0].endpoint_url, 'https://api.example.test/tools/paid-chat');
+  assert.deepEqual(byId.body.tools.map((tool) => tool.tool_id), ['paid-chat']);
+  const serialized = JSON.stringify(bySlug.body);
+  assert.doesNotMatch(serialized, /secret-tool/);
+  assert.doesNotMatch(serialized, /Hidden tool/);
+});
+
 test('serves agent card, standards profile, x402 manifest, and receipt fragment', async () => {
   const api = makeApi();
 
@@ -247,6 +346,130 @@ test('serves agent card, standards profile, x402 manifest, and receipt fragment'
   assert.equal((await requestJson(api, '/api/multipass/bendr-2/standards')).body.standard_refs[0].status, 'stale');
   assert.equal((await requestJson(api, '/api/multipass/bendr-2/x402')).body.endpoints[0].provider, 'bankr_x402_cloud');
   assert.equal((await requestJson(api, '/api/multipass/bendr-2/receipts/receipt_1')).body.status, 'settled');
+});
+
+test('derives x402 manifest from active public Bankr tool cards', async () => {
+  const activeBankrTool = makeToolFragment();
+  const revokedBankrTool = makeToolFragment(
+    { fragment_id: 'frag_tool_revoked', status: 'revoked' },
+    {
+      tool_id: 'revoked-paid-chat',
+      name: 'Revoked Paid Chat',
+      endpoint_url: 'https://api.example.test/tools/revoked-paid-chat',
+      manifest_url: 'https://api.example.test/tools/revoked-paid-chat/manifest.json',
+    },
+  );
+  const nonX402Tool = makeToolFragment(
+    { fragment_id: 'frag_tool_analysis' },
+    {
+      tool_id: 'analysis',
+      registry: 'helixa_api',
+      name: 'Analysis Tool',
+      endpoint_url: 'https://api.example.test/tools/analysis',
+      manifest_url: null,
+      pricing: { model: 'free', amount: null, asset: null, chain_id: null },
+    },
+  );
+  const privateBankrTool = makeToolFragment(
+    { fragment_id: 'frag_tool_private_paid', visibility: 'private' },
+    {
+      tool_id: 'private-paid-chat',
+      name: 'Private Paid Chat',
+      endpoint_url: 'https://api.example.test/tools/private-paid-chat',
+      manifest_url: 'https://api.example.test/tools/private-paid-chat/manifest.json',
+    },
+  );
+  const api = makeCustomApi({ fragments: [activeBankrTool, revokedBankrTool, nonX402Tool, privateBankrTool] });
+
+  const { response, body } = await requestJson(api, '/api/multipass/bendr-2/x402');
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.endpoints.map((endpoint) => endpoint.endpoint_id), ['paid-chat']);
+  assert.equal(body.endpoints[0].url, 'https://api.example.test/tools/paid-chat');
+  assert.equal(body.endpoints[0].method, 'POST');
+  assert.deepEqual(body.endpoints[0].price, { amount: '0.25', decimals: 18 });
+  assert.equal(body.endpoints[0].asset, 'USDC');
+  assert.equal(body.endpoints[0].chain_id, 8453);
+  const serialized = JSON.stringify(body);
+  assert.doesNotMatch(serialized, /revoked-paid-chat/);
+  assert.doesNotMatch(serialized, /analysis/);
+  assert.doesNotMatch(serialized, /private-paid-chat/);
+});
+
+test('derives agent-card service endpoints from public tool cards without clobbering gated authored endpoints', async () => {
+  const authoredCard = {
+    ...agentCard,
+    service_endpoints: [
+      {
+        endpoint_id: 'paid-chat',
+        url: 'https://gated.example.test/tools/paid-chat',
+        description: 'Authored gated paid chat endpoint.',
+        visibility: 'gated',
+      },
+    ],
+    accepted_assets: [{ asset: 'CRED', chain_id: 8453 }],
+  };
+  const bankrTool = makeToolFragment();
+  const publicServiceTool = makeToolFragment(
+    { fragment_id: 'frag_tool_analysis' },
+    {
+      tool_id: 'analysis',
+      registry: 'helixa_api',
+      name: 'Analysis Tool',
+      description: 'Runs public analysis.',
+      endpoint_url: 'https://api.example.test/tools/analysis',
+      manifest_url: null,
+      pricing: { model: 'free', amount: null, asset: null, chain_id: null },
+    },
+  );
+  const privateServiceTool = makeToolFragment(
+    { fragment_id: 'frag_tool_private_analysis', visibility: 'gated' },
+    {
+      tool_id: 'private-analysis',
+      registry: 'helixa_api',
+      name: 'Private Analysis',
+      description: 'Gated analysis should not be public.',
+      endpoint_url: 'https://api.example.test/tools/private-analysis',
+      manifest_url: null,
+      pricing: { model: 'free', amount: null, asset: null, chain_id: null },
+    },
+  );
+  const api = makeCustomApi({
+    fragments: [bankrTool, publicServiceTool, privateServiceTool],
+    agentCards: [authoredCard],
+  });
+
+  const { response, body } = await requestJson(api, '/api/multipass/bendr-2/agent-card');
+
+  assert.equal(response.status, 200);
+  assert.equal(body.x402_manifest_url, 'https://multipass.example.test/api/multipass/mp_bendr/x402');
+  assert.deepEqual(body.service_endpoints.find((endpoint) => endpoint.endpoint_id === 'paid-chat'), {
+    endpoint_id: 'paid-chat',
+    url: 'https://gated.example.test/tools/paid-chat',
+    description: 'Authored gated paid chat endpoint.',
+    visibility: 'gated',
+  });
+  assert.deepEqual(body.service_endpoints.find((endpoint) => endpoint.endpoint_id === 'analysis'), {
+    endpoint_id: 'analysis',
+    url: 'https://api.example.test/tools/analysis',
+    description: 'Analysis Tool: Runs public analysis.',
+    visibility: 'public',
+  });
+  const serialized = JSON.stringify(body);
+  assert.doesNotMatch(serialized, /private-analysis/);
+  assert.doesNotMatch(serialized, /Gated analysis/);
+});
+
+test('preserves persisted x402 manifest and agent-card when no public active tool fragments exist', async () => {
+  const api = makeApi();
+
+  const x402 = await requestJson(api, '/api/multipass/bendr-2/x402');
+  const card = await requestJson(api, '/api/multipass/bendr-2/agent-card');
+
+  assert.deepEqual(x402.body.endpoints.map((endpoint) => endpoint.endpoint_id), ['lookup']);
+  assert.equal(x402.body.endpoints[0].url, 'https://api.example.test/multipass/mp_bendr');
+  assert.deepEqual(card.body.service_endpoints, []);
+  assert.equal(card.body.x402_manifest_url, null);
 });
 
 test('serves site-level discovery pointer', async () => {
@@ -271,6 +494,7 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.equal(discovery.body.routes.versioned_profile, 'https://multipass.example.test/api/v0/multipass/{id}');
   assert.equal(discovery.body.routes.card, 'https://multipass.example.test/api/multipass/{id}/card');
   assert.equal(discovery.body.routes.agent_card, 'https://multipass.example.test/api/multipass/{id}/agent-card');
+  assert.equal(discovery.body.routes.tools, 'https://multipass.example.test/api/multipass/{id}/tools');
   assert.equal(discovery.body.routes.changes, 'https://multipass.example.test/api/multipass/{id}/changes');
 
   const openapi = await requestJson(api, '/api/openapi.json');
@@ -282,6 +506,7 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.ok(openapi.body.paths['/api/v0/multipass/{id}']);
   assert.ok(openapi.body.paths['/api/multipass/{id}/card']);
   assert.ok(openapi.body.paths['/api/multipass/{id}/agent-card']);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/tools']);
   assert.ok(openapi.body.paths['/api/multipass/{id}/changes']);
   assert.ok(openapi.body.paths['/api/resolve']);
   assert.ok(openapi.body.paths['/api/search']);
