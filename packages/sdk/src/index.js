@@ -123,6 +123,22 @@ function collectErrors(schema, value, path) {
     return [{ path: displayPath(path), message: 'did not match any allowed schema shape' }];
   }
 
+  if (schema.allOf) {
+    for (const branch of schema.allOf) {
+      errors.push(...collectErrors(branch, value, path));
+    }
+  }
+
+  if (schema.if) {
+    const conditionMatches = collectErrors(schema.if, value, path).length === 0;
+    if (conditionMatches && schema.then) {
+      errors.push(...collectErrors(schema.then, value, path));
+    }
+    if (!conditionMatches && schema.else) {
+      errors.push(...collectErrors(schema.else, value, path));
+    }
+  }
+
   if (!matchesType(schema.type, value)) {
     errors.push({ path: displayPath(path), message: `expected ${describeType(schema.type)}` });
     return errors;

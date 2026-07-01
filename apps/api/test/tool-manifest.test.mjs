@@ -229,7 +229,7 @@ test('deriveX402ManifestFromTools includes only active public Bankr x402 tools',
   });
 });
 
-test('normalizeToolManifestFragment rejects insecure URLs and malformed creator addresses', () => {
+test('normalizeToolManifestFragment rejects insecure credentialed URLs and malformed creator addresses', () => {
   assert.throws(
     () => normalizeToolManifestFragment(makeToolFragment({}, { endpoint_url: 'http://api.example.test/tools/lookup' })),
     /endpoint_url.*https/i,
@@ -237,6 +237,14 @@ test('normalizeToolManifestFragment rejects insecure URLs and malformed creator 
   assert.throws(
     () => normalizeToolManifestFragment(makeToolFragment({}, { manifest_url: 'http://api.example.test/tools/lookup/manifest.json' })),
     /manifest_url.*https/i,
+  );
+  assert.throws(
+    () => normalizeToolManifestFragment(makeToolFragment({}, { endpoint_url: 'https://user:secret@api.example.test/tools/lookup' })),
+    /endpoint_url.*credentials/i,
+  );
+  assert.throws(
+    () => normalizeToolManifestFragment(makeToolFragment({}, { manifest_url: 'https://user:secret@api.example.test/tools/lookup/manifest.json' })),
+    /manifest_url.*credentials/i,
   );
   assert.throws(
     () => normalizeToolManifestFragment(makeToolFragment({}, { creator_address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea' })),
@@ -275,8 +283,8 @@ test('deriveAgentCardServiceUpdates appends tool summaries and accepted assets w
     },
     {
       endpoint_id: 'lookup',
-      url: 'https://api.example.test/tools/lookup',
-      description: 'Lookup Tool: Looks up a Multipass profile.',
+      url: 'https://old.example.test/tools/lookup',
+      description: 'Old lookup endpoint.',
       visibility: 'public',
     },
     {
@@ -291,4 +299,53 @@ test('deriveAgentCardServiceUpdates appends tool summaries and accepted assets w
     { asset: 'USDC', chain_id: 8453 },
   ]);
   assert.equal(updated.x402_manifest_url, 'https://multipass.example.test/api/multipass/mp_bendr/x402');
+});
+
+test('deriveAgentCardServiceUpdates rejects credentialed base URLs', () => {
+  assert.throws(
+    () => deriveAgentCardServiceUpdates(makeAgentCard(), [makeToolFragment()], 'https://user:secret@multipass.example.test/'),
+    /baseUrl.*credentials/i,
+  );
+});
+
+test('deriveAgentCardServiceUpdates does not overwrite or publicize existing gated endpoints', () => {
+  const card = makeAgentCard();
+  card.service_endpoints = [
+    {
+      endpoint_id: 'lookup',
+      url: 'https://old.example.test/tools/lookup',
+      description: 'Gated lookup endpoint.',
+      visibility: 'gated',
+    },
+  ];
+  const analysis = makeToolFragment(
+    { fragment_id: 'frag_tool_analysis' },
+    {
+      tool_id: 'analysis',
+      registry: 'helixa_api',
+      name: 'Analysis Tool',
+      description: 'Runs an analysis job.',
+      endpoint_url: 'https://api.example.test/tools/analysis',
+      manifest_url: null,
+      pricing: { model: 'free', amount: null, asset: null, chain_id: null },
+    },
+  );
+
+  const updated = deriveAgentCardServiceUpdates(card, [makeToolFragment(), analysis], 'https://multipass.example.test/');
+
+  assert.equal(validateAgentCard(updated).ok, true);
+  assert.deepEqual(updated.service_endpoints, [
+    {
+      endpoint_id: 'lookup',
+      url: 'https://old.example.test/tools/lookup',
+      description: 'Gated lookup endpoint.',
+      visibility: 'gated',
+    },
+    {
+      endpoint_id: 'analysis',
+      url: 'https://api.example.test/tools/analysis',
+      description: 'Analysis Tool: Runs an analysis job.',
+      visibility: 'public',
+    },
+  ]);
 });

@@ -163,15 +163,12 @@ function hasX402Pricing(tool) {
 
 function mergeServiceEndpoints(existing = [], derived = []) {
   const endpoints = existing.map((endpoint) => ({ ...endpoint }));
-  const indexById = new Map(endpoints.map((endpoint, index) => [endpoint.endpoint_id, index]));
+  const seenEndpointIds = new Set(endpoints.map((endpoint) => endpoint.endpoint_id));
 
   for (const endpoint of derived) {
-    if (indexById.has(endpoint.endpoint_id)) {
-      endpoints[indexById.get(endpoint.endpoint_id)] = endpoint;
-    } else {
-      indexById.set(endpoint.endpoint_id, endpoints.length);
-      endpoints.push(endpoint);
-    }
+    if (seenEndpointIds.has(endpoint.endpoint_id)) continue;
+    seenEndpointIds.add(endpoint.endpoint_id);
+    endpoints.push(endpoint);
   }
 
   return endpoints;
@@ -212,6 +209,7 @@ function normalizeHttpsUrl(value, field) {
     throw new TypeError(`${field} must be a valid URL.`);
   }
   if (parsed.protocol !== 'https:') throw new TypeError(`${field} must use https.`);
+  rejectUrlCredentials(parsed, field);
   return parsed.toString();
 }
 
@@ -239,7 +237,12 @@ function normalizeOptionalBaseUrl(value) {
     throw new TypeError('baseUrl must be a valid URL.');
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new TypeError('baseUrl must use http or https.');
+  rejectUrlCredentials(parsed, 'baseUrl');
   return parsed.href.endsWith('/') ? parsed.href.slice(0, -1) : parsed.href;
+}
+
+function rejectUrlCredentials(parsed, field) {
+  if (parsed.username || parsed.password) throw new TypeError(`${field} must not include credentials.`);
 }
 
 function assetKey(asset) {

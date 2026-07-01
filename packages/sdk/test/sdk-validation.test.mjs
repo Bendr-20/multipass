@@ -261,6 +261,26 @@ test('identity fragment validator accepts tool manifest references', () => {
   assert.equal(result.value, toolManifestFragment);
 });
 
+test('tool manifest identity fragments require a non-null tool manifest ref', () => {
+  const missingRef = { ...toolManifestFragment };
+  delete missingRef.tool_manifest_ref;
+  const nullRef = { ...toolManifestFragment, tool_manifest_ref: null };
+  const nonToolAbsentRef = { ...identityFragment };
+  const nonToolNullRef = { ...identityFragment, tool_manifest_ref: null };
+
+  const missingResult = validateIdentityFragment(missingRef);
+  const nullResult = validateIdentityFragment(nullRef);
+
+  assert.equal(missingResult.ok, false);
+  assert.equal(missingResult.errors[0].path, 'tool_manifest_ref');
+  assert.match(missingResult.errors[0].message, /required|object/);
+  assert.equal(nullResult.ok, false);
+  assert.equal(nullResult.errors[0].path, 'tool_manifest_ref');
+  assert.match(nullResult.errors[0].message, /object/);
+  assert.equal(validateIdentityFragment(nonToolAbsentRef).ok, true);
+  assert.equal(validateIdentityFragment(nonToolNullRef).ok, true);
+});
+
 test('validators return useful path errors for invalid documents', () => {
   const invalid = { ...profile, subject_type: 'robot' };
   const result = validateMultipassProfile(invalid);

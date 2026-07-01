@@ -130,6 +130,11 @@ test('identity fragments have direct shapes for endpoint, custody, verification,
   assert.ok(identityFragmentSchema.properties.verification_ref);
   assert.ok(identityFragmentSchema.properties.tool_manifest_ref);
   assert.deepEqual(identityFragmentSchema.properties.tool_manifest_ref.type, ['object', 'null']);
+  assert.ok(identityFragmentSchema.allOf?.some((branch) => (
+    branch.if?.properties?.fragment_type?.const === 'tool_manifest'
+      && branch.then?.required?.includes('tool_manifest_ref')
+      && branch.then?.properties?.tool_manifest_ref?.type === 'object'
+  )));
   assert.ok(identityFragmentSchema.properties.verified_at);
   assert.ok(identityFragmentSchema.properties.revoked_at);
   assert.ok(identityFragmentSchema.properties.expires_at);

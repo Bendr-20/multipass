@@ -17,6 +17,30 @@
     "created_at",
     "updated_at"
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "fragment_type"
+        ],
+        "properties": {
+          "fragment_type": {
+            "const": "tool_manifest"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "tool_manifest_ref"
+        ],
+        "properties": {
+          "tool_manifest_ref": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "schema_version": {
       "type": "string",
