@@ -387,6 +387,30 @@ test('homepage leads with Multipass product hero instead of Bendr record sheet',
   assert.equal(root.querySelector('.record-sheet'), null);
 });
 
+test('homepage keeps activation below the standalone desktop hero', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const hero = root.querySelector('.product-hero');
+  const heroCard = root.querySelector('.product-hero-copy');
+  const activation = root.querySelector('.live-resolver');
+  const systemPanel = root.querySelector('.multipass-system-panel');
+
+  assert.ok(hero);
+  assert.ok(heroCard);
+  assert.ok(activation);
+  assert.ok(systemPanel);
+  assert.equal(hero.children.length, 1);
+  assert.equal(hero.firstElementChild, heroCard);
+  assert.equal(hero.contains(activation), false);
+  assert.equal(hero.nextElementSibling, activation);
+  assert.equal(activation.nextElementSibling, systemPanel);
+  assert.ok(heroCard.querySelector('.product-hero-main'));
+  assert.ok(heroCard.contains(root.querySelector('.profile-visual-strip')));
+  assert.equal(heroCard.firstElementChild?.classList.contains('product-hero-main'), true);
+  assert.equal(heroCard.querySelector('.product-hero-main')?.nextElementSibling, root.querySelector('.profile-visual-strip'));
+});
+
 test('homepage renders agent visuals without extra context copy', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
@@ -410,7 +434,10 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.equal(quigbotVisual?.getAttribute('src'), 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432');
   assert.doesNotMatch(strip.innerHTML, /api\.helixa\.xyz\/api\/v2\/aura\/81\.png/);
   assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
-  assert.ok(strip.previousElementSibling?.classList.contains('homepage-actions'));
+  const heroMain = root.querySelector('.product-hero-main');
+  assert.ok(heroMain);
+  assert.ok(heroMain.contains(root.querySelector('.homepage-actions')));
+  assert.equal(heroMain.nextElementSibling, strip);
   assert.match(strip.textContent, /Bendr 2\.0/);
   assert.match(strip.textContent, /Quigbot/);
 });
@@ -702,7 +729,8 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.ok(root.querySelector('.product-home-shell'));
   const hero = root.querySelector('.product-hero');
   assert.match(hero?.textContent ?? '', /Portable identity profiles for agents/);
-  assert.match(hero?.querySelector('.live-resolver')?.textContent ?? '', /Activate a live agent record/);
+  assert.equal(hero?.querySelector('.live-resolver'), null);
+  assert.match(root.querySelector('.live-resolver')?.textContent ?? '', /Activate a live agent record/);
   assert.equal(hero?.querySelector('.homepage-proof-panel'), null);
   const proofPanel = root.querySelector('.homepage-proof-panel');
   assert.match(proofPanel?.textContent ?? '', /What it does/);
@@ -729,7 +757,9 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.doesNotMatch(proofPanel?.textContent ?? '', /Wiretap|ClawBank/);
   assert.equal(proofPanel?.querySelectorAll('.homepage-proof-stat').length, 0);
   assert.equal(proofPanel?.querySelector('a, button, form, input, textarea, select, [data-action]'), null);
-  assert.equal(proofPanel?.previousElementSibling, hero);
+  const activation = root.querySelector('.live-resolver');
+  assert.equal(proofPanel?.previousElementSibling, activation);
+  assert.equal(activation?.previousElementSibling, hero);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.activation-summary'), null);

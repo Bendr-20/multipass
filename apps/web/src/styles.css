@@ -152,8 +152,7 @@ button:focus-visible {
   align-items: start;
 }
 
-.homepage-hero,
-.product-hero {
+.homepage-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.72fr);
   gap: 34px;
@@ -161,22 +160,17 @@ button:focus-visible {
   margin-bottom: 28px;
 }
 
+.product-hero {
+  display: block;
+  margin-bottom: 28px;
+}
+
 .product-home-shell .live-resolver {
-  margin-top: 28px;
+  margin: 28px 0;
 }
 
-.product-hero > .live-resolver {
-  display: flex;
-  align-self: start;
-  min-height: 0;
-  flex-direction: column;
-  justify-content: flex-start;
-  margin: 0;
-}
-
-.product-hero > .live-resolver form {
-  grid-template-columns: 1fr;
-  align-items: stretch;
+.product-home-shell .live-resolver form {
+  grid-template-columns: minmax(0, 0.92fr) minmax(280px, 0.58fr) auto;
 }
 
 .profile-visual-strip {
@@ -297,6 +291,27 @@ button:focus-visible {
     linear-gradient(180deg, rgba(255, 250, 241, 0.96), rgba(248, 242, 232, 0.84));
   padding: clamp(28px, 5vw, 56px);
   box-shadow: var(--shadow);
+}
+
+.product-hero-copy {
+  min-height: clamp(560px, calc(100vh - 100px), 760px);
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(360px, 0.68fr);
+  align-items: center;
+  gap: clamp(20px, 3vw, 42px);
+}
+
+.product-hero-main {
+  max-width: 680px;
+}
+
+.product-hero-copy .profile-visual-strip {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.product-hero-copy .visual-card-button {
+  flex-basis: clamp(190px, 17vw, 230px);
 }
 
 .homepage-actions {
@@ -2380,6 +2395,9 @@ h1 {
     min-width: 0;
     max-width: 100%;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     overflow: hidden;
     padding: 18px;
   }
@@ -2462,6 +2480,10 @@ h1 {
     grid-template-rows: auto auto auto;
   }
 
+  .product-hero-copy .visual-card-button {
+    flex-basis: min(300px, 86%);
+  }
+
   .profile-visual-strip .visual-card-button .profile-card-visual {
     min-height: 0;
     aspect-ratio: 1 / 1;
@@ -2507,6 +2529,10 @@ h1 {
   .live-resolver form {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  .product-home-shell .live-resolver form {
+    grid-template-columns: 1fr;
   }
 
   .live-resolver .card-label {

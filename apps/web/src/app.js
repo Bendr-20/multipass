@@ -1177,17 +1177,20 @@ function renderProductHome(root, state, handlers = {}) {
 
       <section class="product-hero">
         <div class="product-hero-copy">
-          <p class="eyebrow">What it is</p>
-          <h1>Portable identity profiles for agents.</h1>
-          <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history.</p>
-          <div class="homepage-actions">
-            <a href="#agent-visuals" class="homepage-action primary">View agents</a>
-            <a href="#live-resolver" class="homepage-action">Activate an agent</a>
+          <div class="product-hero-main">
+            <p class="eyebrow">What it is</p>
+            <h1>Portable identity profiles for agents.</h1>
+            <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history.</p>
+            <div class="homepage-actions">
+              <a href="#agent-visuals" class="homepage-action primary">View agents</a>
+              <a href="#live-resolver" class="homepage-action">Activate an agent</a>
+            </div>
           </div>
           ${renderAgentVisualStrip(agentCarousel, state.selectedAgentCard, state)}
         </div>
-        ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
       </section>
+
+      ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
 
       ${renderMultipassWhatItDoesPanel()}
     </div>

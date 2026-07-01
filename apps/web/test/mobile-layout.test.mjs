@@ -45,9 +45,12 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.visual-card-button\s*\{[^}]*flex:\s*0 0 min\(300px, 86%\);[^}]*grid-template-rows:\s*auto auto auto;[^}]*scroll-snap-align:\s*start;[^}]*border-radius:\s*18px;/s);
   assert.match(css, /\.visual-card-button \.profile-card-visual\s*\{[^}]*aspect-ratio:\s*1 \/ 1;[^}]*border-radius:\s*12px;/s);
   assert.match(css, /\.visual-card-button \.profile-card-visual img\s*\{[^}]*object-fit:\s*contain;/s);
-  assert.match(css, /\.product-hero > \.live-resolver\s*\{[^}]*align-self:\s*start;[^}]*min-height:\s*0;[^}]*justify-content:\s*flex-start;[^}]*margin:\s*0;/s);
-  assert.doesNotMatch(css, /\.product-hero > \.live-resolver\s*\{[^}]*min-height:\s*560px;/s);
+  assert.doesNotMatch(css, /\.product-hero > \.live-resolver\s*\{/s);
+  assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*margin:\s*28px 0;/s);
+  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(280px, 0\.58fr\) auto;/s);
+  assert.doesNotMatch(css, /\.product-home-shell \.live-resolver\s*\{[^}]*min-height:\s*560px;/s);
   assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*auto auto auto;/s);
+  assert.match(mobileBlock, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*min\(300px, 86%\);/s);
   assert.match(mobileBlock, /\.product-hero-copy\s*\{[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-carousel\s*\{[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
   assert.match(mobileBlock, /\.card-track\s*\{[^}]*width:\s*100%;[^}]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);[^}]*overflow-x:\s*auto;[^}]*scroll-snap-type:\s*x proximity;/s);
@@ -57,6 +60,7 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(mobileBlock, /\.homepage-proof-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
   assert.doesNotMatch(mobileBlock, /\.homepage-proof-panel h2,\s*\.homepage-proof-grid\s*\{[^}]*display:\s*none;/s);
   assert.match(mobileBlock, /\.live-resolver\s*\{[^}]*padding:\s*16px;/s);
+  assert.match(mobileBlock, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*1fr;/s);
   assert.doesNotMatch(mobileBlock, /\.live-resolver form\s*\{[^}]*minmax\(180px, 260px\)[^}]*auto auto/s);
 });
 

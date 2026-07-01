@@ -47,3 +47,13 @@ test('change review ledger tones only the review state column', async () => {
   assert.match(css, /\.change-review-row\.tone-paused > div:last-child strong/);
   assert.doesNotMatch(css, /\.change-review-row\.tone-verified strong:last-child/);
 });
+
+test('desktop product homepage hero keeps carousel inside first-screen rhythm', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.product-hero-copy\s*\{[^}]*min-height:\s*clamp\(560px, calc\(100vh - 100px\), 760px\);[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(360px, 0\.68fr\);[^}]*align-items:\s*center;/s);
+  assert.match(css, /\.product-hero-main\s*\{[^}]*max-width:\s*680px;/s);
+  assert.match(css, /\.product-hero-copy \.profile-visual-strip\s*\{[^}]*min-width:\s*0;[^}]*margin-top:\s*0;/s);
+  assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*clamp\(190px, 17vw, 230px\);/s);
+  assert.doesNotMatch(css, /\.product-hero-copy\s*\{[^}]*justify-content:\s*space-between;/s);
+});
