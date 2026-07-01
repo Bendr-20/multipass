@@ -1426,32 +1426,81 @@ function renderClaimManagementPanel(state) {
   const claimButtonLabel = getClaimButtonLabel(state);
   const walletUnconfigured = state.walletSnapshot?.configured === false;
   return `
-    <section class="claim-management-panel" aria-label="Claim management">
-      <div class="claim-management-copy">
-        <p class="card-label">Claim management</p>
-        <h2>Manage safe public profile fields.</h2>
-        <p>Owner-wallet verification or manual review can unlock public profile edits only. This does not transfer custody, tools, credentials, or ownership.</p>
-        <div class="claim-status-row">
-          <span>Status</span>
-          <strong>${escapeHtml(status)}</strong>
+    <section class="owner-command-center claim-management-panel" aria-label="Owner Command Center">
+      <section class="owner-command-overview" data-command-section="overview" aria-label="Owner command overview">
+        <div class="owner-command-copy">
+          <p class="card-label">Owner Command Center</p>
+          <h2>Owner Command Center</h2>
+          <p>Manage safe public metadata controls for this saved Multipass profile. This does not transfer custody. It does not call tools, grant access, release credentials, or prove trust by payment alone.</p>
         </div>
-        ${ownerSummary.summary ? `<p class="resolver-message">${escapeHtml(ownerSummary.summary)}</p>` : ''}
-        ${walletUnconfigured ? '<p class="resolver-message error">Wallet login is not configured for this build.</p>' : ''}
-        ${state.claimError ? `<p class="resolver-message error">${escapeHtml(state.claimError)}</p>` : ''}
+        ${renderOwnerCommandFacts({ status, profile, ownerSummary })}
+        <div class="owner-command-control-note">
+          <h3>What you control</h3>
+          <p>You control safe public metadata: display fields, visibility, route cards, and public proof fragments. Private credentials and source authority stay outside this panel.</p>
+        </div>
+        <div class="owner-command-next">
+          <h3>Next best action</h3>
+          <p>${escapeHtml(getOwnerCommandNextAction({ canEdit, walletUnconfigured }))}</p>
+        </div>
+        <div class="owner-command-unlock">
+          <div class="claim-management-copy">
+            <p class="card-label">Claim management</p>
+            <h3>Manage safe public profile fields.</h3>
+            <p>Owner-wallet verification or manual review can unlock public profile edits only. This does not transfer custody, tools, credentials, or ownership.</p>
+            <div class="claim-status-row">
+              <span>Status</span>
+              <strong>${escapeHtml(status)}</strong>
+            </div>
+            ${ownerSummary.summary ? `<p class="resolver-message">${escapeHtml(ownerSummary.summary)}</p>` : ''}
+            ${walletUnconfigured ? '<p class="resolver-message error">Wallet login is not configured for this build.</p>' : ''}
+            ${state.claimError ? `<p class="resolver-message error">${escapeHtml(state.claimError)}</p>` : ''}
+          </div>
+          <div class="claim-management-actions">
+            <button type="button" data-action="claim-with-wallet" ${state.claimStatus === 'signing' || walletUnconfigured ? 'disabled' : ''}>${escapeHtml(claimButtonLabel)}</button>
+            <form class="manual-review-form" data-action="submit-manual-review">
+              <label><span>Manager wallet for review</span><input name="proposedManagerWallet" placeholder="0x..." autocomplete="off" /></label>
+              <label><span>Contact route</span><input name="contactRoute" placeholder="agentmail:team@example.test" autocomplete="off" /></label>
+              <label><span>Review note</span><textarea name="note" rows="2" placeholder="Why this wallet should manage public fields"></textarea></label>
+              <button type="submit">Request manual review</button>
+            </form>
+          </div>
+        </div>
+        ${renderOwnerDashboardPanel(profile, state)}
+      </section>
+      ${canEdit ? `<section class="owner-command-section" data-command-section="profile" aria-label="Public profile controls">${renderPublicProfileEditForm(profile, state)}</section>` : ''}
+      ${canEdit ? `<section class="owner-command-section" data-command-section="routes" aria-label="Public route controls">${renderPublicRoutesManagerPanel(state)}</section>` : ''}
+      ${renderToolRegistryPlaceholder()}
+      ${canEdit ? `<section class="owner-command-section" data-command-section="fragments" aria-label="Public fragment controls">${renderFragmentManagerPanel(state)}</section>` : ''}
+    </section>
+  `;
+}
+
+function renderOwnerCommandFacts({ status, profile, ownerSummary }) {
+  const visibility = ownerSummary.visibility ?? profile.discovery_profile?.visibility ?? 'public';
+  const verification = ownerSummary.verification_status ?? ownerSummary.owner_state ?? 'none';
+  return `
+    <dl class="owner-command-facts" aria-label="Owner command facts">
+      <div><dt>Status</dt><dd>${escapeHtml(status)}</dd></div>
+      <div><dt>Visibility</dt><dd>${escapeHtml(visibility)}</dd></div>
+      <div><dt>Verification</dt><dd>${escapeHtml(verification)}</dd></div>
+    </dl>
+  `;
+}
+
+function getOwnerCommandNextAction({ canEdit, walletUnconfigured }) {
+  if (canEdit) return 'Review public profile fields, route cards, and proof fragments before publishing new discovery metadata.';
+  if (walletUnconfigured) return 'Request manual review while wallet login is unavailable for this build.';
+  return 'Connect the owner wallet or request manual review to unlock public metadata edits.';
+}
+
+function renderToolRegistryPlaceholder() {
+  return `
+    <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
+      <div>
+        <p class="card-label">Tools</p>
+        <h3>Tool registry cards are next.</h3>
+        <p>These future cards are discovery metadata only. They do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.</p>
       </div>
-      <div class="claim-management-actions">
-        <button type="button" data-action="claim-with-wallet" ${state.claimStatus === 'signing' || walletUnconfigured ? 'disabled' : ''}>${escapeHtml(claimButtonLabel)}</button>
-        <form class="manual-review-form" data-action="submit-manual-review">
-          <label><span>Manager wallet for review</span><input name="proposedManagerWallet" placeholder="0x..." autocomplete="off" /></label>
-          <label><span>Contact route</span><input name="contactRoute" placeholder="agentmail:team@example.test" autocomplete="off" /></label>
-          <label><span>Review note</span><textarea name="note" rows="2" placeholder="Why this wallet should manage public fields"></textarea></label>
-          <button type="submit">Request manual review</button>
-        </form>
-      </div>
-      ${renderOwnerDashboardPanel(profile, state)}
-      ${canEdit ? renderPublicProfileEditForm(profile, state) : ''}
-      ${canEdit ? renderPublicRoutesManagerPanel(state) : ''}
-      ${canEdit ? renderFragmentManagerPanel(state) : ''}
     </section>
   `;
 }

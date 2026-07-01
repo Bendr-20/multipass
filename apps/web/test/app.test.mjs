@@ -337,6 +337,35 @@ async function renderClaimFailureText(error) {
   return root.querySelector('.claim-management-panel').textContent;
 }
 
+async function renderClaimedSavedProfileRoot() {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({
+      claim_status: 'claimed_verified_owner',
+      csrfToken: 'csrf-1',
+      profile: {
+        ...sampleData().profile,
+        slug: 'bendr-2-1',
+        display_name: 'Saved Bendr',
+        owner_summary: {
+          owner_state: 'claimed',
+          verification_status: 'verified',
+          visibility: 'public',
+          summary: 'Owner-wallet verified for public profile edits.',
+        },
+      },
+    }),
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  return root;
+}
+
 
 
 function quigbotLiveData(overrides = {}) {
@@ -2166,6 +2195,36 @@ test('saved profile owner dashboard shows visibility and recent changes', async 
   assert.match(dashboard.textContent, /public/);
   assert.match(dashboard.textContent, /Recent changes/);
   assert.match(dashboard.textContent, /Multipass saved from live public source record/);
+});
+
+test('claimed saved profile renders one owner command center', async () => {
+  const root = await renderClaimedSavedProfileRoot();
+
+  const commandCenter = root.querySelector('.owner-command-center');
+  assert.ok(commandCenter);
+  assert.equal(root.querySelectorAll('.owner-command-center').length, 1);
+  assert.match(commandCenter.textContent, /Owner Command Center/);
+  assert.match(commandCenter.textContent, /What you control/);
+  assert.match(commandCenter.textContent, /Next best action/);
+
+  const commandSectionOrder = [...commandCenter.querySelectorAll('[data-command-section]')]
+    .map((section) => section.getAttribute('data-command-section'));
+  assert.deepEqual(commandSectionOrder.slice(0, 5), ['overview', 'profile', 'routes', 'tools', 'fragments']);
+});
+
+test('owner command center safety copy limits public metadata and tool authority claims', async () => {
+  const root = await renderClaimedSavedProfileRoot();
+
+  const commandCenter = root.querySelector('.owner-command-center');
+  assert.ok(commandCenter);
+  const safetyCopy = commandCenter.textContent;
+  assert.match(safetyCopy, /public metadata/i);
+  assert.match(safetyCopy, /does not transfer custody/i);
+  assert.match(safetyCopy, /does not call tools/i);
+  assert.match(safetyCopy, /grant access/i);
+  assert.match(safetyCopy, /release credentials/i);
+  assert.match(safetyCopy, /prove trust by payment alone/i);
+  assert.doesNotMatch(safetyCopy, /tool execution is enabled|access granted|credentials released|trust purchased/i);
 });
 
 test('claim button renders connected wallet shortened address', async () => {
