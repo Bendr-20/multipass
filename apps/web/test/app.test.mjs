@@ -191,6 +191,32 @@ function sampleData() {
   };
 }
 
+function samplePublicTools() {
+  return {
+    schema_version: '0.1.0',
+    multipass_id: 'mp_helixa_agent_1',
+    tools: [
+      {
+        fragment_id: 'frag_tool_bendr_lookup',
+        multipass_id: 'mp_helixa_agent_1',
+        tool_id: 'bendr-lookup',
+        registry: 'bankr_x402_cloud',
+        name: 'Bendr x402 profile lookup',
+        description: 'Looks up public Multipass profile context.',
+        endpoint_url: 'https://api.bankr.example/tools/bendr/lookup',
+        manifest_url: 'https://api.bankr.example/tools/bendr/lookup/manifest.json',
+        pricing: { model: 'fixed', amount: '0.02', asset: 'USDC', chain_id: 8453 },
+        schemas: { input_summary: 'Multipass slug or Helixa ID.', output_summary: 'Public profile JSON.' },
+        verifiability: { tier: 'provider_verified', summary: 'Imported from Bankr x402 Cloud.' },
+        status: 'verified',
+        assurance_level: 'platform_verified',
+        visibility: 'public',
+        last_checked_at: '2026-06-24T00:05:00Z',
+      },
+    ],
+  };
+}
+
 function setupDom(url = 'http://localhost/') {
   const dom = new JSDOM('<!doctype html><main id="app"></main>', { url });
   globalThis.document = dom.window.document;
@@ -226,8 +252,16 @@ async function savedProfileFetch(url) {
   if (String(url).endsWith('/card') || String(url).endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' }), { status: 200 });
   if (String(url).endsWith('/standards')) return new Response(JSON.stringify(sampleData().standards), { status: 200 });
   if (String(url).endsWith('/x402')) return new Response(JSON.stringify(sampleData().x402), { status: 200 });
+  if (String(url).endsWith('/tools')) return new Response(JSON.stringify(samplePublicTools()), { status: 200 });
   if (String(url).endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_1', entries: [{ message: 'Multipass saved from live public source record.' }] }), { status: 200 });
   throw new Error(`Unexpected URL ${url}`);
+}
+
+async function savedProfileNoToolsFetch(url) {
+  if (String(url).endsWith('/tools')) {
+    return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] }), { status: 200 });
+  }
+  return savedProfileFetch(url);
 }
 
 async function savedQuigbotFetch(url) {
@@ -274,6 +308,7 @@ async function savedQuigbotFetch(url) {
     }), { status: 200 });
   }
   if (value.endsWith('/x402')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_81', endpoints: [] }), { status: 200 });
+  if (value.endsWith('/tools')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_81', tools: [] }), { status: 200 });
   if (value.endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_helixa_agent_81', entries: [{ message: 'Management claim owner-wallet verified.' }] }), { status: 200 });
   throw new Error(`Unexpected URL ${url}`);
 }
@@ -813,6 +848,7 @@ test('resolved live profile renders visual-first drawers without homepage or res
     'Ownership and management',
     'Visual provenance',
     'Trust context',
+    'Tools and services',
     'Public proof fragments',
     'Proof ledger',
   ]);
@@ -962,6 +998,7 @@ test('profile detail drawers keep secondary content collapsed and JSON toggles w
     'Ownership and management',
     'Visual provenance',
     'Trust context',
+    'Tools and services',
     'Public proof fragments',
     'Proof ledger',
   ]);
@@ -2182,6 +2219,55 @@ test('direct saved slug route renders display-only claim management panel', asyn
   assert.match(panel.textContent, /does not transfer custody, tools, credentials, or ownership/i);
   assert.equal(panel.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Connect wallet to claim');
   assert.doesNotMatch(panel.textContent, /move secrets|grant permissions|transfer ownership/i);
+});
+
+test('direct saved slug route renders Tools and services public cards', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedProfileFetch }).start();
+
+  const profile = root.querySelector('.multipass-profile-page');
+  const drawer = profileDrawerByTitle(profile, 'Tools and services');
+  assert.ok(drawer);
+  const panel = drawer.querySelector('.public-tools-panel');
+  assert.ok(panel);
+  assert.match(panel.textContent, /Bendr x402 profile lookup/);
+  assert.match(panel.textContent, /api\.bankr\.example\/tools\/bendr\/lookup/);
+  assert.match(panel.textContent, /0\.02 USDC on chain 8453/);
+  assert.match(panel.textContent, /Multipass slug or Helixa ID/);
+  assert.match(panel.textContent, /Public profile JSON/);
+  assert.match(panel.textContent, /Discovery metadata only/);
+  assert.match(panel.textContent, /do not call tools/);
+  assert.equal(panel.querySelector('button, form, input, textarea, select, [data-action]'), null);
+  assert.doesNotMatch(panel.textContent, /execute tool|access granted|credentials released|buy trust|trust purchased/i);
+});
+
+test('saved profile without public tool cards renders empty state and command center placeholder', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedProfileNoToolsFetch }).start();
+
+  const profile = root.querySelector('.multipass-profile-page');
+  const drawer = profileDrawerByTitle(profile, 'Tools and services');
+  assert.ok(drawer);
+  assert.match(drawer.textContent, /No public tool cards are published for this profile yet\./);
+  assert.equal(drawer.querySelector('.public-tool-card'), null);
+
+  const commandTools = root.querySelector('.owner-command-center [data-command-section="tools"]');
+  assert.ok(commandTools);
+  assert.match(commandTools.textContent, /Tool registry cards are next/);
+  assert.equal(commandTools.querySelector('.public-tool-card'), null);
+});
+
+test('Owner Command Center tools section renders public tool cards when published', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedProfileFetch }).start();
+
+  const commandTools = root.querySelector('.owner-command-center [data-command-section="tools"]');
+  assert.ok(commandTools);
+  assert.ok(commandTools.querySelector('.public-tools-panel'));
+  assert.match(commandTools.textContent, /Bendr x402 profile lookup/);
+  assert.match(commandTools.textContent, /0\.02 USDC on chain 8453/);
+  assert.match(commandTools.textContent, /Discovery metadata only/);
+  assert.doesNotMatch(commandTools.textContent, /execute tool|access granted|credentials released|buy trust|trust purchased/i);
 });
 
 test('saved profile owner dashboard shows visibility and recent changes', async () => {

@@ -41,6 +41,7 @@ export function buildSavedRoutes(apiBase, slug) {
     card: `${root}/card`,
     standards: `${root}/standards`,
     x402: `${root}/x402`,
+    tools: `${root}/tools`,
     changes: `${root}/changes`,
   };
 }
@@ -74,12 +75,13 @@ export async function loadJson(route, fetchImpl = fetch) {
 
 export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug, fetchImpl = fetch }) {
   const routes = buildSavedRoutes(apiBase, slug);
-  const [profile, fragments, card, standards, x402, changes] = await Promise.all([
+  const [profile, fragments, card, standards, x402, tools, changes] = await Promise.all([
     loadJson(routes.profile, fetchImpl),
     loadJson(routes.fragments, fetchImpl),
     loadJson(routes.card, fetchImpl),
     loadJson(routes.standards, fetchImpl),
     loadJson(routes.x402, fetchImpl),
+    loadJson(routes.tools, fetchImpl),
     loadJson(routes.changes, fetchImpl),
   ]);
   const agentCard = createSavedAgentCard({ profile, fragments, card, standards });
@@ -90,6 +92,7 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
     card,
     standards,
     x402,
+    tools,
     receipt: {
       schema_version: '0.1.0',
       receipt_id: 'receipt_unavailable',

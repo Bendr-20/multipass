@@ -4,6 +4,7 @@ import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-reso
 import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
+import { renderPublicToolsPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -1086,6 +1087,10 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
     'Trust context',
     'Marketplace and route compatibility context is not published for this profile yet. Public proof remains available below.'
   );
+  const publicTools = renderPublicToolsPanel(data) || renderProfileInfoPanel(
+    'Tools and services',
+    'No public tool cards are published for this profile yet.'
+  );
 
   return `
     <section class="profile-detail-drawers" aria-label="Multipass profile details">
@@ -1093,6 +1098,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
       ${renderProfileDrawer('Ownership and management', 'Display-only authority context', claimManagement)}
       ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
       ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext)}
+      ${renderProfileDrawer('Tools and services', 'Registry-backed public capabilities', publicTools)}
       ${renderProfileDrawer('Public proof fragments', 'Visible profile evidence', renderFragmentTrustMap(fragmentTrustMap))}
       ${renderProfileDrawer('Proof ledger', 'Expandable API records', renderProofLedger(proofCards, state.expandedCard))}
     </section>
@@ -1469,7 +1475,7 @@ function renderClaimManagementPanel(state) {
       </section>
       ${canEdit ? `<section class="owner-command-section" data-command-section="profile" aria-label="Public profile controls">${renderPublicProfileEditForm(profile, state)}</section>` : ''}
       ${canEdit ? `<section class="owner-command-section" data-command-section="routes" aria-label="Public route controls">${renderPublicRoutesManagerPanel(state)}</section>` : ''}
-      ${renderToolRegistryPlaceholder()}
+      ${renderToolRegistryPanel(state)}
       ${canEdit ? `<section class="owner-command-section" data-command-section="fragments" aria-label="Public fragment controls">${renderFragmentManagerPanel(state)}</section>` : ''}
     </section>
   `;
@@ -1493,7 +1499,16 @@ function getOwnerCommandNextAction({ canEdit, walletUnconfigured }) {
   return 'Connect the owner wallet or request manual review to unlock public metadata edits.';
 }
 
-function renderToolRegistryPlaceholder() {
+function renderToolRegistryPanel(state) {
+  const publicTools = renderPublicToolsPanel(state.data);
+  if (publicTools) {
+    return `
+      <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
+        ${publicTools}
+      </section>
+    `;
+  }
+
   return `
     <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
       <div>

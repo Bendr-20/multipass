@@ -3,10 +3,12 @@ import test from 'node:test';
 
 import {
   buildDemoRoutes,
+  buildSavedRoutes,
   getApiBaseFromLocation,
   getWritableApiBaseFromLocation,
   loadJson,
   loadMultipassDemo,
+  loadSavedMultipassDemo,
   shouldUseStaticDemo,
   loadStaticMultipassDemo,
 } from '../src/api.js';
@@ -21,6 +23,18 @@ test('buildDemoRoutes creates proxied routes for every proof document', () => {
     standards: '/multipass-api/api/multipass/bendr-2/standards',
     x402: '/multipass-api/api/multipass/bendr-2/x402',
     receipt: '/multipass-api/api/multipass/bendr-2/receipts/receipt_bendr_lookup',
+  });
+});
+
+test('buildSavedRoutes creates public saved profile companion routes including tools', () => {
+  assert.deepEqual(buildSavedRoutes('/multipass-api', 'bendr-2-1'), {
+    profile: '/multipass-api/api/multipass/bendr-2-1',
+    fragments: '/multipass-api/api/multipass/bendr-2-1/fragments',
+    card: '/multipass-api/api/multipass/bendr-2-1/card',
+    standards: '/multipass-api/api/multipass/bendr-2-1/standards',
+    x402: '/multipass-api/api/multipass/bendr-2-1/x402',
+    tools: '/multipass-api/api/multipass/bendr-2-1/tools',
+    changes: '/multipass-api/api/multipass/bendr-2-1/changes',
   });
 });
 
@@ -101,4 +115,44 @@ test('loadMultipassDemo fetches every document and returns normalized data', asy
   assert.deepEqual(calls, Object.keys(payloads));
   assert.equal(data.profile.multipass_id, 'mp_bendr_2');
   assert.equal(data.receipt.receipt_id, 'receipt_bendr_lookup');
+});
+
+test('loadSavedMultipassDemo fetches saved profile public tools with companion documents', async () => {
+  const calls = [];
+  const payloads = {
+    '/multipass-api/api/multipass/bendr-2-1': { multipass_id: 'mp_helixa_agent_1', slug: 'bendr-2-1', display_name: 'Saved Bendr' },
+    '/multipass-api/api/multipass/bendr-2-1/fragments': { multipass_id: 'mp_helixa_agent_1', fragments: [] },
+    '/multipass-api/api/multipass/bendr-2-1/card': { multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' },
+    '/multipass-api/api/multipass/bendr-2-1/standards': { standard_refs: [] },
+    '/multipass-api/api/multipass/bendr-2-1/x402': { endpoints: [] },
+    '/multipass-api/api/multipass/bendr-2-1/tools': { multipass_id: 'mp_helixa_agent_1', tools: [{ tool_id: 'bendr-lookup', name: 'Bendr lookup' }] },
+    '/multipass-api/api/multipass/bendr-2-1/changes': { entries: [] },
+  };
+
+  const data = await loadSavedMultipassDemo({
+    apiBase: '/multipass-api',
+    slug: 'bendr-2-1',
+    fetchImpl: async (route) => {
+      calls.push(route);
+      return { ok: true, status: 200, text: async () => JSON.stringify(payloads[route]) };
+    },
+  });
+
+  assert.deepEqual(calls, Object.keys(payloads));
+  assert.equal(data.profile.slug, 'bendr-2-1');
+  assert.equal(data.tools.tools[0].name, 'Bendr lookup');
+});
+
+test('loadSavedMultipassDemo reports saved tools fetch failures like other strict companions', async () => {
+  await assert.rejects(
+    () => loadSavedMultipassDemo({
+      apiBase: '/multipass-api',
+      slug: 'bendr-2-1',
+      fetchImpl: async (route) => {
+        if (String(route).endsWith('/tools')) return { ok: false, status: 503, text: async () => 'unavailable' };
+        return { ok: true, status: 200, text: async () => JSON.stringify({ multipass_id: 'mp_helixa_agent_1', slug: 'bendr-2-1', display_name: 'Saved Bendr', fragments: [], standard_refs: [], endpoints: [], entries: [] }) };
+      },
+    }),
+    /GET \/multipass-api\/api\/multipass\/bendr-2-1\/tools failed with 503/,
+  );
 });
