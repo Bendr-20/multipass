@@ -235,6 +235,10 @@ async function handlePostRequest(request, parts, context) {
     return handleRevokeFragment(request, parts[2], parts[4], context);
   }
 
+  if (parts[2] && parts[3] === 'tools' && parts[4] === 'import' && parts.length === 5) {
+    return handleImportTool(request, parts[2], context);
+  }
+
   if (parts[2] && parts[3] === 'session' && parts[4] === 'logout' && parts.length === 5) {
     return handleSessionLogout(request, parts[2], context);
   }
@@ -459,6 +463,20 @@ function handleRevokeFragment(request, identifier, fragmentId, context) {
   }
 }
 
+async function handleImportTool(request, identifier, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+  }
+  const { profile, session } = requireManagerSession(request, identifier, context);
+  const body = await readJsonBody(request);
+  try {
+    const imported = context.savedRecords.importBankrTool(profile.multipass_id, body, { actorWallet: session.manager_wallet });
+    return jsonResponse({ schema_version: '0.1.0', ...imported }, 201);
+  } catch (error) {
+    throw mapToolImportError(error);
+  }
+}
+
 function requireManagerSession(request, identifier, context) {
   assertTrustedOrigin(request, context);
   const profile = resolveSavedProfile(context.savedRecords, identifier);
@@ -480,6 +498,12 @@ function mapFragmentMutationError(error) {
   const message = error.message ?? 'Fragment mutation failed.';
   if (/not found/i.test(message)) return new ApiNotFoundError(message);
   if (/read-only|not editable|imported/i.test(message)) return new ApiForbiddenError(message);
+  return new ApiInputError('invalid_request', message);
+}
+
+function mapToolImportError(error) {
+  const message = error.message ?? 'Tool import failed.';
+  if (/not found/i.test(message)) return new ApiNotFoundError(message);
   return new ApiInputError('invalid_request', message);
 }
 

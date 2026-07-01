@@ -8,6 +8,87 @@ const SCHEMA_VERSION = '0.1.0';
 const BANKR_X402_REGISTRIES = new Set(['bankr_x402_cloud']);
 const ACTIVE_TOOL_STATUSES = new Set(['pending', 'verified', 'stale', 'disputed']);
 const DEFAULT_X402_DECIMALS = 18;
+const BANKR_NETWORK_CHAIN_IDS = new Map([['base', 8453]]);
+const DEFAULT_BANKR_SCHEMA_SUMMARY = 'Schema summary not published.';
+
+export function normalizeBankrServiceTool({
+  multipassId,
+  serviceName,
+  service,
+  network,
+  currency,
+  endpointUrl,
+  now = new Date().toISOString(),
+} = {}) {
+  if (!isPlainObject(service)) throw new TypeError('service must be an object.');
+  const observedAt = normalizeIsoDate(now, 'now');
+  const toolId = normalizeBoundedText(serviceName, 'serviceName', 120);
+  const description = normalizeOptionalBoundedText(service.description, 500)
+    ?? `Bankr x402 service metadata for ${toolId}.`;
+  const endpoint = normalizeHttpsUrl(endpointUrl, 'endpointUrl');
+  const chainId = normalizeBankrChainId(network);
+  const asset = normalizeBankrAsset(currency ?? service.currency ?? service.asset);
+  const price = normalizeBankrPrice(service.price ?? service.amount ?? service.pricing?.amount ?? '0.00');
+  const methodSummary = compactMethodSummary(service.methods ?? service.method);
+  const inputSummary = compactSchemaSummary(
+    service.input_summary ?? service.inputSummary ?? service.schema?.input ?? service.schema?.inputs ?? service.schema?.queryParams ?? service.schema?.params ?? service.schema?.body ?? null,
+    { label: 'input', parentLabel: 'queryParams', prefix: methodSummary },
+  );
+  const outputSummary = compactSchemaSummary(
+    service.output_summary ?? service.outputSummary ?? service.schema?.output ?? service.schema?.outputs ?? service.schema?.response ?? service.schema?.responses ?? null,
+    { label: 'output', parentLabel: 'output' },
+  );
+
+  return assertToolManifestIdentityFragment({
+    schema_version: SCHEMA_VERSION,
+    fragment_id: `frag_tool_bankr_${slugifyFragmentId(toolId)}`,
+    multipass_id: normalizeBoundedText(multipassId, 'multipassId', 160),
+    fragment_type: 'tool_manifest',
+    status: 'pending',
+    assurance_level: 'issuer_attested',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: {
+      source_type: 'registry_import',
+      source_id: `bankr_x402_cloud:${toolId}`,
+      issuer: 'bankr_x402_cloud',
+      observed_at: observedAt,
+      reference_url: endpoint,
+    },
+    public_value: description,
+    tool_manifest_ref: {
+      tool_id: toolId,
+      registry: 'bankr_x402_cloud',
+      name: normalizeOptionalBoundedText(service.name, 120) ?? toolId,
+      description,
+      endpoint_url: endpoint,
+      manifest_url: null,
+      manifest_hash: null,
+      creator_address: null,
+      pricing: {
+        model: Number(price) === 0 ? 'free' : 'fixed',
+        amount: price,
+        asset,
+        chain_id: chainId,
+      },
+      access: {
+        summary: 'Public x402 access via Bankr. Multipass stores discovery metadata only.',
+        requires_owner_approval: false,
+      },
+      schemas: {
+        input_summary: inputSummary,
+        output_summary: outputSummary,
+      },
+      verifiability: {
+        tier: 'provider_verified',
+        summary: 'Imported from Bankr x402 service metadata.',
+      },
+      last_checked_at: observedAt,
+    },
+    created_at: observedAt,
+    updated_at: observedAt,
+  });
+}
 
 export function getPublicToolFragments(fragments = []) {
   if (!Array.isArray(fragments)) return [];
@@ -204,7 +285,7 @@ function deriveX402ManifestUrl(agentCard, tools, normalizedBaseUrl) {
 function normalizeHttpsUrl(value, field) {
   let parsed;
   try {
-    parsed = new URL(value);
+    parsed = new URL(String(value ?? '').trim());
   } catch {
     throw new TypeError(`${field} must be a valid URL.`);
   }
@@ -247,6 +328,110 @@ function rejectUrlCredentials(parsed, field) {
 
 function assetKey(asset) {
   return `${String(asset.asset).toUpperCase()}:${asset.chain_id}`;
+}
+
+function normalizeBankrChainId(network) {
+  const key = String(network ?? '').trim().toLowerCase();
+  const chainId = BANKR_NETWORK_CHAIN_IDS.get(key);
+  if (!chainId) throw new TypeError('network must be a supported Bankr x402 network. Supported network: base.');
+  return chainId;
+}
+
+function normalizeBankrAsset(value) {
+  const asset = String(value ?? '').trim().toUpperCase();
+  if (!asset) throw new TypeError('currency is required.');
+  if (!/^[A-Z0-9._-]{1,32}$/.test(asset)) throw new TypeError('currency must be a compact asset symbol.');
+  return asset;
+}
+
+function normalizeBankrPrice(value) {
+  const price = String(value ?? '').trim();
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(price)) throw new TypeError('service.price must be a numeric string.');
+  return price;
+}
+
+function normalizeIsoDate(value, field) {
+  const date = new Date(value ?? Date.now());
+  if (Number.isNaN(date.getTime())) throw new TypeError(`${field} must be a valid date-time.`);
+  return date.toISOString();
+}
+
+function normalizeBoundedText(value, field, maxLength) {
+  const normalized = cleanText(value);
+  if (!normalized) throw new TypeError(`${field} is required.`);
+  if (normalized.length > maxLength) throw new TypeError(`${field} must be ${maxLength} characters or fewer.`);
+  return normalized;
+}
+
+function normalizeOptionalBoundedText(value, maxLength) {
+  const normalized = cleanText(value);
+  if (!normalized) return null;
+  return truncate(normalized, maxLength);
+}
+
+function cleanText(value) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactMethodSummary(methods) {
+  const list = (Array.isArray(methods) ? methods : [methods])
+    .map((method) => String(method ?? '').trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 4);
+  return list.length ? `methods: ${list.join(', ')}` : null;
+}
+
+function compactSchemaSummary(value, { label, parentLabel, prefix = null } = {}) {
+  const parts = [];
+  if (prefix) parts.push(prefix);
+  const schemaParts = summarizeSchemaValue(value, parentLabel ?? label);
+  if (schemaParts.length) parts.push(...schemaParts);
+  if (!parts.length) return DEFAULT_BANKR_SCHEMA_SUMMARY;
+  return truncate(parts.join('; '), 280);
+}
+
+function summarizeSchemaValue(value, parentLabel) {
+  if (value === null || value === undefined || value === '') return [];
+  if (typeof value !== 'object') return [cleanText(value)];
+  if (Array.isArray(value)) {
+    const entries = value.slice(0, 6).map((entry, index) => summarizeSchemaValue(entry, `${parentLabel}[${index}]`).join(', ')).filter(Boolean);
+    return entries.length ? [`${parentLabel}: ${entries.join(', ')}`] : [];
+  }
+  return flattenSchemaObject(value, parentLabel).slice(0, 8);
+}
+
+function flattenSchemaObject(object, prefix, depth = 0) {
+  if (!isPlainObject(object)) return [];
+  const entries = [];
+  for (const [key, value] of Object.entries(object).slice(0, 8)) {
+    const safeKey = cleanText(key).replace(/[^a-zA-Z0-9_.-]/g, '_') || 'field';
+    const nextPrefix = prefix ? `${prefix}.${safeKey}` : safeKey;
+    if (isPlainObject(value) && depth < 2) {
+      entries.push(...flattenSchemaObject(value, nextPrefix, depth + 1));
+    } else if (Array.isArray(value)) {
+      const summary = value.slice(0, 4).map((entry) => cleanText(entry)).filter(Boolean).join(', ');
+      entries.push(`${nextPrefix}: ${summary || 'array'}`);
+    } else {
+      entries.push(`${nextPrefix}: ${cleanText(value) || typeof value}`);
+    }
+  }
+  return entries;
+}
+
+function slugifyFragmentId(value) {
+  const slug = String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+  return slug || 'service';
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function truncate(value, maxLength) {

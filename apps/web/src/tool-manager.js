@@ -1,4 +1,10 @@
 const SAFETY_COPY = 'Discovery metadata only. These cards do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.';
+const BANKR_SOURCE = 'bankr_x402_cloud';
+const BANKR_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+const TOOL_STATUS_MESSAGES = new Map([
+  ['tool_imported', 'Tool service imported.'],
+]);
 
 export function renderPublicToolsPanel(data = {}) {
   const tools = getPublicTools(data);
@@ -18,7 +24,86 @@ export function renderPublicToolsPanel(data = {}) {
   `;
 }
 
-function getPublicTools(data = {}) {
+export function renderToolRegistryManagerPanel(state = {}, { canEdit = Boolean(state.claimCsrfToken) } = {}) {
+  const tools = getPublicTools(state.data);
+  const publicTools = renderPublicToolsPanel(state.data);
+  if (!canEdit) {
+    return `
+      <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
+        ${publicTools || renderToolRegistryPlaceholder()}
+      </section>
+    `;
+  }
+
+  return `
+    <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
+      <div class="tool-manager-copy">
+        <p class="card-label">Tools</p>
+        <h3>Import Bankr x402 service metadata.</h3>
+        <p>${escapeHtml(SAFETY_COPY)}</p>
+        ${renderToolManagerStatus(state)}
+      </div>
+      ${renderBankrImportForm(state)}
+      <div class="managed-tool-toolbar">
+        <strong>${tools.length} public tool${tools.length === 1 ? '' : 's'}</strong>
+        <span>Imported cards are display and discovery metadata only.</span>
+      </div>
+      ${publicTools || '<p class="resolver-message">No public tool cards are published for this profile yet.</p>'}
+    </section>
+  `;
+}
+
+export function bindToolManager(root, handlers = {}) {
+  root.querySelector('[data-action="import-bankr-tool"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlers.importBankrTool?.(event);
+  });
+}
+
+export function compactBankrToolImportInput(formData) {
+  const serviceName = getFormValue(formData, 'serviceName');
+  if (!serviceName) throw new Error('Service name is required.');
+
+  const endpointUrl = getFormValue(formData, 'endpointUrl');
+  if (!safeHttpsUrl(endpointUrl)) throw new Error('Endpoint URL must be an HTTPS URL.');
+
+  const method = normalizeMethod(getFormValue(formData, 'method') || 'GET');
+  const inputSummary = getFormValue(formData, 'inputSummary');
+  const outputSummary = getFormValue(formData, 'outputSummary');
+  const schema = {};
+  if (inputSummary) schema.input = inputSummary;
+  if (outputSummary) schema.output = outputSummary;
+
+  return {
+    source: BANKR_SOURCE,
+    serviceName,
+    endpointUrl: safeHttpsUrl(endpointUrl),
+    network: getFormValue(formData, 'network') || 'base',
+    currency: getFormValue(formData, 'asset') || 'USDC',
+    service: {
+      price: getFormValue(formData, 'price') || '0.00',
+      description: getFormValue(formData, 'description'),
+      methods: [method],
+      schema,
+    },
+  };
+}
+
+export function mergeToolImportState(current, result, patch = {}) {
+  const nextProfile = result?.profile ? { ...current.data.profile, ...result.profile } : current.data.profile;
+  return {
+    ...current,
+    ...patch,
+    data: {
+      ...current.data,
+      profile: nextProfile,
+      fragments: result?.fragments ?? current.data.fragments,
+      tools: result?.tools ?? current.data.tools,
+    },
+  };
+}
+
+export function getPublicTools(data = {}) {
   const collection = Array.isArray(data?.tools?.tools)
     ? data.tools.tools
     : (Array.isArray(data?.tools) ? data.tools : []);
@@ -27,6 +112,59 @@ function getPublicTools(data = {}) {
     const visibility = String(tool.visibility ?? 'public').toLowerCase();
     return !['private', 'gated', 'hidden'].includes(visibility);
   });
+}
+
+function renderToolRegistryPlaceholder() {
+  return `
+    <div>
+      <p class="card-label">Tools</p>
+      <h3>Tool registry cards are next.</h3>
+      <p>These future cards are discovery metadata only. They do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.</p>
+    </div>
+  `;
+}
+
+function renderToolManagerStatus(state = {}) {
+  if (state.toolError) return `<p class="tool-manager-status resolver-message error">${escapeHtml(state.toolError)}</p>`;
+  const message = TOOL_STATUS_MESSAGES.get(state.toolStatus);
+  return message ? `<p class="tool-manager-status resolver-message">${escapeHtml(message)}</p>` : '';
+}
+
+function renderBankrImportForm(state = {}) {
+  const importing = state.toolStatus === 'importing_tool';
+  return `
+    <form class="bankr-tool-import-form" data-action="import-bankr-tool">
+      <div class="fragment-form-heading">
+        <strong>Import Bankr x402 service</strong>
+        <span>Create a public tool card from service metadata. This does not call or deploy the service.</span>
+      </div>
+      <input type="hidden" name="network" value="base" />
+      <label><span>Service name</span><input name="serviceName" placeholder="cred-report" /></label>
+      <label><span>Endpoint URL</span><input name="endpointUrl" placeholder="https://api.bankr.bot/x402/helixa/cred-report" /></label>
+      <label><span>Price</span><input name="price" placeholder="1.00" inputmode="decimal" /></label>
+      <label><span>Asset</span><input name="asset" placeholder="USDC" value="USDC" /></label>
+      <label><span>Method</span>${renderMethodSelect()}</label>
+      <label><span>Input summary</span><input name="inputSummary" placeholder="id: number - AgentDNA token ID" /></label>
+      <label><span>Output summary</span><input name="outputSummary" placeholder="score: number" /></label>
+      <label><span>Description</span><textarea name="description" rows="3" placeholder="Helixa AgentDNA cred report."></textarea></label>
+      <p class="route-field-helper">Imports display metadata only. It does not execute tools, make Bankr calls, or grant access.</p>
+      <button type="submit" ${importing ? 'disabled' : ''}>${importing ? 'Importing...' : 'Import service card'}</button>
+    </form>
+  `;
+}
+
+function renderMethodSelect(selected = 'GET') {
+  return `<select name="method">${BANKR_METHODS.map((method) => `<option value="${method}" ${method === selected ? 'selected' : ''}>${method}</option>`).join('')}</select>`;
+}
+
+function normalizeMethod(value) {
+  const method = String(value ?? '').trim().toUpperCase();
+  if (!BANKR_METHODS.includes(method)) throw new Error('HTTP method is not supported for Bankr imports.');
+  return method;
+}
+
+function getFormValue(formData, key) {
+  return String(formData?.get(key) ?? '').trim();
 }
 
 function renderPublicToolCard(tool = {}) {

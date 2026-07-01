@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
 
 test('saveActivatedMultipass posts agent input and returns saved payload', async () => {
   const calls = [];
@@ -121,6 +121,36 @@ test('manual review helper submits review claim metadata', async () => {
     contactRoute: 'agentmail:team@example.test',
     note: 'Please review.',
   });
+});
+
+test('importMultipassTool posts Bankr service metadata with credentials and CSRF', async () => {
+  const calls = [];
+  const input = {
+    source: 'bankr_x402_cloud',
+    serviceName: 'cred-report',
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    network: 'base',
+    currency: 'USDC',
+    service: { price: '1.00', description: 'Helixa AgentDNA cred report.' },
+  };
+
+  const result = await importMultipassTool({
+    id: 'bendr-2-1',
+    apiBase: '/multipass-api',
+    csrfToken: 'csrf-1',
+    tool: input,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ tools: { tools: [{ tool_id: 'cred-report' }] } }), { status: 201 });
+    },
+  });
+
+  assert.deepEqual(result, { tools: { tools: [{ tool_id: 'cred-report' }] } });
+  assert.equal(calls[0].url, '/multipass-api/api/multipass/bendr-2-1/tools/import');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.credentials, 'include');
+  assert.equal(calls[0].init.headers['x-csrf-token'], 'csrf-1');
+  assert.deepEqual(JSON.parse(calls[0].init.body), input);
 });
 
 test('fragment helpers create update and revoke with credentials and CSRF', async () => {

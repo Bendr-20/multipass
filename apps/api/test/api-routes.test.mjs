@@ -722,6 +722,23 @@ async function createOwnerSession(api) {
   };
 }
 
+function bankrToolImportInput(overrides = {}) {
+  return {
+    source: 'bankr_x402_cloud',
+    serviceName: 'cred-report',
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    network: 'base',
+    currency: 'USDC',
+    service: {
+      price: '1.00',
+      description: 'Helixa AgentDNA cred report.',
+      methods: ['GET'],
+      schema: { queryParams: { id: 'number - AgentDNA token ID' }, output: { score: 'number' } },
+    },
+    ...overrides,
+  };
+}
+
 test('claim nonce route returns a scoped signing message for saved records', async () => {
   const api = makeClaimApi();
 
@@ -858,6 +875,40 @@ test('manager session can create update and revoke public fragments through API'
 
   const changes = await requestJson(api, '/api/multipass/bendr-2-1/changes');
   assert.match(changes.body.entries.at(-1).message, /Public route revoked: Updated public profile JSON endpoint\./);
+});
+
+test('manager session imports Bankr service configs into tools x402 and agent card', async () => {
+  const api = makeClaimApi();
+  const { headers, csrfToken } = await createOwnerSession(api);
+
+  const missingSession = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/import', bankrToolImportInput(), {
+    origin: 'https://multipass.example.test',
+    'x-csrf-token': csrfToken,
+  });
+  assert.equal(missingSession.response.status, 401);
+
+  const imported = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/import', bankrToolImportInput(), headers);
+  assert.equal(imported.response.status, 201);
+  assert.equal(imported.body.fragment.fragment_type, 'tool_manifest');
+  assert.equal(imported.body.fragment.tool_manifest_ref.tool_id, 'cred-report');
+  assert.deepEqual(imported.body.tools.tools.map((tool) => tool.tool_id), ['cred-report']);
+
+  const duplicate = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/import', bankrToolImportInput({ service: { price: '1.00', description: 'Duplicate.' } }), headers);
+  assert.equal(duplicate.response.status, 400);
+  assert.match(duplicate.body.error.message, /tool_id.*already exists|already imported/i);
+
+  const tools = await requestJson(api, '/api/multipass/bendr-2-1/tools');
+  assert.deepEqual(tools.body.tools.map((tool) => tool.tool_id), ['cred-report']);
+  assert.equal(tools.body.tools[0].pricing.amount, '1.00');
+
+  const x402 = await requestJson(api, '/api/multipass/bendr-2-1/x402');
+  assert.deepEqual(x402.body.endpoints.map((endpoint) => endpoint.endpoint_id), ['cred-report']);
+  assert.equal(x402.body.endpoints[0].asset, 'USDC');
+  assert.equal(x402.body.endpoints[0].chain_id, 8453);
+
+  const card = await requestJson(api, '/api/multipass/bendr-2-1/agent-card');
+  assert.equal(card.body.service_endpoints.some((endpoint) => endpoint.endpoint_id === 'cred-report'), true);
+  assert.equal(card.body.x402_manifest_url, 'https://multipass.example.test/api/multipass/mp_helixa_agent_1/x402');
 });
 
 test('fragment write routes enforce manager session csrf origin blocked inputs and imported read-only fragments', async () => {

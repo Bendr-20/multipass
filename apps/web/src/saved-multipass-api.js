@@ -119,6 +119,19 @@ export async function revokeMultipassFragment({ id, fragmentId, apiBase, csrfTok
   });
 }
 
+export async function importMultipassTool({ id, apiBase, csrfToken, tool, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/tools/import`,
+    method: 'POST',
+    body: tool ?? {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Tool import failed',
+  });
+}
+
 export async function logoutMultipassSession({ id, apiBase, csrfToken, fetchImpl = fetch } = {}) {
   const safeId = requireMultipassIdentifier(id);
   return requestSavedJson({

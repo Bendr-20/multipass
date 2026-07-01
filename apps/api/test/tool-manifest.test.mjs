@@ -7,6 +7,7 @@ import {
   deriveAgentCardServiceUpdates,
   deriveX402ManifestFromTools,
   getPublicToolFragments,
+  normalizeBankrServiceTool,
   normalizeToolManifestFragment,
   summarizeToolsResponse,
 } from '../src/tool-manifest.js';
@@ -125,6 +126,44 @@ function makeAgentCard() {
     standards_refs: [],
   };
 }
+
+test('normalizeBankrServiceTool converts Bankr x402 service config to a tool manifest fragment', () => {
+  const config = {
+    network: 'base',
+    currency: 'USDC',
+    services: {
+      'cred-report': {
+        price: '1.00',
+        description: 'Helixa AgentDNA cred report.',
+        methods: ['GET'],
+        schema: { queryParams: { id: 'number - AgentDNA token ID' }, output: { score: 'number' } },
+      },
+    },
+  };
+
+  const fragment = normalizeBankrServiceTool({
+    multipassId: 'mp_bendr_2',
+    serviceName: 'cred-report',
+    service: config.services['cred-report'],
+    network: config.network,
+    currency: config.currency,
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    now: '2026-07-01T00:00:00.000Z',
+  });
+
+  assert.equal(fragment.fragment_type, 'tool_manifest');
+  assert.equal(fragment.multipass_id, 'mp_bendr_2');
+  assert.equal(fragment.tool_manifest_ref.tool_id, 'cred-report');
+  assert.equal(fragment.tool_manifest_ref.registry, 'bankr_x402_cloud');
+  assert.equal(fragment.tool_manifest_ref.endpoint_url, 'https://api.bankr.bot/x402/helixa/cred-report');
+  assert.equal(fragment.tool_manifest_ref.pricing.model, 'fixed');
+  assert.equal(fragment.tool_manifest_ref.pricing.amount, '1.00');
+  assert.equal(fragment.tool_manifest_ref.pricing.asset, 'USDC');
+  assert.equal(fragment.tool_manifest_ref.pricing.chain_id, 8453);
+  assert.match(fragment.tool_manifest_ref.schemas.input_summary, /queryParams\.id: number - AgentDNA token ID/);
+  assert.match(fragment.tool_manifest_ref.schemas.output_summary, /output\.score: number/);
+  assert.doesNotMatch(fragment.tool_manifest_ref.schemas.input_summary, /\{\"/);
+});
 
 test('getPublicToolFragments returns only public tool manifest fragments with refs', () => {
   const publicTool = makeToolFragment();

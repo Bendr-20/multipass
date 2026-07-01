@@ -2313,6 +2313,125 @@ test('owner command center safety copy limits public metadata and tool authority
   assert.doesNotMatch(safetyCopy, /tool execution is enabled|access granted|credentials released|trust purchased/i);
 });
 
+test('claimed saved profile can import Bankr x402 tool metadata', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: 'Saved Bendr' } }),
+    importMultipassTool: async ({ id, csrfToken, tool }) => {
+      calls.push(['import-tool', id, csrfToken, tool]);
+      return {
+        fragment: { fragment_id: 'frag_tool_bankr_cred_report' },
+        tools: {
+          schema_version: '0.1.0',
+          multipass_id: 'mp_helixa_agent_1',
+          tools: [{
+            fragment_id: 'frag_tool_bankr_cred_report',
+            multipass_id: 'mp_helixa_agent_1',
+            tool_id: 'cred-report',
+            registry: 'bankr_x402_cloud',
+            name: 'cred-report',
+            description: 'Helixa AgentDNA cred report.',
+            endpoint_url: 'https://api.bankr.bot/x402/helixa/cred-report',
+            manifest_url: null,
+            pricing: { model: 'fixed', amount: '1.00', asset: 'USDC', chain_id: 8453 },
+            schemas: { input_summary: 'id: number - AgentDNA token ID', output_summary: 'score: number' },
+            verifiability: { tier: 'provider_verified', summary: 'Imported from Bankr x402 service metadata.' },
+            status: 'pending',
+            assurance_level: 'issuer_attested',
+            visibility: 'public',
+            last_checked_at: '2026-07-01T00:00:00.000Z',
+          }],
+        },
+      };
+    },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: savedProfileNoToolsFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  const form = root.querySelector('[data-action="import-bankr-tool"]');
+  assert.ok(form);
+  form.querySelector('input[name="serviceName"]').value = 'cred-report';
+  form.querySelector('input[name="endpointUrl"]').value = 'https://api.bankr.bot/x402/helixa/cred-report';
+  form.querySelector('input[name="price"]').value = '1.00';
+  form.querySelector('input[name="asset"]').value = 'USDC';
+  form.querySelector('select[name="method"]').value = 'GET';
+  form.querySelector('input[name="inputSummary"]').value = 'id: number - AgentDNA token ID';
+  form.querySelector('input[name="outputSummary"]').value = 'score: number';
+  form.querySelector('textarea[name="description"]').value = 'Helixa AgentDNA cred report.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls[0], ['import-tool', 'bendr-2-1', 'csrf-1', {
+    source: 'bankr_x402_cloud',
+    serviceName: 'cred-report',
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    network: 'base',
+    currency: 'USDC',
+    service: {
+      price: '1.00',
+      description: 'Helixa AgentDNA cred report.',
+      methods: ['GET'],
+      schema: { input: 'id: number - AgentDNA token ID', output: 'score: number' },
+    },
+  }]);
+  const toolPanel = root.querySelector('.tool-manager-panel');
+  assert.match(toolPanel.textContent, /Tool service imported/);
+  assert.match(toolPanel.textContent, /Helixa AgentDNA cred report/);
+  assert.ok(toolPanel.querySelector('.public-tool-card'));
+});
+
+test('failed tool import keeps route and profile data visible', async () => {
+  const route = {
+    schema_version: '0.1.0',
+    fragment_id: 'frag_manager_route_1',
+    multipass_id: 'mp_helixa_agent_1',
+    fragment_type: 'endpoint',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    transfer_policy: 'pause_on_transfer',
+    source: { source_type: 'owner_submission', source_id: 'manager:frag_manager_route_1', issuer: null, observed_at: '2026-06-27T00:10:00.000Z' },
+    public_value: 'Primary profile route',
+    endpoint_ref: { endpoint_id: 'primary-profile-route', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+    created_at: '2026-06-27T00:10:00.000Z',
+    updated_at: '2026-06-27T00:10:00.000Z',
+  };
+  const fetchWithRoute = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });
+    return savedProfileNoToolsFetch(url);
+  };
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: 'Saved Bendr' } }),
+    importMultipassTool: async () => { throw new Error('tool_id already exists for an active tool: cred-report'); },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: fetchWithRoute }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  const form = root.querySelector('[data-action="import-bankr-tool"]');
+  form.querySelector('input[name="serviceName"]').value = 'cred-report';
+  form.querySelector('input[name="endpointUrl"]').value = 'https://api.bankr.bot/x402/helixa/cred-report';
+  form.querySelector('input[name="price"]').value = '1.00';
+  form.querySelector('input[name="asset"]').value = 'USDC';
+  form.querySelector('textarea[name="description"]').value = 'Helixa AgentDNA cred report.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.tool-manager-panel').textContent, /tool_id already exists/);
+  assert.match(root.querySelector('.route-manager-panel').textContent, /Primary profile route/);
+  assert.match(root.querySelector('.multipass-profile-page').textContent, /Saved Bendr/);
+});
+
 test('claim button renders connected wallet shortened address', async () => {
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
   const walletClient = createWalletClientFixture({

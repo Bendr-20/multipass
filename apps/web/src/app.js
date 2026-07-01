@@ -1,10 +1,10 @@
 import { getActivationState } from './activation.js';
 import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
-import { createClaimNonce, createMultipassFragment, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
-import { renderPublicToolsPanel } from './tool-manager.js';
+import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -40,6 +40,9 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     routeStatus: null,
     routeError: null,
     routeActiveFragmentId: null,
+    toolStatus: null,
+    toolError: null,
+    toolActiveFragmentId: null,
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -501,6 +504,22 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     });
   }
 
+  async function importBankrToolMetadata(event) {
+    const id = getManageIdentifier(state);
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !csrfToken) return;
+    let tool;
+    try {
+      tool = compactBankrToolImportInput(createFormData(event?.currentTarget));
+    } catch (error) {
+      setToolMutationError(error);
+      return;
+    }
+    await mutateBankrToolImport({
+      operation: ({ apiBase }) => claimApi.importMultipassTool({ id, apiBase, csrfToken, tool, fetchImpl }),
+    });
+  }
+
   async function mutatePublicFragment({ status, successStatus, operation }) {
     state = { ...state, fragmentStatus: status, fragmentError: null };
     render(root, state, handlers);
@@ -543,6 +562,33 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
+  function setToolMutationError(error, activeFragmentId = null) {
+    state = {
+      ...state,
+      toolStatus: 'error',
+      toolError: error.message,
+      toolActiveFragmentId: activeFragmentId,
+    };
+    render(root, state, handlers);
+  }
+
+  async function mutateBankrToolImport({ operation }) {
+    state = { ...state, toolStatus: 'importing_tool', toolError: null, toolActiveFragmentId: null };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await operation({ apiBase });
+      state = mergeToolImportState(state, result, {
+        toolStatus: 'tool_imported',
+        toolError: null,
+        toolActiveFragmentId: result?.fragment?.fragment_id ?? null,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      setToolMutationError(error);
+    }
+  }
+
   async function logoutManagerSession() {
     const id = getManageIdentifier(state);
     if (!id) return;
@@ -555,7 +601,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -638,6 +684,7 @@ const defaultClaimApi = {
   createMultipassFragment,
   updateMultipassFragment,
   revokeMultipassFragment,
+  importMultipassTool,
   logoutMultipassSession,
 };
 
@@ -666,7 +713,11 @@ function isSavedManageRecord(state) {
 }
 
 function clearedRouteState() {
-  return { routeStatus: null, routeError: null, routeActiveFragmentId: null };
+  return { routeStatus: null, routeError: null, routeActiveFragmentId: null, ...clearedToolState() };
+}
+
+function clearedToolState() {
+  return { toolStatus: null, toolError: null, toolActiveFragmentId: null };
 }
 
 function mergeClaimProfileState(current, result, patch = {}) {
@@ -956,6 +1007,7 @@ function bindProfileEvents(root, state, handlers = {}) {
   });
   bindFragmentManager(root, handlers);
   bindRouteManager(root, handlers);
+  bindToolManager(root, handlers);
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.getAttribute('data-agent') ?? ''));
@@ -1500,24 +1552,7 @@ function getOwnerCommandNextAction({ canEdit, walletUnconfigured }) {
 }
 
 function renderToolRegistryPanel(state) {
-  const publicTools = renderPublicToolsPanel(state.data);
-  if (publicTools) {
-    return `
-      <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
-        ${publicTools}
-      </section>
-    `;
-  }
-
-  return `
-    <section class="tool-manager-panel" data-command-section="tools" aria-label="Tool registry metadata">
-      <div>
-        <p class="card-label">Tools</p>
-        <h3>Tool registry cards are next.</h3>
-        <p>These future cards are discovery metadata only. They do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.</p>
-      </div>
-    </section>
-  `;
+  return renderToolRegistryManagerPanel(state, { canEdit: Boolean(state.claimCsrfToken) });
 }
 
 function renderOwnerDashboardPanel(profile, state) {

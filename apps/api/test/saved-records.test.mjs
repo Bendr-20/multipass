@@ -336,6 +336,49 @@ test('saveActivatedRecord is idempotent by source canonical id', () => {
   assert.equal(store.getChangeLog('mp_helixa_agent_1').entries.length, 1);
 });
 
+test('importBankrTool stores Bankr x402 metadata and updates public derived documents', () => {
+  const store = createSqliteSavedRecords({ databasePath: ':memory:' });
+  store.saveActivatedRecord(makeSavedRecord({ multipassId: 'mp_bendr_2' }));
+
+  const imported = store.importBankrTool('mp_bendr_2', {
+    source: 'bankr_x402_cloud',
+    serviceName: 'cred-report',
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    network: 'base',
+    currency: 'USDC',
+    service: {
+      price: '1.00',
+      description: 'Helixa AgentDNA cred report.',
+      methods: ['GET'],
+      schema: { queryParams: { id: 'number - AgentDNA token ID' }, output: { score: 'number' } },
+    },
+  }, { actorWallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', now: '2026-07-01T00:00:00.000Z' });
+
+  assert.equal(imported.fragment.fragment_type, 'tool_manifest');
+  assert.equal(imported.fragment.tool_manifest_ref.tool_id, 'cred-report');
+  assert.deepEqual(imported.tools.tools.map((tool) => tool.tool_id), ['cred-report']);
+  assert.deepEqual(store.getTools('mp_bendr_2').tools.map((tool) => tool.tool_id), ['cred-report']);
+  assert.deepEqual(store.getX402Manifest('mp_bendr_2').endpoints.map((endpoint) => endpoint.endpoint_id), ['cred-report']);
+  assert.equal(store.getX402Manifest('mp_bendr_2').endpoints[0].asset, 'USDC');
+  assert.deepEqual(store.getAgentCard('mp_bendr_2', { baseUrl: 'https://multipass.example.test' }).service_endpoints.map((endpoint) => endpoint.endpoint_id), ['cred-report']);
+  assert.equal(store.resolveProfile('mp_bendr_2').public_fragments.some((fragment) => fragment.fragment_id === imported.fragment.fragment_id), true);
+  assert.equal(store.getChangeLog('mp_bendr_2').entries.at(-1).message, 'Tool service imported: cred-report.');
+  assert.equal(store.getAuditEvents('mp_bendr_2').at(-1).event_type, 'tool_imported');
+  assert.equal(store.getAuditEvents('mp_bendr_2').at(-1).event.actorWallet, '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea');
+
+  assert.throws(
+    () => store.importBankrTool('mp_bendr_2', {
+      source: 'bankr_x402_cloud',
+      serviceName: 'cred-report',
+      endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+      network: 'base',
+      currency: 'USDC',
+      service: { price: '1.00', description: 'Duplicate cred report.' },
+    }, { actorWallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea' }),
+    /tool_id.*already exists|already imported/i,
+  );
+});
+
 test('file-backed store persists after reopening', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'multipass-saved-'));
   const databasePath = path.join(dir, 'multipass.sqlite');

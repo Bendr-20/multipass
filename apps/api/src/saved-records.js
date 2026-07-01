@@ -19,6 +19,7 @@ import {
 import {
   deriveAgentCardServiceUpdates,
   deriveX402ManifestFromTools,
+  normalizeBankrServiceTool,
   summarizeToolsResponse,
 } from './tool-manifest.js';
 
@@ -489,6 +490,40 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       return readFragmentMutationResult(db, profile.multipass_id, fragmentId);
     },
 
+    importBankrTool(identifier, input = {}, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
+      if (String(input.source ?? '').trim() !== 'bankr_x402_cloud') {
+        throw new TypeError('source must be bankr_x402_cloud for tool imports.');
+      }
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const fragment = normalizeBankrServiceTool({
+        multipassId: profile.multipass_id,
+        serviceName: input.serviceName,
+        service: input.service,
+        network: input.network,
+        currency: input.currency,
+        endpointUrl: input.endpointUrl,
+        now,
+      });
+      assertUniqueActiveToolId(bundle.fragments, fragment);
+      const fragments = [...bundle.fragments, fragment];
+      writeFragmentMutation(db, bundle, fragments, {
+        now,
+        message: `Tool service imported: ${fragment.tool_manifest_ref.name}.`,
+        auditType: 'tool_imported',
+        auditPayload: {
+          actorWallet,
+          fragmentId: fragment.fragment_id,
+          toolId: fragment.tool_manifest_ref.tool_id,
+          registry: fragment.tool_manifest_ref.registry,
+        },
+      });
+      return readToolImportResult(db, profile.multipass_id, fragment.fragment_id);
+    },
+
     updatePublicProfile(identifier, edits = {}, input = {}) {
       const profile = requireSavedProfile(db, identifier);
       const agentCard = readBundleById(db, profile.multipass_id)?.agentCard;
@@ -860,6 +895,14 @@ function readFragmentMutationResult(db, multipassId, fragmentId) {
   };
 }
 
+function readToolImportResult(db, multipassId, fragmentId) {
+  const result = readFragmentMutationResult(db, multipassId, fragmentId);
+  return {
+    ...result,
+    tools: summarizeToolsResponse(multipassId, readBundleById(db, multipassId)?.fragments ?? []),
+  };
+}
+
 function updateProfileOwnerSummary(db, multipassId, ownerSummary, updatedAt) {
   const profile = requireSavedProfile(db, multipassId);
   const nextProfile = {
@@ -942,6 +985,17 @@ function assertUniqueEndpointId(fragments, candidate, currentFragmentId = null) 
     && fragment.endpoint_ref?.endpoint_id === candidateId
   ));
   if (collision) throw new TypeError(`endpoint_ref.endpoint_id duplicates an existing endpoint route: ${candidateId}`);
+}
+
+function assertUniqueActiveToolId(fragments, candidate) {
+  if (candidate?.fragment_type !== 'tool_manifest') return;
+  const candidateId = candidate.tool_manifest_ref?.tool_id;
+  const collision = fragments.find((fragment) => (
+    fragment.fragment_type === 'tool_manifest'
+    && fragment.tool_manifest_ref?.tool_id === candidateId
+    && ['pending', 'verified', 'stale', 'disputed'].includes(fragment.status)
+  ));
+  if (collision) throw new TypeError(`tool_id already exists for an active tool: ${candidateId}`);
 }
 
 function routeChangeLabel(fragment) {

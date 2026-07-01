@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
-import { renderPublicToolsPanel } from '../src/tool-manager.js';
+import { compactBankrToolImportInput, renderPublicToolsPanel, renderToolRegistryManagerPanel } from '../src/tool-manager.js';
 
 const SAFETY_COPY = 'Discovery metadata only. These cards do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.';
 
@@ -53,6 +53,52 @@ function openSeaStyleTool(overrides = {}) {
     ...overrides,
   };
 }
+
+function fillBankrImportForm(form, overrides = {}) {
+  form.querySelector('input[name="serviceName"]').value = overrides.serviceName ?? 'cred-report';
+  form.querySelector('input[name="endpointUrl"]').value = overrides.endpointUrl ?? 'https://api.bankr.bot/x402/helixa/cred-report';
+  form.querySelector('input[name="price"]').value = overrides.price ?? '1.00';
+  form.querySelector('input[name="asset"]').value = overrides.asset ?? 'USDC';
+  form.querySelector('select[name="method"]').value = overrides.method ?? 'GET';
+  form.querySelector('input[name="inputSummary"]').value = overrides.inputSummary ?? 'id: number - AgentDNA token ID';
+  form.querySelector('input[name="outputSummary"]').value = overrides.outputSummary ?? 'score: number';
+  form.querySelector('textarea[name="description"]').value = overrides.description ?? 'Helixa AgentDNA cred report.';
+}
+
+test('Bankr import form compacts fields to API route input shape', () => {
+  const root = setup(renderToolRegistryManagerPanel({ claimCsrfToken: 'csrf-1', data: { tools: { tools: [] } } }));
+  const form = root.querySelector('[data-action="import-bankr-tool"]');
+  assert.ok(form);
+  fillBankrImportForm(form);
+
+  assert.deepEqual(compactBankrToolImportInput(new window.FormData(form)), {
+    source: 'bankr_x402_cloud',
+    serviceName: 'cred-report',
+    endpointUrl: 'https://api.bankr.bot/x402/helixa/cred-report',
+    network: 'base',
+    currency: 'USDC',
+    service: {
+      price: '1.00',
+      description: 'Helixa AgentDNA cred report.',
+      methods: ['GET'],
+      schema: {
+        input: 'id: number - AgentDNA token ID',
+        output: 'score: number',
+      },
+    },
+  });
+});
+
+test('Bankr import form rejects non-HTTPS endpoint URLs client-side', () => {
+  const root = setup(renderToolRegistryManagerPanel({ claimCsrfToken: 'csrf-1', data: { tools: { tools: [] } } }));
+  const form = root.querySelector('[data-action="import-bankr-tool"]');
+  fillBankrImportForm(form, { endpointUrl: 'http://api.bankr.bot/x402/helixa/cred-report' });
+
+  assert.throws(
+    () => compactBankrToolImportInput(new window.FormData(form)),
+    /Endpoint URL must be an HTTPS URL/,
+  );
+});
 
 test('renderPublicToolsPanel renders Bankr x402 card metadata without execution controls', () => {
   const root = setup(renderPublicToolsPanel({ tools: { tools: [bankrTool()] } }));
