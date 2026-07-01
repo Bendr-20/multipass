@@ -69,6 +69,13 @@ test('rejects blocked types non-public visibility unsafe strings and non-https u
   assert.throws(() => makeManagerFragment({ fragment_type: 'endpoint', endpoint_ref: { endpoint_id: 'bad', url: 'http://example.test', protocol: 'api' } }), /https/);
 });
 
+test('generic fragment management rejects tool_manifest fragments', () => {
+  assert.throws(
+    () => makeManagerFragment({ fragment_type: 'tool_manifest', public_value: 'Tool manifest should use tool-specific validation.' }),
+    /tool_manifest.*not allowed|not allowed.*tool_manifest/,
+  );
+});
+
 test('normalizes safe patch fields and lowercases wallet patch values', () => {
   const existing = makeManagerFragment();
   const patched = normalizeManagerFragmentPatch(existing, {

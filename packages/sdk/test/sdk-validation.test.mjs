@@ -91,6 +91,54 @@ const identityFragment = {
   updated_at: '2026-06-24T00:00:00Z',
 };
 
+const toolManifestFragment = {
+  schema_version: '0.1.0',
+  fragment_id: 'frag_tool_lookup',
+  multipass_id: 'mp_bendr',
+  fragment_type: 'tool_manifest',
+  status: 'verified',
+  assurance_level: 'platform_verified',
+  visibility: 'public',
+  transfer_policy: 'pause_on_transfer',
+  source: {
+    source_type: 'registry_import',
+    source_id: 'bankr_x402_cloud:lookup',
+    issuer: 'bankr_x402_cloud',
+    observed_at: '2026-06-24T00:00:00Z',
+  },
+  tool_manifest_ref: {
+    tool_id: 'lookup',
+    registry: 'bankr_x402_cloud',
+    name: 'Lookup Tool',
+    description: 'Looks up a Multipass profile.',
+    endpoint_url: 'https://api.example.test/tools/lookup',
+    manifest_url: 'https://api.example.test/tools/lookup/manifest.json',
+    manifest_hash: 'sha256:abc123',
+    creator_address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    pricing: {
+      model: 'fixed',
+      amount: '0.01',
+      asset: 'USDC',
+      chain_id: 8453,
+    },
+    access: {
+      summary: 'Public x402 access.',
+      requires_owner_approval: false,
+    },
+    schemas: {
+      input_summary: 'Multipass id or slug.',
+      output_summary: 'Multipass profile JSON.',
+    },
+    verifiability: {
+      tier: 'provider_verified',
+      summary: 'Imported from Bankr x402 Cloud.',
+    },
+    last_checked_at: '2026-06-24T00:05:00Z',
+  },
+  created_at: '2026-06-24T00:00:00Z',
+  updated_at: '2026-06-24T00:00:00Z',
+};
+
 const agentCard = {
   schema_version: '0.1.0',
   multipass_id: 'mp_bendr',
@@ -204,6 +252,13 @@ test('validators accept minimal valid Multipass documents', () => {
     assert.deepEqual(result.errors, []);
     assert.equal(result.value, sample);
   }
+});
+
+test('identity fragment validator accepts tool manifest references', () => {
+  const result = validateIdentityFragment(toolManifestFragment);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.value, toolManifestFragment);
 });
 
 test('validators return useful path errors for invalid documents', () => {

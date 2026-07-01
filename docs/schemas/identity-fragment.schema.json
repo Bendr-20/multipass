@@ -241,6 +241,188 @@
         }
       }
     },
+    "tool_manifest_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Tool-specific fields for tool manifest fragments.",
+      "additionalProperties": false,
+      "required": [
+        "tool_id",
+        "registry",
+        "name",
+        "description",
+        "endpoint_url",
+        "pricing",
+        "access",
+        "schemas",
+        "verifiability"
+      ],
+      "properties": {
+        "tool_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registry": {
+          "type": "string",
+          "enum": [
+            "bankr_x402_cloud",
+            "opensea_agent_tool_registry",
+            "helixa_api",
+            "owner_submitted",
+            "unknown"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "manifest_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "manifest_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "creator_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^0x[0-9a-f]{40}$"
+        },
+        "pricing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "model",
+            "amount",
+            "asset",
+            "chain_id"
+          ],
+          "properties": {
+            "model": {
+              "type": "string",
+              "enum": [
+                "free",
+                "fixed",
+                "metered",
+                "unknown"
+              ]
+            },
+            "amount": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            },
+            "asset": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "chain_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "summary",
+            "requires_owner_approval"
+          ],
+          "properties": {
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "requires_owner_approval": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_summary",
+            "output_summary"
+          ],
+          "properties": {
+            "input_summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "output_summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "verifiability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tier",
+            "summary"
+          ],
+          "properties": {
+            "tier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "last_checked_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
     "custody_ref": {
       "type": [
         "object",

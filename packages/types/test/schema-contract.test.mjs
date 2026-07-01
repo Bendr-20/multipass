@@ -118,15 +118,18 @@ test('draft profiles can omit verified custody until activation', () => {
   assert.ok(custodyEpoch.anyOf.some((branch) => branch.type === 'object'));
 });
 
-test('identity fragments have direct shapes for endpoint, custody, and verification records', () => {
+test('identity fragments have direct shapes for endpoint, custody, verification, and tool manifest records', () => {
   assert.ok(fragmentTypes.includes('endpoint'));
   assert.ok(fragmentTypes.includes('custody_record'));
   assert.ok(fragmentTypes.includes('verification_result'));
+  assert.ok(fragmentTypes.includes('tool_manifest'));
 
   assert.deepEqual(identityFragmentSchema.properties.fragment_type.enum, fragmentTypes);
   assert.ok(identityFragmentSchema.properties.endpoint_ref);
   assert.ok(identityFragmentSchema.properties.custody_ref);
   assert.ok(identityFragmentSchema.properties.verification_ref);
+  assert.ok(identityFragmentSchema.properties.tool_manifest_ref);
+  assert.deepEqual(identityFragmentSchema.properties.tool_manifest_ref.type, ['object', 'null']);
   assert.ok(identityFragmentSchema.properties.verified_at);
   assert.ok(identityFragmentSchema.properties.revoked_at);
   assert.ok(identityFragmentSchema.properties.expires_at);
