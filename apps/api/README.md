@@ -24,8 +24,8 @@ Public profile reads:
 - `GET /api/multipass/{id}`
 - `GET /api/v0/multipass/{id}`
 - `GET /api/multipass/{id}/fragments`
-- `GET /api/multipass/{id}/card`
-- `GET /api/multipass/{id}/agent-card`
+- `GET /api/multipass/{id}/agent-card` canonical agent-readable card
+- `GET /api/multipass/{id}/card` compatibility alias for the agent-readable card
 - `GET /api/multipass/{id}/standards`
 - `GET /api/multipass/{id}/x402`
 - `GET /api/multipass/{id}/receipts`
@@ -33,6 +33,12 @@ Public profile reads:
 - `GET /api/multipass/{id}/changes`
 
 Manager routes are session and CSRF protected. Public fragment responses return public fragments only. Saved records are public display records until a claim flow verifies a manager.
+
+Canonical route notes:
+
+- Use `/.well-known/multipass.json` as the canonical discovery document. `/.well-known/helixa-multipass.json` remains a legacy alias.
+- Use `/api/multipass/{id}/agent-card` as the canonical agent-readable card route. `/api/multipass/{id}/card` remains a compatibility alias.
+- Public `/changes` responses expose saved-record change history only when available.
 
 ## Local server
 
@@ -72,8 +78,8 @@ Useful routes:
 - `GET /api/search?q=demo`
 - `GET /api/multipass/demo-agent`
 - `GET /api/multipass/demo-agent/fragments`
-- `GET /api/multipass/demo-agent/card`
 - `GET /api/multipass/demo-agent/agent-card`
+- `GET /api/multipass/demo-agent/card` compatibility alias
 - `GET /api/multipass/demo-agent/standards`
 - `GET /api/multipass/demo-agent/x402`
 - `GET /api/multipass/demo-agent/receipts`
@@ -91,6 +97,11 @@ curl -s http://127.0.0.1:8787/api/multipass \
 ```
 
 `POST /api/multipass/activate` is preview-only. `POST /api/multipass` is the public save path in A1.
+
+## Live operator docs
+
+- `docs/live-status.md` describes the current V0 public surface and safety boundary.
+- `docs/live-smoke-checklist.md` contains copy-paste local and live smoke checks.
 
 ## ERC-8004 import
 

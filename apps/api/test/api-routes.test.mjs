@@ -269,13 +269,20 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.equal(discovery.body.routes.resolve, 'https://multipass.example.test/api/resolve?agent={input}');
   assert.equal(discovery.body.routes.search, 'https://multipass.example.test/api/search?q={query}');
   assert.equal(discovery.body.routes.versioned_profile, 'https://multipass.example.test/api/v0/multipass/{id}');
+  assert.equal(discovery.body.routes.card, 'https://multipass.example.test/api/multipass/{id}/card');
+  assert.equal(discovery.body.routes.agent_card, 'https://multipass.example.test/api/multipass/{id}/agent-card');
+  assert.equal(discovery.body.routes.changes, 'https://multipass.example.test/api/multipass/{id}/changes');
 
   const openapi = await requestJson(api, '/api/openapi.json');
   assert.equal(openapi.response.status, 200);
   assert.equal(openapi.body.openapi, '3.1.0');
   assert.equal(openapi.body.info.title, 'Helixa Multipass API');
+  assert.ok(openapi.body.paths['/.well-known/helixa-multipass.json']);
   assert.ok(openapi.body.paths['/api/multipass/{id}']);
   assert.ok(openapi.body.paths['/api/v0/multipass/{id}']);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/card']);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/agent-card']);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/changes']);
   assert.ok(openapi.body.paths['/api/resolve']);
   assert.ok(openapi.body.paths['/api/search']);
 });
