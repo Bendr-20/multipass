@@ -107,6 +107,7 @@ export function deriveX402ManifestFromTools(multipassId, fragments = []) {
 
 export function deriveAgentCardServiceUpdates(agentCard, fragments = [], baseUrl = '') {
   const validCard = assertAgentCard(agentCard);
+  const normalizedBaseUrl = normalizeOptionalBaseUrl(baseUrl);
   const tools = getPublicToolFragments(fragments).map(normalizeToolManifestFragment).filter(isActiveTool);
   const serviceEndpoints = mergeServiceEndpoints(
     validCard.service_endpoints,
@@ -118,7 +119,7 @@ export function deriveAgentCardServiceUpdates(agentCard, fragments = [], baseUrl
     })),
   );
   const acceptedAssets = mergeAcceptedAssets(validCard.accepted_assets, tools);
-  const x402ManifestUrl = deriveX402ManifestUrl(validCard, tools, baseUrl);
+  const x402ManifestUrl = deriveX402ManifestUrl(validCard, tools, normalizedBaseUrl);
 
   return assertAgentCard({
     ...validCard,
@@ -192,11 +193,10 @@ function mergeAcceptedAssets(existing = [], tools = []) {
   return assets;
 }
 
-function deriveX402ManifestUrl(agentCard, tools, baseUrl) {
+function deriveX402ManifestUrl(agentCard, tools, normalizedBaseUrl) {
   if (!tools.some((tool) => isBankrX402Tool(tool) && hasX402Pricing(tool))) {
     return agentCard.x402_manifest_url ?? null;
   }
-  const normalizedBaseUrl = normalizeOptionalBaseUrl(baseUrl);
   if (!normalizedBaseUrl) return agentCard.x402_manifest_url ?? null;
   return `${normalizedBaseUrl}/api/multipass/${encodeURIComponent(agentCard.multipass_id)}/x402`;
 }

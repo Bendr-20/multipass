@@ -306,6 +306,10 @@ test('deriveAgentCardServiceUpdates rejects credentialed base URLs', () => {
     () => deriveAgentCardServiceUpdates(makeAgentCard(), [makeToolFragment()], 'https://user:secret@multipass.example.test/'),
     /baseUrl.*credentials/i,
   );
+  assert.throws(
+    () => deriveAgentCardServiceUpdates(makeAgentCard(), [], 'https://user:secret@multipass.example.test/'),
+    /baseUrl.*credentials/i,
+  );
 });
 
 test('deriveAgentCardServiceUpdates does not overwrite or publicize existing gated endpoints', () => {
