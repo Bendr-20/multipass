@@ -14,7 +14,7 @@
     "api:generic": "pnpm --filter @helixa/multipass-api start --fixture generic",
     "api:bendr": "pnpm --filter @helixa/multipass-api start --fixture bendr",
     "web:dev": "pnpm --filter @helixa/multipass-web dev",
-    "web:build": "VITE_PRIVY_APP_ID=cmlv6ibdm00350el2jsm8m8s6 pnpm --filter @helixa/multipass-web build",
+    "web:build": "MULTIPASS_BASE=/multipass/ VITE_PRIVY_APP_ID=cmlv6ibdm00350el2jsm8m8s6 pnpm --filter @helixa/multipass-web build",
     "demo:bendr": "pnpm api:bendr"
   },
   "workspaces": [

@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const ROOT_PACKAGE_URL = new URL('../../../package.json', import.meta.url);
+const rootPackage = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
 const PRIVY_APP_ID = 'cmlv6ibdm00350el2jsm8m8s6';
 
-test('production web build includes the public Privy app id', async () => {
-  const pkg = JSON.parse(await readFile(ROOT_PACKAGE_URL, 'utf8'));
-  assert.match(pkg.scripts?.['web:build'] ?? '', new RegExp(`VITE_PRIVY_APP_ID=${PRIVY_APP_ID}`));
+function rootWebBuildScript() {
+  return rootPackage.scripts?.['web:build'] ?? '';
+}
+
+test('production web build includes the public Privy app id', () => {
+  assert.match(rootWebBuildScript(), new RegExp(`VITE_PRIVY_APP_ID=${PRIVY_APP_ID}`));
+});
+
+test('root web:build script emits assets under /multipass/', () => {
+  assert.match(rootWebBuildScript(), /MULTIPASS_BASE=\/multipass\//, 'web:build must set the deployed Vite base path');
 });
