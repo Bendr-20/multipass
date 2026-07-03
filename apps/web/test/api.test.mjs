@@ -12,6 +12,7 @@ import {
   loadJson,
   loadMultipassDemo,
   loadSavedMultipassDemo,
+  normalizeHelixaAgentDnaSource,
   shouldUseStaticDemo,
   loadStaticMultipassDemo,
 } from '../src/api.js';
@@ -53,6 +54,21 @@ test('buildHydratedSavedRoute creates saved hydrated route', () => {
     buildHydratedSavedRoute('/multipass-api', 'bendr-2-1'),
     '/multipass-api/api/multipass/bendr-2-1/hydrated',
   );
+});
+
+test('normalizeHelixaAgentDnaSource accepts positive Base AgentDNA sources', () => {
+  assert.equal(normalizeHelixaAgentDnaSource('1'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('8453:1'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('helixa-agentdna:8453:1'), 'helixa-agentdna:8453:1');
+});
+
+test('normalizeHelixaAgentDnaSource rejects zero and unsupported AgentDNA sources', () => {
+  for (const source of ['0', '00', '8453:0', '8453:00', 'helixa-agentdna:8453:0', 'helixa-agentdna:8453:00']) {
+    assert.equal(normalizeHelixaAgentDnaSource(source), null, source);
+  }
+
+  assert.equal(normalizeHelixaAgentDnaSource('8454:1'), null);
+  assert.equal(normalizeHelixaAgentDnaSource('erc8004:eip155:8453:0xabc:1'), null);
 });
 
 test('getApiBaseFromLocation accepts only safe http URLs and falls back otherwise', () => {

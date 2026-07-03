@@ -48,11 +48,16 @@ export function buildSavedRoutes(apiBase, slug) {
 
 export function normalizeHelixaAgentDnaSource(input) {
   const raw = String(input ?? '').trim();
-  if (/^helixa-agentdna:8453:\d+$/.test(raw)) return raw;
+  const canonical = raw.match(/^helixa-agentdna:8453:(\d+)$/);
+  if (canonical) return isPositiveTokenId(canonical[1]) ? raw : null;
   const legacy = raw.match(/^8453:(\d+)$/);
-  if (legacy) return `helixa-agentdna:8453:${legacy[1]}`;
-  if (/^\d+$/.test(raw) && raw !== '0') return `helixa-agentdna:8453:${raw}`;
+  if (legacy) return isPositiveTokenId(legacy[1]) ? `helixa-agentdna:8453:${legacy[1]}` : null;
+  if (isPositiveTokenId(raw)) return `helixa-agentdna:8453:${raw}`;
   return null;
+}
+
+function isPositiveTokenId(tokenId) {
+  return /^\d+$/.test(tokenId) && /[1-9]/.test(tokenId);
 }
 
 export function buildCanonicalResolveRoute(apiBase, source) {
