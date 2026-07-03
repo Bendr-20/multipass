@@ -46,6 +46,25 @@ export function buildSavedRoutes(apiBase, slug) {
   };
 }
 
+export function normalizeHelixaAgentDnaSource(input) {
+  const raw = String(input ?? '').trim();
+  if (/^helixa-agentdna:8453:\d+$/.test(raw)) return raw;
+  const legacy = raw.match(/^8453:(\d+)$/);
+  if (legacy) return `helixa-agentdna:8453:${legacy[1]}`;
+  if (/^\d+$/.test(raw) && raw !== '0') return `helixa-agentdna:8453:${raw}`;
+  return null;
+}
+
+export function buildCanonicalResolveRoute(apiBase, source) {
+  const base = stripTrailingSlash(apiBase || DEFAULT_API_BASE);
+  return `${base}/api/multipass/resolve?source=${encodeURIComponent(source)}`;
+}
+
+export function buildHydratedSavedRoute(apiBase, slug) {
+  const base = stripTrailingSlash(apiBase || DEFAULT_API_BASE);
+  return `${base}/api/multipass/${encodeURIComponent(slug)}/hydrated`;
+}
+
 export function buildDemoRoutes(apiBase, subject) {
   const base = stripTrailingSlash(apiBase || DEFAULT_API_BASE);
   const root = `${base}/api/multipass/${encodeURIComponent(subject.slug)}`;
@@ -73,7 +92,31 @@ export async function loadJson(route, fetchImpl = fetch) {
   }
 }
 
+async function loadJsonWithStatus(route, fetchImpl = fetch) {
+  const response = await fetchImpl(route);
+  if (!response.ok) return { ok: false, status: response.status };
+
+  const text = await response.text();
+  try {
+    return { ok: true, status: response.status, body: JSON.parse(text) };
+  } catch (error) {
+    throw new Error(`API returned invalid JSON for ${route}: ${error.message}`);
+  }
+}
+
+export async function loadHydratedMultipassDemo({ route, fetchImpl = fetch }) {
+  const hydrated = await loadJson(route, fetchImpl);
+  return normalizeHydratedMultipassDemo(hydrated, { route });
+}
+
 export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug, fetchImpl = fetch }) {
+  const hydratedRoute = buildHydratedSavedRoute(apiBase, slug);
+  const hydrated = await loadJsonWithStatus(hydratedRoute, fetchImpl);
+  if (hydrated.ok) return normalizeHydratedMultipassDemo(hydrated.body, { route: hydratedRoute });
+  if (hydrated.status !== 404) {
+    throw new Error(`GET ${hydratedRoute} failed with ${hydrated.status}`);
+  }
+
   const routes = buildSavedRoutes(apiBase, slug);
   const [profile, fragments, card, standards, x402, tools, changes] = await Promise.all([
     loadJson(routes.profile, fetchImpl),
@@ -93,19 +136,7 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
     standards,
     x402,
     tools,
-    receipt: {
-      schema_version: '0.1.0',
-      receipt_id: 'receipt_unavailable',
-      multipass_id: profile.multipass_id,
-      endpoint_id: 'saved-profile',
-      provider: 'helixa_api',
-      amount: '0',
-      asset: 'CRED',
-      chain_id: 8453,
-      status: 'unavailable',
-      created_at: profile.updated_at ?? new Date(0).toISOString(),
-      response_class: 'not_applicable',
-    },
+    receipt: createUnavailableReceipt(profile),
     changes,
     routes,
     modeLabel: 'Saved Multipass',
@@ -117,6 +148,7 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
       sharePath: `/multipass/${profile.slug}`,
     },
     activation: { state: 'saved_record' },
+    canonicalHydrated: false,
   };
 }
 
@@ -132,6 +164,110 @@ export async function loadMultipassDemo({ apiBase = DEFAULT_API_BASE, subject, f
   ]);
 
   return { profile, fragments, card, standards, x402, receipt, routes, modeLabel: 'Local API Demo', sourceLabel: 'local API' };
+}
+
+function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
+  const profile = hydrated?.profile ?? {};
+  const fragments = hydrated?.fragments ?? { fragments: [] };
+  const card = hydrated?.agent_card ?? hydrated?.card ?? {};
+  const standards = hydrated?.standards ?? { standard_refs: [] };
+  const x402 = hydrated?.x402 ?? { endpoints: [] };
+  const tools = hydrated?.tools ?? { tools: [] };
+  const changes = hydrated?.changes ?? { entries: [] };
+  const sourceIdentity = hydrated?.source_identity ?? {};
+  const mode = hydrated?.mode ?? 'activated';
+  const resolver = createHydratedResolver(sourceIdentity);
+  const modeLabel = formatHydratedModeLabel(mode);
+  const activation = normalizeHydratedActivation(hydrated?.activation, mode);
+  const routes = { ...(hydrated?.routes ?? {}) };
+  if (route && !routes.hydrated) routes.hydrated = route;
+  const sharePath = getHydratedSharePath({ mode, routesMeta: hydrated?.routes_meta, profile, tokenId: resolver.tokenId });
+  const agentCard = createSavedAgentCard({ profile, fragments, card, standards });
+  if (agentCard && resolver.tokenId) {
+    agentCard.tokenId = resolver.tokenId;
+    agentCard.helixaId = resolver.canonicalId ?? agentCard.helixaId;
+  }
+
+  return {
+    profile,
+    fragments,
+    card,
+    standards,
+    x402,
+    tools,
+    receipt: hydrated?.receipt ?? createUnavailableReceipt(profile),
+    changes,
+    activation,
+    routes,
+    resolver,
+    modeLabel,
+    sourceLabel: 'Helixa AgentDNA source',
+    agentCards: agentCard ? [agentCard] : [],
+    liveProfilePage: {
+      headline: `${profile.display_name ?? card.name ?? 'Multipass'} Multipass`,
+      headerMeta: createHydratedHeaderMeta({ modeLabel, resolver, profile }),
+      sharePath,
+    },
+    canonicalHydrated: true,
+  };
+}
+
+function createHydratedResolver(sourceIdentity) {
+  const tokenId = sourceIdentity?.token_id == null ? null : String(sourceIdentity.token_id);
+  return {
+    tokenId,
+    canonicalId: sourceIdentity?.legacy_canonical_id ?? (tokenId ? `8453:${tokenId}` : null),
+    sourceCanonicalId: sourceIdentity?.canonical_id ?? null,
+  };
+}
+
+function normalizeHydratedActivation(activation, mode) {
+  const normalized = { ...(activation ?? {}) };
+  if (mode === 'saved') normalized.state = 'saved_record';
+  if (!normalized.state && mode === 'activated') normalized.state = 'activated';
+  if (!normalized.state && mode === 'activation_preview') normalized.state = 'not_activated';
+  return normalized;
+}
+
+function formatHydratedModeLabel(mode) {
+  if (mode === 'activation_preview') return 'Activation Preview';
+  if (mode === 'saved') return 'Saved Multipass';
+  return 'Activated Multipass';
+}
+
+function getHydratedSharePath({ mode, routesMeta, profile, tokenId }) {
+  if (mode === 'activation_preview') {
+    return `/multipass/?agent=${encodeURIComponent(tokenId ?? '')}`;
+  }
+
+  const publicProfile = routesMeta?.public_profile;
+  if (isSafeMultipassSharePath(publicProfile)) return String(publicProfile);
+
+  const profilePath = profile?.slug ? `/multipass/${encodeURIComponent(profile.slug)}` : null;
+  if (isSafeMultipassSharePath(profilePath)) return profilePath;
+
+  return tokenId ? `/multipass/?agent=${encodeURIComponent(tokenId)}` : '/multipass/';
+}
+
+function createHydratedHeaderMeta({ modeLabel, resolver, profile }) {
+  const subject = resolver.canonicalId ?? resolver.sourceCanonicalId ?? profile?.slug ?? profile?.multipass_id ?? 'source';
+  return `${modeLabel} · ${subject}`;
+}
+
+function createUnavailableReceipt(profile) {
+  return {
+    schema_version: '0.1.0',
+    receipt_id: 'receipt_unavailable',
+    multipass_id: profile?.multipass_id,
+    endpoint_id: 'saved-profile',
+    provider: 'helixa_api',
+    amount: '0',
+    asset: 'CRED',
+    chain_id: 8453,
+    status: 'unavailable',
+    created_at: profile?.updated_at ?? new Date(0).toISOString(),
+    response_class: 'not_applicable',
+  };
 }
 
 function createSavedAgentCard({ profile, fragments, card, standards } = {}) {
