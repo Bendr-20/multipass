@@ -16,6 +16,7 @@ import {
   normalizeManagerFragmentPatch,
   summarizePublicFragments,
 } from './fragment-manager.js';
+import { refreshToolFragment } from './tool-refresh.js';
 import {
   deriveAgentCardServiceUpdates,
   deriveX402ManifestFromTools,
@@ -522,6 +523,44 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
         },
       });
       return readToolImportResult(db, profile.multipass_id, fragment.fragment_id);
+    },
+
+    async refreshTool(identifier, fragmentId, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const actorWallet = normalizeWallet(context.actorWallet, 'actorWallet');
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const index = bundle.fragments.findIndex((fragment) => fragment.fragment_id === fragmentId);
+      if (index === -1 || bundle.fragments[index]?.fragment_type !== 'tool_manifest') {
+        throw new Error('Tool fragment not found.');
+      }
+      const current = bundle.fragments[index];
+      if (['revoked', 'historical'].includes(current.status)) {
+        throw new Error('Tool fragment is not refreshable.');
+      }
+      const { fragment, refresh } = await refreshToolFragment(current, {
+        fetchImpl: context.fetchImpl,
+        now,
+        timeoutMs: context.timeoutMs,
+      });
+      const fragments = bundle.fragments.with(index, fragment);
+      writeFragmentMutation(db, bundle, fragments, {
+        now,
+        message: `Tool service refreshed: ${fragment.tool_manifest_ref.name}.`,
+        auditType: 'tool_refreshed',
+        auditPayload: {
+          actorWallet,
+          fragmentId: fragment.fragment_id,
+          toolId: fragment.tool_manifest_ref.tool_id,
+          registry: fragment.tool_manifest_ref.registry,
+          status: fragment.status,
+        },
+      });
+      return {
+        ...readToolImportResult(db, profile.multipass_id, fragment.fragment_id),
+        refresh,
+      };
     },
 
     updatePublicProfile(identifier, edits = {}, input = {}) {

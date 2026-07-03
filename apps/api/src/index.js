@@ -121,6 +121,7 @@ export function createMultipassApi({
   adminSecret,
   signatureVerifier = verifyEthereumPersonalSignature,
   cookieSecure,
+  fetchImpl = fetch,
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
@@ -137,6 +138,7 @@ export function createMultipassApi({
     signatureVerifier,
     cookieSecure: cookieSecure ?? inferSecureCookie(allowedOrigins, normalizedBaseUrl),
     cookieName: MANAGER_COOKIE_NAME,
+    fetchImpl,
   };
 
   return {
@@ -233,6 +235,10 @@ async function handlePostRequest(request, parts, context) {
 
   if (parts[2] && parts[3] === 'fragments' && parts[4] && parts[5] === 'revoke' && parts.length === 6) {
     return handleRevokeFragment(request, parts[2], parts[4], context);
+  }
+
+  if (parts[2] && parts[3] === 'tools' && parts[4] && parts[5] === 'refresh' && parts.length === 6) {
+    return handleRefreshTool(request, parts[2], parts[4], context);
   }
 
   if (parts[2] && parts[3] === 'tools' && parts[4] === 'import' && parts.length === 5) {
@@ -472,6 +478,22 @@ async function handleImportTool(request, identifier, context) {
   try {
     const imported = context.savedRecords.importBankrTool(profile.multipass_id, body, { actorWallet: session.manager_wallet });
     return jsonResponse({ schema_version: '0.1.0', ...imported }, 201);
+  } catch (error) {
+    throw mapToolImportError(error);
+  }
+}
+
+async function handleRefreshTool(request, identifier, fragmentId, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+  }
+  const { profile, session } = requireManagerSession(request, identifier, context);
+  try {
+    const refreshed = await context.savedRecords.refreshTool(profile.multipass_id, fragmentId, {
+      actorWallet: session.manager_wallet,
+      fetchImpl: context.fetchImpl,
+    });
+    return jsonResponse({ schema_version: '0.1.0', ...refreshed });
   } catch (error) {
     throw mapToolImportError(error);
   }

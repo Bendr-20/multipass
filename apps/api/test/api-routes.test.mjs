@@ -666,7 +666,7 @@ function makeClaimApi() {
   return makeClaimApiWithRecords().api;
 }
 
-function makeClaimApiWithRecords() {
+function makeClaimApiWithRecords(options = {}) {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   savedRecords.saveActivatedRecord(makeSavedRecord());
   return {
@@ -677,6 +677,7 @@ function makeClaimApiWithRecords() {
       baseUrl: 'https://multipass.example.test',
       allowedOrigins: ['https://multipass.example.test'],
       adminSecret: 'test-admin-secret',
+      fetchImpl: options.fetchImpl,
       signatureVerifier: async ({ wallet, message, signature }) => {
         assert.match(message, /Helixa Multipass claim management/);
         return signature === `valid:${wallet.toLowerCase()}`;
@@ -909,6 +910,64 @@ test('manager session imports Bankr service configs into tools x402 and agent ca
   const card = await requestJson(api, '/api/multipass/bendr-2-1/agent-card');
   assert.equal(card.body.service_endpoints.some((endpoint) => endpoint.endpoint_id === 'cred-report'), true);
   assert.equal(card.body.x402_manifest_url, 'https://multipass.example.test/api/multipass/mp_helixa_agent_1/x402');
+});
+
+test('manager session refreshes Bankr tool status from x402 challenge metadata', async () => {
+  const { api } = makeClaimApiWithRecords({
+    fetchImpl: async () => new Response(JSON.stringify({ accepts: [{ network: 'eip155:8453', maxAmountRequired: '1000000' }] }), {
+      status: 402,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  const { headers, csrfToken } = await createOwnerSession(api);
+  const imported = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/import', bankrToolImportInput(), headers);
+  const fragmentId = imported.body.fragment.fragment_id;
+
+  const missingSession = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/tools/${fragmentId}/refresh`, {}, {
+    origin: 'https://multipass.example.test',
+    'x-csrf-token': csrfToken,
+  });
+  assert.equal(missingSession.response.status, 401);
+
+  const refreshed = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/tools/${fragmentId}/refresh`, {}, headers);
+  assert.equal(refreshed.response.status, 200);
+  assert.equal(refreshed.body.fragment.status, 'verified');
+  assert.equal(refreshed.body.refresh.status, 'verified');
+  assert.match(refreshed.body.refresh.summary, /endpoint reachable/i);
+  assert.equal(refreshed.body.fragment.tool_manifest_ref.last_checked_at, refreshed.body.refresh.checked_at);
+  assert.deepEqual(refreshed.body.tools.tools.map((tool) => [tool.tool_id, tool.status]), [['cred-report', 'verified']]);
+
+  const changes = await requestJson(api, '/api/multipass/bendr-2-1/changes');
+  assert.match(changes.body.entries.at(-1).message, /Tool service refreshed: cred-report\./);
+});
+
+test('manager session marks failed tool refresh stale without deleting the card', async () => {
+  const { api } = makeClaimApiWithRecords({
+    fetchImpl: async () => new Response('server down', { status: 500 }),
+  });
+  const { headers } = await createOwnerSession(api);
+  const imported = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/import', bankrToolImportInput(), headers);
+  const fragmentId = imported.body.fragment.fragment_id;
+
+  const refreshed = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/tools/${fragmentId}/refresh`, {}, headers);
+  assert.equal(refreshed.response.status, 200);
+  assert.equal(refreshed.body.fragment.status, 'stale');
+  assert.equal(refreshed.body.refresh.status, 'stale');
+  assert.match(refreshed.body.refresh.summary, /endpoint check failed/i);
+
+  const tools = await requestJson(api, '/api/multipass/bendr-2-1/tools');
+  assert.deepEqual(tools.body.tools.map((tool) => [tool.tool_id, tool.status]), [['cred-report', 'stale']]);
+});
+
+test('manager tool refresh rejects unknown and non-tool fragments', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+
+  const unknown = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/frag_missing/refresh', {}, headers);
+  assert.equal(unknown.response.status, 404);
+
+  const nonTool = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/tools/frag_helixa_activation/refresh', {}, headers);
+  assert.equal(nonTool.response.status, 404);
 });
 
 test('fragment write routes enforce manager session csrf origin blocked inputs and imported read-only fragments', async () => {
