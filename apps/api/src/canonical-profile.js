@@ -1,5 +1,6 @@
 const HELIXA_CHAIN_ID = 8453;
 const HELIXA_SOURCE_TYPE = 'helixa_agent';
+const HYDRATED_PROFILE_MODES = new Set(['activated', 'saved', 'activation_preview']);
 
 export function normalizeMultipassSourceInput(input) {
   const raw = String(input ?? '').trim();
@@ -13,13 +14,13 @@ export function normalizeMultipassSourceInput(input) {
   let tokenId;
   if (explicit) {
     chainId = Number(explicit[1]);
-    tokenId = explicit[2];
+    tokenId = normalizeHelixaTokenId(explicit[2]);
   } else if (legacy) {
     chainId = Number(legacy[1]);
-    tokenId = legacy[2];
+    tokenId = normalizeHelixaTokenId(legacy[2]);
   } else if (tokenOnly) {
     chainId = HELIXA_CHAIN_ID;
-    tokenId = raw;
+    tokenId = normalizeHelixaTokenId(raw);
   } else if (/^(erc8004|agent-nft|agent-aura):/.test(raw)) {
     throw new TypeError('That source identity type is not supported in this implementation slice.');
   } else {
@@ -27,7 +28,6 @@ export function normalizeMultipassSourceInput(input) {
   }
 
   if (chainId !== HELIXA_CHAIN_ID) throw new TypeError('This slice supports Base Helixa AgentDNA records only. Use chain 8453.');
-  if (!/^\d+$/.test(tokenId) || tokenId === '0') throw new TypeError('Use a positive Helixa AgentDNA token ID.');
 
   return {
     kind: 'helixa_agentdna',
@@ -43,6 +43,7 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
   if (!profile) throw new TypeError('Hydrated profile response requires profile.');
   if (!sourceStore) throw new TypeError('Hydrated profile response requires sourceStore.');
   if (!sourceIdentity) throw new TypeError('Hydrated profile response requires sourceIdentity.');
+  if (!HYDRATED_PROFILE_MODES.has(mode)) throw new TypeError('Hydrated profile response mode must be one of activated, saved, activation_preview.');
 
   const multipassId = profile.multipass_id;
   const source = sourceIdentity;
@@ -99,6 +100,12 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
       activate: `/multipass/?agent=${encodeURIComponent(source.tokenId)}`,
     },
   };
+}
+
+function normalizeHelixaTokenId(tokenId) {
+  const raw = String(tokenId);
+  if (!/^\d+$/.test(raw) || /^0+$/.test(raw)) throw new TypeError('Use a positive Helixa AgentDNA token ID.');
+  return raw.replace(/^0+/, '');
 }
 
 function createHydratedRoutes(baseUrl, identifier) {

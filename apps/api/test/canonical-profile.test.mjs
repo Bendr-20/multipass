@@ -17,11 +17,30 @@ test('normalizeMultipassSourceInput accepts Helixa AgentDNA shorthand and explic
   });
   assert.equal(normalizeMultipassSourceInput('8453:1').canonicalId, 'helixa-agentdna:8453:1');
   assert.equal(normalizeMultipassSourceInput('helixa-agentdna:8453:1').legacyCanonicalId, '8453:1');
+  assert.deepEqual(normalizeMultipassSourceInput('001'), {
+    kind: 'helixa_agentdna',
+    sourceType: 'helixa_agent',
+    canonicalId: 'helixa-agentdna:8453:1',
+    legacyCanonicalId: '8453:1',
+    chainId: 8453,
+    tokenId: '1',
+  });
+  assert.deepEqual(normalizeMultipassSourceInput('8453:001'), {
+    kind: 'helixa_agentdna',
+    sourceType: 'helixa_agent',
+    canonicalId: 'helixa-agentdna:8453:1',
+    legacyCanonicalId: '8453:1',
+    chainId: 8453,
+    tokenId: '1',
+  });
 });
 
 test('normalizeMultipassSourceInput rejects unsupported source shapes', () => {
   assert.throws(() => normalizeMultipassSourceInput(''), /source/i);
   assert.throws(() => normalizeMultipassSourceInput('8453:0'), /token/i);
+  assert.throws(() => normalizeMultipassSourceInput('8453:00'), /positive Helixa AgentDNA token/i);
+  assert.throws(() => normalizeMultipassSourceInput('00'), /positive Helixa AgentDNA token/i);
+  assert.throws(() => normalizeMultipassSourceInput('helixa-agentdna:8453:000'), /positive Helixa AgentDNA token/i);
   assert.throws(() => normalizeMultipassSourceInput('1:1'), /Base Helixa/i);
   assert.throws(() => normalizeMultipassSourceInput('erc8004:eip155:8453:0xabc:1'), /not supported/i);
   assert.throws(() => normalizeMultipassSourceInput('agent-nft:eip155:8453:0xabc:1'), /not supported/i);
@@ -96,10 +115,23 @@ test('buildHydratedProfileResponse keeps activation previews on the agent query 
   assert.equal(hydrated.activation.claim_url, null);
   assert.equal(hydrated.routes_meta.public_profile, '/multipass/?agent=1');
   assert.equal(hydrated.routes_meta.activate, '/multipass/?agent=1');
+  assert.deepEqual(Object.keys(hydrated.routes), ['resolve', 'save']);
   assert.equal(hydrated.routes.profile, undefined);
   assert.equal(hydrated.routes.fragments, undefined);
   assert.equal(hydrated.routes.save, 'https://multipass.example.test/api/multipass');
   assert.equal(JSON.stringify(hydrated.routes).includes('/api/multipass/bendr-2-1'), false);
+});
+
+test('buildHydratedProfileResponse rejects invalid modes fail-closed', () => {
+  const args = {
+    profile: { schema_version: '0.1.0', multipass_id: 'mp_1', slug: 'agent-1', display_name: 'Agent 1' },
+    sourceStore: makeSourceStore(),
+    sourceIdentity: normalizeMultipassSourceInput('1'),
+    baseUrl: 'https://multipass.example.test',
+  };
+
+  assert.throws(() => buildHydratedProfileResponse({ ...args, mode: 'bad_mode' }), /mode/i);
+  assert.throws(() => buildHydratedProfileResponse({ ...args, mode: undefined }), /mode/i);
 });
 
 test('buildHydratedProfileResponse requires explicit source identity', () => {
