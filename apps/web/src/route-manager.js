@@ -93,7 +93,7 @@ export function renderPublicRoutesPanel(data) {
       <div class="public-routes-heading">
         <p class="card-label">Public routes</p>
         <h3>Published reference routes.</h3>
-        <p>Display-only route cards for public profile references. Private credentials stay hidden.</p>
+        <p>Public route cards for profile references. Private credentials stay hidden.</p>
       </div>
       <div class="public-route-list">
         ${routes.map((route) => renderPublicRouteCard(route, { primary: route.fragment_id === primaryId })).join('')}

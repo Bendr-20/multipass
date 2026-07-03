@@ -34,7 +34,7 @@ export function renderSavePanel(state) {
     ? `<p class="save-share-path">${escapeHtml(state.savedSharePath)}</p>`
     : '';
   const success = state.saveStatus === 'saved'
-    ? `<p class="save-message">Saved Multipass. Stable public profile is ready to share.</p>${share}<p class="save-message muted">Saved, unclaimed display-only Multipass.</p>`
+    ? `<p class="save-message">Saved Multipass. Stable public profile is ready to share.</p>${share}<p class="save-message muted">Saved, unclaimed Multipass. Claim management when ready.</p>`
     : '';
   const error = state.saveStatus === 'error'
     ? `<p class="save-message error">Could not save Multipass. Try again. ${escapeHtml(state.saveError ?? '')}</p>`

@@ -7,6 +7,11 @@ import {
   assertX402Manifest,
 } from '@helixa/multipass-sdk';
 
+import {
+  HELIXA_SOURCE_TYPE,
+  buildHydratedProfileResponse,
+  normalizeMultipassSourceInput,
+} from './canonical-profile.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
 import {
   deriveAgentCardServiceUpdates,
@@ -18,6 +23,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
+const HELIXA_SAVED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE]);
 
 export function createMemoryStore(input = {}) {
   const {
@@ -169,6 +175,10 @@ export function createMultipassApi({
 
         if (url.pathname === '/api/openapi.json') {
           return jsonResponse(createOpenApiDocument(normalizedBaseUrl));
+        }
+
+        if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'resolve') {
+          return await handleCanonicalResolve(url, context);
         }
 
         if (parts[0] === 'api' && parts[1] === 'resolve') {
@@ -551,18 +561,44 @@ function handleSessionLogout(request, identifier, context) {
   return jsonResponse({ schema_version: '0.1.0', ok: true }, 200, { 'set-cookie': clearSessionCookie(context) });
 }
 
+async function handleCanonicalResolve(url, context) {
+  const sourceRaw = String(url.searchParams.get('source') ?? '').trim();
+  if (!sourceRaw) throw new ApiInputError('invalid_request', 'Provide source to resolve.');
+  return jsonResponse(await resolveCanonicalSource(sourceRaw, context));
+}
+
 async function handleResolve(url, context) {
   const agent = String(url.searchParams.get('agent') ?? '').trim();
   if (!agent) throw new ApiInputError('invalid_request', 'Provide agent to resolve.');
 
-  const existing = resolvePublicProfile(agent, context);
-  if (existing) {
+  if (isCanonicalSourceInput(agent)) {
+    return jsonResponse(addLegacyResolverSource(await resolveCanonicalSource(agent, context), context.savedRecords));
+  }
+
+  const savedProfile = context.savedRecords?.resolveProfile?.(agent);
+  if (savedProfile) {
+    try {
+      return jsonResponse(addLegacyResolverSource(buildHydratedProfileResponse({
+        mode: 'saved',
+        profile: savedProfile,
+        sourceStore: context.savedRecords,
+        sourceIdentity: inferHelixaSourceIdentityFromSaved(savedProfile, context.savedRecords),
+        baseUrl: context.normalizedBaseUrl,
+      }), context.savedRecords));
+    } catch (error) {
+      if (!(error instanceof ApiNotFoundError)) throw error;
+      return jsonResponse(buildLegacySavedResolverResponse(savedProfile, context));
+    }
+  }
+
+  const fixtureProfile = context.store.resolveProfile(agent);
+  if (fixtureProfile) {
     return jsonResponse({
       schema_version: '0.1.0',
       state: 'saved_record',
-      profile: existing.profile,
-      source: existing.sourceStore.getSourceContext?.(existing.profile.multipass_id)?.activation ?? null,
-      routes: createProfileRoutes(context.normalizedBaseUrl, existing.profile.slug),
+      profile: fixtureProfile,
+      source: null,
+      routes: createProfileRoutes(context.normalizedBaseUrl, fixtureProfile.slug),
     });
   }
 
@@ -571,16 +607,48 @@ async function handleResolve(url, context) {
   }
 
   try {
-    const record = await context.activationService(agent);
-    return jsonResponse({
-      schema_version: '0.1.0',
-      state: 'activated_unsaved',
-      profile: record.profile,
-      source: record.source,
-      save_url: `${context.normalizedBaseUrl}/api/multipass`,
-    });
+    return jsonResponse(await resolveCanonicalSource(agent, context));
   } catch (error) {
     return errorResponse(404, 'not_found', `Multipass not found: ${agent}`);
+  }
+}
+
+async function resolveCanonicalSource(sourceRaw, context) {
+  const sourceIdentity = normalizeMultipassSourceInput(sourceRaw);
+
+  const existing = context.savedRecords?.resolveBySource?.(sourceIdentity.sourceType, sourceIdentity.legacyCanonicalId)
+    ?? context.savedRecords?.resolveBySource?.(sourceIdentity.sourceType, sourceIdentity.canonicalId)
+    ?? null;
+  if (existing) {
+    return buildHydratedProfileResponse({
+      mode: 'activated',
+      profile: existing.profile,
+      sourceStore: context.savedRecords,
+      sourceIdentity,
+      baseUrl: context.normalizedBaseUrl,
+    });
+  }
+
+  if (!context.activationService) {
+    throw new ApiNotFoundError(`Multipass source not found: ${sourceRaw}`);
+  }
+
+  try {
+    const record = await context.activationService(sourceIdentity.tokenId);
+    return {
+      ...buildHydratedProfileResponse({
+        mode: 'activation_preview',
+        profile: record.profile,
+        sourceStore: createRecordSourceStore(record),
+        sourceIdentity,
+        baseUrl: context.normalizedBaseUrl,
+        activation: { state: 'not_activated', manager_state: 'none', claim_url: null },
+      }),
+      source: record.source,
+      save_url: `${context.normalizedBaseUrl}/api/multipass`,
+    };
+  } catch (error) {
+    throw new ApiNotFoundError(`Multipass source not found: ${sourceRaw}`);
   }
 }
 
@@ -628,6 +696,16 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
 
   if (!readParts.resource) {
     return jsonResponse(profile);
+  }
+
+  if (readParts.resource === 'hydrated' && !readParts.resourceId) {
+    return jsonResponse(buildHydratedProfileResponse({
+      mode: 'saved',
+      profile,
+      sourceStore,
+      sourceIdentity: inferHelixaSourceIdentityFromSaved(profile, sourceStore),
+      baseUrl: normalizedBaseUrl,
+    }));
   }
 
   if (readParts.resource === 'fragments' && !readParts.resourceId) {
@@ -684,6 +762,93 @@ function normalizePublicReadParts(parts) {
     return { identifier: parts[3], resource: parts[4] ?? null, resourceId: parts[5] ?? null };
   }
   return null;
+}
+
+function createRecordSourceStore(record) {
+  return createMemoryStore({
+    profiles: [record.profile],
+    fragments: record.fragments ?? [],
+    agentCards: [record.agentCard],
+    standardsProfiles: [record.standardsProfile],
+    x402Manifests: [record.x402Manifest],
+    receiptFragments: record.receipts ?? [],
+  });
+}
+
+function inferHelixaSourceIdentityFromSaved(profile, sourceStore) {
+  const activation = sourceStore.getSourceContext?.(profile.multipass_id)?.activation;
+  const sourceType = String(activation?.sourceType ?? '').trim();
+  const canonicalId = String(activation?.canonicalId ?? '').trim();
+
+  if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceType) || !canonicalId) {
+    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+  }
+
+  try {
+    const sourceIdentity = normalizeMultipassSourceInput(canonicalId);
+    if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceIdentity.sourceType)) {
+      throw new TypeError('Saved Multipass source is not a Helixa source.');
+    }
+    return sourceIdentity;
+  } catch {
+    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+  }
+}
+
+function buildLegacySavedResolverResponse(profile, context) {
+  return {
+    schema_version: '0.1.0',
+    state: 'saved_record',
+    profile,
+    source: getLegacySourceFromSavedContext(profile, context.savedRecords),
+    routes: createProfileRoutes(context.normalizedBaseUrl, profile.slug),
+  };
+}
+
+function addLegacyResolverSource(response, sourceStore) {
+  if (response?.state !== 'saved_record' || response.source !== undefined || !response.profile) {
+    return response;
+  }
+
+  const source = getLegacySourceFromSavedContext(response.profile, sourceStore);
+  return source ? { ...response, source } : response;
+}
+
+function getLegacySourceFromSavedContext(profile, sourceStore) {
+  const activation = sourceStore?.getSourceContext?.(profile.multipass_id)?.activation;
+  const sourceType = String(activation?.sourceType ?? '').trim();
+  const canonicalId = String(activation?.canonicalId ?? '').trim();
+  if (!sourceType || !canonicalId) return null;
+
+  return pruneUndefined({
+    state: copyStringOrNull(activation.state),
+    origin: copyStringOrNull(activation.origin),
+    originSource: copyStringOrNull(activation.originSource),
+    sourceType,
+    canonicalId,
+    tokenId: activation.tokenId === undefined ? undefined : copyStringOrNull(activation.tokenId),
+    savedAt: copyStringOrNull(activation.savedAt),
+  });
+}
+
+function copyStringOrNull(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return String(value);
+}
+
+function pruneUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+}
+
+function isCanonicalSourceInput(input) {
+  try {
+    normalizeMultipassSourceInput(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function resolvePublicProfile(identifier, { store, savedRecords }) {
@@ -799,12 +964,14 @@ function createDiscoveryDocument(baseUrl) {
       agent_card: `${baseUrl}/api/multipass/{id}/agent-card`,
       fragments: `${baseUrl}/api/multipass/{id}/fragments`,
       tools: `${baseUrl}/api/multipass/{id}/tools`,
+      hydrated: `${baseUrl}/api/multipass/{id}/hydrated`,
       standards: `${baseUrl}/api/multipass/{id}/standards`,
       x402: `${baseUrl}/api/multipass/{id}/x402`,
       receipts: `${baseUrl}/api/multipass/{id}/receipts`,
       receipt: `${baseUrl}/api/multipass/{id}/receipts/{receipt_id}`,
       changes: `${baseUrl}/api/multipass/{id}/changes`,
       resolve: `${baseUrl}/api/resolve?agent={input}`,
+      canonical_resolve: `${baseUrl}/api/multipass/resolve?source={source}`,
       search: `${baseUrl}/api/search?q={query}`,
       openapi: `${baseUrl}/api/openapi.json`,
     },
@@ -825,7 +992,7 @@ function createOpenApiDocument(baseUrl) {
     info: {
       title: 'Helixa Multipass API',
       version: '0.1.0',
-      description: 'Public display-only Multipass identity and trust profile API. Payments and receipts do not buy trust.',
+      description: 'Public Multipass identity and trust profile API. Payments and receipts do not buy trust.',
     },
     servers: [{ url: baseUrl }],
     paths: {
@@ -836,6 +1003,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/v0/multipass/{id}': { get: { summary: 'Versioned alias for fetching a public Multipass profile', parameters: [pathParameter('id')], responses: { 200: profileResponse } } },
       '/api/multipass/{id}/fragments': { get: { summary: 'Fetch public fragments only', parameters: [pathParameter('id')], responses: { 200: { description: 'Public fragment collection' } } } },
       '/api/multipass/{id}/tools': { get: { summary: 'Fetch public tool and service cards', parameters: [pathParameter('id')], responses: { 200: { description: 'Public tool and service card collection' } } } },
+      '/api/multipass/{id}/hydrated': { get: { summary: 'Fetch a hydrated saved profile with public companion resources', parameters: [pathParameter('id')], responses: { 200: { description: 'Hydrated profile response' } } } },
       '/api/multipass/{id}/card': { get: { summary: 'Compatibility alias for fetching the agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/agent-card': { get: { summary: 'Fetch agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/standards': { get: { summary: 'Fetch standards compatibility profile', parameters: [pathParameter('id')], responses: { 200: { description: 'Standards profile' } } } },
@@ -844,6 +1012,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}/receipts/{receipt_id}': { get: { summary: 'Fetch one public receipt fragment', parameters: [pathParameter('id'), pathParameter('receipt_id')], responses: { 200: { description: 'Receipt fragment' } } } },
       '/api/multipass/{id}/changes': { get: { summary: 'Fetch public change history for saved records when available', parameters: [pathParameter('id')], responses: { 200: { description: 'Public change log' } } } },
       '/api/resolve': { get: { summary: 'Resolve an input to a saved profile or live activation preview', parameters: [queryParameter('agent')], responses: { 200: { description: 'Resolution result' } } } },
+      '/api/multipass/resolve': { get: { summary: 'Resolve a canonical source identity to a hydrated profile or activation preview', parameters: [queryParameter('source')], responses: { 200: { description: 'Canonical source resolution result' } } } },
       '/api/search': { get: { summary: 'Conservative exact or prefix search over public profile summaries', parameters: [queryParameter('q')], responses: { 200: { description: 'Search matches' } } } },
     },
     components: {

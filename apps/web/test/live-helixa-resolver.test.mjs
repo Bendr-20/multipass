@@ -29,6 +29,10 @@ test('parseHelixaResolverInput accepts token id and canonical Base Helixa id', (
   assert.deepEqual(parseHelixaResolverInput(' 8453:1 '), { chainId: 8453, tokenId: '1', canonicalId: '8453:1' });
 });
 
+test('parseHelixaResolverInput accepts explicit Helixa AgentDNA source ids', () => {
+  assert.deepEqual(parseHelixaResolverInput('helixa-agentdna:8453:1'), { chainId: 8453, tokenId: '1', canonicalId: '8453:1' });
+});
+
 test('parseHelixaResolverInput keeps large token ids as strings', () => {
   const parsed = parseHelixaResolverInput('8453:900719925474099312345');
   assert.equal(parsed.tokenId, '900719925474099312345');

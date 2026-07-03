@@ -1,5 +1,5 @@
 import { getActivationState } from './activation.js';
-import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
+import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, isCanonicalHelixaFallbackError, loadCanonicalHelixaMultipass, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
@@ -11,10 +11,11 @@ import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
-export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
+  const activeLoadLiveDemo = loadLiveDemo ?? ((input) => defaultLoadLiveProfile(input, { fetchImpl }));
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
@@ -136,8 +137,8 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
       if (inFlightLiveData) {
         hydratedLiveData = await inFlightLiveData;
       } else {
-        const liveData = await loadLiveDemo(liveProfileKey);
-        hydratedLiveData = await overlaySavedProfileVisual(liveData, { fetchImpl });
+        const liveData = await activeLoadLiveDemo(liveProfileKey);
+        hydratedLiveData = liveData?.canonicalHydrated ? liveData : await overlaySavedProfileVisual(liveData, { fetchImpl });
         setCachedLiveProfile(liveProfileKey, hydratedLiveData);
       }
       if (requestId !== state.resolverRequestId) return;
@@ -241,8 +242,8 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     const inFlight = liveProfileInFlight.get(key);
     if (inFlight) return inFlight;
 
-    const request = loadLiveDemo(key)
-      .then((liveData) => overlaySavedProfileVisual(liveData, { fetchImpl }))
+    const request = activeLoadLiveDemo(key)
+      .then((liveData) => liveData?.canonicalHydrated ? liveData : overlaySavedProfileVisual(liveData, { fetchImpl }))
       .then((hydratedLiveData) => {
         setCachedLiveProfile(key, hydratedLiveData);
         return hydratedLiveData;
@@ -711,6 +712,19 @@ function defaultLoadDemo({ fetchImpl } = {}) {
   });
 }
 
+async function defaultLoadLiveProfile(input, { fetchImpl } = {}) {
+  const locationUrl = new URL(window.location.href);
+  const apiBase = getApiBaseFromLocation(locationUrl);
+  try {
+    return await loadCanonicalHelixaMultipass({ apiBase, input, fetchImpl });
+  } catch (error) {
+    if (isCanonicalHelixaFallbackError(error)) {
+      return loadLiveHelixaMultipass(input, fetchImpl);
+    }
+    throw error;
+  }
+}
+
 function defaultSaveMultipass({ agent, fetchImpl } = {}) {
   return saveActivatedMultipass({ agent, apiBase: getApiBaseFromLocation(new URL(window.location.href)), fetchImpl });
 }
@@ -945,7 +959,7 @@ function renderLegacyProfileShell(root, state, handlers = {}) {
       ${renderProofLedger(proofCards, state.expandedCard)}
 
       <footer class="footer-note">${escapeHtml(['activated', 'saved'].includes(activationState.kind)
-        ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
+        ? 'Public trust profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
         : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
       )}</footer>
     </div>
@@ -993,7 +1007,7 @@ function renderProfilePage(root, state, handlers = {}) {
         <footer class="footer-note">
           <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
           <span>${escapeHtml(['activated', 'saved'].includes(activationState.kind)
-            ? 'Display-only Multipass profile. It does not execute approvals, change authority, expose private credentials, or alter live routes.'
+            ? 'Public trust profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
             : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
           )}</span>
         </footer>
@@ -1131,7 +1145,7 @@ function createProfileVisualIdentity(data, selectedAgent) {
         { label: 'Identifier', value: helixaId ?? 'Public identifier pending' },
         { label: 'Visual source', value: visualSourceLabel },
       ],
-      safetyNote: 'Display-only visual context. This does not grant ownership, custody, approvals, or route authority.',
+      safetyNote: 'Public visual context. Viewing does not grant ownership, custody, approvals, or route authority.',
     },
   };
 }
@@ -1162,14 +1176,14 @@ function initialsForDisplayName(value) {
 function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state }) {
   const shareAndStatus = [
     data.heroNote ? renderProfileInfoPanel('Profile note', data.heroNote) : '',
-    state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : '',
+    state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live source resolved into an activation preview. No approvals, custody, or authority changes.</p>' : '',
     renderSharePanel(data, heroCopy),
     renderSavePanel(state),
     renderActivationSummary(activationState),
   ].join('');
   const claimManagement = renderClaimManagementPanel(state) || renderProfileInfoPanel(
     'Ownership and management',
-    'No management controls are available for this public view. Multipass is display-only here and cannot transfer custody, expose private credentials, or change live routes.'
+    'Public visitors can inspect this trust profile only. Management requires source-owner proof; viewing cannot transfer custody, expose private credentials, or change live routes.'
   );
   const provenance = renderAgentAuraProvenanceDrawer(visualIdentity?.provenanceDrawer) || renderProfileInfoPanel(
     'Visual provenance',
@@ -1188,7 +1202,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
   return `
     <section class="profile-detail-drawers" aria-label="Multipass profile details">
       ${renderProfileDrawer('Share and status', 'Public URL and display state', shareAndStatus)}
-      ${renderProfileDrawer('Ownership and management', 'Display-only authority context', claimManagement)}
+      ${renderProfileDrawer('Ownership and management', 'Source-owner authority context', claimManagement)}
       ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
       ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext)}
       ${renderProfileDrawer('Tools and services', 'Registry-backed public capabilities', publicTools)}
@@ -1502,7 +1516,7 @@ function renderLiveResolver(state, options = {}) {
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}
       ${renderLookupMatches(state.lookupMatches)}
-      ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live record activated into a display-only Multipass. No approvals or authority changes.</p>' : ''}
+      ${state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live source resolved into an activation preview. No approvals, custody, or authority changes.</p>' : ''}
     </section>
   `;
 }
@@ -1604,7 +1618,7 @@ function renderOwnerDashboardPanel(profile, state) {
       <div>
         <p class="card-label">Owner dashboard</p>
         <h3>Public profile controls.</h3>
-        <p>Display-only settings for the public Multipass. Visibility affects public search and discovery, not custody, tools, credentials, or ownership.</p>
+        <p>Public profile settings for the Multipass. Visibility affects public search and discovery, not custody, tools, credentials, or ownership.</p>
       </div>
       <dl class="owner-dashboard-facts">
         <div><dt>Status</dt><dd>${escapeHtml(ownerSummary.owner_state ?? 'unclaimed')}</dd></div>
@@ -2048,7 +2062,7 @@ function renderMarketplaceListing(listing) {
         <div class="listing-copy">
           <p class="card-label">Trust profile context</p>
           <h2>${escapeHtml(listing.title ?? 'Agent listing')}</h2>
-          <p>${escapeHtml(listing.summary ?? 'Public AgentDNA profile prepared for read-only marketplace discovery.')}</p>
+          <p>${escapeHtml(listing.summary ?? 'Public AgentDNA source evidence prepared for marketplace discovery.')}</p>
           ${listing.subtitle ? `<span class="listing-subtitle">${escapeHtml(listing.subtitle)}</span>` : ''}
         </div>
         <div class="listing-score">
@@ -2076,7 +2090,7 @@ function renderMarketplaceListing(listing) {
       </section>
       ${renderListingProofStrip(listing.proof)}
       ${renderListingLinks(listing.links)}
-      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.')}</p>
+      <p class="listing-safety">${escapeHtml(listing.safetyNote ?? 'Public inspection only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.')}</p>
     </section>
   `;
 }

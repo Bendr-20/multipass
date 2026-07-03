@@ -22,13 +22,15 @@ export function parseHelixaResolverInput(input) {
   }
 
   if (/^\d+$/.test(raw)) {
-    if (!isPositiveTokenId(raw)) {
+    const tokenId = normalizePositiveTokenId(raw);
+    if (!tokenId) {
       throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.');
     }
-    return { chainId: HELIXA_CHAIN_ID, tokenId: raw, canonicalId: `${HELIXA_CHAIN_ID}:${raw}` };
+    return { chainId: HELIXA_CHAIN_ID, tokenId, canonicalId: `${HELIXA_CHAIN_ID}:${tokenId}` };
   }
 
-  const canonical = raw.match(/^(\d+):(\d+)$/);
+  const explicitSource = raw.match(/^helixa-agentdna:(\d+):(\d+)$/);
+  const canonical = explicitSource ?? raw.match(/^(\d+):(\d+)$/);
   if (!canonical) {
     throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.');
   }
@@ -38,8 +40,8 @@ export function parseHelixaResolverInput(input) {
     throw new HelixaResolverError('unsupported_chain', 'V0 supports Base Helixa AgentDNA records only.', { chainId });
   }
 
-  const tokenId = canonical[2];
-  if (!isPositiveTokenId(tokenId)) {
+  const tokenId = normalizePositiveTokenId(canonical[2]);
+  if (!tokenId) {
     throw new HelixaResolverError('invalid_format', 'Use a token ID like 1 or a Helixa ID like 8453:1.');
   }
 
@@ -121,7 +123,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   return {
     modeLabel: 'Live Trust Profile',
     sourceLabel: 'live Helixa API',
-    heroNote: `Read-only live Helixa API data for ${displayName}.`,
+    heroNote: `Public Helixa API source evidence for ${displayName}.`,
     liveProfilePage: {
       eyebrow: 'LIVE MULTIPASS',
       prototypeLabel: 'Live trust profile',
@@ -129,7 +131,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
       headline: `${displayName} Multipass`,
       body: `Portable agent trust profile for ${displayName} with public identity, custody context, routes, and proof inspection.`,
       note: `Shareable live trust profile for ${helixaId}.`,
-      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals. Display only; authority and private credentials stay protected.',
+      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals. Viewing does not grant authority, and private credentials stay protected.',
       headerMeta: `Live profile · ${helixaId}`,
       sharePath: `/multipass/?agent=${encodeURIComponent(tokenId)}`,
     },
@@ -325,7 +327,7 @@ function createAuraProvenanceDrawer(agent, { tokenId, credTier, framework, profi
       { label: 'OpenSea item', url: `https://opensea.io/assets/base/${HELIXA_V2_CONTRACT}/${encodeURIComponent(tokenId)}` },
       agent?.explorer ? { label: 'Explorer', url: agent.explorer } : null,
     ]),
-    safetyNote: 'Display only. Public provenance does not grant authority, verify private credentials, or expose secrets.',
+    safetyNote: 'Public provenance context. Viewing does not grant authority, verify private credentials, or expose secrets.',
   };
 }
 
@@ -448,7 +450,7 @@ function createLiveOwnerSnapshot(agent) {
     owner: shortAddress(agent?.owner) ?? 'Owner not published',
     operator: shortAddress(agent?.operator) ?? 'Not delegated',
     custodyEpoch: 'Live API observation',
-    permissionState: 'Read-only public profile',
+    permissionState: 'Public inspection profile',
     visibility: 'Public profile, private credentials hidden',
     recentChange: 'Live profile fetched',
     reviewAction: 'Review live identity fields',
@@ -479,7 +481,7 @@ function createLiveTransferPreview(agent) {
     currentOwner: shortAddress(agent?.owner) ?? 'Owner not published',
     custodyEpoch: 'Live API observation',
     claimAction: 'No transfer detected',
-    permissionsState: 'Read-only public profile',
+    permissionsState: 'Public inspection profile',
     toolAction: 'Reverify tools before active use',
     privateAccessAction: 'Rotate private access on custody change',
     historyState: 'Public history preserved',
@@ -513,7 +515,7 @@ export function createLiveMarketplaceListing(agent, tokenId, fragments, profileU
     paymentReferences: createPaymentReferences(agent),
     proof: createListingProof(fragments),
     links: createListingLinks(agent, profileUrl),
-    safetyNote: 'Display only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.',
+    safetyNote: 'Public inspection only. Marketplace compatibility does not execute listings, authority changes, payments, or private data access.',
   };
 }
 
@@ -532,8 +534,8 @@ function createListingSummary(agent) {
   const skills = agent?.skills ?? [];
   const domains = agent?.domains ?? [];
   const descriptors = [...categories, ...skills, ...domains].filter(Boolean).slice(0, 3);
-  if (descriptors.length) return `Read-only public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility: ${descriptors.join(', ')}.`;
-  return 'Read-only public AgentDNA trust profile with route, custody, and ownership context for marketplace compatibility.';
+  if (descriptors.length) return `Public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility: ${descriptors.join(', ')}.`;
+  return 'Public AgentDNA trust profile with route, custody, and ownership context for marketplace compatibility.';
 }
 
 function createListingBadges(agent, framework) {
@@ -727,6 +729,8 @@ function formatLabel(value) {
   return raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function isPositiveTokenId(value) {
-  return /^\d+$/.test(value) && !/^0+$/.test(value);
+function normalizePositiveTokenId(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw) || !/[1-9]/.test(raw)) return null;
+  return raw.replace(/^0+/, '');
 }
