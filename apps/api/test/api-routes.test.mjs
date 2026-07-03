@@ -256,6 +256,47 @@ function makeSavedRecord() {
   }, { observedAt: '2026-06-26T20:00:00.000Z' });
 }
 
+function makeSavedRecordWithPublicTool() {
+  const record = makeSavedRecord();
+  return {
+    ...record,
+    fragments: [
+      ...record.fragments,
+      makeToolFragment({
+        fragment_id: 'frag_tool_agent_lookup',
+        multipass_id: record.profile.multipass_id,
+      }, {
+        tool_id: 'agent-lookup',
+        name: 'Agent lookup',
+        endpoint_url: 'https://api.example.test/tools/agent-lookup',
+        manifest_url: 'https://api.example.test/tools/agent-lookup/manifest.json',
+      }),
+      makeToolFragment({
+        fragment_id: 'frag_tool_hidden_lookup',
+        multipass_id: record.profile.multipass_id,
+        visibility: 'hidden',
+      }, {
+        tool_id: 'hidden-lookup',
+        name: 'Hidden lookup',
+        endpoint_url: 'https://api.example.test/tools/hidden-lookup',
+      }),
+    ],
+  };
+}
+
+function makeCanonicalApi() {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  return createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+    activationService: async (input) => {
+      assert.equal(input, '1');
+      return makeSavedRecordWithPublicTool();
+    },
+  });
+}
+
 function makeSaveApi() {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   return createMultipassApi({
@@ -524,20 +565,92 @@ test('serves versioned public read aliases and receipt collections', async () =>
   assert.deepEqual(receipts.body.receipts.map((item) => item.receipt_id), ['receipt_1']);
 });
 
+test('GET /api/multipass/resolve hydrates saved Helixa AgentDNA profiles with public tools', async () => {
+  const api = makeCanonicalApi();
+  await postJson(api, '/api/multipass', { agent: '1' });
+
+  const result = await requestJson(api, '/api/multipass/resolve?source=helixa-agentdna:8453:1');
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.mode, 'activated');
+  assert.equal(result.body.state, 'saved_record');
+  assert.equal(result.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.equal(result.body.source_identity.legacy_canonical_id, '8453:1');
+  assert.equal(result.body.profile.slug, 'bendr-2-1');
+  assert.deepEqual(result.body.tools.tools.map((tool) => tool.tool_id), ['agent-lookup']);
+  assert.equal(JSON.stringify(result.body).includes('hidden-lookup'), false);
+  assert.equal(result.body.routes_meta.public_profile, '/multipass/bendr-2-1');
+});
+
+test('GET /api/multipass/:id/hydrated returns the same public tools as source hydration', async () => {
+  const api = makeCanonicalApi();
+  await postJson(api, '/api/multipass', { agent: '1' });
+
+  const hydrated = await requestJson(api, '/api/multipass/bendr-2-1/hydrated');
+
+  assert.equal(hydrated.response.status, 200);
+  assert.equal(hydrated.body.mode, 'saved');
+  assert.equal(hydrated.body.profile.slug, 'bendr-2-1');
+  assert.deepEqual(hydrated.body.tools.tools.map((tool) => tool.tool_id), ['agent-lookup']);
+});
+
+test('GET /api/multipass/resolve returns activation preview without saving unactivated sources', async () => {
+  const api = makeCanonicalApi();
+
+  const preview = await requestJson(api, '/api/multipass/resolve?source=helixa-agentdna:8453:1');
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.mode, 'activation_preview');
+  assert.equal(preview.body.state, 'activated_unsaved');
+  assert.equal(preview.body.activation.state, 'not_activated');
+  assert.equal(preview.body.activation.claim_url, null);
+  assert.equal(preview.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.equal(preview.body.routes_meta.public_profile, '/multipass/?agent=1');
+  assert.equal(preview.body.routes.profile, undefined);
+  assert.equal(preview.body.routes.tools, undefined);
+  assert.equal(preview.body.routes.save, 'https://multipass.example.test/api/multipass');
+  assert.equal(JSON.stringify(preview.body.routes).includes('/api/multipass/bendr-2-1'), false);
+  assert.equal(preview.body.save_url, 'https://multipass.example.test/api/multipass');
+
+  const savedRead = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(savedRead.response.status, 404);
+});
+
 test('resolves saved records and live activation previews through public resolver endpoint', async () => {
-  const api = makeSaveApi();
+  const api = makeCanonicalApi();
   await postJson(api, '/api/multipass', { agent: '1' });
 
   const saved = await requestJson(api, '/api/resolve?agent=bendr-2-1');
   assert.equal(saved.response.status, 200);
   assert.equal(saved.body.state, 'saved_record');
-  assert.equal(saved.body.profile.slug, 'bendr-2-1');
-  assert.equal(saved.body.routes.profile, 'https://multipass.example.test/api/multipass/bendr-2-1');
+  assert.equal(saved.body.mode, 'saved');
+  assert.equal(saved.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+
+  const bySource = await requestJson(api, '/api/resolve?agent=1');
+  assert.equal(bySource.response.status, 200);
+  assert.equal(bySource.body.state, 'saved_record');
+  assert.equal(bySource.body.mode, 'activated');
+  assert.equal(bySource.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.equal(bySource.body.profile.slug, 'bendr-2-1');
+  assert.equal(bySource.body.routes.profile, 'https://multipass.example.test/api/multipass/bendr-2-1');
+
+  const byExplicitSource = await requestJson(api, '/api/resolve?agent=helixa-agentdna:8453:1');
+  assert.equal(byExplicitSource.response.status, 200);
+  assert.equal(byExplicitSource.body.state, 'saved_record');
+  assert.equal(byExplicitSource.body.mode, 'activated');
+  assert.equal(byExplicitSource.body.profile.slug, 'bendr-2-1');
+});
+
+test('legacy /api/resolve numeric agent returns activation preview before save', async () => {
+  const api = makeCanonicalApi();
 
   const live = await requestJson(api, '/api/resolve?agent=1');
+
   assert.equal(live.response.status, 200);
   assert.equal(live.body.state, 'activated_unsaved');
+  assert.equal(live.body.mode, 'activation_preview');
   assert.equal(live.body.source.canonicalId, '8453:1');
+  assert.equal(live.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.equal(live.body.routes_meta.public_profile, '/multipass/?agent=1');
   assert.equal(live.body.save_url, 'https://multipass.example.test/api/multipass');
 });
 
