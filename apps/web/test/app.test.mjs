@@ -3,10 +3,13 @@ import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
 import { createApp } from '../src/app.js';
+import { GENERATED_SHARE_CARDS } from '../src/generated-share-cards.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
+import { getAgentSharePath } from '../src/share-cards.js';
 
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
+const QUIGBOT_GENERATED_SHARE_PATH = getAgentSharePath(GENERATED_SHARE_CARDS['81']);
 
 function sampleData() {
   return {
@@ -883,7 +886,7 @@ test('refreshed saved Quigbot profile uses holder-editable avatar image and sour
   assert.match(auraCard.textContent ?? '', /Cred 75/);
   assert.match(auraCard.textContent ?? '', /verified/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
-  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/?v=visual-2');
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), QUIGBOT_GENERATED_SHARE_PATH);
 });
 
 test('saved Quigbot profile refresh survives trailing slash route', async () => {
@@ -1847,7 +1850,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.equal(auraCard.querySelector('h2')?.textContent, 'Quigbot');
   assert.doesNotMatch(auraCard.textContent, /Helixa Agent Aura/);
   const shareAction = auraCard.querySelector('button.aura-share-action[data-action="share-profile"]');
-  assert.equal(shareAction?.getAttribute('data-share-url'), '/multipass/share/81/?v=visual-2');
+  assert.equal(shareAction?.getAttribute('data-share-url'), QUIGBOT_GENERATED_SHARE_PATH);
   assert.equal(shareAction?.getAttribute('aria-label'), 'Share Quigbot Multipass profile');
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
@@ -1894,7 +1897,44 @@ test('aura share icon opens native share without navigating to crawler preview p
   await Promise.resolve();
 
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
-  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: 'https://helixa.xyz/multipass/share/81/?v=visual-2' }]);
+  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: new URL(QUIGBOT_GENERATED_SHARE_PATH, 'https://helixa.xyz').href }]);
+});
+
+test('resolved numeric profile missing manifest omits aura share action', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=9999');
+  const missingManifestProfile = {
+    ...sampleData(),
+    profile: {
+      ...sampleData().profile,
+      display_name: 'Manifest Missing',
+      slug: 'helixa-agent-9999',
+      multipass_id: 'mp_helixa_agent_9999',
+    },
+    resolver: { canonicalId: '8453:9999', tokenId: '9999' },
+    liveProfilePage: { headline: 'Manifest Missing Multipass', headerMeta: 'Live profile · 8453:9999', sharePath: '/multipass/?agent=9999' },
+    agentCards: [{ name: 'Manifest Missing', tokenId: 9999, helixaId: '8453:9999', framework: 'openclaw', credScore: 50, credTier: 'Test', verified: true, profileUrl: 'https://helixa.xyz/agent/9999' }],
+    visualIdentity: {
+      source: 'helixa_aura',
+      label: 'Manifest Missing visual identity',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/9999.png',
+      initials: 'MM',
+      tone: 'prime',
+      chips: ['8453:9999'],
+    },
+  };
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      assert.equal(input, '9999');
+      return missingManifestProfile;
+    },
+  }).start();
+  await flushAsyncEvents();
+
+  assert.ok(root.querySelector('.aura-card'));
+  assert.equal(root.querySelector('.aura-share-action'), null);
 });
 
 test('Agent Aura provenance drawer is optional and skips empty rows', async () => {

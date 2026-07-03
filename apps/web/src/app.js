@@ -7,6 +7,8 @@ import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteF
 import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
+import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
+import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipass, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
@@ -1130,10 +1132,6 @@ function getProfileAuraTitle(data, selectedAgent) {
   return String(rawTitle).replace(/\s+Multipass$/i, '').trim() || 'Multipass profile';
 }
 
-const AGENT_SHARE_CACHE_VERSIONS = new Map([
-  ['81', 'visual-2'],
-]);
-
 function getProfileAuraSharePath(data, selectedAgent) {
   const candidates = [
     selectedAgent?.tokenId,
@@ -1143,10 +1141,8 @@ function getProfileAuraSharePath(data, selectedAgent) {
     String(data.profile?.multipass_id ?? '').match(/^\d+:(\d+)$/)?.[1],
   ];
   const tokenId = candidates.map((value) => String(value ?? '').trim()).find((value) => /^\d+$/.test(value));
-  if (!tokenId) return null;
-  const version = AGENT_SHARE_CACHE_VERSIONS.get(tokenId);
-  const versionQuery = version ? `?v=${encodeURIComponent(version)}` : '';
-  return `/multipass/share/${encodeURIComponent(tokenId)}/${versionQuery}`;
+  const generatedCard = getAgentShareCard(tokenId, GENERATED_SHARE_CARDS);
+  return getAgentSharePath(generatedCard);
 }
 
 function initialsForDisplayName(value) {
