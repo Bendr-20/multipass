@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
-import { compactBankrToolImportInput, renderPublicToolsPanel, renderToolRegistryManagerPanel } from '../src/tool-manager.js';
+import { bindToolManager, compactBankrToolImportInput, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from '../src/tool-manager.js';
 
 const SAFETY_COPY = 'Discovery metadata only. These cards do not call tools, grant access, release credentials, transfer custody, or prove trust by payment alone.';
 
@@ -170,4 +170,68 @@ test('renderPublicToolsPanel does not invent private fields and escapes public v
   assert.doesNotMatch(root.innerHTML, /sk_live_should_not_render|vault-secret/);
   assert.doesNotMatch(root.innerHTML, /javascript:alert/);
   assert.match(root.textContent, /No safe public endpoint URL published/);
+});
+
+test('owner Tool Registry renders refresh controls only when editable', () => {
+  const ownerRoot = setup(renderToolRegistryManagerPanel({
+    claimCsrfToken: 'csrf-1',
+    data: { tools: { tools: [bankrTool()] } },
+  }, { canEdit: true }));
+  const button = ownerRoot.querySelector('[data-action="refresh-tool"]');
+  assert.ok(button);
+  assert.equal(button.dataset.fragmentId, 'frag_tool_bendr_lookup');
+  assert.match(ownerRoot.textContent, /Refresh status/);
+  assert.match(ownerRoot.textContent, /Refresh checks public discovery metadata only/);
+
+  const publicRoot = setup(renderToolRegistryManagerPanel({
+    data: { tools: { tools: [bankrTool()] } },
+  }, { canEdit: false }));
+  assert.equal(publicRoot.querySelector('[data-action="refresh-tool"]'), null);
+});
+
+test('public Tool Registry cards never render refresh controls', () => {
+  const root = setup(renderPublicToolsPanel({ tools: { tools: [bankrTool()] } }));
+  assert.equal(root.querySelector('[data-action="refresh-tool"]'), null);
+  assert.doesNotMatch(root.textContent, /Refresh status/);
+});
+
+test('bindToolManager dispatches refresh tool handler with fragment id', () => {
+  const root = setup(renderToolRegistryManagerPanel({
+    claimCsrfToken: 'csrf-1',
+    data: { tools: { tools: [bankrTool()] } },
+  }, { canEdit: true }));
+  const calls = [];
+  bindToolManager(root, {
+    refreshTool: (event) => calls.push(event.currentTarget.dataset.fragmentId),
+  });
+
+  root.querySelector('[data-action="refresh-tool"]').click();
+  assert.deepEqual(calls, ['frag_tool_bendr_lookup']);
+});
+
+test('mergeToolRefreshState updates profile fragments tools and scoped status', () => {
+  const current = {
+    claimCsrfToken: 'csrf-1',
+    toolStatus: 'refreshing_tool',
+    toolActiveFragmentId: 'frag_tool_bendr_lookup',
+    data: {
+      profile: { display_name: 'Old' },
+      fragments: { fragments: [] },
+      tools: { tools: [bankrTool({ status: 'stale' })] },
+    },
+  };
+  const result = {
+    profile: { display_name: 'New' },
+    fragments: { fragments: [{ fragment_id: 'frag_tool_bendr_lookup' }] },
+    tools: { tools: [bankrTool({ status: 'verified' })] },
+    refresh: { fragment_id: 'frag_tool_bendr_lookup', status: 'verified', summary: 'Endpoint reachable.' },
+  };
+
+  const next = mergeToolRefreshState(current, result, { toolStatus: 'tool_refreshed' });
+  assert.equal(next.data.profile.display_name, 'New');
+  assert.deepEqual(next.data.fragments.fragments.map((fragment) => fragment.fragment_id), ['frag_tool_bendr_lookup']);
+  assert.equal(next.data.tools.tools[0].status, 'verified');
+  assert.equal(next.toolStatus, 'tool_refreshed');
+  assert.equal(next.toolActiveFragmentId, 'frag_tool_bendr_lookup');
+  assert.equal(next.toolRefresh.fragment_id, 'frag_tool_bendr_lookup');
 });

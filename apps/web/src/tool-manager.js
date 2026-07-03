@@ -4,6 +4,7 @@ const BANKR_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 const TOOL_STATUS_MESSAGES = new Map([
   ['tool_imported', 'Tool service imported.'],
+  ['tool_refreshed', 'Tool status refreshed.'],
 ]);
 
 export function renderPublicToolsPanel(data = {}) {
@@ -48,7 +49,7 @@ export function renderToolRegistryManagerPanel(state = {}, { canEdit = Boolean(s
         <strong>${tools.length} public tool${tools.length === 1 ? '' : 's'}</strong>
         <span>Imported cards are display and discovery metadata only.</span>
       </div>
-      ${publicTools || '<p class="resolver-message">No public tool cards are published for this profile yet.</p>'}
+      ${tools.length ? renderManagedToolList(tools, state) : '<p class="resolver-message">No public tool cards are published for this profile yet.</p>'}
     </section>
   `;
 }
@@ -57,6 +58,12 @@ export function bindToolManager(root, handlers = {}) {
   root.querySelector('[data-action="import-bankr-tool"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     handlers.importBankrTool?.(event);
+  });
+  root.querySelectorAll('[data-action="refresh-tool"]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      handlers.refreshTool?.(event);
+    });
   });
 }
 
@@ -103,6 +110,22 @@ export function mergeToolImportState(current, result, patch = {}) {
   };
 }
 
+export function mergeToolRefreshState(current, result, patch = {}) {
+  const nextProfile = result?.profile ? { ...current.data.profile, ...result.profile } : current.data.profile;
+  return {
+    ...current,
+    ...patch,
+    toolActiveFragmentId: result?.refresh?.fragment_id ?? current.toolActiveFragmentId ?? null,
+    toolRefresh: result?.refresh ?? current.toolRefresh ?? null,
+    data: {
+      ...current.data,
+      profile: nextProfile,
+      fragments: result?.fragments ?? current.data.fragments,
+      tools: result?.tools ?? current.data.tools,
+    },
+  };
+}
+
 export function getPublicTools(data = {}) {
   const collection = Array.isArray(data?.tools?.tools)
     ? data.tools.tools
@@ -112,6 +135,16 @@ export function getPublicTools(data = {}) {
     const visibility = String(tool.visibility ?? 'public').toLowerCase();
     return !['private', 'gated', 'hidden'].includes(visibility);
   });
+}
+
+function renderManagedToolList(tools, state = {}) {
+  return `
+    <div class="public-tools-panel managed-tools-panel" aria-label="Managed tools and services">
+      <div class="public-tool-list">
+        ${tools.map((tool) => renderPublicToolCard(tool, { managerState: state })).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function renderToolRegistryPlaceholder() {
@@ -167,7 +200,7 @@ function getFormValue(formData, key) {
   return String(formData?.get(key) ?? '').trim();
 }
 
-function renderPublicToolCard(tool = {}) {
+function renderPublicToolCard(tool = {}, options = {}) {
   const title = firstText(tool.name, tool.tool_id, 'Public tool card');
   const registry = formatToken(tool.registry);
   const status = formatToken(tool.status);
@@ -201,7 +234,23 @@ function renderPublicToolCard(tool = {}) {
         ${verifiability}
         ${hasText(tool.last_checked_at) ? renderMetaRow('Last checked', tool.last_checked_at) : ''}
       </dl>
+      ${options.managerState ? renderToolActionRow(tool, options.managerState) : ''}
     </article>
+  `;
+}
+
+function renderToolActionRow(tool = {}, state = {}) {
+  const fragmentId = hasText(tool.fragment_id) ? String(tool.fragment_id) : '';
+  if (!fragmentId || !state.claimCsrfToken) return '';
+  const isRefreshing = state.toolStatus === 'refreshing_tool' && state.toolActiveFragmentId === fragmentId;
+  const refresh = state.toolRefresh?.fragment_id === fragmentId ? state.toolRefresh : null;
+  return `
+    <div class="tool-card-actions">
+      <p class="route-field-helper">Refresh checks public discovery metadata only. It does not execute tools, grant access, or release credentials.</p>
+      <button type="button" data-action="refresh-tool" data-fragment-id="${escapeAttribute(fragmentId)}" ${isRefreshing ? 'disabled' : ''}>${isRefreshing ? 'Refreshing...' : 'Refresh status'}</button>
+      ${refresh?.summary ? `<p class="route-field-helper">${escapeHtml(refresh.summary)}</p>` : ''}
+      ${refresh?.checked_at ? `<p class="route-field-helper">Checked ${escapeHtml(refresh.checked_at)}</p>` : ''}
+    </div>
   `;
 }
 

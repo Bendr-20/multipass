@@ -2385,6 +2385,41 @@ test('claimed saved profile can import Bankr x402 tool metadata', async () => {
   assert.ok(toolPanel.querySelector('.public-tool-card'));
 });
 
+test('claimed saved profile can refresh public tool status', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const calls = [];
+  const checkedAt = '2026-07-03T03:30:00.000Z';
+  const refreshedTools = samplePublicTools();
+  refreshedTools.tools = refreshedTools.tools.map((tool) => ({ ...tool, status: 'stale', last_checked_at: checkedAt }));
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile: { ...sampleData().profile, slug: 'bendr-2-1', display_name: 'Saved Bendr' } }),
+    refreshMultipassTool: async ({ id, fragmentId, csrfToken }) => {
+      calls.push(['refresh-tool', id, fragmentId, csrfToken]);
+      return {
+        refresh: { fragment_id: fragmentId, status: 'stale', summary: 'Endpoint check failed.', checked_at: checkedAt },
+        tools: refreshedTools,
+      };
+    },
+  };
+  const walletSigner = async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' });
+
+  await createApp({ root, claimApi, walletSigner, fetchImpl: savedProfileFetch }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+
+  const button = root.querySelector('.tool-manager-panel [data-action="refresh-tool"]');
+  assert.ok(button);
+  button.click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls, [['refresh-tool', 'bendr-2-1', 'frag_tool_bendr_lookup', 'csrf-1']]);
+  const toolPanel = root.querySelector('.tool-manager-panel');
+  assert.match(toolPanel.textContent, /Tool status refreshed/);
+  assert.match(toolPanel.textContent, /Endpoint check failed/);
+  assert.match(toolPanel.textContent, /stale/);
+});
+
 test('failed tool import keeps route and profile data visible', async () => {
   const route = {
     schema_version: '0.1.0',

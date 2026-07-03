@@ -132,6 +132,20 @@ export async function importMultipassTool({ id, apiBase, csrfToken, tool, fetchI
   });
 }
 
+export async function refreshMultipassTool({ id, fragmentId, apiBase, csrfToken, fetchImpl = fetch } = {}) {
+  const safeId = requireMultipassIdentifier(id);
+  const safeFragmentId = requireFragmentIdentifier(fragmentId);
+  return requestSavedJson({
+    apiBase,
+    path: `/api/multipass/${encodeURIComponent(safeId)}/tools/${encodeURIComponent(safeFragmentId)}/refresh`,
+    method: 'POST',
+    body: {},
+    csrfToken,
+    fetchImpl,
+    errorPrefix: 'Tool refresh failed',
+  });
+}
+
 export async function logoutMultipassSession({ id, apiBase, csrfToken, fetchImpl = fetch } = {}) {
   const safeId = requireMultipassIdentifier(id);
   return requestSavedJson({

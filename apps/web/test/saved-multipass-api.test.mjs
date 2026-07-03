@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
 
 test('saveActivatedMultipass posts agent input and returns saved payload', async () => {
   const calls = [];
@@ -151,6 +151,27 @@ test('importMultipassTool posts Bankr service metadata with credentials and CSRF
   assert.equal(calls[0].init.credentials, 'include');
   assert.equal(calls[0].init.headers['x-csrf-token'], 'csrf-1');
   assert.deepEqual(JSON.parse(calls[0].init.body), input);
+});
+
+test('refreshMultipassTool posts tool-scoped refresh with credentials and CSRF', async () => {
+  const calls = [];
+  const result = await refreshMultipassTool({
+    id: 'bendr-2-1',
+    fragmentId: 'frag_tool_bankr_agent_lookup',
+    apiBase: '/multipass-api',
+    csrfToken: 'csrf-1',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ refresh: { status: 'verified' } }), { status: 200 });
+    },
+  });
+
+  assert.deepEqual(result, { refresh: { status: 'verified' } });
+  assert.equal(calls[0].url, '/multipass-api/api/multipass/bendr-2-1/tools/frag_tool_bankr_agent_lookup/refresh');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.credentials, 'include');
+  assert.equal(calls[0].init.headers['x-csrf-token'], 'csrf-1');
+  assert.deepEqual(JSON.parse(calls[0].init.body), {});
 });
 
 test('fragment helpers create update and revoke with credentials and CSRF', async () => {

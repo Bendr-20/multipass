@@ -1,10 +1,10 @@
 import { getActivationState } from './activation.js';
 import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
-import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
-import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
+import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
@@ -520,6 +520,17 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     });
   }
 
+  async function refreshToolMetadata(event) {
+    const id = getManageIdentifier(state);
+    const csrfToken = state.claimCsrfToken;
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    if (!id || !csrfToken || !fragmentId) return;
+    await mutateToolRefresh({
+      activeFragmentId: fragmentId,
+      operation: ({ apiBase }) => claimApi.refreshMultipassTool({ id, fragmentId, apiBase, csrfToken, fetchImpl }),
+    });
+  }
+
   async function mutatePublicFragment({ status, successStatus, operation }) {
     state = { ...state, fragmentStatus: status, fragmentError: null };
     render(root, state, handlers);
@@ -589,6 +600,23 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
+  async function mutateToolRefresh({ activeFragmentId, operation }) {
+    state = { ...state, toolStatus: 'refreshing_tool', toolError: null, toolActiveFragmentId: activeFragmentId };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await operation({ apiBase });
+      state = mergeToolRefreshState(state, result, {
+        toolStatus: 'tool_refreshed',
+        toolError: null,
+        toolActiveFragmentId: activeFragmentId,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      setToolMutationError(error, activeFragmentId);
+    }
+  }
+
   async function logoutManagerSession() {
     const id = getManageIdentifier(state);
     if (!id) return;
@@ -601,7 +629,7 @@ export function createApp({ root, loadDemo, loadLiveDemo = loadLiveHelixaMultipa
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -685,6 +713,7 @@ const defaultClaimApi = {
   updateMultipassFragment,
   revokeMultipassFragment,
   importMultipassTool,
+  refreshMultipassTool,
   logoutMultipassSession,
 };
 
