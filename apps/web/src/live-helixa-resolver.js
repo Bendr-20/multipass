@@ -372,7 +372,7 @@ function createLiveFragments(agent, tokenId, multipassId, observedAt) {
   }
 
   for (const [network, value] of Object.entries(agent?.socials ?? {})) {
-    if (!value) continue;
+    if (!value || !isMultipassPublicRouteChannel(network)) continue;
     fragments.push(createFragment({
       fragment_id: `frag_live_${tokenId}_social_${safeKey(network)}`,
       multipass_id: multipassId,
@@ -389,7 +389,7 @@ function createLiveFragments(agent, tokenId, multipassId, observedAt) {
 
   for (const [service, config] of Object.entries(agent?.services ?? {})) {
     const route = config?.url ?? config?.handle;
-    if (!route) continue;
+    if (!route || !isMultipassPublicRouteChannel(service)) continue;
     fragments.push(createFragment({
       fragment_id: `frag_live_${tokenId}_service_${safeKey(service)}`,
       multipass_id: multipassId,
@@ -561,7 +561,7 @@ function createPublicRoutes(agent) {
   const routes = [];
   for (const [service, config] of Object.entries(agent?.services ?? {})) {
     const routeValue = config?.url ?? config?.handle;
-    if (!routeValue) continue;
+    if (!routeValue || !isMultipassPublicRouteChannel(service)) continue;
     routes.push({
       label: formatLabel(service),
       value: String(routeValue),
@@ -570,7 +570,7 @@ function createPublicRoutes(agent) {
     });
   }
   for (const [network, value] of Object.entries(agent?.socials ?? {})) {
-    if (!value) continue;
+    if (!value || !isMultipassPublicRouteChannel(network)) continue;
     routes.push({
       label: formatLabel(network),
       value: String(value),
@@ -579,6 +579,10 @@ function createPublicRoutes(agent) {
     });
   }
   return routes;
+}
+
+function isMultipassPublicRouteChannel(channel) {
+  return String(channel ?? '').trim().toLowerCase() !== 'telegram';
 }
 
 function createPaymentReferences(agent) {
@@ -653,11 +657,13 @@ function createLiveAgentCardDocument(agent, tokenId, profileUrl) {
     agent_id: `${HELIXA_CHAIN_ID}:${tokenId}`,
     name: agent?.name ?? `Agent #${tokenId}`,
     capabilities: [...(agent?.skills ?? []), ...(agent?.domains ?? [])].map((name) => ({ name })),
-    service_endpoints: Object.entries(agent?.services ?? {}).map(([id, config]) => ({
-      endpoint_id: safeKey(id),
-      url: config?.url ?? config?.handle ?? profileUrl,
-      protocol: id,
-    })),
+    service_endpoints: Object.entries(agent?.services ?? {})
+      .filter(([id]) => isMultipassPublicRouteChannel(id))
+      .map(([id, config]) => ({
+        endpoint_id: safeKey(id),
+        url: config?.url ?? config?.handle ?? profileUrl,
+        protocol: id,
+      })),
     trust_summary: {
       identity_status: agent?.verified ? 'verified' : 'pending',
       assurance_level: agent?.verified ? 'onchain_verified' : 'platform_verified',

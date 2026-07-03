@@ -510,12 +510,6 @@ export const STATIC_DEMO_DATA = {
         "channel": "api",
         "address": "https://helixa.xyz/agent/1",
         "visibility": "public"
-      },
-      {
-        "route_id": "telegram",
-        "channel": "chat",
-        "address": "@bendr2bot",
-        "visibility": "public"
       }
     ],
     "service_endpoints": [

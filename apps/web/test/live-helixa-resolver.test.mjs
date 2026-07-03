@@ -207,6 +207,7 @@ test('mapHelixaAgentToMultipassDemo creates public readable fragments without pr
   assert.deepEqual(data.agentCards[0].proofFragmentIds, data.fragments.fragments.map((fragment) => fragment.fragment_id));
   assert.match(data.fragments.fragments.map((fragment) => fragment.public_value).join(' '), /Cred score 80/);
   assert.match(data.fragments.fragments.map((fragment) => fragment.public_value).join(' '), /X handle @BendrAI_eth/);
+  assert.doesNotMatch(rendered, /telegram|bendr2bot/i);
   assert.doesNotMatch(data.receipt.receipt_id, /receipt_bendr_lookup/);
 });
 
