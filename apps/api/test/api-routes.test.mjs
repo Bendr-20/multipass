@@ -594,6 +594,18 @@ test('GET /api/multipass/:id/hydrated returns the same public tools as source hy
   assert.deepEqual(hydrated.body.tools.tools.map((tool) => tool.tool_id), ['agent-lookup']);
 });
 
+test('GET /api/multipass/:id/hydrated fails closed for fixture-only profiles', async () => {
+  const api = makeApi();
+
+  const profileRead = await requestJson(api, '/api/multipass/bendr-2');
+  assert.equal(profileRead.response.status, 200);
+  assert.equal(profileRead.body.multipass_id, 'mp_bendr');
+
+  const hydrated = await requestJson(api, '/api/multipass/bendr-2/hydrated');
+  assert.equal(hydrated.response.status, 404);
+  assert.equal(hydrated.body.error.code, 'not_found');
+});
+
 test('GET /api/multipass/resolve returns activation preview without saving unactivated sources', async () => {
   const api = makeCanonicalApi();
 
@@ -624,12 +636,14 @@ test('resolves saved records and live activation previews through public resolve
   assert.equal(saved.body.state, 'saved_record');
   assert.equal(saved.body.mode, 'saved');
   assert.equal(saved.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.deepEqual(saved.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
 
   const bySource = await requestJson(api, '/api/resolve?agent=1');
   assert.equal(bySource.response.status, 200);
   assert.equal(bySource.body.state, 'saved_record');
   assert.equal(bySource.body.mode, 'activated');
   assert.equal(bySource.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
+  assert.deepEqual(bySource.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
   assert.equal(bySource.body.profile.slug, 'bendr-2-1');
   assert.equal(bySource.body.routes.profile, 'https://multipass.example.test/api/multipass/bendr-2-1');
 
@@ -638,6 +652,7 @@ test('resolves saved records and live activation previews through public resolve
   assert.equal(byExplicitSource.body.state, 'saved_record');
   assert.equal(byExplicitSource.body.mode, 'activated');
   assert.equal(byExplicitSource.body.profile.slug, 'bendr-2-1');
+  assert.deepEqual(byExplicitSource.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
 });
 
 test('legacy /api/resolve numeric agent returns activation preview before save', async () => {

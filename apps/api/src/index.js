@@ -570,18 +570,18 @@ async function handleResolve(url, context) {
   if (!agent) throw new ApiInputError('invalid_request', 'Provide agent to resolve.');
 
   if (isCanonicalSourceInput(agent)) {
-    return jsonResponse(await resolveCanonicalSource(agent, context));
+    return jsonResponse(addLegacyResolverSource(await resolveCanonicalSource(agent, context), context.savedRecords));
   }
 
   const savedProfile = context.savedRecords?.resolveProfile?.(agent);
   if (savedProfile) {
-    return jsonResponse(buildHydratedProfileResponse({
+    return jsonResponse(addLegacyResolverSource(buildHydratedProfileResponse({
       mode: 'saved',
       profile: savedProfile,
       sourceStore: context.savedRecords,
       sourceIdentity: inferHelixaSourceIdentityFromSaved(savedProfile, context.savedRecords),
       baseUrl: context.normalizedBaseUrl,
-    }));
+    }), context.savedRecords));
   }
 
   const fixtureProfile = context.store.resolveProfile(agent);
@@ -774,13 +774,30 @@ function inferHelixaSourceIdentityFromSaved(profile, sourceStore) {
     return normalizeMultipassSourceInput(activationCanonicalId);
   }
 
-  const idToken = String(profile.multipass_id ?? '').match(/^mp_helixa_agent_(\d+)$/)?.[1];
-  if (idToken) return normalizeMultipassSourceInput(idToken);
-
-  const slugToken = String(profile.slug ?? '').match(/-(\d+)$/)?.[1];
-  if (slugToken) return normalizeMultipassSourceInput(slugToken);
-
   throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+}
+
+function addLegacyResolverSource(response, sourceStore) {
+  if (response?.state !== 'saved_record' || response.source !== undefined || !response.profile) {
+    return response;
+  }
+
+  const source = getLegacySourceFromSavedContext(response.profile, sourceStore);
+  return source ? { ...response, source } : response;
+}
+
+function getLegacySourceFromSavedContext(profile, sourceStore) {
+  const activation = sourceStore?.getSourceContext?.(profile.multipass_id)?.activation;
+  const sourceType = String(activation?.sourceType ?? '').trim();
+  const canonicalId = String(activation?.canonicalId ?? '').trim();
+  if (!sourceType || !canonicalId) return null;
+
+  const tokenId = activation?.tokenId === undefined || activation?.tokenId === null ? '' : String(activation.tokenId).trim();
+  return {
+    sourceType,
+    canonicalId,
+    ...(tokenId ? { tokenId } : {}),
+  };
 }
 
 function isCanonicalSourceInput(input) {
