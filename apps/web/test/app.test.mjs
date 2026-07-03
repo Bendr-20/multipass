@@ -237,7 +237,11 @@ async function flushHomepagePrefetch() {
 }
 
 async function savedProfileFetch(url) {
-  if (String(url).endsWith('/api/multipass/bendr-2-1')) {
+  const value = String(url);
+  if (value.endsWith('/hydrated')) {
+    return new Response('missing', { status: 404 });
+  }
+  if (value.endsWith('/api/multipass/bendr-2-1')) {
     return new Response(JSON.stringify({
       ...sampleData().profile,
       display_name: 'Saved Bendr',
@@ -269,6 +273,9 @@ async function savedProfileNoToolsFetch(url) {
 
 async function savedQuigbotFetch(url) {
   const value = String(url);
+  if (value.endsWith('/hydrated')) {
+    return new Response('missing', { status: 404 });
+  }
   if (value.endsWith('/api/multipass/quigbot-81') || value.endsWith('/api/multipass/mp_helixa_agent_81')) {
     return new Response(JSON.stringify({
       schema_version: '0.1.0',
@@ -2516,6 +2523,9 @@ test('failed tool import keeps route and profile data visible', async () => {
   };
   const fetchWithRoute = async (url) => {
     const value = String(url);
+    if (value.endsWith('/hydrated')) {
+      return new Response('missing', { status: 404 });
+    }
     if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });
     return savedProfileNoToolsFetch(url);
   };
@@ -3043,6 +3053,9 @@ test('failed route update keeps existing route cards visible and shows route err
   };
   const fetchWithRoute = async (url) => {
     const value = String(url);
+    if (value.endsWith('/hydrated')) {
+      return new Response('missing', { status: 404 });
+    }
     if (value.endsWith('/api/multipass/bendr-2-1')) {
       return new Response(JSON.stringify({
         ...sampleData().profile,
@@ -3102,6 +3115,9 @@ test('failed route retire keeps route visible with old status', async () => {
   };
   const fetchWithRoute = async (url) => {
     const value = String(url);
+    if (value.endsWith('/hydrated')) {
+      return new Response('missing', { status: 404 });
+    }
     if (value.endsWith('/api/multipass/bendr-2-1')) {
       return new Response(JSON.stringify({
         ...sampleData().profile,

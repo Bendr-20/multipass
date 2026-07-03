@@ -266,10 +266,40 @@ test('loadSavedMultipassDemo fetches saved profile public tools with companion d
     },
   });
 
-  assert.equal(calls[0], '/multipass-api/api/multipass/bendr-2-1/hydrated');
+  assert.deepEqual(calls, [
+    '/multipass-api/api/multipass/bendr-2-1/hydrated',
+    '/multipass-api/api/multipass/bendr-2-1',
+    '/multipass-api/api/multipass/bendr-2-1/fragments',
+    '/multipass-api/api/multipass/bendr-2-1/card',
+    '/multipass-api/api/multipass/bendr-2-1/standards',
+    '/multipass-api/api/multipass/bendr-2-1/x402',
+    '/multipass-api/api/multipass/bendr-2-1/tools',
+    '/multipass-api/api/multipass/bendr-2-1/changes',
+  ]);
   assert.equal(data.profile.slug, 'bendr-2-1');
   assert.equal(data.tools.tools[0].tool_id, 'bendr-lookup');
   assert.equal(data.canonicalHydrated, false);
+});
+
+test('loadSavedMultipassDemo does not fall back to companions when hydrated route fails', async () => {
+  const calls = [];
+
+  await assert.rejects(
+    () => loadSavedMultipassDemo({
+      apiBase: '/multipass-api',
+      slug: 'bendr-2-1',
+      fetchImpl: async (route) => {
+        calls.push(route);
+        if (String(route).endsWith('/hydrated')) {
+          return { ok: false, status: 500, text: async () => 'server error' };
+        }
+        return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+      },
+    }),
+    /GET \/multipass-api\/api\/multipass\/bendr-2-1\/hydrated failed with 500/,
+  );
+
+  assert.deepEqual(calls, ['/multipass-api/api/multipass/bendr-2-1/hydrated']);
 });
 
 test('loadSavedMultipassDemo reports saved tools fetch failures like other strict companions', async () => {
