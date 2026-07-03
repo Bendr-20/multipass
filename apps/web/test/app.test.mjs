@@ -937,6 +937,44 @@ test('agent query refresh keeps saved holder avatar overlay when a saved profile
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
 });
 
+test('agent query refresh hydrates saved public tool cards when a saved profile exists', async () => {
+  const liveData = {
+    ...sampleData(),
+    profile: {
+      ...sampleData().profile,
+      multipass_id: 'mp_helixa_agent_1',
+      slug: 'helixa-agent-1',
+      discovery_profile: { visibility: 'public', avatar_url: null },
+    },
+    liveProfilePage: { headline: 'Bendr 2.0 Multipass', headerMeta: 'Live profile · 8453:1', sharePath: '/multipass/?agent=1' },
+    resolver: { chainId: 8453, tokenId: '1', canonicalId: '8453:1' },
+  };
+  const fetchImpl = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/api/multipass/mp_helixa_agent_1')) {
+      return new Response(JSON.stringify({
+        ...sampleData().profile,
+        multipass_id: 'mp_helixa_agent_1',
+        slug: 'bendr-2-1',
+        discovery_profile: { visibility: 'public', avatar_url: null },
+      }), { status: 200 });
+    }
+    if (value.endsWith('/api/multipass/mp_helixa_agent_1/tools')) {
+      return new Response(JSON.stringify(samplePublicTools()), { status: 200 });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1&api=https://api.example.test');
+
+  await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => liveData, fetchImpl }).start();
+
+  await flushAsyncEvents(20);
+  const toolsPanel = root.querySelector('.public-tools-panel');
+  assert.ok(toolsPanel);
+  assert.match(toolsPanel.textContent, /Bendr x402 profile lookup/);
+  assert.match(toolsPanel.textContent, /api\.bankr\.example\/tools\/bendr\/lookup/);
+});
+
 test('resolver transitional states keep the live resolver shell instead of profile-first layout', async () => {
   const invalidRoot = setupDom('https://helixa.xyz/multipass/');
   await createApp({

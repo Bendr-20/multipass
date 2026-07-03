@@ -651,19 +651,28 @@ async function overlaySavedProfileVisual(liveData, { fetchImpl } = {}) {
   const apiBase = getApiBaseFromLocation(new URL(window.location.href));
   for (const identifier of uniqueCandidateIds) {
     try {
-      const savedProfile = await loadJson(buildSavedRoutes(apiBase, identifier).profile, activeFetch);
+      const savedRoutes = buildSavedRoutes(apiBase, identifier);
+      const savedProfile = await loadJson(savedRoutes.profile, activeFetch);
       const savedAvatarUrl = savedProfile?.discovery_profile?.avatar_url ?? savedProfile?.avatar_url ?? null;
-      if (!savedAvatarUrl) continue;
+      let savedTools = null;
+      try {
+        savedTools = await loadJson(savedRoutes.tools, activeFetch);
+      } catch {
+        savedTools = null;
+      }
+      const hasSavedTools = Array.isArray(savedTools?.tools) && savedTools.tools.length > 0;
+      if (!savedAvatarUrl && !hasSavedTools) continue;
 
       return {
         ...liveData,
-        profile: {
+        ...(hasSavedTools ? { tools: savedTools } : {}),
+        profile: savedAvatarUrl ? {
           ...liveData.profile,
           discovery_profile: {
             ...liveData.profile?.discovery_profile,
             avatar_url: savedAvatarUrl,
           },
-        },
+        } : liveData.profile,
       };
     } catch {
       // Saved profiles are optional overlays for live records. Keep the live profile if a probe misses.
