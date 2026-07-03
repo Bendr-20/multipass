@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile, copyFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { mkdir, readFile, rm, writeFile, copyFile, rename } from 'node:fs/promises';
+import { basename, dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
@@ -12,10 +12,19 @@ const execFileAsync = promisify(execFile);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = dirname(scriptDir);
 const shareRoot = join(webRoot, 'public', 'share');
-const tempRoot = join(shareRoot, '.generated-tmp');
 const manifestPath = join(webRoot, 'src', 'generated-share-cards.js');
 const absoluteOrigin = 'https://helixa.xyz';
 const fetchUserAgent = 'Mozilla/5.0 MultipassShareCardGenerator/1.0';
+const visualFetchTimeoutMs = 15_000;
+const visualFetchMaxBytes = 15 * 1024 * 1024;
+const defaultFsImpl = { mkdir, readFile, rm, writeFile, copyFile, rename };
+
+let tempRootCounter = 0;
+
+export function createTempRoot(root = shareRoot) {
+  tempRootCounter += 1;
+  return join(root, `.generated-tmp-${process.pid}-${Date.now()}-${tempRootCounter.toString(36)}`);
+}
 
 function parseArgs(argv) {
   return { check: argv.includes('--check') };
@@ -60,7 +69,73 @@ function sniffImageMime(bytes) {
   return null;
 }
 
-async function fetchVisualDataUri(card, fetchImpl = fetch) {
+class VisualFetchSizeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'VisualFetchSizeError';
+  }
+}
+
+function cardName(card) {
+  return card?.name ?? 'unknown card';
+}
+
+function parseContentLength(headers) {
+  const value = headers?.get?.('content-length');
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function cancelResponseBody(response) {
+  try {
+    await response?.body?.cancel?.();
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function readResponseBytesWithLimit(response, maxBytes) {
+  const declaredLength = parseContentLength(response.headers);
+  if (declaredLength != null && declaredLength > maxBytes) {
+    await cancelResponseBody(response);
+    throw new VisualFetchSizeError(`response too large: ${declaredLength} bytes exceeds ${maxBytes} byte cap`);
+  }
+
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = Buffer.from(value);
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          try {
+            await reader.cancel?.();
+          } catch {
+            // Best-effort cleanup only.
+          }
+          throw new VisualFetchSizeError(`response too large: exceeded ${maxBytes} byte cap while streaming`);
+        }
+        chunks.push(chunk);
+      }
+    } finally {
+      reader.releaseLock?.();
+    }
+    return Buffer.concat(chunks, total);
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxBytes) {
+    throw new VisualFetchSizeError(`response too large: ${bytes.length} bytes exceeds ${maxBytes} byte cap`);
+  }
+  return bytes;
+}
+
+export async function fetchVisualDataUri(card, fetchImpl = fetch, options = {}) {
   const imageUrl = card?.visual?.imageUrl;
   if (!imageUrl) return { dataUri: null, warning: null };
 
@@ -68,35 +143,55 @@ async function fetchVisualDataUri(card, fetchImpl = fetch) {
   try {
     url = new URL(imageUrl);
   } catch {
-    return { dataUri: null, warning: `Skipping invalid visual URL for ${card?.name ?? 'unknown card'}: ${imageUrl}` };
+    return { dataUri: null, warning: `Skipping invalid visual URL for ${cardName(card)}: ${imageUrl}` };
   }
 
   if (url.protocol !== 'https:') {
-    return { dataUri: null, warning: `Skipping non-HTTPS visual URL for ${card?.name ?? 'unknown card'}: ${imageUrl}` };
+    return { dataUri: null, warning: `Skipping non-HTTPS visual URL for ${cardName(card)}: ${imageUrl}` };
   }
+
+  const timeoutMs = options.timeoutMs ?? visualFetchTimeoutMs;
+  const maxBytes = options.maxBytes ?? visualFetchMaxBytes;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetchImpl(url.toString(), {
       headers: { 'User-Agent': fetchUserAgent },
+      signal: controller.signal,
     });
+    if (controller.signal.aborted) {
+      return { dataUri: null, warning: `Visual fetch timed out for ${cardName(card)} after ${timeoutMs}ms` };
+    }
     if (response.ok === false) {
-      return { dataUri: null, warning: `Visual fetch failed for ${card?.name ?? 'unknown card'}: HTTP ${response.status ?? 'unknown'}` };
+      return { dataUri: null, warning: `Visual fetch failed for ${cardName(card)}: HTTP ${response.status ?? 'unknown'}` };
     }
 
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await readResponseBytesWithLimit(response, maxBytes);
+    if (controller.signal.aborted) {
+      return { dataUri: null, warning: `Visual fetch timed out for ${cardName(card)} after ${timeoutMs}ms` };
+    }
     if (bytes.length === 0) {
-      return { dataUri: null, warning: `Visual fetch returned an empty body for ${card?.name ?? 'unknown card'}` };
+      return { dataUri: null, warning: `Visual fetch returned an empty body for ${cardName(card)}` };
     }
 
     const declaredMime = response.headers?.get?.('content-type')?.split(';')[0]?.trim().toLowerCase();
     const mime = declaredMime?.startsWith('image/') ? declaredMime : sniffImageMime(bytes);
     if (!mime) {
-      return { dataUri: null, warning: `Visual fetch did not return a supported image for ${card?.name ?? 'unknown card'}` };
+      return { dataUri: null, warning: `Visual fetch did not return a supported image for ${cardName(card)}` };
     }
 
     return { dataUri: `data:${mime};base64,${bytes.toString('base64')}`, warning: null };
   } catch (error) {
-    return { dataUri: null, warning: `Unable to fetch visual for ${card?.name ?? 'unknown card'}: ${error?.message ?? error}` };
+    if (error?.name === 'AbortError' || controller.signal.aborted) {
+      return { dataUri: null, warning: `Visual fetch timed out for ${cardName(card)} after ${timeoutMs}ms` };
+    }
+    if (error instanceof VisualFetchSizeError) {
+      return { dataUri: null, warning: `Visual fetch too large for ${cardName(card)}: ${error.message}` };
+    }
+    return { dataUri: null, warning: `Unable to fetch visual for ${cardName(card)}: ${error?.message ?? error}` };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -314,7 +409,7 @@ function buildManifestSource(generatedCards) {
   return lines.join('\n');
 }
 
-async function renderAllCards(cards) {
+async function renderAllCards(cards, tempRoot) {
   const rendered = [];
   for (const card of cards) {
     const tokenId = String(card.tokenId);
@@ -330,7 +425,7 @@ async function renderAllCards(cards) {
   return rendered;
 }
 
-async function writeAllGeneratedOutputs(generated) {
+async function writeAllGeneratedOutputs(generated, tempRoot) {
   const files = [];
   const generatedCards = [];
 
@@ -380,23 +475,52 @@ async function checkGeneratedFiles(files) {
   }
 }
 
-async function publishGeneratedFiles(files) {
-  await Promise.all(files.map((file) => readFile(file.tempPath)));
-  for (const file of files) await mkdir(dirname(file.finalPath), { recursive: true });
-  for (const file of files) await copyFile(file.tempPath, file.finalPath);
+function makeDestinationTempPath(finalPath, runId, index) {
+  return join(dirname(finalPath), `.${basename(finalPath)}.${runId}.${index}.tmp`);
+}
+
+async function publishOneGeneratedFile(file, index, { fsImpl, runId }) {
+  const tempFinalPath = makeDestinationTempPath(file.finalPath, runId, index);
+  try {
+    await fsImpl.mkdir(dirname(file.finalPath), { recursive: true });
+    await fsImpl.copyFile(file.tempPath, tempFinalPath);
+    await fsImpl.rename(tempFinalPath, file.finalPath);
+  } catch (error) {
+    try {
+      await fsImpl.rm(tempFinalPath, { force: true });
+    } catch {
+      // Best-effort cleanup only; preserve the original publish failure.
+    }
+    throw error;
+  }
+}
+
+export async function publishGeneratedFiles(files, options = {}) {
+  const fsImpl = options.fsImpl ?? defaultFsImpl;
+  const manifestFinalPath = options.manifestPath ?? manifestPath;
+  const runId = options.runId ?? `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const orderedFiles = [
+    ...files.filter((file) => file.finalPath !== manifestFinalPath),
+    ...files.filter((file) => file.finalPath === manifestFinalPath),
+  ];
+
+  await Promise.all(files.map((file) => fsImpl.readFile(file.tempPath)));
+  for (const [index, file] of orderedFiles.entries()) {
+    await publishOneGeneratedFile(file, index, { fsImpl, runId });
+  }
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const tempRoot = createTempRoot();
   await assertFfmpegSvgSupport();
   const cards = numericAgentCards(STATIC_DEMO_DATA);
   if (cards.length === 0) throw new Error('No numeric static agent cards found');
 
-  await rm(tempRoot, { recursive: true, force: true });
   await mkdir(tempRoot, { recursive: true });
   try {
-    const generated = await renderAllCards(cards);
-    const files = await writeAllGeneratedOutputs(generated);
+    const generated = await renderAllCards(cards, tempRoot);
+    const files = await writeAllGeneratedOutputs(generated, tempRoot);
     if (options.check) await checkGeneratedFiles(files);
     else await publishGeneratedFiles(files);
   } finally {
@@ -404,7 +528,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error?.stack || error);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error?.stack || error);
+    process.exitCode = 1;
+  });
+}
