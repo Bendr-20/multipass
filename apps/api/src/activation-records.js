@@ -169,7 +169,7 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
         : 'No public Cred score was published by the live Helixa source record.',
     },
     discovery_profile: {
-      summary: `${displayName} saved from a public Helixa AgentDNA source record. Display only; owner, tools, payments, and private credentials are not claimed by this save.`,
+      summary: `${displayName} saved from a public Helixa AgentDNA source record. Source evidence only; owner, tools, payments, and private credentials are not claimed by this save.`,
       tags: uniqueStrings(['helixa', 'agentdna', 'multipass', sourceSnapshot.framework]),
       visibility: 'public',
     },
@@ -205,7 +205,7 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
     contact_policy: {
       mode: 'approval_required',
       requires_owner_approval: true,
-      policy_note: 'Saved records are display-only until ownership and management rights are verified.',
+      policy_note: 'Saved records are unclaimed until ownership and management rights are verified.',
     },
     standards_refs: [
       {

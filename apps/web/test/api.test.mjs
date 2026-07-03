@@ -8,6 +8,7 @@ import {
   buildSavedRoutes,
   getApiBaseFromLocation,
   getWritableApiBaseFromLocation,
+  loadCanonicalHelixaMultipass,
   loadHydratedMultipassDemo,
   loadJson,
   loadMultipassDemo,
@@ -60,6 +61,13 @@ test('normalizeHelixaAgentDnaSource accepts positive Base AgentDNA sources', () 
   assert.equal(normalizeHelixaAgentDnaSource('1'), 'helixa-agentdna:8453:1');
   assert.equal(normalizeHelixaAgentDnaSource('8453:1'), 'helixa-agentdna:8453:1');
   assert.equal(normalizeHelixaAgentDnaSource('helixa-agentdna:8453:1'), 'helixa-agentdna:8453:1');
+});
+
+test('normalizeHelixaAgentDnaSource canonicalizes positive leading-zero Base AgentDNA sources', () => {
+  assert.equal(normalizeHelixaAgentDnaSource('001'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('8453:001'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('helixa-agentdna:8453:001'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('900719925474099312345'), 'helixa-agentdna:8453:900719925474099312345');
 });
 
 test('normalizeHelixaAgentDnaSource rejects zero and unsupported AgentDNA sources', () => {
@@ -178,6 +186,7 @@ test('loadHydratedMultipassDemo normalizes canonical API data into app shape', a
   assert.deepEqual(calls, ['/multipass-api/api/multipass/resolve?source=helixa-agentdna%3A8453%3A1']);
   assert.equal(data.profile.slug, 'bendr-2-1');
   assert.equal(data.card.name, 'Bendr 2.0');
+  assert.deepEqual(data.card.capabilities, []);
   assert.equal(data.tools.tools[0].tool_id, 'agent-lookup');
   assert.equal(data.sourceLabel, 'Helixa AgentDNA source');
   assert.equal(data.modeLabel, 'Activated Multipass');
@@ -187,6 +196,37 @@ test('loadHydratedMultipassDemo normalizes canonical API data into app shape', a
   assert.equal(data.resolver.sourceCanonicalId, 'helixa-agentdna:8453:1');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/bendr-2-1');
   assert.equal(data.canonicalHydrated, true);
+});
+
+test('loadCanonicalHelixaMultipass fetches canonical hydrated API with normalized source ids', async () => {
+  const calls = [];
+  const hydrated = {
+    schema_version: '0.1.0',
+    mode: 'activated',
+    source_identity: { kind: 'helixa_agentdna', canonical_id: 'helixa-agentdna:8453:1', legacy_canonical_id: '8453:1', token_id: '1' },
+    profile: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', slug: 'bendr-2-1', display_name: 'Bendr 2.0', updated_at: '2026-07-03T00:00:00Z' },
+    fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
+    agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
+    standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
+    tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] },
+    changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
+    activation: { state: 'activated', manager_state: 'none' },
+    routes_meta: { public_profile: '/multipass/bendr-2-1', activate: '/multipass/?agent=1' },
+  };
+
+  const data = await loadCanonicalHelixaMultipass({
+    apiBase: '/multipass-api',
+    input: 'helixa-agentdna:8453:001',
+    fetchImpl: async (route) => {
+      calls.push(route);
+      return { ok: true, status: 200, text: async () => JSON.stringify(hydrated) };
+    },
+  });
+
+  assert.deepEqual(calls, ['/multipass-api/api/multipass/resolve?source=helixa-agentdna%3A8453%3A1']);
+  assert.equal(data.canonicalHydrated, true);
+  assert.equal(data.resolver.tokenId, '1');
 });
 
 test('loadHydratedMultipassDemo preserves saved-profile activation semantics', async () => {

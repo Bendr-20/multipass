@@ -992,7 +992,7 @@ function createOpenApiDocument(baseUrl) {
     info: {
       title: 'Helixa Multipass API',
       version: '0.1.0',
-      description: 'Public display-only Multipass identity and trust profile API. Payments and receipts do not buy trust.',
+      description: 'Public Multipass identity and trust profile API. Payments and receipts do not buy trust.',
     },
     servers: [{ url: baseUrl }],
     paths: {

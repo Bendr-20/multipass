@@ -251,7 +251,7 @@ async function savedProfileFetch(url) {
       owner_summary: {
         owner_state: 'unclaimed',
         verification_status: 'unclaimed',
-        summary: 'Saved display-only profile. Management is unclaimed.',
+        summary: 'Saved unclaimed profile. Management is unclaimed.',
       },
     }), { status: 200 });
   }
@@ -780,7 +780,7 @@ test('resolver bar renders without changing default static data', async () => {
   assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
 });
 
-test('static homepage keeps agent visuals display-only', async () => {
+test('static homepage keeps agent visuals inspection-only', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
@@ -982,6 +982,68 @@ test('agent query refresh hydrates saved public tool cards when a saved profile 
   assert.match(toolsPanel.textContent, /api\.bankr\.example\/tools\/bendr\/lookup/);
 });
 
+test('agent query does not fall back to legacy resolver when canonical API returns a server error', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  const calls = [];
+  const app = createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (route) => {
+      calls.push(String(route));
+      if (String(route).includes('/api/multipass/resolve?source=')) {
+        return { ok: false, status: 500, text: async () => 'broken' };
+      }
+      throw new Error(`unexpected legacy fallback ${route}`);
+    },
+    prefetchProfiles: false,
+  });
+
+  await app.start();
+  await flushAsyncEvents(20);
+
+  assert.deepEqual(calls, ['/multipass-api/api/multipass/resolve?source=helixa-agentdna%3A8453%3A1']);
+  assert.match(root.textContent, /Could not reach the Helixa API/);
+});
+
+test('agent query loads canonical hydrated profile and renders saved public tools', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/?agent=1');
+  const calls = [];
+  const hydrated = {
+    schema_version: '0.1.0',
+    mode: 'activated',
+    source_identity: { kind: 'helixa_agentdna', canonical_id: 'helixa-agentdna:8453:1', legacy_canonical_id: '8453:1', token_id: '1' },
+    profile: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', slug: 'bendr-2-1', display_name: 'Bendr 2.0', discovery_profile: { summary: 'Activated agent.', tags: [], visibility: 'public' }, owner_summary: { owner_state: 'unclaimed' }, updated_at: '2026-07-03T00:00:00Z' },
+    fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
+    agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
+    standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
+    tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [{ tool_id: 'agent-lookup', name: 'Agent lookup', description: 'Lookup this agent.' }] },
+    changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
+    activation: { state: 'activated', manager_state: 'none' },
+    routes_meta: { public_profile: '/multipass/bendr-2-1', activate: '/multipass/?agent=1' },
+  };
+
+  const app = createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (route) => {
+      calls.push(String(route));
+      if (String(route).includes('/api/multipass/resolve?source=')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify(hydrated) };
+      }
+      throw new Error(`unexpected route ${route}`);
+    },
+    prefetchProfiles: false,
+  });
+
+  await app.start();
+  await flushAsyncEvents(20);
+
+  assert.equal(calls.some((route) => route === '/multipass-api/api/multipass/resolve?source=helixa-agentdna%3A8453%3A1'), true);
+  assert.match(root.textContent, /Agent lookup/);
+  assert.doesNotMatch(root.textContent, /display-only/i);
+});
+
 test('resolver transitional states keep the live resolver shell instead of profile-first layout', async () => {
   const invalidRoot = setupDom('https://helixa.xyz/multipass/');
   await createApp({
@@ -1090,7 +1152,7 @@ test('successful live resolve shows activated Multipass summary without stale st
   assert.match(activation.textContent, /Activated from live agent record/);
   assert.match(activation.textContent, /This Multipass was built from a live public agent record/);
   assert.match(activation.textContent, /live Helixa API/);
-  assert.match(root.textContent, /Live record activated into a display-only Multipass/);
+  assert.match(root.textContent, /Live source resolved into an activation preview/);
   assert.doesNotMatch(root.textContent, /This is a static public demo/);
 });
 
@@ -1152,11 +1214,11 @@ test('activated page avoids custody and binding overclaims', async () => {
 
 
 test('render uses live hero note when data supplies one', async () => {
-  const data = { ...sampleData(), heroNote: 'Read-only live Helixa API data for Bendr 2.0.', sourceLabel: 'live Helixa API' };
+  const data = { ...sampleData(), heroNote: 'Public Helixa API source evidence for Bendr 2.0.', sourceLabel: 'live Helixa API' };
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   await createApp({ root, loadDemo: async () => data }).start();
 
-  assert.match(root.textContent, /Read-only live Helixa API data for Bendr 2\.0/);
+  assert.match(root.textContent, /Public Helixa API source evidence for Bendr 2\.0/);
   assert.doesNotMatch(root.textContent, /public record data/);
 });
 
@@ -1459,7 +1521,7 @@ test('static /multipass/ ignores unsafe api query override without calling API',
 
 test('resolver submit loads live data and updates source label', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
-  const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver', heroNote: 'Read-only live Helixa API data for Live Bendr.' };
+  const liveData = { ...sampleData(), profile: { ...sampleData().profile, display_name: 'Live Bendr' }, sourceLabel: 'live Helixa API', modeLabel: 'Live Resolver', heroNote: 'Public Helixa API source evidence for Live Bendr.' };
   const calls = [];
   const app = createApp({
     root,
@@ -1476,7 +1538,7 @@ test('resolver submit loads live data and updates source label', async () => {
   assert.deepEqual(calls, ['8453:1']);
   assert.match(root.textContent, /Live Bendr/);
   assert.match(root.textContent, /live Helixa API/);
-  assert.match(root.textContent, /Live record activated into a display-only Multipass/);
+  assert.match(root.textContent, /Live source resolved into an activation preview/);
 });
 
 
@@ -1501,7 +1563,7 @@ test('live resolver renders trust profile compatibility context without executab
     marketplaceListing: {
       title: 'Bendr 2.0 trust profile',
       subtitle: '8453:1 · openclaw',
-      summary: 'Read-only public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility.',
+      summary: 'Public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility.',
       identity: { name: 'Bendr 2.0', helixaId: '8453:1', tokenId: '1', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
       score: { label: 'Cred 80', tier: 'Preferred', value: 80, tone: 'preferred' },
       badges: [{ label: 'Verified AgentDNA', tone: 'verified' }, { label: 'Open to work', tone: 'verified' }],
@@ -1551,7 +1613,7 @@ test('marketplace listing renderer does not link unsafe URLs', async () => {
       paymentReferences: [],
       proof: { publicFragmentCount: 0, verifiedSignalCount: 0, reviewRequiredCount: 0, privateCredentialState: 'No secrets or private credentials exposed' },
       links: [{ label: 'Unsafe link', url: 'javascript:alert(1)' }],
-      safetyNote: 'Display only.',
+      safetyNote: 'Public inspection only.',
     },
   };
   await createApp({ root, loadDemo: async () => data }).start();
@@ -1864,7 +1926,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
           { label: 'Aura image', url: 'https://api.helixa.xyz/api/v2/aura/81.png' },
           { label: 'OpenSea item', url: 'https://opensea.io/assets/base/0x2e3B541C59D38b84E3Bc54e977200230A204Fe60/81' },
         ],
-        safetyNote: 'Display only. Public provenance does not grant authority or expose private credentials.',
+        safetyNote: 'Public provenance context. Viewing does not grant authority or expose private credentials.',
       },
     },
     marketplaceListing: {
@@ -1877,7 +1939,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
       routes: [],
       paymentReferences: [],
       links: [],
-      safetyNote: 'Display only.',
+      safetyNote: 'Public inspection only.',
     },
   };
   await createApp({ root, loadDemo: async () => sampleData(), loadLiveDemo: async () => data }).start();
@@ -2005,7 +2067,7 @@ test('Agent Aura provenance drawer is optional and skips empty rows', async () =
         summary: 'Public Helixa API-reported provenance for this AgentDNA visual.',
         facts: [{ label: 'Helixa ID', value: '8453:81' }, { label: 'Owner', value: '' }, { label: 'Framework', value: null }],
         links: [{ label: 'Metadata JSON', url: 'https://api.helixa.xyz/api/v2/metadata/81' }, { label: 'Explorer', url: '' }],
-        safetyNote: 'Display only.',
+        safetyNote: 'Public inspection only.',
       },
     },
   };
@@ -2042,7 +2104,7 @@ test('Agent Aura provenance drawer renders only safe public links', async () => 
           { label: 'Bad malformed', url: 'not a url' },
           { label: 'Bad credentials', url: 'https://user:pass@example.com/secret' },
         ],
-        safetyNote: 'Display only.',
+        safetyNote: 'Public inspection only.',
       },
     },
   };
@@ -2290,7 +2352,7 @@ test('non-public fragment ids and unexpected private fields are absent from rend
   assert.equal(root.innerHTML.includes('frag_bendr_gated_nested'), false);
 });
 
-test('direct saved slug route renders display-only claim management panel', async () => {
+test('direct saved slug route renders source-owner claim management panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
   await createApp({
     root,
@@ -3063,7 +3125,7 @@ test('failed route update keeps existing route cards visible and shows route err
         slug: 'bendr-2-1',
         multipass_id: 'mp_helixa_agent_1',
         status: 'active',
-        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved display-only profile. Management is unclaimed.' },
+        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved unclaimed profile. Management is unclaimed.' },
       }), { status: 200 });
     }
     if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });
@@ -3125,7 +3187,7 @@ test('failed route retire keeps route visible with old status', async () => {
         slug: 'bendr-2-1',
         multipass_id: 'mp_helixa_agent_1',
         status: 'active',
-        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved display-only profile. Management is unclaimed.' },
+        owner_summary: { owner_state: 'unclaimed', verification_status: 'unclaimed', summary: 'Saved unclaimed profile. Management is unclaimed.' },
       }), { status: 200 });
     }
     if (value.endsWith('/fragments')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [route] }), { status: 200 });

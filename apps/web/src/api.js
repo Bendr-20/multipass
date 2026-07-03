@@ -49,15 +49,23 @@ export function buildSavedRoutes(apiBase, slug) {
 export function normalizeHelixaAgentDnaSource(input) {
   const raw = String(input ?? '').trim();
   const canonical = raw.match(/^helixa-agentdna:8453:(\d+)$/);
-  if (canonical) return isPositiveTokenId(canonical[1]) ? raw : null;
+  if (canonical) {
+    const tokenId = normalizePositiveTokenId(canonical[1]);
+    return tokenId ? `helixa-agentdna:8453:${tokenId}` : null;
+  }
   const legacy = raw.match(/^8453:(\d+)$/);
-  if (legacy) return isPositiveTokenId(legacy[1]) ? `helixa-agentdna:8453:${legacy[1]}` : null;
-  if (isPositiveTokenId(raw)) return `helixa-agentdna:8453:${raw}`;
-  return null;
+  if (legacy) {
+    const tokenId = normalizePositiveTokenId(legacy[1]);
+    return tokenId ? `helixa-agentdna:8453:${tokenId}` : null;
+  }
+  const tokenId = normalizePositiveTokenId(raw);
+  return tokenId ? `helixa-agentdna:8453:${tokenId}` : null;
 }
 
-function isPositiveTokenId(tokenId) {
-  return /^\d+$/.test(tokenId) && /[1-9]/.test(tokenId);
+function normalizePositiveTokenId(tokenId) {
+  const raw = String(tokenId ?? '').trim();
+  if (!/^\d+$/.test(raw) || !/[1-9]/.test(raw)) return null;
+  return raw.replace(/^0+/, '');
 }
 
 export function buildCanonicalResolveRoute(apiBase, source) {
@@ -112,6 +120,33 @@ async function loadJsonWithStatus(route, fetchImpl = fetch) {
 export async function loadHydratedMultipassDemo({ route, fetchImpl = fetch }) {
   const hydrated = await loadJson(route, fetchImpl);
   return normalizeHydratedMultipassDemo(hydrated, { route });
+}
+
+export class CanonicalHelixaFallbackError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CanonicalHelixaFallbackError';
+  }
+}
+
+export function isCanonicalHelixaFallbackError(error) {
+  return error instanceof CanonicalHelixaFallbackError || error?.name === 'CanonicalHelixaFallbackError';
+}
+
+export async function loadCanonicalHelixaMultipass({ apiBase = DEFAULT_API_BASE, input, fetchImpl = fetch }) {
+  const source = normalizeHelixaAgentDnaSource(input);
+  if (!source) throw new CanonicalHelixaFallbackError('Canonical API supports Helixa token IDs only; falling back to live resolver.');
+
+  const route = buildCanonicalResolveRoute(apiBase, source);
+  const hydrated = await loadJsonWithStatus(route, fetchImpl);
+  if (!hydrated.ok) {
+    if ([404, 405, 501].includes(hydrated.status)) {
+      throw new CanonicalHelixaFallbackError(`Canonical API route unavailable (${hydrated.status}); falling back to live resolver.`);
+    }
+    throw new Error(`GET ${route} failed with ${hydrated.status}`);
+  }
+
+  return normalizeHydratedMultipassDemo(hydrated.body, { route });
 }
 
 export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug, fetchImpl = fetch }) {
@@ -174,7 +209,7 @@ export async function loadMultipassDemo({ apiBase = DEFAULT_API_BASE, subject, f
 function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
   const profile = hydrated?.profile ?? {};
   const fragments = hydrated?.fragments ?? { fragments: [] };
-  const card = hydrated?.agent_card ?? hydrated?.card ?? {};
+  const card = normalizeHydratedCard(hydrated?.['agent_card'] ?? hydrated?.card);
   const standards = hydrated?.standards ?? { standard_refs: [] };
   const x402 = hydrated?.x402 ?? { endpoints: [] };
   const tools = hydrated?.tools ?? { tools: [] };
@@ -214,6 +249,16 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
       sharePath,
     },
     canonicalHydrated: true,
+  };
+}
+
+function normalizeHydratedCard(card) {
+  const normalized = { ...(card ?? {}) };
+  return {
+    ...normalized,
+    capabilities: Array.isArray(normalized.capabilities) ? normalized.capabilities : [],
+    service_endpoints: Array.isArray(normalized.service_endpoints) ? normalized.service_endpoints : [],
+    trust_summary: normalized.trust_summary ?? {},
   };
 }
 
