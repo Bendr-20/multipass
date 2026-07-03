@@ -883,7 +883,7 @@ test('refreshed saved Quigbot profile uses holder-editable avatar image and sour
   assert.match(auraCard.textContent ?? '', /Cred 75/);
   assert.match(auraCard.textContent ?? '', /verified/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
-  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/');
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/share/81/?v=visual-2');
 });
 
 test('saved Quigbot profile refresh survives trailing slash route', async () => {
@@ -1847,7 +1847,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.equal(auraCard.querySelector('h2')?.textContent, 'Quigbot');
   assert.doesNotMatch(auraCard.textContent, /Helixa Agent Aura/);
   const shareAction = auraCard.querySelector('button.aura-share-action[data-action="share-profile"]');
-  assert.equal(shareAction?.getAttribute('data-share-url'), '/multipass/share/81/');
+  assert.equal(shareAction?.getAttribute('data-share-url'), '/multipass/share/81/?v=visual-2');
   assert.equal(shareAction?.getAttribute('aria-label'), 'Share Quigbot Multipass profile');
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
@@ -1894,7 +1894,7 @@ test('aura share icon opens native share without navigating to crawler preview p
   await Promise.resolve();
 
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
-  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: 'https://helixa.xyz/multipass/share/81/' }]);
+  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: 'https://helixa.xyz/multipass/share/81/?v=visual-2' }]);
 });
 
 test('Agent Aura provenance drawer is optional and skips empty rows', async () => {

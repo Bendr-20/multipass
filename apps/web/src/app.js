@@ -1130,6 +1130,10 @@ function getProfileAuraTitle(data, selectedAgent) {
   return String(rawTitle).replace(/\s+Multipass$/i, '').trim() || 'Multipass profile';
 }
 
+const AGENT_SHARE_CACHE_VERSIONS = new Map([
+  ['81', 'visual-2'],
+]);
+
 function getProfileAuraSharePath(data, selectedAgent) {
   const candidates = [
     selectedAgent?.tokenId,
@@ -1139,7 +1143,10 @@ function getProfileAuraSharePath(data, selectedAgent) {
     String(data.profile?.multipass_id ?? '').match(/^\d+:(\d+)$/)?.[1],
   ];
   const tokenId = candidates.map((value) => String(value ?? '').trim()).find((value) => /^\d+$/.test(value));
-  return tokenId ? `/multipass/share/${encodeURIComponent(tokenId)}/` : null;
+  if (!tokenId) return null;
+  const version = AGENT_SHARE_CACHE_VERSIONS.get(tokenId);
+  const versionQuery = version ? `?v=${encodeURIComponent(version)}` : '';
+  return `/multipass/share/${encodeURIComponent(tokenId)}/${versionQuery}`;
 }
 
 function initialsForDisplayName(value) {
@@ -1749,7 +1756,7 @@ function renderAgentAura(visualIdentity, options = {}) {
 }
 
 function isSafeAuraSharePath(value) {
-  return typeof value === 'string' && /^\/multipass\/share\/\d+\/$/.test(value);
+  return typeof value === 'string' && /^\/multipass\/share\/\d+\/(?:\?v=[a-z0-9-]+)?$/.test(value);
 }
 
 function renderAuraShareAction(sharePath, title) {
