@@ -284,6 +284,46 @@ function makeSavedRecordWithPublicTool() {
   };
 }
 
+function makeSavedRecordWithSourceContext({ sourceType, canonicalId = '8453:1', tokenId = '1', slug = 'bendr-non-helixa', multipassId = 'mp_non_helixa_agent_1' } = {}) {
+  const record = makeSavedRecordWithPublicTool();
+  return {
+    ...record,
+    source: { sourceType, canonicalId, tokenId },
+    sourceContext: {
+      activation: {
+        ...record.sourceContext.activation,
+        sourceType,
+        canonicalId,
+        tokenId,
+      },
+      sourceSnapshot: {
+        ...record.sourceContext.sourceSnapshot,
+        sourceType,
+        canonicalId,
+        tokenId,
+      },
+    },
+    profile: {
+      ...record.profile,
+      multipass_id: multipassId,
+      slug,
+    },
+    fragments: record.fragments.map((fragment) => ({ ...fragment, multipass_id: multipassId })),
+    agentCard: { ...record.agentCard, multipass_id: multipassId },
+    standardsProfile: {
+      ...record.standardsProfile,
+      standards_profile_id: `sp_${multipassId}`,
+      multipass_id: multipassId,
+    },
+    x402Manifest: { ...record.x402Manifest, multipass_id: multipassId },
+    receipts: record.receipts.map((item) => ({ ...item, multipass_id: multipassId })),
+    change: {
+      ...record.change,
+      change_id: `change_${multipassId}_initial_save`,
+    },
+  };
+}
+
 function makeCanonicalApi() {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   return createMultipassApi({
@@ -604,6 +644,26 @@ test('GET /api/multipass/:id/hydrated fails closed for fixture-only profiles', a
   const hydrated = await requestJson(api, '/api/multipass/bendr-2/hydrated');
   assert.equal(hydrated.response.status, 404);
   assert.equal(hydrated.body.error.code, 'not_found');
+});
+
+test('GET /api/multipass/:id/hydrated fails closed when saved source type is not Helixa', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({ sourceType: 'other_source' }));
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const hydrated = await requestJson(api, '/api/multipass/bendr-non-helixa/hydrated');
+  assert.equal(hydrated.response.status, 404);
+  assert.equal(hydrated.body.error.code, 'not_found');
+
+  const legacy = await requestJson(api, '/api/resolve?agent=bendr-non-helixa');
+  assert.equal(legacy.response.status, 200);
+  assert.equal(legacy.body.state, 'saved_record');
+  assert.equal(legacy.body.source_identity, undefined);
+  assert.deepEqual(legacy.body.source, { sourceType: 'other_source', canonicalId: '8453:1', tokenId: '1' });
 });
 
 test('GET /api/multipass/resolve returns activation preview without saving unactivated sources', async () => {

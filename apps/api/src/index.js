@@ -8,6 +8,7 @@ import {
 } from '@helixa/multipass-sdk';
 
 import {
+  HELIXA_SOURCE_TYPE,
   buildHydratedProfileResponse,
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
@@ -22,6 +23,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
+const HELIXA_SAVED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE]);
 
 export function createMemoryStore(input = {}) {
   const {
@@ -575,13 +577,18 @@ async function handleResolve(url, context) {
 
   const savedProfile = context.savedRecords?.resolveProfile?.(agent);
   if (savedProfile) {
-    return jsonResponse(addLegacyResolverSource(buildHydratedProfileResponse({
-      mode: 'saved',
-      profile: savedProfile,
-      sourceStore: context.savedRecords,
-      sourceIdentity: inferHelixaSourceIdentityFromSaved(savedProfile, context.savedRecords),
-      baseUrl: context.normalizedBaseUrl,
-    }), context.savedRecords));
+    try {
+      return jsonResponse(addLegacyResolverSource(buildHydratedProfileResponse({
+        mode: 'saved',
+        profile: savedProfile,
+        sourceStore: context.savedRecords,
+        sourceIdentity: inferHelixaSourceIdentityFromSaved(savedProfile, context.savedRecords),
+        baseUrl: context.normalizedBaseUrl,
+      }), context.savedRecords));
+    } catch (error) {
+      if (!(error instanceof ApiNotFoundError)) throw error;
+      return jsonResponse(buildLegacySavedResolverResponse(savedProfile, context));
+    }
   }
 
   const fixtureProfile = context.store.resolveProfile(agent);
@@ -769,12 +776,33 @@ function createRecordSourceStore(record) {
 }
 
 function inferHelixaSourceIdentityFromSaved(profile, sourceStore) {
-  const activationCanonicalId = sourceStore.getSourceContext?.(profile.multipass_id)?.activation?.canonicalId;
-  if (activationCanonicalId) {
-    return normalizeMultipassSourceInput(activationCanonicalId);
+  const activation = sourceStore.getSourceContext?.(profile.multipass_id)?.activation;
+  const sourceType = String(activation?.sourceType ?? '').trim();
+  const canonicalId = String(activation?.canonicalId ?? '').trim();
+
+  if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceType) || !canonicalId) {
+    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
   }
 
-  throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+  try {
+    const sourceIdentity = normalizeMultipassSourceInput(canonicalId);
+    if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceIdentity.sourceType)) {
+      throw new TypeError('Saved Multipass source is not a Helixa source.');
+    }
+    return sourceIdentity;
+  } catch {
+    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+  }
+}
+
+function buildLegacySavedResolverResponse(profile, context) {
+  return {
+    schema_version: '0.1.0',
+    state: 'saved_record',
+    profile,
+    source: getLegacySourceFromSavedContext(profile, context.savedRecords),
+    routes: createProfileRoutes(context.normalizedBaseUrl, profile.slug),
+  };
 }
 
 function addLegacyResolverSource(response, sourceStore) {

@@ -1,5 +1,5 @@
 const HELIXA_CHAIN_ID = 8453;
-const HELIXA_SOURCE_TYPE = 'helixa_agent';
+export const HELIXA_SOURCE_TYPE = 'helixa_agent';
 const HYDRATED_PROFILE_MODES = new Set(['activated', 'saved', 'activation_preview']);
 
 export function normalizeMultipassSourceInput(input) {
