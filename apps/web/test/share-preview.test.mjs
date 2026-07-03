@@ -6,6 +6,8 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { GENERATED_SHARE_CARDS } from '../src/generated-share-cards.js';
+import { getAgentShareImageUrl } from '../src/share-cards.js';
 import { STATIC_DEMO_DATA } from '../src/static-demo-data.js';
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -18,8 +20,28 @@ function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-function staticAgentCard(tokenId) {
-  return STATIC_DEMO_DATA.agentCards.find((card) => String(card.tokenId) === String(tokenId));
+function imageSizeFromFile(path) {
+  const bytes = readFileSync(path);
+  if (bytes[0] === 0x89 && bytes.toString('ascii', 1, 4) === 'PNG') {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), type: 'png' };
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset < bytes.length) {
+      if (bytes[offset] !== 0xff) break;
+      const marker = bytes[offset + 1];
+      const length = bytes.readUInt16BE(offset + 2);
+      if ([0xc0, 0xc1, 0xc2].includes(marker)) {
+        return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5), type: 'jpeg' };
+      }
+      offset += 2 + length;
+    }
+  }
+  throw new Error(`Unsupported image header: ${path}`);
+}
+
+function numericStaticAgentCards() {
+  return STATIC_DEMO_DATA.agentCards.filter((card) => /^\d+$/.test(String(card.tokenId ?? '')));
 }
 
 test('index contains Multipass portable agent identity share metadata', async () => {
@@ -43,38 +65,44 @@ test('share preview image exists as a static public asset', () => {
 });
 
 test('agent share routes expose per-agent X-compatible JPEG social preview metadata', async () => {
-  const cases = [
-    { tokenId: '1', name: 'Bendr 2.0' },
-    { tokenId: '81', name: 'Quigbot' },
-  ];
-
-  for (const { tokenId, name } of cases) {
+  for (const card of numericStaticAgentCards()) {
+    const tokenId = String(card.tokenId);
     const htmlPath = join(shareRoot, tokenId, 'index.html');
-    const imagePath = join(shareRoot, `${tokenId}.jpg`);
+    const jpgPath = join(shareRoot, `${tokenId}.jpg`);
+    const pngPath = join(shareRoot, `${tokenId}.png`);
+    const generated = GENERATED_SHARE_CARDS[tokenId];
+
+    assert.ok(generated, `missing generated share manifest for ${tokenId}`);
+    assert.equal(generated.tokenId, tokenId);
+    assert.equal(generated.version, sha256File(jpgPath).slice(0, generated.version.length));
+    assert.equal(generated.visualSource ?? null, card.visual?.imageUrl ?? null);
+
     assert.equal(existsSync(htmlPath), true);
-    assert.equal(existsSync(imagePath), true);
-    assert.ok(statSync(imagePath).size > 20_000);
+    assert.equal(existsSync(jpgPath), true);
+    assert.equal(existsSync(pngPath), true);
+    assert.deepEqual(imageSizeFromFile(jpgPath), { width: 1200, height: 630, type: 'jpeg' });
+    assert.deepEqual(imageSizeFromFile(pngPath), { width: 1200, height: 630, type: 'png' });
+    assert.ok(statSync(jpgPath).size > 20_000);
 
     const html = await readFile(htmlPath, 'utf8');
     const shareUrl = `https://helixa.xyz/multipass/share/${tokenId}/`;
-    const currentVisualUrl = staticAgentCard(tokenId)?.visual?.imageUrl;
-    const imageUrl = currentVisualUrl
-      ? `https://helixa.xyz/multipass/share/${tokenId}.jpg?v=visual-2`
-      : `https://helixa.xyz/multipass/share/${tokenId}.jpg`;
-    assert.ok(html.includes(`<title>${name} Multipass</title>`));
+    const expectedImageUrl = getAgentShareImageUrl(generated, 'https://helixa.xyz');
+    assert.ok(html.includes(`<title>${card.name} Multipass</title>`));
     assert.ok(html.includes(`<link rel="canonical" href="${shareUrl}" />`));
-    assert.ok(html.includes(`<meta property="og:title" content="${name} Multipass" />`));
-    assert.ok(html.includes(`<meta property="og:image" content="${imageUrl}" />`));
-    assert.ok(html.includes(`<meta property="og:image:secure_url" content="${imageUrl}" />`));
+    assert.ok(html.includes(`<meta property="og:title" content="${card.name} Multipass" />`));
+    assert.ok(html.includes(`<meta property="og:image" content="${expectedImageUrl}" />`));
+    assert.ok(html.includes(`<meta property="og:image:secure_url" content="${expectedImageUrl}" />`));
     assert.ok(html.includes('<meta property="og:image:type" content="image/jpeg" />'));
-    assert.ok(html.includes(`<meta name="twitter:image" content="${imageUrl}" />`));
-    assert.ok(html.includes(`<meta name="twitter:image:alt" content="${name} Multipass preview" />`));
-    assert.ok(html.includes(`<img src="../${tokenId}.jpg" alt="${name} Multipass preview" />`));
+    assert.ok(html.includes(`<meta name="twitter:image" content="${expectedImageUrl}" />`));
+    assert.ok(html.includes(`<meta name="twitter:image:alt" content="${card.name} Multipass preview" />`));
+    assert.ok(html.includes(`<img src="../${tokenId}.jpg" alt="${card.name} Multipass preview" />`));
     assert.ok(html.includes(`<a class="open-profile" href="https://helixa.xyz/multipass/?agent=${tokenId}">Open Multipass profile</a>`));
     assert.ok(html.includes(`window.location.replace('https://helixa.xyz/multipass/?agent=${tokenId}')`));
 
-    if (currentVisualUrl) {
-      assert.ok(html.includes(`<meta name="multipass:visual-source" content="${currentVisualUrl}" />`));
+    if (card.visual?.imageUrl) {
+      assert.ok(html.includes(`<meta name="multipass:visual-source" content="${card.visual.imageUrl}" />`));
+    } else {
+      assert.doesNotMatch(html, /multipass:visual-source/);
     }
 
     assert.match(html, /bot|crawl|spider/i);
