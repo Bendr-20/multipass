@@ -820,12 +820,26 @@ function getLegacySourceFromSavedContext(profile, sourceStore) {
   const canonicalId = String(activation?.canonicalId ?? '').trim();
   if (!sourceType || !canonicalId) return null;
 
-  const tokenId = activation?.tokenId === undefined || activation?.tokenId === null ? '' : String(activation.tokenId).trim();
-  return {
+  return pruneUndefined({
+    state: copyStringOrNull(activation.state),
+    origin: copyStringOrNull(activation.origin),
+    originSource: copyStringOrNull(activation.originSource),
     sourceType,
     canonicalId,
-    ...(tokenId ? { tokenId } : {}),
-  };
+    tokenId: activation.tokenId === undefined ? undefined : copyStringOrNull(activation.tokenId),
+    savedAt: copyStringOrNull(activation.savedAt),
+  });
+}
+
+function copyStringOrNull(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return String(value);
+}
+
+function pruneUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
 
 function isCanonicalSourceInput(input) {

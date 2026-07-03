@@ -367,6 +367,19 @@ async function postJson(api, path, body) {
   return { response, body: await response.json() };
 }
 
+function expectedLegacyActivationSource(overrides = {}) {
+  return {
+    state: 'saved_unclaimed',
+    origin: 'live_agent_record',
+    originSource: 'trusted_resolver_metadata',
+    sourceType: 'helixa_agent',
+    canonicalId: '8453:1',
+    tokenId: '1',
+    savedAt: '2026-06-26T20:00:00.000Z',
+    ...overrides,
+  };
+}
+
 test('serves canonical profile by slug or id', async () => {
   const api = makeApi();
 
@@ -663,7 +676,7 @@ test('GET /api/multipass/:id/hydrated fails closed when saved source type is not
   assert.equal(legacy.response.status, 200);
   assert.equal(legacy.body.state, 'saved_record');
   assert.equal(legacy.body.source_identity, undefined);
-  assert.deepEqual(legacy.body.source, { sourceType: 'other_source', canonicalId: '8453:1', tokenId: '1' });
+  assert.deepEqual(legacy.body.source, expectedLegacyActivationSource({ sourceType: 'other_source' }));
 });
 
 test('GET /api/multipass/resolve returns activation preview without saving unactivated sources', async () => {
@@ -696,14 +709,14 @@ test('resolves saved records and live activation previews through public resolve
   assert.equal(saved.body.state, 'saved_record');
   assert.equal(saved.body.mode, 'saved');
   assert.equal(saved.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
-  assert.deepEqual(saved.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
+  assert.deepEqual(saved.body.source, expectedLegacyActivationSource());
 
   const bySource = await requestJson(api, '/api/resolve?agent=1');
   assert.equal(bySource.response.status, 200);
   assert.equal(bySource.body.state, 'saved_record');
   assert.equal(bySource.body.mode, 'activated');
   assert.equal(bySource.body.source_identity.canonical_id, 'helixa-agentdna:8453:1');
-  assert.deepEqual(bySource.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
+  assert.deepEqual(bySource.body.source, expectedLegacyActivationSource());
   assert.equal(bySource.body.profile.slug, 'bendr-2-1');
   assert.equal(bySource.body.routes.profile, 'https://multipass.example.test/api/multipass/bendr-2-1');
 
@@ -712,7 +725,7 @@ test('resolves saved records and live activation previews through public resolve
   assert.equal(byExplicitSource.body.state, 'saved_record');
   assert.equal(byExplicitSource.body.mode, 'activated');
   assert.equal(byExplicitSource.body.profile.slug, 'bendr-2-1');
-  assert.deepEqual(byExplicitSource.body.source, { sourceType: 'helixa_agent', canonicalId: '8453:1', tokenId: '1' });
+  assert.deepEqual(byExplicitSource.body.source, expectedLegacyActivationSource());
 });
 
 test('legacy /api/resolve numeric agent returns activation preview before save', async () => {
