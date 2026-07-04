@@ -539,6 +539,24 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
+test('homepage renders public agent gallery cards with safe Multipass links', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const gallery = root.querySelector('.public-agent-gallery');
+  assert.ok(gallery);
+  assert.match(gallery.textContent, /Public agent gallery/);
+  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 4);
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=1"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));
+  assert.match(gallery.textContent, /Cred/);
+  assert.match(gallery.textContent, /Custody/);
+  assert.match(gallery.textContent, /Proof/);
+  assert.match(gallery.textContent, /Open profile/);
+  assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/agent/"]'), null);
+  assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/swarm/"]'), null);
+});
+
 test('homepage profile card click resolves in place without showing stale profile shell', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const calls = [];
@@ -2232,6 +2250,23 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
 });
 
 
+test('loaded live activation preview explains the stable profile candidate before save', async () => {
+  const root = await renderResolvedQuigbotProfile();
+
+  const preview = root.querySelector('.activation-preview-panel');
+  assert.ok(preview);
+  assert.match(preview.textContent, /Activation preview/);
+  assert.match(preview.textContent, /Quigbot/);
+  assert.match(preview.textContent, /8453:81/);
+  assert.match(preview.textContent, /Token 81/);
+  assert.match(preview.textContent, /\/multipass\/\?agent=81/);
+  assert.match(preview.textContent, /stable public trust profile/i);
+  assert.match(preview.textContent, /does not transfer custody/i);
+  assert.match(preview.textContent, /does not release credentials/i);
+  assert.match(preview.textContent, /does not change approvals/i);
+  assert.equal(root.querySelector('.save-panel button[data-action="save-multipass"]')?.textContent, 'Activate Multipass');
+});
+
 test('live activation preview activates with resolved token id and updates share panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=Quigbot');
   const liveData = {
@@ -2368,6 +2403,24 @@ test('direct saved slug route renders source-owner claim management panel', asyn
   assert.match(panel.textContent, /does not transfer custody, tools, credentials, or ownership/i);
   assert.equal(panel.querySelector('[data-action="claim-with-wallet"]')?.textContent, 'Connect wallet to claim');
   assert.doesNotMatch(panel.textContent, /move secrets|grant permissions|transfer ownership/i);
+});
+
+test('direct saved slug route renders Owner Command Center product metrics', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedProfileFetch }).start();
+
+  const panel = root.querySelector('.owner-command-center');
+  assert.ok(panel);
+  const metrics = panel.querySelector('.owner-command-metrics');
+  assert.ok(metrics);
+  assert.match(metrics.textContent, /Public tools/);
+  assert.match(metrics.textContent, /x402 cards/);
+  assert.match(metrics.textContent, /Public routes/);
+  assert.match(metrics.textContent, /Recent receipts/);
+  assert.match(panel.textContent, /Discovery and display controls only/);
+  assert.match(panel.textContent, /does not call tools/);
+  assert.match(panel.textContent, /does not transfer custody/);
+  assert.doesNotMatch(panel.textContent, /execute tool|access granted|credentials released|buy trust|trust purchased|custody transferred|transfer ownership|grant permissions/i);
 });
 
 test('direct saved slug route renders Tools and services public cards', async () => {

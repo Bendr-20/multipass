@@ -274,6 +274,81 @@ button:focus-visible {
   color: var(--ink);
 }
 
+.public-agent-gallery {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid var(--ink);
+  background:
+    linear-gradient(135deg, rgba(47, 125, 85, 0.08), transparent 42%),
+    rgba(255, 250, 241, 0.78);
+}
+
+.public-agent-gallery-copy {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+}
+
+.public-agent-gallery-copy h2,
+.public-agent-gallery-copy p {
+  margin: 0;
+}
+
+.public-agent-gallery-copy p:not(.card-label) {
+  color: var(--muted);
+}
+
+.public-agent-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.public-agent-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(46, 40, 30, 0.12);
+  border-radius: 18px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 14px;
+  text-decoration: none;
+  box-shadow: 0 10px 30px rgba(25, 27, 28, 0.06);
+}
+
+.public-agent-card:hover,
+.public-agent-card:focus-visible {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+  outline: none;
+}
+
+.public-agent-card strong {
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.public-agent-card span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.public-agent-card em {
+  color: var(--green);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.public-agent-card.loading {
+  cursor: wait;
+  opacity: 0.9;
+}
 
 .product-card-grid {
   display: grid;
@@ -2746,6 +2821,53 @@ h1 {
   }
 }
 
+.activation-preview-panel {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(180, 144, 255, 0.24);
+  border-radius: 18px;
+  background: rgba(180, 144, 255, 0.07);
+}
+
+.activation-preview-panel h3,
+.activation-preview-panel p {
+  margin: 0;
+}
+
+.activation-preview-panel p:not(.card-label) {
+  color: var(--muted);
+}
+
+.activation-preview-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.activation-preview-facts div {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(10, 10, 20, 0.34);
+}
+
+.activation-preview-facts dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activation-preview-facts dd {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .save-panel {
   margin: 1rem 0;
   padding: 1rem;
@@ -2922,6 +3044,7 @@ h1 {
 }
 
 @media (max-width: 700px) {
+  .activation-preview-facts,
   .owner-command-facts,
   .owner-command-unlock {
     grid-template-columns: 1fr;
@@ -3005,6 +3128,11 @@ h1 {
 .public-route-list,
 .public-tools-panel,
 .tool-manager-copy,
+.tool-import-wizard,
+.tool-import-wizard-heading,
+.tool-import-steps,
+.tool-import-sources,
+.bankr-tool-import-form,
 .public-tool-list,
 .public-tool-card,
 .tool-card-meta,
@@ -3067,6 +3195,51 @@ h1 {
   border: 1px solid var(--soft-line);
   border-radius: 18px;
   background: rgba(255, 250, 241, 0.66);
+}
+
+.tool-import-wizard {
+  padding: 1rem;
+  border: 1px solid rgba(180, 144, 255, 0.22);
+  border-radius: 18px;
+  background: rgba(180, 144, 255, 0.07);
+}
+
+.tool-import-wizard-heading h3,
+.tool-import-wizard-heading p {
+  margin: 0;
+}
+
+.tool-import-wizard-heading p:not(.card-label) {
+  color: var(--muted);
+}
+
+.tool-import-steps,
+.tool-import-sources {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.tool-import-steps span,
+.tool-import-sources article {
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(10, 10, 20, 0.28);
+}
+
+.tool-import-steps strong,
+.tool-import-sources strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.tool-import-sources span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.tool-import-sources [aria-current="step"] {
+  border-color: rgba(110, 236, 216, 0.35);
+  background: rgba(110, 236, 216, 0.08);
 }
 
 .tool-manager-panel > .public-tools-panel {

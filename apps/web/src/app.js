@@ -4,6 +4,7 @@ import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-reso
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
+import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
@@ -1178,6 +1179,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
     data.heroNote ? renderProfileInfoPanel('Profile note', data.heroNote) : '',
     state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live source resolved into an activation preview. No approvals, custody, or authority changes.</p>' : '',
     renderSharePanel(data, heroCopy),
+    renderActivationPreviewPanel(state, activationState),
     renderSavePanel(state),
     renderActivationSummary(activationState),
   ].join('');
@@ -1306,6 +1308,8 @@ function renderProductHome(root, state, handlers = {}) {
       ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
 
       ${renderMultipassWhatItDoesPanel()}
+
+      ${renderPublicAgentGallery(agentCarousel, state)}
     </div>
   `;
 
@@ -1332,7 +1336,7 @@ function renderAgentVisualLink(card, index, selectedIndex, loadingAgent = null) 
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
   const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
-  const resolveAttrs = agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}" data-index="${index}"` : '';
+  const resolveAttrs = getHomeProfileResolveAttrs(agent, index);
   return `
     <a class="visual-card-button${selected ? ' selected' : ''}${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${resolveAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}${loading ? ' aria-busy="true"' : ''}>
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
@@ -1343,6 +1347,45 @@ function renderAgentVisualLink(card, index, selectedIndex, loadingAgent = null) 
       <em>${escapeHtml(loading ? `Opening ${card.name}...` : 'Open profile')}</em>
     </a>
   `;
+}
+
+function renderPublicAgentGallery(carousel, state = {}) {
+  const cards = carousel.cards ?? [];
+  if (!cards.length) return '';
+  const loadingAgent = state.resolverStatus === 'loading' ? String(state.resolverInFlightInput ?? '').trim() : null;
+  return `
+    <section class="public-agent-gallery" aria-label="Public agent gallery">
+      <div class="public-agent-gallery-copy">
+        <p class="card-label">Public agent gallery</p>
+        <h2>Pick an agent and open its Multipass.</h2>
+        <p>Each card uses safe Multipass routes with public Cred, custody, and proof context only.</p>
+      </div>
+      <div class="public-agent-gallery-grid">
+        ${cards.map((card, index) => renderPublicAgentGalleryCard(card, index, loadingAgent)).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
+  const href = getHomepageMultipassProfileHref(card);
+  const agent = getHomepageMultipassProfileAgent(card);
+  const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
+  const resolveAttrs = getHomeProfileResolveAttrs(agent, index);
+  const proof = card.proofSummary ?? `${Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds.length : 0} public proof signals`;
+  return `
+    <a class="public-agent-card${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${resolveAttrs}${loading ? ' aria-busy="true"' : ''}>
+      <strong>${escapeHtml(card.name)}</strong>
+      <span>Cred: ${escapeHtml(card.credLabel ?? (card.credScore === null || card.credScore === undefined ? 'Pending' : `Cred ${card.credScore}`))}</span>
+      <span>Custody: ${escapeHtml(card.custody ?? card.ownerSnapshot?.permissionState ?? 'Public context only')}</span>
+      <span>Proof: ${escapeHtml(proof)}</span>
+      <em>${escapeHtml(loading ? `Opening ${card.name}...` : 'Open profile')}</em>
+    </a>
+  `;
+}
+
+function getHomeProfileResolveAttrs(agent, index) {
+  return agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}" data-index="${index}"` : '';
 }
 
 function getHomepageMultipassProfileAgent(card) {
@@ -1611,20 +1654,12 @@ function renderToolRegistryPanel(state) {
 }
 
 function renderOwnerDashboardPanel(profile, state) {
-  const ownerSummary = profile.owner_summary ?? {};
   const entries = Array.isArray(state.data?.changes?.entries) ? state.data.changes.entries.slice(-4).reverse() : [];
+  const snapshot = createOwnerCommandCenterSnapshot({ ...state.data, profile }, state);
   return `
     <section class="owner-dashboard-panel" aria-label="Owner dashboard">
-      <div>
-        <p class="card-label">Owner dashboard</p>
-        <h3>Public profile controls.</h3>
-        <p>Public profile settings for the Multipass. Visibility affects public search and discovery, not custody, tools, credentials, or ownership.</p>
-      </div>
-      <dl class="owner-dashboard-facts">
-        <div><dt>Status</dt><dd>${escapeHtml(ownerSummary.owner_state ?? 'unclaimed')}</dd></div>
-        <div><dt>Visibility</dt><dd>${escapeHtml(ownerSummary.visibility ?? 'public')}</dd></div>
-        <div><dt>Verification</dt><dd>${escapeHtml(ownerSummary.verification_status ?? 'none')}</dd></div>
-      </dl>
+      <p class="card-label">Owner dashboard</p>
+      ${renderOwnerCommandCenterSnapshot(snapshot)}
       <div class="owner-change-log" aria-label="Recent changes">
         <strong>Recent changes</strong>
         ${entries.length ? `<ol>${entries.map((entry) => `<li><span>${escapeHtml(entry.message)}</span><time>${escapeHtml(formatShortDate(entry.created_at))}</time></li>`).join('')}</ol>` : '<p class="resolver-message">No public changes logged yet.</p>'}
@@ -1664,6 +1699,30 @@ function renderVisibilitySelect(selected = 'public') {
 function formatShortDate(value) {
   const text = String(value ?? '').trim();
   return text ? text.replace(/\.000Z$/, 'Z') : '';
+}
+
+function renderActivationPreviewPanel(state, activationState) {
+  if (state.resolverStatus !== 'loaded' || state.saveStatus === 'saved' || isSavedManageRecord(state)) return '';
+  const data = state.data ?? {};
+  const tokenId = data.resolver?.tokenId ?? data.profile?.token_id ?? data.profile?.tokenId ?? '';
+  const agentdnaId = data.resolver?.canonicalId ?? data.profile?.helixa_id ?? data.profile?.multipass_id ?? activationState.resolvedId ?? '';
+  const displayName = data.profile?.display_name ?? data.liveProfilePage?.headline ?? activationState.subject ?? 'Resolved agent';
+  const sharePath = isSafeMultipassSharePath(data.liveProfilePage?.sharePath) ? data.liveProfilePage.sharePath : '/multipass/';
+  const tokenLabel = tokenId ? `Token ${tokenId}` : 'Token pending';
+  return `
+    <section class="activation-preview-panel" aria-label="Activation preview">
+      <div>
+        <p class="card-label">Activation preview</p>
+        <h3>${escapeHtml(displayName)} stable public trust profile</h3>
+        <p>Activation will create a saved Multipass profile from this live public AgentDNA source. It does not transfer custody, does not release credentials, and does not change approvals.</p>
+      </div>
+      <dl class="activation-preview-facts">
+        <div><dt>AgentDNA source</dt><dd>${escapeHtml(agentdnaId || 'Source pending')}</dd></div>
+        <div><dt>Token</dt><dd>${escapeHtml(tokenLabel)}</dd></div>
+        <div><dt>Candidate share path</dt><dd>${escapeHtml(sharePath)}</dd></div>
+      </dl>
+    </section>
+  `;
 }
 
 function renderActivationSummary(activationState) {

@@ -44,7 +44,7 @@ export function renderToolRegistryManagerPanel(state = {}, { canEdit = Boolean(s
         <p>${escapeHtml(SAFETY_COPY)}</p>
         ${renderToolManagerStatus(state)}
       </div>
-      ${renderBankrImportForm(state)}
+      ${renderToolImportWizard(state)}
       <div class="managed-tool-toolbar">
         <strong>${tools.length} public tool${tools.length === 1 ? '' : 's'}</strong>
         <span>Imported cards are display and discovery metadata only.</span>
@@ -161,6 +161,38 @@ function renderToolManagerStatus(state = {}) {
   if (state.toolError) return `<p class="tool-manager-status resolver-message error">${escapeHtml(state.toolError)}</p>`;
   const message = TOOL_STATUS_MESSAGES.get(state.toolStatus);
   return message ? `<p class="tool-manager-status resolver-message">${escapeHtml(message)}</p>` : '';
+}
+
+function renderToolImportWizard(state = {}) {
+  return `
+    <section class="tool-import-wizard" aria-label="Tool import wizard">
+      <div class="tool-import-wizard-heading">
+        <p class="card-label">Import wizard</p>
+        <h3>Turn public service metadata into a tool card.</h3>
+        <p>Wizard steps stage display metadata only. They do not call services, grant access, release credentials, or make paid x402 requests.</p>
+      </div>
+      <div class="tool-import-steps" aria-label="Import steps">
+        <span><strong>Step 1</strong> Source</span>
+        <span><strong>Step 2</strong> Metadata</span>
+        <span><strong>Step 3</strong> Review</span>
+      </div>
+      <div class="tool-import-sources" aria-label="Import sources">
+        <article data-import-source="bankr_x402_cloud" aria-current="step">
+          <strong>Bankr x402 service</strong>
+          <span>Active import source</span>
+        </article>
+        <article data-import-source="opensea_manifest">
+          <strong>OpenSea manifest</strong>
+          <span>Coming soon: display-only marketplace manifest import.</span>
+        </article>
+        <article data-import-source="helixa_api">
+          <strong>Helixa API</strong>
+          <span>Coming soon: public AgentDNA route metadata import.</span>
+        </article>
+      </div>
+      ${renderBankrImportForm(state)}
+    </section>
+  `;
 }
 
 function renderBankrImportForm(state = {}) {

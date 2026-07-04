@@ -89,6 +89,27 @@ test('Bankr import form compacts fields to API route input shape', () => {
   });
 });
 
+test('editable tool registry renders a safe import wizard around the Bankr form', () => {
+  const root = setup(renderToolRegistryManagerPanel({ claimCsrfToken: 'csrf-1', data: { tools: { tools: [] } } }));
+  const wizard = root.querySelector('.tool-import-wizard');
+
+  assert.ok(wizard);
+  assert.match(wizard.textContent, /Import wizard/);
+  assert.match(wizard.textContent, /Step 1/);
+  assert.match(wizard.textContent, /Source/);
+  assert.match(wizard.textContent, /Step 2/);
+  assert.match(wizard.textContent, /Metadata/);
+  assert.match(wizard.textContent, /Step 3/);
+  assert.match(wizard.textContent, /Review/);
+  assert.match(wizard.textContent, /Bankr x402 service/);
+  assert.match(wizard.textContent, /OpenSea manifest/);
+  assert.match(wizard.textContent, /Helixa API/);
+  assert.match(wizard.textContent, /coming soon/i);
+  assert.ok(wizard.querySelector('[data-import-source="bankr_x402_cloud"][aria-current="step"]'));
+  assert.equal(wizard.querySelectorAll('button[data-import-source]').length, 0);
+  assert.ok(wizard.querySelector('form[data-action="import-bankr-tool"]'));
+});
+
 test('Bankr import form rejects non-HTTPS endpoint URLs client-side', () => {
   const root = setup(renderToolRegistryManagerPanel({ claimCsrfToken: 'csrf-1', data: { tools: { tools: [] } } }));
   const form = root.querySelector('[data-action="import-bankr-tool"]');
