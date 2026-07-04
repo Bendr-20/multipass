@@ -24,10 +24,12 @@ test('DEMO_SUBJECT contains Bendr V0 metadata', () => {
 
 
 test('landing copy names agent builders and explains product-card-proof flow', () => {
-  assert.match(HERO_COPY.headline, /portable agent trust profiles/i);
+  assert.match(HERO_COPY.headline, /public agent profiles/i);
+  assert.doesNotMatch(HERO_COPY.headline, /trust profiles/i);
   assert.match(HERO_COPY.body, /visual identity graph/i);
   assert.match(V01_COPY.audience, /agent builders/i);
   assert.equal(V01_COPY.prototypeLabel, '');
+  assert.match(V01_COPY.productSentence, /public agent profile/i);
 
   const sections = createClaritySections();
   const titles = sections.map((section) => section.title);
@@ -38,9 +40,10 @@ test('landing copy names agent builders and explains product-card-proof flow', (
   ]);
 
   const combined = JSON.stringify(sections);
-  assert.match(combined, /portable agent trust profile/i);
+  assert.match(combined, /public agent profile/i);
   assert.match(combined, /agents, humans, swarms, collections, projects, organizations, apps, directories, and marketplace display surfaces/i);
   assert.match(combined, /Helixa ID/i);
+  assert.match(combined, /trust context/i);
   assert.match(combined, /Cred context/i);
   assert.match(combined, /raw protocol details/i);
 });
@@ -81,7 +84,7 @@ test('agent carousel maps real Helixa card data for display', () => {
     card: { trust_summary: { identity_status: 'pending' } },
   });
 
-  assert.equal(carousel.title, 'Example trust profiles.');
+  assert.equal(carousel.title, 'Example public agent profiles.');
   assert.equal(carousel.cards.length, 2);
   assert.equal(carousel.cards[0].helixaId, '8453:1');
   assert.equal(carousel.cards[0].credLabel, 'Cred 80');

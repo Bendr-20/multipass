@@ -7,7 +7,7 @@ export const DEMO_SUBJECT = {
 export const V01_COPY = {
   prototypeLabel: '',
   audience: 'Built first for agent builders and agent teams; marketplace compatibility is a secondary display use case.',
-  productSentence: 'Multipass is a portable agent trust profile combining identity, public proof, standards support, custody context, and access receipts into one inspectable record.',
+  productSentence: 'Multipass is a portable public agent profile combining identity, public proof, standards support, custody context, and access receipts into one inspectable record.',
 };
 
 
@@ -103,8 +103,8 @@ export function createAgentCarousel(data) {
 
   return {
     eyebrow: 'PROFILE GALLERY',
-    title: 'Example trust profiles.',
-    body: 'Each card gives agents, humans, organizations, swarms, apps, and directories a quick read on identity, separate trust state, Cred context, framework, and profile route. Marketplace compatibility stays secondary; deeper proof sits below for verification.',
+    title: 'Example public agent profiles.',
+    body: 'Each card gives agents, humans, organizations, swarms, apps, and directories a quick read on identity, framework, profile route, and public proof. Trust state and Cred context stay secondary for verification.',
     cards,
   };
 }
@@ -323,8 +323,8 @@ function formatEnumLabel(value) {
 
 export const HERO_COPY = {
   eyebrow: 'MULTIPASS',
-  headline: 'Portable agent trust profiles for AI-native systems.',
-  body: 'Multipass gives agents, humans, swarms, collections, projects, organizations, and AI-native systems a visual identity graph with public proof, custody context, routes, Cred, and discovery data in one readable profile.',
+  headline: 'Portable public agent profiles for AI-native systems.',
+  body: 'Multipass gives agents, humans, swarms, collections, projects, organizations, and AI-native systems a visual identity graph where a public agent profile combines identity, ownership and custody context, routes, public proof, Cred trust context, and discovery metadata.',
   note: 'Built from Helixa AgentDNA examples and live resolver data.',
 };
 
@@ -332,15 +332,15 @@ export function createClaritySections() {
   return [
     {
       title: 'What is Multipass?',
-      body: 'Multipass is a portable agent trust profile for agents, humans, swarms, collections, projects, organizations, apps, directories, and marketplace display surfaces that need to decide who they are dealing with.',
+      body: 'Multipass is a portable public agent profile for agents, humans, swarms, collections, projects, organizations, apps, directories, and marketplace display surfaces that need to decide who they are dealing with.',
     },
     {
       title: 'What the card shows',
-      body: 'The card gives the fast read: name, Helixa ID, separate trust state, Cred context, verified status, framework, and profile route.',
+      body: 'The card gives the fast read: name, Helixa ID, public agent profile route, verified status, framework, and secondary trust context such as trust state and Cred context.',
     },
     {
       title: 'What proof adds',
-      body: 'Proof records explain where the card comes from without making raw protocol details the first thing people see.',
+      body: 'Proof records explain where the public agent profile comes from without making raw protocol details the first thing people see.',
     },
   ];
 }
@@ -366,7 +366,7 @@ export function createStoryCards(data) {
     {
       title: 'Portable by design',
       label: `${data.x402.endpoints.length} x402 endpoint`,
-      body: 'Apps can read the same agent profile across discovery, access, settlement, and custody flows.',
+      body: 'Apps can read the same public agent profile across discovery, access, settlement, and custody flows.',
     },
   ];
 }
@@ -380,7 +380,7 @@ export function createProofCards(data, selectedAgent = null) {
       title: 'Profile',
       status: data.profile.status,
       summary: summarizeProfile(data.profile),
-      why: 'The profile is the canonical summary agents, apps, and builders can resolve first.',
+      why: 'The public agent profile is the canonical summary agents, apps, and builders can resolve first.',
       json: redactPrivateData(data.profile),
     },
     {
@@ -415,7 +415,7 @@ export function createProofCards(data, selectedAgent = null) {
       title: 'Receipt',
       status: data.receipt.status,
       summary: `${data.receipt.receipt_id} records a ${data.receipt.response_class ?? 'unknown'} response.`,
-      why: 'Receipt evidence records that an access event can be attached to the profile without becoming trust by itself.',
+      why: 'Receipt evidence records that an access event can be attached to the public agent profile without becoming trust by itself.',
       json: redactPrivateData(data.receipt),
     },
   ];

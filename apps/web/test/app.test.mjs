@@ -711,7 +711,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   resolveLoad(sampleData());
   await ready;
 
-  assert.match(root.textContent, /portable agent trust profiles/i);
+  assert.match(root.textContent, /portable public agent profiles/i);
   assert.match(root.textContent, /agent builders/i);
   assert.match(root.textContent, /visual identity graph/i);
   assert.doesNotMatch(root.textContent, /Internal Prototype/);
@@ -745,7 +745,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
   assert.match(root.textContent, /Proof ledger/);
   assert.doesNotMatch(root.textContent, /Card first/);
-  assert.match(root.textContent, /Example trust profiles/);
+  assert.match(root.textContent, /Example public agent profiles/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.match(root.textContent, /Quigbot/);
   assert.match(root.textContent, /Cred 80/);
@@ -826,7 +826,7 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.equal(hero?.querySelector('.homepage-proof-panel'), null);
   const proofPanel = root.querySelector('.homepage-proof-panel');
   assert.match(proofPanel?.textContent ?? '', /What it does/);
-  assert.match(proofPanel?.textContent ?? '', /Multipass turns scattered agent identity into one readable trust profile/);
+  assert.match(proofPanel?.textContent ?? '', /Multipass turns scattered agent identity into one readable public agent profile/);
   assert.match(proofPanel?.textContent ?? '', /Identity inputs/);
   assert.match(proofPanel?.textContent ?? '', /AgentDNA/);
   assert.match(proofPanel?.textContent ?? '', /Owner wallet/);
@@ -1567,11 +1567,11 @@ test('Bendr public profile does not require marketplace listing data', async () 
   assert.ok(root.querySelector('.multipass-profile-page'));
   assert.equal(root.querySelector('.marketplace-listing'), null);
   assert.doesNotMatch(root.innerHTML, /Marketplace listing context/);
-  assert.doesNotMatch(root.innerHTML, /Example trust profiles/);
+  assert.doesNotMatch(root.innerHTML, /Example public agent profiles/);
   assert.match(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context')?.textContent ?? '', /not published for this profile yet/);
 });
 
-test('live resolver renders trust profile compatibility context without executable controls', async () => {
+test('live resolver renders public agent profile compatibility context without executable controls', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const liveData = {
     ...sampleData(),
@@ -1579,9 +1579,9 @@ test('live resolver renders trust profile compatibility context without executab
     sourceLabel: 'live Helixa API',
     modeLabel: 'Live Resolver',
     marketplaceListing: {
-      title: 'Bendr 2.0 trust profile',
+      title: 'Bendr 2.0 public agent profile',
       subtitle: '8453:1 · openclaw',
-      summary: 'Public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility.',
+      summary: 'Public AgentDNA profile prepared for directories, builders, and marketplace compatibility with trust context.',
       identity: { name: 'Bendr 2.0', helixaId: '8453:1', tokenId: '1', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
       score: { label: 'Cred 80', tier: 'Preferred', value: 80, tone: 'preferred' },
       badges: [{ label: 'Verified AgentDNA', tone: 'verified' }, { label: 'Open to work', tone: 'verified' }],
@@ -1602,8 +1602,8 @@ test('live resolver renders trust profile compatibility context without executab
 
   const listing = root.querySelector('.marketplace-listing');
   assert.ok(listing);
-  assert.match(listing.textContent, /Trust profile context/);
-  assert.match(listing.textContent, /Bendr 2\.0 trust profile/);
+  assert.match(listing.textContent, /Public agent profile context/);
+  assert.match(listing.textContent, /Bendr 2\.0 public agent profile/);
   assert.match(listing.textContent, /Cred 80/);
   assert.match(listing.textContent, /Preferred/);
   assert.match(listing.textContent, /Live Helixa API/);
@@ -1890,9 +1890,9 @@ test('resolved live agent takes over the page hero and record surface', async ()
     liveProfilePage: {
       eyebrow: 'LIVE MULTIPASS',
       headline: 'Quigbot Multipass',
-      body: 'Live AgentDNA profile for Quigbot with public trust, routes, custody context, and proof inspection.',
+      body: 'Live AgentDNA profile for Quigbot with public identity, routes, custody context, and proof inspection.',
       note: 'Shareable live profile for 8453:81.',
-      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals.',
+      recordIntro: 'Live public AgentDNA profile assembled from public Helixa API signals.',
       headerMeta: 'Live profile · 8453:81',
       sharePath: '/multipass/?agent=81',
     },
@@ -1948,8 +1948,8 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
       },
     },
     marketplaceListing: {
-      title: 'Quigbot trust profile',
-      summary: 'Live AgentDNA record with public trust context.',
+      title: 'Quigbot public agent profile',
+      summary: 'Live public AgentDNA profile with trust context.',
       identity: { helixaId: '8453:81', framework: 'openclaw', verifiedLabel: 'Verified AgentDNA', sourceLabel: 'Live Helixa API' },
       score: { tier: 'Prime', label: 'Cred 75' },
       badges: [],
@@ -1967,7 +1967,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   const auraCard = root.querySelector('.aura-card');
   const drawer = root.querySelector('.aura-provenance-drawer');
   assert.equal(auraCard?.getAttribute('data-visual-source'), 'helixa_aura');
-  assert.match(auraCard?.getAttribute('aria-label') ?? '', /trust profile/i);
+  assert.match(auraCard?.getAttribute('aria-label') ?? '', /public agent profile/i);
   assert.ok(root.querySelector('.aura-asset-frame'));
   assert.ok(root.querySelector('.aura-item-meta'));
   assert.ok(profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Visual provenance')?.contains(drawer));
@@ -2260,7 +2260,7 @@ test('loaded live activation preview explains the stable profile candidate befor
   assert.match(preview.textContent, /8453:81/);
   assert.match(preview.textContent, /Token 81/);
   assert.match(preview.textContent, /\/multipass\/\?agent=81/);
-  assert.match(preview.textContent, /stable public trust profile/i);
+  assert.match(preview.textContent, /stable public agent profile/i);
   assert.match(preview.textContent, /does not transfer custody/i);
   assert.match(preview.textContent, /does not release credentials/i);
   assert.match(preview.textContent, /does not change approvals/i);
@@ -2340,7 +2340,7 @@ test('save error does not update stable URL or claim success', async () => {
   await Promise.resolve();
 
   assert.match(root.textContent, /Save API unavailable/);
-  assert.doesNotMatch(root.textContent, /Stable public trust profile is ready to share/);
+  assert.doesNotMatch(root.textContent, /Stable public agent profile is ready to share/);
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
 });
 

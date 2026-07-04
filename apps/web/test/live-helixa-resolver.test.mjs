@@ -148,15 +148,15 @@ test('loadLiveHelixaMultipass returns match choices for ambiguous name searches'
 test('mapHelixaAgentToMultipassDemo maps Bendr public API data into Multipass display shape', async () => {
   const data = mapHelixaAgentToMultipassDemo(await bendrFixture());
 
-  assert.equal(data.modeLabel, 'Live Trust Profile');
+  assert.equal(data.modeLabel, 'Live Public Agent Profile');
   assert.equal(data.sourceLabel, 'live Helixa API');
   assert.equal(data.liveProfilePage.headline, 'Bendr 2.0 Multipass');
   assert.equal(data.liveProfilePage.headerMeta, 'Live profile · 8453:1');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=1');
-  assert.match(data.liveProfilePage.recordIntro, /trust profile assembled from public Helixa API signals/);
-  assert.equal(data.liveProfilePage.prototypeLabel, 'Live trust profile');
+  assert.match(data.liveProfilePage.recordIntro, /public AgentDNA profile/i);
+  assert.equal(data.liveProfilePage.prototypeLabel, 'Live public agent profile');
   assert.match(data.liveProfilePage.audience, /agent builders/i);
-  assert.match(data.liveProfilePage.body, /portable agent trust profile/i);
+  assert.match(data.liveProfilePage.body, /public agent profile/i);
   assert.equal(data.visualIdentity.source, 'helixa_aura');
   assert.equal(data.visualIdentity.label, 'Helixa Agent Aura');
   assert.equal(data.visualIdentity.imageUrl, 'https://api.helixa.xyz/api/v2/aura/1.png');
@@ -227,14 +227,15 @@ test('mapHelixaAgentToMultipassDemo handles missing optional public fields', () 
   assert.equal(data.x402.endpoints.length, 0);
 });
 
-test('createLiveMarketplaceListing maps Bendr into trust profile compatibility context', async () => {
+test('createLiveMarketplaceListing maps Bendr into public agent profile compatibility context', async () => {
   assert.equal(typeof createLiveMarketplaceListing, 'function');
   const mapped = mapHelixaAgentToMultipassDemo(await bendrFixture());
   const listing = mapped.marketplaceListing;
 
-  assert.equal(listing.title, 'Bendr 2.0 trust profile');
+  assert.equal(listing.title, 'Bendr 2.0 public agent profile');
   assert.equal(listing.subtitle, 'Marketplace compatibility context');
   assert.match(listing.summary, /marketplace compatibility/i);
+  assert.doesNotMatch(listing.summary, /trust profile/i);
   assert.equal(listing.identity.helixaId, '8453:1');
   assert.equal(listing.identity.framework, 'openclaw');
   assert.equal(listing.score.label, 'Cred 80');
@@ -253,7 +254,7 @@ test('createLiveMarketplaceListing maps Bendr into trust profile compatibility c
 test('createLiveMarketplaceListing maps Quigbot with no payment references', async () => {
   const listing = mapHelixaAgentToMultipassDemo(await quigbotFixture()).marketplaceListing;
 
-  assert.equal(listing.title, 'Quigbot trust profile');
+  assert.equal(listing.title, 'Quigbot public agent profile');
   assert.equal(listing.identity.helixaId, '8453:81');
   assert.equal(listing.score.label, 'Cred 75');
   assert.equal(listing.score.tier, 'Prime');

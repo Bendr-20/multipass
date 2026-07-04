@@ -960,7 +960,7 @@ function renderLegacyProfileShell(root, state, handlers = {}) {
       ${renderProofLedger(proofCards, state.expandedCard)}
 
       <footer class="footer-note">${escapeHtml(['activated', 'saved'].includes(activationState.kind)
-        ? 'Public trust profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
+        ? 'Public agent profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
         : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
       )}</footer>
     </div>
@@ -1008,7 +1008,7 @@ function renderProfilePage(root, state, handlers = {}) {
         <footer class="footer-note">
           <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
           <span>${escapeHtml(['activated', 'saved'].includes(activationState.kind)
-            ? 'Public trust profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
+            ? 'Public agent profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
             : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
           )}</span>
         </footer>
@@ -1185,7 +1185,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
   ].join('');
   const claimManagement = renderClaimManagementPanel(state) || renderProfileInfoPanel(
     'Ownership and management',
-    'Public visitors can inspect this trust profile only. Management requires source-owner proof; viewing cannot transfer custody, expose private credentials, or change live routes.'
+    'Public visitors can inspect this public agent profile only. Management requires source-owner proof; viewing cannot transfer custody, expose private credentials, or change live routes.'
   );
   const provenance = renderAgentAuraProvenanceDrawer(visualIdentity?.provenanceDrawer) || renderProfileInfoPanel(
     'Visual provenance',
@@ -1259,8 +1259,8 @@ function renderMultipassWhatItDoesPanel() {
     <aside class="homepage-proof-panel multipass-system-panel" aria-label="What Multipass does">
       <div class="system-panel-copy">
         <p class="card-label">What it does</p>
-        <h2>Multipass turns scattered agent identity into one readable trust profile.</h2>
-        <p>It connects identity, ownership, permissions, endpoints, proof, work history, and Cred context into one portable profile humans and agents can verify.</p>
+        <h2>Multipass turns scattered agent identity into one readable public agent profile.</h2>
+        <p>It connects identity, ownership and permissions, endpoints, proof, work history, and trust context into one portable profile humans and agents can verify.</p>
       </div>
       <div class="multipass-system-map" aria-label="Multipass identity system map">
         <section class="system-node system-node-inputs">
@@ -1492,8 +1492,8 @@ function renderHomepageHero(heroCopy, data, agentCarousel) {
         <div class="note">${escapeHtml(heroCopy.note)}${renderShareLink(data.liveProfilePage?.sharePath)}</div>
       </div>
       <aside class="homepage-proof-panel" aria-label="Multipass profile ingredients">
-        <p class="card-label">Trust profile stack</p>
-        <h2>Identity, custody, proof, routes, and visual context in one readable profile.</h2>
+        <p class="card-label">Public agent profile stack</p>
+        <h2>Identity, custody, proof, routes, and trust context in one readable public agent profile.</h2>
         <div class="homepage-proof-grid">
           ${renderHeroStat('Profiles', profileCount)}
           ${renderHeroStat('Public proof', proofCount)}
@@ -1713,7 +1713,7 @@ function renderActivationPreviewPanel(state, activationState) {
     <section class="activation-preview-panel" aria-label="Activation preview">
       <div>
         <p class="card-label">Activation preview</p>
-        <h3>${escapeHtml(displayName)} stable public trust profile</h3>
+        <h3>${escapeHtml(displayName)} stable public agent profile</h3>
         <p>Activation will create a saved Multipass profile from this live public AgentDNA source. It does not transfer custody, does not release credentials, and does not change approvals.</p>
       </div>
       <dl class="activation-preview-facts">
@@ -1814,7 +1814,7 @@ function renderAgentAura(visualIdentity, options = {}) {
   const title = options.title ?? label;
   const sharePath = isSafeAuraSharePath(options.sharePath) ? options.sharePath : null;
   return `
-    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual for trust profile">
+    <section class="aura-card" data-visual-source="${escapeAttribute(visualIdentity.source)}" aria-label="Agent Aura visual for public agent profile">
       ${sharePath ? renderAuraShareAction(sharePath, title) : ''}
       <div class="aura-asset-frame">
         <div class="aura-orb tone-${escapeAttribute(visualIdentity.tone ?? 'pending')}">
@@ -2116,10 +2116,10 @@ function renderTransferStep(label, value) {
 function renderMarketplaceListing(listing) {
   if (!listing) return '';
   return `
-    <section class="marketplace-listing" aria-label="Trust profile marketplace compatibility context">
+    <section class="marketplace-listing" aria-label="Public agent profile marketplace compatibility context">
       <div class="listing-shell">
         <div class="listing-copy">
-          <p class="card-label">Trust profile context</p>
+          <p class="card-label">Public agent profile context</p>
           <h2>${escapeHtml(listing.title ?? 'Agent listing')}</h2>
           <p>${escapeHtml(listing.summary ?? 'Public AgentDNA source evidence prepared for marketplace discovery.')}</p>
           ${listing.subtitle ? `<span class="listing-subtitle">${escapeHtml(listing.subtitle)}</span>` : ''}

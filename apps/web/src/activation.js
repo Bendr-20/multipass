@@ -30,7 +30,7 @@ export function getActivationState(data = {}, resolverState = {}) {
       resolvedId,
       sourceLabel: data.sourceLabel ?? 'Bendr public profile',
       originLabel: 'Public Helixa profile',
-      summary: 'This public profile shows Bendr 2.0 as a readable Multipass trust profile.',
+      summary: 'This public profile shows Bendr 2.0 as a readable Multipass public agent profile.',
       showFutureBindNote: true,
     };
   }

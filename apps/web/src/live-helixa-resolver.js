@@ -121,17 +121,17 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   };
 
   return {
-    modeLabel: 'Live Trust Profile',
+    modeLabel: 'Live Public Agent Profile',
     sourceLabel: 'live Helixa API',
     heroNote: `Public Helixa API source evidence for ${displayName}.`,
     liveProfilePage: {
       eyebrow: 'LIVE MULTIPASS',
-      prototypeLabel: 'Live trust profile',
-      audience: 'Public trust, route, custody, and proof context for agent builders, directories, and marketplace compatibility.',
+      prototypeLabel: 'Live public agent profile',
+      audience: 'Public identity, route, custody, proof, and trust context for agent builders, directories, and marketplace compatibility.',
       headline: `${displayName} Multipass`,
-      body: `Portable agent trust profile for ${displayName} with public identity, custody context, routes, and proof inspection.`,
-      note: `Shareable live trust profile for ${helixaId}.`,
-      recordIntro: 'Live AgentDNA trust profile assembled from public Helixa API signals. Viewing does not grant authority, and private credentials stay protected.',
+      body: `Portable public agent profile for ${displayName} with public identity, custody context, routes, and proof inspection.`,
+      note: `Shareable live public agent profile for ${helixaId}.`,
+      recordIntro: 'Live public AgentDNA profile assembled from public Helixa API signals. Viewing does not grant authority, and private credentials stay protected.',
       headerMeta: `Live profile · ${helixaId}`,
       sharePath: `/multipass/?agent=${encodeURIComponent(tokenId)}`,
     },
@@ -497,7 +497,7 @@ export function createLiveMarketplaceListing(agent, tokenId, fragments, profileU
   const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   return {
-    title: `${displayName} trust profile`,
+    title: `${displayName} public agent profile`,
     subtitle: 'Marketplace compatibility context',
     summary: createListingSummary(agent),
     identity: {
@@ -534,8 +534,8 @@ function createListingSummary(agent) {
   const skills = agent?.skills ?? [];
   const domains = agent?.domains ?? [];
   const descriptors = [...categories, ...skills, ...domains].filter(Boolean).slice(0, 3);
-  if (descriptors.length) return `Public AgentDNA trust profile prepared for directories, builders, and marketplace compatibility: ${descriptors.join(', ')}.`;
-  return 'Public AgentDNA trust profile with route, custody, and ownership context for marketplace compatibility.';
+  if (descriptors.length) return `Public AgentDNA profile prepared for directories, builders, and marketplace compatibility with trust context: ${descriptors.join(', ')}.`;
+  return 'Public AgentDNA profile with route, custody, ownership, and trust context for marketplace compatibility.';
 }
 
 function createListingBadges(agent, framework) {
