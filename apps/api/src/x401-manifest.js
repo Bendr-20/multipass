@@ -6,6 +6,46 @@ const X401_HEADERS = {
 };
 const DEFAULT_BOUNDARY = 'Public x401 metadata does not expose private credentials or imply a commercial relationship with any issuer.';
 
+export function createHelixaX401CompatibilityManifest(multipassId, options = {}) {
+  const displayName = String(options.displayName ?? 'this Multipass profile').trim() || 'this Multipass profile';
+  return {
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    x401_supported: true,
+    proof_challenge_protocol: 'x401',
+    current_header_names: X401_HEADERS,
+    trusted_issuers: [
+      {
+        issuer_id: 'helixa',
+        name: 'Helixa',
+        status: 'supported',
+        reference_url: 'https://helixa.xyz',
+      },
+    ],
+    proof_requirements: [
+      {
+        requirement_id: 'human_authorization',
+        description: `x401-compatible public identity or delegated-authority proof metadata for ${displayName}. No private credential material is exposed.`,
+        credential_format: 'openid4vp',
+        claim_types: ['personhood', 'delegated_authority'],
+        assurance_level: 'issuer_attested',
+        accepted_issuers: ['helixa'],
+        required_before_payment: true,
+        visibility: 'public',
+      },
+    ],
+    route_policies: [
+      {
+        route_id: 'lookup',
+        x401_required: true,
+        x402_after_x401: true,
+        scope: 'Satisfy identity or delegated-authority proof before high-trust or paid Multipass agent actions.',
+      },
+    ],
+    boundaries: [DEFAULT_BOUNDARY],
+  };
+}
+
 export function deriveX401ManifestFromFragments(multipassId, fragments = []) {
   const publicX401Fragments = (fragments ?? [])
     .filter((fragment) => fragment?.visibility === 'public')

@@ -694,6 +694,28 @@ test('GET /api/multipass/:id/hydrated returns the same public tools as source hy
   assert.deepEqual(hydrated.body.tools.tools.map((tool) => tool.tool_id), ['agent-lookup']);
 });
 
+test('saved Helixa AgentDNA records backfill public x401 compatibility metadata', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  savedRecords.saveActivatedRecord(makeSavedRecord());
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const x401 = await requestJson(api, '/api/multipass/bendr-2-1/x401');
+
+  assert.equal(x401.response.status, 200);
+  assert.equal(x401.body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(x401.body.x401_supported, true);
+  assert.equal(x401.body.trusted_issuers[0].issuer_id, 'helixa');
+  assert.equal(x401.body.proof_requirements[0].requirement_id, 'human_authorization');
+  assert.equal(x401.body.proof_requirements[0].credential_format, 'openid4vp');
+  assert.equal(x401.body.proof_requirements[0].visibility, 'public');
+  assert.match(x401.body.boundaries.join(' '), /does not expose private credentials/i);
+  assert.match(x401.body.boundaries.join(' '), /or imply a commercial relationship/i);
+});
+
 test('GET /api/multipass/:id/hydrated fails closed for fixture-only profiles', async () => {
   const api = makeApi();
 

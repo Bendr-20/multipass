@@ -23,7 +23,7 @@ import {
   normalizeBankrServiceTool,
   summarizeToolsResponse,
 } from './tool-manifest.js';
-import { deriveX401ManifestFromFragments } from './x401-manifest.js';
+import { createHelixaX401CompatibilityManifest, deriveX401ManifestFromFragments } from './x401-manifest.js';
 
 const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
   'apiUrl',
@@ -171,7 +171,12 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
     getX401Manifest(multipassId) {
       const bundle = readBundleById(db, multipassId);
       if (!bundle) return null;
-      return deriveX401ManifestFromFragments(multipassId, bundle.fragments);
+      const derived = deriveX401ManifestFromFragments(multipassId, bundle.fragments);
+      if (derived.x401_supported) return derived;
+      if (isHelixaAgentSavedRecord(bundle)) {
+        return createHelixaX401CompatibilityManifest(multipassId, { displayName: bundle.profile.display_name });
+      }
+      return derived;
     },
 
     getReceiptFragments(multipassId) {
@@ -756,6 +761,12 @@ function normalizeSavedRecord(record) {
     receipts,
     change,
   };
+}
+
+function isHelixaAgentSavedRecord(bundle) {
+  const activationSource = String(bundle?.sourceContext?.activation?.sourceType ?? '').trim();
+  const snapshotSource = String(bundle?.sourceContext?.sourceSnapshot?.sourceType ?? '').trim();
+  return activationSource === 'helixa_agent' || snapshotSource === 'helixa_agent';
 }
 
 function assertBundleMultipassIds({ profile, fragments, agentCard, standardsProfile, x402Manifest, receipts }) {
