@@ -777,7 +777,35 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.equal(root.querySelectorAll('.homepage-proof-stat').length, 4);
 });
 
+test('hamburger menu opens trusted Helixa and CRED links', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const app = createApp({ root, loadDemo: async () => sampleData() });
 
+  await app.start();
+
+  const menuButton = root.querySelector('.site-menu-button');
+  const menu = root.querySelector('.site-menu');
+  assert.ok(menuButton);
+  assert.ok(menu);
+  assert.equal(menuButton.getAttribute('aria-expanded'), 'false');
+  assert.equal(menu.hidden, true);
+
+  menuButton.click();
+
+  assert.equal(menuButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(menu.hidden, false);
+
+  const links = [...menu.querySelectorAll('a')].map((link) => ({ label: link.textContent.trim(), href: link.getAttribute('href') }));
+  assert.deepEqual(links, [
+    { label: 'Multipass Home', href: '/multipass/' },
+    { label: 'Register Agent', href: 'https://helixa.xyz/' },
+    { label: 'Cred Exchange', href: 'https://cred.exchange/' },
+    { label: '$CRED Token', href: 'https://bankr.bot/agents/helixa' },
+    { label: 'Docs / API', href: 'https://api.helixa.xyz/' },
+  ]);
+
+  assert.equal(menu.querySelector('a[href="https://bankr.bot/agents/helixa"]')?.getAttribute('target'), '_blank');
+});
 
 test('resolver bar renders without changing default static data', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');

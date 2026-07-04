@@ -12,6 +12,14 @@ import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
+const SITE_MENU_LINKS = [
+  { label: 'Multipass Home', href: '/multipass/' },
+  { label: 'Register Agent', href: 'https://helixa.xyz/' },
+  { label: 'Cred Exchange', href: 'https://cred.exchange/' },
+  { label: '$CRED Token', href: 'https://bankr.bot/agents/helixa' },
+  { label: 'Docs / API', href: 'https://api.helixa.xyz/' },
+];
+
 export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
@@ -878,14 +886,24 @@ function renderRecordHeader(metaLabel = 'Portable Agent Identities') {
         </span>
       </div>
       <div class="header-actions">
-        <button class="site-menu-button" type="button" aria-label="Open Multipass navigation" aria-expanded="false">
+        <button class="site-menu-button" type="button" aria-label="Open Multipass navigation" aria-expanded="false" aria-controls="site-menu" data-action="toggle-site-menu">
           <span aria-hidden="true"></span>
           <span aria-hidden="true"></span>
           <span aria-hidden="true"></span>
         </button>
+        ${renderSiteMenu()}
       </div>
     </header>
   `;
+}
+
+function renderSiteMenu() {
+  const links = SITE_MENU_LINKS.map((link) => {
+    const external = /^https?:\/\//.test(link.href);
+    const targetAttrs = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return `<a href="${escapeAttribute(link.href)}"${targetAttrs}>${escapeHtml(link.label)}</a>`;
+  }).join('');
+  return `<nav id="site-menu" class="site-menu" aria-label="Multipass navigation" hidden>${links}</nav>`;
 }
 
 function render(root, state, handlers = {}) {
@@ -1020,6 +1038,7 @@ function renderProfilePage(root, state, handlers = {}) {
 }
 
 function bindProfileEvents(root, state, handlers = {}) {
+  bindSiteMenu(root);
   root.querySelectorAll('[data-action="select-agent-card"]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedAgentCard = Number(button.dataset.index);
@@ -1069,6 +1088,17 @@ function bindProfileEvents(root, state, handlers = {}) {
   });
   root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
+  });
+}
+
+function bindSiteMenu(root) {
+  const button = root.querySelector('[data-action="toggle-site-menu"]');
+  const menu = root.querySelector('#site-menu');
+  if (!button || !menu) return;
+  button.addEventListener('click', () => {
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+    menu.hidden = expanded;
   });
 }
 
@@ -1426,6 +1456,7 @@ function getHomepageMultipassProfileHref(card) {
 }
 
 function bindProductHomeEvents(root, handlers, state) {
+  bindSiteMenu(root);
   root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.currentTarget;

@@ -111,6 +111,7 @@ button:focus-visible {
 }
 
 .header-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -143,6 +144,45 @@ button:focus-visible {
   width: 22px;
   height: 2px;
   background: var(--ink);
+}
+
+.site-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 220px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 7px 7px 0 var(--ink);
+  padding: 8px;
+}
+
+.site-menu[hidden] {
+  display: none;
+}
+
+.site-menu a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.site-menu a:last-child {
+  border-bottom: 0;
+}
+
+.site-menu a:hover,
+.site-menu a:focus-visible {
+  color: var(--accent);
 }
 
 .hero-record {
