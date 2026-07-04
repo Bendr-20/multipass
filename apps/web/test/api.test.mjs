@@ -250,7 +250,7 @@ test('loadHydratedMultipassDemo preserves saved-profile activation semantics', a
     fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify(hydrated) }),
   });
 
-  assert.equal(data.modeLabel, 'Saved Multipass');
+  assert.equal(data.modeLabel, 'Activated Multipass');
   assert.equal(data.activation.state, 'saved_record');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/bendr-2-1');
 });

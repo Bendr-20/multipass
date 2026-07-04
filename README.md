@@ -44,4 +44,4 @@ infra                 Deployment notes
 
 ## Status
 
-Early foundation work. Public APIs, contracts, schemas, and deployment details will be documented as they land.
+V0 public web/API foundation is live for Multipass profiles, activation records, public fragments, agent cards, standards metadata, x402 metadata, receipt fragments, and manager-gated profile edits. Multipass-native contracts, custody transfer execution, private marketplaces, and runtime handoff remain roadmap items.

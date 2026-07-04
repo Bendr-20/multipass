@@ -20,7 +20,7 @@ Public API:
 - `GET /api/resolve?agent={input}` - resolve saved records or live activation previews
 - `GET /api/search?q={query}` - conservative public search
 - `POST /api/multipass/activate` - preview a live AgentDNA activation without saving it
-- `POST /api/multipass` - save a public display-only Multipass record
+- `POST /api/multipass` - activate and persist a public Multipass record
 - `GET /api/multipass/{id}` - public profile JSON
 - `GET /api/v0/multipass/{id}` - versioned public profile alias
 - `GET /api/multipass/{id}/fragments` - public fragments only
@@ -37,8 +37,8 @@ Public API:
 
 Multipass V0 can:
 
-- Activate a live Helixa AgentDNA record into a read-only preview.
-- Save a durable public Multipass record from live public AgentDNA data.
+- Resolve a live Helixa AgentDNA record into an activation preview.
+- Activate a durable public Multipass record from live public AgentDNA data.
 - Resolve profiles by stable slug, Multipass ID, and supported source identifiers.
 - Return public profile JSON, public fragments, public tool cards, agent cards, standards profiles, x402 metadata, receipt collections, and change logs.
 - Import matching Base ERC-8004 identities as public `standard_ref` fragments.
@@ -48,7 +48,7 @@ Multipass V0 can:
 
 ## Safety boundary
 
-The live API is public and display-only by default. It does not:
+The live API exposes public profile and discovery metadata by default. It does not:
 
 - Transfer wallet custody.
 - Reveal private fields or credentials.

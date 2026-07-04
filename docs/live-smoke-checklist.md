@@ -107,4 +107,4 @@ After the commands pass, spot-check the web UI in a browser or screenshot runner
 
 ## Expected boundaries
 
-Smoke success does not mean custody, payments, private data, or runtime tool authority changed. Multipass public routes remain display-only unless a separate manager-protected route explicitly says otherwise.
+Smoke success does not mean custody, payments, private data, or runtime tool authority changed. Multipass public routes remain profile and discovery metadata unless a separate manager-protected route explicitly says otherwise.

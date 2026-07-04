@@ -179,12 +179,12 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
     receipt: createUnavailableReceipt(profile),
     changes,
     routes,
-    modeLabel: 'Saved Multipass',
-    sourceLabel: 'saved Multipass API',
+    modeLabel: 'Activated Multipass',
+    sourceLabel: 'Multipass API',
     agentCards: agentCard ? [agentCard] : [],
     liveProfilePage: {
       headline: `${profile.display_name} Multipass`,
-      headerMeta: `Saved Multipass · ${profile.slug}`,
+      headerMeta: `Activated Multipass · ${profile.slug}`,
       sharePath: `/multipass/${profile.slug}`,
     },
     activation: { state: 'saved_record' },
@@ -281,7 +281,7 @@ function normalizeHydratedActivation(activation, mode) {
 
 function formatHydratedModeLabel(mode) {
   if (mode === 'activation_preview') return 'Activation Preview';
-  if (mode === 'saved') return 'Saved Multipass';
+  if (mode === 'saved') return 'Activated Multipass';
   return 'Activated Multipass';
 }
 
@@ -330,7 +330,7 @@ function createSavedAgentCard({ profile, fragments, card, standards } = {}) {
   const profileUrl = extractProfileUrl(card) ?? (tokenId ? `https://helixa.xyz/agent/${encodeURIComponent(tokenId)}` : null);
 
   return {
-    name: card?.name ?? profile?.display_name ?? 'Saved Multipass',
+    name: card?.name ?? profile?.display_name ?? 'Activated Multipass',
     tokenId: tokenId ?? profile?.slug ?? profile?.multipass_id,
     helixaId,
     framework: extractSavedFramework(profile) ?? 'unknown',
@@ -451,8 +451,8 @@ function createSavedOwnerSnapshot(profile) {
   const owner = profile?.owner_summary ?? {};
   return {
     owner: owner.owner_state ? formatSavedState(owner.owner_state) : 'Owner not published',
-    operator: 'Saved Multipass API',
-    custodyEpoch: profile?.custody_epoch ?? 'Saved profile',
+    operator: 'Multipass API',
+    custodyEpoch: profile?.custody_epoch ?? 'Activated profile',
     permissionState: owner.verification_status ? formatSavedState(owner.verification_status) : 'Management state not published',
     visibility: owner.visibility ? formatSavedState(owner.visibility) : 'Public profile',
     recentChange: profile?.updated_at ? `Updated ${profile.updated_at}` : 'No recent public change',
@@ -462,8 +462,8 @@ function createSavedOwnerSnapshot(profile) {
 
 function createSavedChangeLedger(profile) {
   return profile?.updated_at ? [{
-    event: 'Saved profile refreshed',
-    source: 'Saved Multipass API',
+    event: 'Activated profile refreshed',
+    source: 'Multipass API',
     impact: 'Public profile display context updated',
     reviewState: profile?.status === 'active' ? 'Verified' : 'Review state not published',
   }] : [];

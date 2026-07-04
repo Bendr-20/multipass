@@ -2,7 +2,7 @@
 
 API boundary primitives for Multipass profiles, agent-readable documents, A1 saved public records, and B1/B2 developer reads.
 
-This server exposes public display-only Multipass data. It does not transfer custody, reveal private fields, mutate routes, grant tool access, or make payments and receipts count as trust.
+This server exposes public Multipass activation, profile, and discovery data. It does not transfer custody, reveal private fields, mutate live runtime routes, grant tool access, or make payments and receipts count as trust.
 
 ## Current routes
 
@@ -17,7 +17,7 @@ Discovery and developer surface:
 Activation and saved records:
 
 - `POST /api/multipass/activate` preview a live AgentDNA activation without saving it
-- `POST /api/multipass` save a public display-only Multipass record
+- `POST /api/multipass` activate and persist a public Multipass record
 
 Public profile reads:
 
@@ -33,7 +33,7 @@ Public profile reads:
 - `GET /api/multipass/{id}/receipts/{receipt_id}`
 - `GET /api/multipass/{id}/changes`
 
-Manager routes are session and CSRF protected. Public fragment responses return public fragments only. Public tool cards are discovery metadata only, not tool execution, credentials, payments, or access grants. Saved records are public display records until a claim flow verifies a manager.
+Manager routes are session and CSRF protected. Public fragment responses return public fragments only. Public tool cards are discovery metadata only, not tool execution, credentials, payments, or access grants. Activated records are public trust profiles until a claim flow verifies a manager.
 
 Canonical route notes:
 

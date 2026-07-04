@@ -8,14 +8,14 @@ export class SavedMultipassError extends Error {
 
 export async function saveActivatedMultipass({ agent, apiBase, fetchImpl = fetch } = {}) {
   const trimmed = String(agent ?? '').trim();
-  if (!trimmed) throw new SavedMultipassError('Activate a live record before saving.');
+  if (!trimmed) throw new SavedMultipassError('Activate a live record first.');
   return requestSavedJson({
     apiBase,
     path: '/api/multipass',
     method: 'POST',
     body: { agent: trimmed },
     fetchImpl,
-    errorPrefix: 'Save failed',
+    errorPrefix: 'Activation failed',
   });
 }
 
@@ -180,7 +180,7 @@ async function requestSavedJson({ apiBase, path, method, body, csrfToken, fetchI
 
 function requireMultipassIdentifier(value) {
   const id = String(value ?? '').trim();
-  if (!id) throw new SavedMultipassError('Saved Multipass id is required.');
+  if (!id) throw new SavedMultipassError('Multipass id is required.');
   return id;
 }
 

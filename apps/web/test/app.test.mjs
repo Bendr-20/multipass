@@ -2232,7 +2232,7 @@ test('ambiguous name lookup renders selectable live agent matches', async () => 
 });
 
 
-test('live activated page saves with resolved token id and updates share panel', async () => {
+test('live activation preview activates with resolved token id and updates share panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=Quigbot');
   const liveData = {
     ...sampleData(),
@@ -2254,14 +2254,15 @@ test('live activated page saves with resolved token id and updates share panel',
   await Promise.resolve();
   await Promise.resolve();
 
-  const button = [...root.querySelectorAll('button')].find((node) => node.textContent === 'Save Multipass');
+  const button = [...root.querySelectorAll('button')].find((node) => node.textContent === 'Activate Multipass');
   assert.ok(button);
   button.click();
   await Promise.resolve();
   await Promise.resolve();
 
   assert.deepEqual(saves, ['1']);
-  assert.match(root.textContent, /Saved Multipass/);
+  assert.match(root.textContent, /Activated Multipass/);
+  assert.doesNotMatch(root.textContent, /Save Multipass/);
   assert.match(root.textContent, /\/multipass\/bendr-2-1/);
   assert.equal(new URL(window.location.href).pathname, '/multipass/bendr-2-1');
 });
@@ -2278,7 +2279,8 @@ test('direct saved slug route loads saved Multipass from API instead of static p
   }).start();
 
   assert.match(root.textContent, /Saved Bendr/);
-  assert.match(root.textContent, /Saved Multipass/);
+  assert.match(root.textContent, /Activated Multipass/);
+  assert.doesNotMatch(root.textContent, /Save Multipass/);
   assert.doesNotMatch(root.textContent, /Bendr 2.0 Public Profile/);
   assert.ok(fetches.some((url) => String(url).includes('/api/multipass/bendr-2-1')));
 });
@@ -2298,19 +2300,19 @@ test('save error does not update stable URL or claim success', async () => {
   }).start();
   await Promise.resolve();
   await Promise.resolve();
-  [...root.querySelectorAll('button')].find((node) => node.textContent === 'Save Multipass').click();
+  [...root.querySelectorAll('button')].find((node) => node.textContent === 'Activate Multipass').click();
   await Promise.resolve();
   await Promise.resolve();
 
   assert.match(root.textContent, /Save API unavailable/);
-  assert.doesNotMatch(root.textContent, /Saved Multipass/);
+  assert.doesNotMatch(root.textContent, /Stable public trust profile is ready to share/);
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=1');
 });
 
-test('static preview does not show Save Multipass action', async () => {
+test('static preview does not show persistent activation action panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
-  assert.doesNotMatch(root.textContent, /Save Multipass/);
+  assert.equal(root.querySelector('.save-panel'), null);
 });
 
 test('safe Multipass share path helper accepts only preview and stable profile paths', () => {

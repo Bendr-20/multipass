@@ -53,7 +53,7 @@ test('saveActivatedMultipass supports relative API bases', async () => {
 test('saveActivatedMultipass rejects empty agents before fetching', async () => {
   await assert.rejects(
     () => saveActivatedMultipass({ agent: ' ', fetchImpl: async () => { throw new Error('should not fetch'); } }),
-    /Activate a live record before saving/,
+    /Activate a live record first/,
   );
 });
 

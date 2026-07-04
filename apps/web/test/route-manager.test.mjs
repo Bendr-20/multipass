@@ -232,7 +232,7 @@ test('renderPublicRoutesManagerPanel renders route scoped messages and active pe
     routeStatus: 'updating_route',
     routeActiveFragmentId: OWNER_ROUTE.fragment_id,
   }));
-  assert.match(saving.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="update-public-route"] button[type="submit"]')?.textContent ?? '', /Saving/);
+  assert.match(saving.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="update-public-route"] button[type="submit"]')?.textContent ?? '', /Updating/);
   assert.equal(saving.querySelector('[data-fragment-id="frag_manager_profile"] [data-action="update-public-route"] button[type="submit"]')?.disabled, true);
   assert.equal(saving.querySelector('[data-fragment-id="frag_manager_route_2"] [data-action="update-public-route"] button[type="submit"]')?.textContent, 'Save route');
 

@@ -874,7 +874,7 @@ function isSensitiveSourceField(field) {
 
 function requireSavedProfile(db, identifier) {
   const profile = readProfile(db, identifier);
-  if (!profile) throw new Error(`Saved Multipass not found: ${identifier}`);
+  if (!profile) throw new Error(`Multipass not found: ${identifier}`);
   return profile;
 }
 

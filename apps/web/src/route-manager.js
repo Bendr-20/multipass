@@ -271,7 +271,7 @@ function renderRouteEditForm(route, state) {
       <label><span>Route type</span>${renderRouteProtocolSelect(route.endpoint_ref?.protocol)}</label>
       <p class="route-field-helper">Classifies the public reference only. It does not test, call, or grant access to the route.</p>
       <div class="fragment-edit-actions">
-        <button type="submit" ${updating ? 'disabled' : ''}>${updating ? 'Saving...' : 'Save route'}</button>
+        <button type="submit" ${updating ? 'disabled' : ''}>${updating ? 'Updating...' : 'Save route'}</button>
         <button class="secondary-button" type="button" data-action="revoke-public-route" data-fragment-id="${escapeAttribute(route.fragment_id ?? '')}" ${route.status === 'revoked' || retiring ? 'disabled' : ''}>${retiring ? 'Retiring...' : 'Retire route'}</button>
       </div>
     </form>

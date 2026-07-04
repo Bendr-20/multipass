@@ -183,7 +183,7 @@ function makeToolFragment(overrides = {}, refOverrides = {}) {
       },
       schemas: refOverrides.schemas ?? {
         input_summary: 'Multipass id or slug.',
-        output_summary: 'Saved Multipass data.',
+        output_summary: 'Activated Multipass data.',
       },
       verifiability: refOverrides.verifiability ?? {
         tier: 'provider_verified',

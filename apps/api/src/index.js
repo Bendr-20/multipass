@@ -225,6 +225,9 @@ async function handlePostRequest(request, parts, context) {
   }
 
   if (parts.length === 2) {
+    if (!context.savedRecords) {
+      return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
+    }
     if (!context.activationService) {
       return errorResponse(503, 'not_configured', 'Multipass activation is not configured.');
     }
@@ -267,7 +270,7 @@ async function handleAdminPost(request, parts, context) {
     return errorResponse(404, 'not_found', 'Route not found.');
   }
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   assertTrustedOrigin(request, context);
   if (!context.adminSecret) {
@@ -323,7 +326,7 @@ async function handleActivatePreview(request, activationService) {
 
 async function handleSaveMultipass(request, { savedRecords, activationService }) {
   if (!savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
 
   const body = await readJsonBody(request);
@@ -344,7 +347,7 @@ async function handleSaveMultipass(request, { savedRecords, activationService })
 
 function handleClaimNonce(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   assertTrustedOrigin(request, context);
   const profile = resolveSavedProfile(context.savedRecords, identifier);
@@ -355,7 +358,7 @@ function handleClaimNonce(request, identifier, context) {
 
 async function handleClaimVerify(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   assertTrustedOrigin(request, context);
   const profile = resolveSavedProfile(context.savedRecords, identifier);
@@ -423,7 +426,7 @@ async function handleClaimVerify(request, identifier, context) {
 
 async function handlePatchProfile(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   const body = await readJsonBody(request);
@@ -440,7 +443,7 @@ async function handlePatchProfile(request, identifier, context) {
 
 async function handleCreateFragment(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   const body = await readJsonBody(request);
@@ -454,7 +457,7 @@ async function handleCreateFragment(request, identifier, context) {
 
 async function handlePatchFragment(request, identifier, fragmentId, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   const body = await readJsonBody(request);
@@ -468,7 +471,7 @@ async function handlePatchFragment(request, identifier, fragmentId, context) {
 
 function handleRevokeFragment(request, identifier, fragmentId, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   try {
@@ -481,7 +484,7 @@ function handleRevokeFragment(request, identifier, fragmentId, context) {
 
 async function handleImportTool(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   const body = await readJsonBody(request);
@@ -495,7 +498,7 @@ async function handleImportTool(request, identifier, context) {
 
 async function handleRefreshTool(request, identifier, fragmentId, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   const { profile, session } = requireManagerSession(request, identifier, context);
   try {
@@ -541,7 +544,7 @@ function mapToolImportError(error) {
 
 function handleSessionLogout(request, identifier, context) {
   if (!context.savedRecords) {
-    return errorResponse(503, 'not_configured', 'Saved Multipass records are not configured.');
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
   }
   assertTrustedOrigin(request, context);
   const profile = resolveSavedProfile(context.savedRecords, identifier);
@@ -787,7 +790,7 @@ function inferHelixaSourceIdentityFromSaved(profile, sourceStore) {
   try {
     const sourceIdentity = normalizeMultipassSourceInput(canonicalId);
     if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceIdentity.sourceType)) {
-      throw new TypeError('Saved Multipass source is not a Helixa source.');
+      throw new TypeError('Multipass activation source is not a Helixa source.');
     }
     return sourceIdentity;
   } catch {
@@ -867,7 +870,7 @@ function getToolsResponse(sourceStore, multipassId) {
 
 function resolveSavedProfile(savedRecords, identifier) {
   const profile = savedRecords?.resolveProfile?.(identifier);
-  if (!profile) throw new ApiNotFoundError(`Saved Multipass not found: ${identifier}`);
+  if (!profile) throw new ApiNotFoundError(`Multipass not found: ${identifier}`);
   return profile;
 }
 

@@ -274,7 +274,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     if (state.resolverStatus !== 'loaded') return;
     const agent = state.data?.resolver?.tokenId;
     if (!agent) {
-      state = { ...state, saveStatus: 'error', saveError: 'Resolved token ID is required before saving.' };
+      state = { ...state, saveStatus: 'error', saveError: 'Resolved token ID is required before activation.' };
       render(root, state, handlers);
       return;
     }
@@ -294,7 +294,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           liveProfilePage: {
             ...state.data.liveProfilePage,
             sharePath: saved.sharePath,
-            headerMeta: `Saved Multipass · ${saved.profile?.slug ?? 'persistent profile'}`,
+            headerMeta: `Activated Multipass · ${saved.profile?.slug ?? 'persistent profile'}`,
           },
         },
       };
@@ -763,7 +763,7 @@ function getClaimApiErrorMessage(error) {
 }
 
 function isSavedManageRecord(state) {
-  return Boolean(state.savedProfile?.slug || state.data?.activation?.state === 'saved_record' || state.data?.modeLabel === 'Saved Multipass');
+  return Boolean(state.savedProfile?.slug || state.data?.activation?.state === 'saved_record' || state.data?.modeLabel === 'Activated Multipass');
 }
 
 function clearedRouteState() {
@@ -1650,7 +1650,7 @@ function renderPublicProfileEditForm(profile, state) {
       <label><span>Tags</span><input name="tags" value="${escapeAttribute(tags.join(', '))}" /></label>
       <label><span>Visibility</span>${renderVisibilitySelect(ownerSummary.visibility ?? 'public')}</label>
       <div class="profile-edit-actions">
-        <button type="submit" ${state.claimStatus === 'updating_profile' ? 'disabled' : ''}>${state.claimStatus === 'updating_profile' ? 'Saving...' : 'Save public edits'}</button>
+        <button type="submit" ${state.claimStatus === 'updating_profile' ? 'disabled' : ''}>${state.claimStatus === 'updating_profile' ? 'Updating...' : 'Save public edits'}</button>
         <button type="button" data-action="logout-manager-session">Sign out</button>
       </div>
     </form>

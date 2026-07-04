@@ -17,7 +17,7 @@ Ship the Multipass foundation: a durable identity graph, public profile/card, ow
 - receipt fragments
 - custody epoch model
 - swarm parent profile lite
-- A1 saved Multipass records for public, display-only profiles created from live AgentDNA data
+- A1 activated Multipass records for public profiles created from live AgentDNA data
 - A2 source-owner and approved-manager claim sessions for saved records
 - A2.1 public fragment management for claimed records
 - A3 owner dashboard lite with visibility controls and recent changes
@@ -36,7 +36,7 @@ Ship the Multipass foundation: a durable identity graph, public profile/card, ow
 ## Success criteria
 
 - A subject can have a stable Multipass profile with required identity graph fields.
-- A user can Activate a live AgentDNA record, save a persistent public Multipass record through `POST /api/multipass`, and share `/multipass/{slug}`.
+- A user can Activate a live AgentDNA record, persist a public Multipass record through `POST /api/multipass`, and share `/multipass/{slug}`.
 - Owners can review public data, linked fragments, custody state, visibility, and recent changes.
 - Agents can fetch canonical profile JSON and an agent card.
 - The standards spine can explain which external standards are referenced and what each one controls.

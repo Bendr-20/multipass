@@ -842,8 +842,10 @@ test('POST save and preview require activation configuration', async () => {
 
   assert.equal(preview.response.status, 503);
   assert.equal(preview.body.error.code, 'not_configured');
+  assert.equal(preview.body.error.message, 'Multipass activation is not configured.');
   assert.equal(save.response.status, 503);
   assert.equal(save.body.error.code, 'not_configured');
+  assert.equal(save.body.error.message, 'Multipass activation records are not configured.');
 });
 
 test('validates store documents before serving them', () => {

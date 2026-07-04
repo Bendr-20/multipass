@@ -12,12 +12,12 @@ export function getActivationState(data = {}, resolverState = {}) {
   if (data.activation?.state === 'saved_record') {
     return {
       kind: 'saved',
-      title: 'Saved Multipass',
+      title: 'Activated Multipass',
       subject,
       resolvedId,
-      sourceLabel: data.sourceLabel ?? 'saved Multipass API',
-      originLabel: 'Saved public Multipass record',
-      summary: 'This persistent Multipass was saved from a public live agent record. It does not grant authority or expose private credentials.',
+      sourceLabel: data.sourceLabel ?? 'Multipass API',
+      originLabel: 'Activated public Multipass record',
+      summary: 'This persistent Multipass was activated from a public live agent record. It does not grant authority or expose private credentials.',
       showFutureBindNote: true,
     };
   }

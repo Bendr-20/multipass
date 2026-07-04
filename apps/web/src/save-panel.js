@@ -29,17 +29,17 @@ export function getAbsoluteShareUrl(sharePath) {
 export function renderSavePanel(state) {
   if (state.resolverStatus !== 'loaded') return '';
   const disabled = state.saveStatus === 'saving' ? 'disabled' : '';
-  const label = state.saveStatus === 'saving' ? 'Saving...' : 'Save Multipass';
+  const label = state.saveStatus === 'saving' ? 'Activating...' : 'Activate Multipass';
   const share = state.savedSharePath && isSafeMultipassSharePath(state.savedSharePath)
     ? `<p class="save-share-path">${escapeHtml(state.savedSharePath)}</p>`
     : '';
   const success = state.saveStatus === 'saved'
-    ? `<p class="save-message">Saved Multipass. Stable public profile is ready to share.</p>${share}<p class="save-message muted">Saved, unclaimed Multipass. Claim management when ready.</p>`
+    ? `<p class="save-message">Activated Multipass. Stable public trust profile is ready to share.</p>${share}<p class="save-message muted">Activated, unclaimed Multipass. Claim management when ready.</p>`
     : '';
   const error = state.saveStatus === 'error'
-    ? `<p class="save-message error">Could not save Multipass. Try again. ${escapeHtml(state.saveError ?? '')}</p>`
+    ? `<p class="save-message error">Could not activate Multipass. Try again. ${escapeHtml(state.saveError ?? '')}</p>`
     : '';
-  return `<section class="save-panel" aria-label="Save Multipass"><button type="button" data-action="save-multipass" ${disabled}>${label}</button><p>Claim management comes next.</p>${success}${error}</section>`;
+  return `<section class="save-panel" aria-label="Activate Multipass"><button type="button" data-action="save-multipass" ${disabled}>${label}</button><p>Claim management unlocks after activation.</p>${success}${error}</section>`;
 }
 
 function escapeHtml(value) {
