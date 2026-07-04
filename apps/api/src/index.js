@@ -958,6 +958,10 @@ function createDiscoveryDocument(baseUrl) {
   return {
     schema_version: '0.1.0',
     service: 'helixa-multipass',
+    name: 'Helixa Multipass',
+    description: 'Helixa Multipass publishes a public agent profile language for discovering agent metadata, proof context, payment routes, and public change history without granting execution authority.',
+    purpose: 'Give humans and agents a stable public agent profile entry point before they inspect trust context such as CRED, proofs, x402 manifests, receipts, routes, or changes.',
+    primary_phrase: 'public agent profile',
     routes: {
       discovery: `${baseUrl}/.well-known/multipass.json`,
       helixa_discovery: `${baseUrl}/.well-known/helixa-multipass.json`,
@@ -978,6 +982,29 @@ function createDiscoveryDocument(baseUrl) {
       search: `${baseUrl}/api/search?q={query}`,
       openapi: `${baseUrl}/api/openapi.json`,
     },
+    start_here: {
+      resolve: `${baseUrl}/api/resolve?agent={input}`,
+      profile: `${baseUrl}/api/multipass/{id}`,
+      hydrated: `${baseUrl}/api/multipass/{id}/hydrated`,
+      agent_card: `${baseUrl}/api/multipass/{id}/agent-card`,
+    },
+    example_profile: {
+      id: 'bendr-2-1',
+      profile: `${baseUrl}/api/multipass/bendr-2-1`,
+      agent_card: `${baseUrl}/api/multipass/bendr-2-1/agent-card`,
+      hydrated: `${baseUrl}/api/multipass/bendr-2-1/hydrated`,
+    },
+    agent_instructions: [
+      'Start with resolve when you have user input, a slug, or an external agent identifier; it returns the best public Multipass profile candidate or activation preview.',
+      'Use agent-card for a compact machine-readable profile summary suitable for agent routing, capability display, and service endpoint inspection.',
+      'Use hydrated when you need the profile plus public companion resources, including fragments, tools, standards, x402, receipts, routes, and changes.',
+    ],
+    boundaries: [
+      'Viewing a Multipass public agent profile does not execute tools or call agent services.',
+      'Viewing or resolving a profile does not transfer custody or ownership.',
+      'Public metadata does not expose private credentials or grant approvals.',
+      'Payments, receipts, and CRED are trust context; trust is not bought by payment.',
+    ],
   };
 }
 
@@ -995,7 +1022,7 @@ function createOpenApiDocument(baseUrl) {
     info: {
       title: 'Helixa Multipass API',
       version: '0.1.0',
-      description: 'Public Multipass identity and trust profile API. Payments and receipts do not buy trust.',
+      description: 'Public Multipass API for public agent profiles. CRED, proofs, x402, receipts, routes, and changes provide trust context; payments and receipts do not buy trust.',
     },
     servers: [{ url: baseUrl }],
     paths: {
@@ -1008,7 +1035,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}/tools': { get: { summary: 'Fetch public tool and service cards', parameters: [pathParameter('id')], responses: { 200: { description: 'Public tool and service card collection' } } } },
       '/api/multipass/{id}/hydrated': { get: { summary: 'Fetch a hydrated saved profile with public companion resources', parameters: [pathParameter('id')], responses: { 200: { description: 'Hydrated profile response' } } } },
       '/api/multipass/{id}/card': { get: { summary: 'Compatibility alias for fetching the agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
-      '/api/multipass/{id}/agent-card': { get: { summary: 'Fetch agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
+      '/api/multipass/{id}/agent-card': { get: { summary: 'Fetch agent-readable card', description: 'Fetch the compact, machine-readable public agent profile card for routing and display.', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/standards': { get: { summary: 'Fetch standards compatibility profile', parameters: [pathParameter('id')], responses: { 200: { description: 'Standards profile' } } } },
       '/api/multipass/{id}/x402': { get: { summary: 'Fetch public x402 manifest', parameters: [pathParameter('id')], responses: { 200: { description: 'x402 manifest' } } } },
       '/api/multipass/{id}/receipts': { get: { summary: 'Fetch public receipt fragments', parameters: [pathParameter('id')], responses: { 200: { description: 'Receipt fragment collection' } } } },
