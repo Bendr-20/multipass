@@ -165,6 +165,31 @@ const agentCard = {
   standards_refs: [],
 };
 
+const discoveryAgentCard = {
+  ...agentCard,
+  summary: 'Bendr 2.0 public agent profile for discovery and routing.',
+  services: [
+    {
+      service_id: 'agent-lookup',
+      label: 'Agent Lookup',
+      description: 'Looks up a public Multipass profile.',
+      url: 'https://api.example.test/tools/agent-lookup',
+      visibility: 'public',
+    },
+  ],
+  links: [
+    {
+      rel: 'profile',
+      href: 'https://multipass.example.test/api/multipass/bendr-2',
+      label: 'Public profile',
+      description: 'Canonical public Multipass profile JSON.',
+    },
+  ],
+  boundaries: [
+    'Public agent-card metadata does not execute tools, transfer custody, expose private credentials, or grant approvals.',
+  ],
+};
+
 const standardsProfile = {
   schema_version: '0.1.0',
   standards_profile_id: 'sp_bendr',
@@ -252,6 +277,14 @@ test('validators accept minimal valid Multipass documents', () => {
     assert.deepEqual(result.errors, []);
     assert.equal(result.value, sample);
   }
+});
+
+test('agent card validator accepts optional discovery summary services links and boundaries', () => {
+  const result = validateAgentCard(discoveryAgentCard);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.value, discoveryAgentCard);
+  assert.deepEqual(parseAgentCardJson(JSON.stringify(discoveryAgentCard)), discoveryAgentCard);
 });
 
 test('identity fragment validator accepts tool manifest references', () => {

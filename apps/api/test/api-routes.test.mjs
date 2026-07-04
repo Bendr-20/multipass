@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MultipassValidationError } from '@helixa/multipass-sdk';
+import { MultipassValidationError, assertAgentCard } from '@helixa/multipass-sdk';
 
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
@@ -820,8 +820,23 @@ test('GET saved profile resolves before fixture store and exposes saved document
   assert.equal(profileRead.body.multipass_id, 'mp_helixa_agent_1');
   assert.equal(profileRead.body.slug, 'bendr-2-1');
 
-  assert.equal((await requestJson(api, '/api/multipass/bendr-2-1/card')).body.name, 'Bendr 2.0');
-  assert.equal((await requestJson(api, '/api/multipass/bendr-2-1/agent-card')).body.name, 'Bendr 2.0');
+  const savedCard = await requestJson(api, '/api/multipass/bendr-2-1/card');
+  const savedAgentCard = await requestJson(api, '/api/multipass/bendr-2-1/agent-card');
+  assert.equal(savedCard.body.name, 'Bendr 2.0');
+  assert.equal(savedAgentCard.body.name, 'Bendr 2.0');
+  assert.match(savedAgentCard.body.summary, /public agent profile/i);
+  assert.ok(Array.isArray(savedAgentCard.body.links));
+  const linkRels = new Set(savedAgentCard.body.links.map((link) => link.rel));
+  for (const rel of ['profile', 'hydrated', 'tools', 'x402', 'receipts', 'changes']) {
+    assert.ok(linkRels.has(rel), `missing ${rel} link`);
+  }
+  assert.ok(Array.isArray(savedAgentCard.body.services));
+  assert.ok(Array.isArray(savedAgentCard.body.boundaries));
+  const boundaries = savedAgentCard.body.boundaries.join(' ');
+  assert.match(boundaries, /does not execute tools/i);
+  assert.match(boundaries, /transfer custody/i);
+  assert.doesNotThrow(() => assertAgentCard(savedCard.body));
+  assert.doesNotThrow(() => assertAgentCard(savedAgentCard.body));
   const fragments = await requestJson(api, '/api/multipass/bendr-2-1/fragments');
   assert.notDeepEqual(fragments.body.fragments.map((fragment) => fragment.fragment_id), ['frag_public_wallet']);
   assert.ok(fragments.body.fragments.some((fragment) => fragment.fragment_id === 'frag_helixa_agent_1_owner_wallet'));

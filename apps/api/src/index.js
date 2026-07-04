@@ -724,7 +724,8 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
   }
 
   if ((readParts.resource === 'agent-card' || readParts.resource === 'card') && !readParts.resourceId) {
-    return jsonOrNotFound(sourceStore.getAgentCard(profile.multipass_id, { baseUrl: normalizedBaseUrl }), 'Agent card not found.');
+    const agentCard = sourceStore.getAgentCard(profile.multipass_id, { baseUrl: normalizedBaseUrl });
+    return jsonOrNotFound(decorateAgentCardForDiscovery(agentCard, profile, normalizedBaseUrl), 'Agent card not found.');
   }
 
   if (readParts.resource === 'standards' && !readParts.resourceId) {
@@ -1070,10 +1071,45 @@ function createProfileRoutes(baseUrl, identifier) {
     agent_card: `${baseUrl}/api/multipass/${encoded}/agent-card`,
     fragments: `${baseUrl}/api/multipass/${encoded}/fragments`,
     tools: `${baseUrl}/api/multipass/${encoded}/tools`,
+    hydrated: `${baseUrl}/api/multipass/${encoded}/hydrated`,
     standards: `${baseUrl}/api/multipass/${encoded}/standards`,
     x402: `${baseUrl}/api/multipass/${encoded}/x402`,
     receipts: `${baseUrl}/api/multipass/${encoded}/receipts`,
     changes: `${baseUrl}/api/multipass/${encoded}/changes`,
+  };
+}
+
+function decorateAgentCardForDiscovery(card, profile, baseUrl) {
+  if (!card || !profile) return card;
+
+  const displayName = profile.display_name ?? profile.name ?? profile.source ?? profile.slug ?? profile.multipass_id ?? 'This agent';
+  const routeIdentifier = profile.slug ?? profile.multipass_id;
+  const routes = createProfileRoutes(baseUrl, routeIdentifier);
+  const requiredLinks = [
+    { rel: 'profile', href: routes.profile },
+    { rel: 'hydrated', href: routes.hydrated },
+    { rel: 'tools', href: routes.tools },
+    { rel: 'x402', href: routes.x402 },
+    { rel: 'receipts', href: routes.receipts },
+    { rel: 'changes', href: routes.changes },
+  ];
+  const links = Array.isArray(card.links) ? [...card.links] : [];
+  const existingRels = new Set(links.map((link) => link?.rel).filter((rel) => typeof rel === 'string'));
+
+  for (const link of requiredLinks) {
+    if (existingRels.has(link.rel)) continue;
+    existingRels.add(link.rel);
+    links.push(link);
+  }
+
+  return {
+    ...card,
+    summary: card.summary ?? `${displayName} public agent profile. Includes public identity, proof, tool, x402, receipt, and change context when available.`,
+    services: Array.isArray(card.services) ? card.services : [],
+    links,
+    boundaries: Array.isArray(card.boundaries)
+      ? card.boundaries
+      : ['Public agent-card metadata does not execute tools, transfer custody, expose private credentials, or grant approvals.'],
   };
 }
 
