@@ -52,6 +52,7 @@ export interface SchemaRegistryEntry {
     | 'agent-card'
     | 'standards-profile'
     | 'x402-manifest'
+    | 'x401-manifest'
     | 'receipt-fragment';
   id: string;
   title: string;
@@ -76,3 +77,4 @@ export const multipassProfileSchema: JsonSchemaDocument;
 export const receiptFragmentSchema: JsonSchemaDocument;
 export const standardsProfileSchema: JsonSchemaDocument;
 export const x402ManifestSchema: JsonSchemaDocument;
+export const x401ManifestSchema: JsonSchemaDocument;

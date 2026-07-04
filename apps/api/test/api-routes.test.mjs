@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MultipassValidationError, assertAgentCard } from '@helixa/multipass-sdk';
+import { MultipassValidationError, assertAgentCard, assertX401Manifest } from '@helixa/multipass-sdk';
 
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
@@ -71,6 +71,41 @@ const privateFragment = {
   visibility: 'private',
 };
 
+const x401ProofFragment = {
+  schema_version: '0.1.0',
+  fragment_id: 'frag_x401_authorization',
+  multipass_id: 'mp_bendr',
+  fragment_type: 'verification_result',
+  status: 'verified',
+  assurance_level: 'issuer_attested',
+  visibility: 'public',
+  transfer_policy: 'pause_on_transfer',
+  source: {
+    source_type: 'issuer_attestation',
+    source_id: 'proof:x401:human_authorization',
+    issuer: 'Proof',
+    observed_at: '2026-06-24T00:00:00Z',
+    reference_url: 'https://www.proof.com/x401',
+  },
+  public_value: 'x401-compatible delegated human authorization proof metadata. No private credential material is exposed.',
+  proof_reference: 'x401:proof:human_authorization',
+  x401_proof_ref: {
+    protocol: 'x401',
+    issuer_id: 'proof',
+    issuer_name: 'Proof',
+    requirement_id: 'human_authorization',
+    credential_format: 'openid4vp',
+    claim_types: ['personhood', 'delegated_authority'],
+    scope: 'agent may request a paid high-trust action',
+    result: 'passed',
+    header_names: { request: 'PROOF-REQUEST', response: 'PROOF-RESPONSE', result: 'PROOF-RESULT' },
+    private_credential_state: 'not_exposed',
+  },
+  created_at: '2026-06-24T00:00:00Z',
+  updated_at: '2026-06-24T00:00:00Z',
+  verified_at: '2026-06-24T00:00:00Z',
+};
+
 function makeToolFragment(overrides = {}, refOverrides = {}) {
   return {
     schema_version: '0.1.0',
@@ -130,6 +165,7 @@ const agentCard = {
   message_routes: [],
   service_endpoints: [],
   x402_manifest_url: null,
+  x401_manifest_url: null,
   accepted_assets: [],
   trust_summary: {
     identity_status: 'unverified',
@@ -1375,4 +1411,40 @@ test('manual review creates pending claim without session and approved manager m
   assert.equal(session.response.status, 200);
   assert.equal(session.body.claim_status, 'claimed_review_approved');
   assert.match(session.response.headers.get('set-cookie'), /multipass_manager=/);
+});
+
+
+test('public x401 manifest exposes proof challenge metadata without private credentials or partnership claims', async () => {
+  const api = makeCustomApi({ fragments: [publicFragment, privateFragment, x401ProofFragment] });
+  const response = await api.handleRequest(new Request('https://multipass.example.test/api/multipass/bendr-2/x401'));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assertX401Manifest(body);
+  assert.equal(body.x401_supported, true);
+  assert.equal(body.current_header_names.request, 'PROOF-REQUEST');
+  assert.equal(body.proof_requirements[0].required_before_payment, true);
+  assert.equal(body.proof_requirements[0].accepted_issuers[0], 'proof');
+  assert.match(body.boundaries.join(' '), /does not expose private credentials/i);
+  assert.doesNotMatch(JSON.stringify(body), /partner/i);
+});
+
+test('agent-card discovery links include the x401 public manifest', async () => {
+  const api = makeApi();
+  const response = await api.handleRequest(new Request('https://multipass.example.test/api/multipass/bendr-2/agent-card'));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.equal(body.x401_manifest_url, 'https://multipass.example.test/api/multipass/bendr-2/x401');
+  assert.ok(body.links.some((link) => link.rel === 'x401' && link.href.endsWith('/x401')));
+});
+
+test('discovery document advertises x401 as an identity proof layer beside x402', async () => {
+  const api = makeApi();
+  const response = await api.handleRequest(new Request('https://multipass.example.test/.well-known/multipass.json'));
+  const body = await response.json();
+
+  assert.equal(body.routes.x401, 'https://multipass.example.test/api/multipass/{id}/x401');
+  assert.match(body.agent_instructions.join(' '), /x401/i);
+  assert.match(body.description, /x401/);
 });

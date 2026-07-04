@@ -8,6 +8,7 @@ import {
   schemaRegistry,
   standardsProfileSchema,
   x402ManifestSchema,
+  x401ManifestSchema,
 } from '@helixa/multipass-types';
 
 const schemaByName = new Map(schemaRegistry.map((entry) => [entry.name, entry.schema]));
@@ -72,6 +73,7 @@ export const validateIdentityFragment = (value) => validate('identity-fragment',
 export const validateAgentCard = (value) => validate('agent-card', value);
 export const validateStandardsProfile = (value) => validate('standards-profile', value);
 export const validateX402Manifest = (value) => validate('x402-manifest', value);
+export const validateX401Manifest = (value) => validate('x401-manifest', value);
 export const validateReceiptFragment = (value) => validate('receipt-fragment', value);
 
 export const assertMultipassProfile = (value) => assertValid('multipass-profile', value);
@@ -79,6 +81,7 @@ export const assertIdentityFragment = (value) => assertValid('identity-fragment'
 export const assertAgentCard = (value) => assertValid('agent-card', value);
 export const assertStandardsProfile = (value) => assertValid('standards-profile', value);
 export const assertX402Manifest = (value) => assertValid('x402-manifest', value);
+export const assertX401Manifest = (value) => assertValid('x401-manifest', value);
 export const assertReceiptFragment = (value) => assertValid('receipt-fragment', value);
 
 export const parseMultipassProfileJson = (json) => parseJsonForSchema('multipass-profile', json);
@@ -86,6 +89,7 @@ export const parseIdentityFragmentJson = (json) => parseJsonForSchema('identity-
 export const parseAgentCardJson = (json) => parseJsonForSchema('agent-card', json);
 export const parseStandardsProfileJson = (json) => parseJsonForSchema('standards-profile', json);
 export const parseX402ManifestJson = (json) => parseJsonForSchema('x402-manifest', json);
+export const parseX401ManifestJson = (json) => parseJsonForSchema('x401-manifest', json);
 export const parseReceiptFragmentJson = (json) => parseJsonForSchema('receipt-fragment', json);
 
 export const loadMultipassProfileFromFile = (filePath) => loadJsonFileForSchema('multipass-profile', filePath);
@@ -93,6 +97,7 @@ export const loadIdentityFragmentFromFile = (filePath) => loadJsonFileForSchema(
 export const loadAgentCardFromFile = (filePath) => loadJsonFileForSchema('agent-card', filePath);
 export const loadStandardsProfileFromFile = (filePath) => loadJsonFileForSchema('standards-profile', filePath);
 export const loadX402ManifestFromFile = (filePath) => loadJsonFileForSchema('x402-manifest', filePath);
+export const loadX401ManifestFromFile = (filePath) => loadJsonFileForSchema('x401-manifest', filePath);
 export const loadReceiptFragmentFromFile = (filePath) => loadJsonFileForSchema('receipt-fragment', filePath);
 
 export {
@@ -102,6 +107,7 @@ export {
   receiptFragmentSchema,
   standardsProfileSchema,
   x402ManifestSchema,
+  x401ManifestSchema,
 };
 
 function formatValidationMessage(schemaName, errors) {
@@ -280,6 +286,10 @@ export async function getStandardsProfile(identifier, options = {}) {
 
 export async function getX402Manifest(identifier, options = {}) {
   return assertX402Manifest(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/x402`), options));
+}
+
+export async function getX401Manifest(identifier, options = {}) {
+  return assertX401Manifest(await fetchJson(buildApiUrl(options.apiBase, `/api/multipass/${encodeURIComponent(identifier)}/x401`), options));
 }
 
 export async function getReceiptFragment(identifier, receiptId, options = {}) {

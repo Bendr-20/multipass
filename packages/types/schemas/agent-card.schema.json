@@ -373,6 +373,13 @@
           }
         }
       }
+    },
+    "x401_manifest_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri"
     }
   }
 }

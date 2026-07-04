@@ -5,6 +5,7 @@ import {
   assertReceiptFragment,
   assertStandardsProfile,
   assertX402Manifest,
+  assertX401Manifest,
 } from '@helixa/multipass-sdk';
 
 import {
@@ -18,6 +19,7 @@ import {
   deriveX402ManifestFromTools,
   summarizeToolsResponse,
 } from './tool-manifest.js';
+import { deriveX401ManifestFromFragments } from './x401-manifest.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -32,6 +34,7 @@ export function createMemoryStore(input = {}) {
     agentCards: agentCardInput = [],
     standardsProfiles: standardsProfileInput = [],
     x402Manifests: x402ManifestInput = [],
+    x401Manifests: x401ManifestInput = [],
     receiptFragments: receiptFragmentInput = [],
   } = input;
 
@@ -40,6 +43,7 @@ export function createMemoryStore(input = {}) {
   const agentCards = agentCardInput.map(assertAgentCard);
   const standardsProfiles = standardsProfileInput.map(assertStandardsProfile);
   const x402Manifests = x402ManifestInput.map(assertX402Manifest);
+  const x401Manifests = x401ManifestInput.map(assertX401Manifest);
   const receiptFragments = receiptFragmentInput.map(assertReceiptFragment);
 
   const profilesById = new Map();
@@ -48,6 +52,7 @@ export function createMemoryStore(input = {}) {
   const agentCardsByProfile = new Map();
   const standardsByProfile = new Map();
   const x402ByProfile = new Map();
+  const x401ByProfile = new Map();
   const receiptsByProfile = new Map();
 
   for (const profile of profiles) {
@@ -69,6 +74,10 @@ export function createMemoryStore(input = {}) {
 
   for (const manifest of x402Manifests) {
     x402ByProfile.set(manifest.multipass_id, manifest);
+  }
+
+  for (const manifest of x401Manifests) {
+    x401ByProfile.set(manifest.multipass_id, manifest);
   }
 
   for (const receipt of receiptFragments) {
@@ -102,6 +111,12 @@ export function createMemoryStore(input = {}) {
       const derived = deriveX402ManifestFromTools(multipassId, fragmentsByProfile.get(multipassId) ?? []);
       if (derived.endpoints.length > 0) return derived;
       return x402ByProfile.get(multipassId) ?? null;
+    },
+
+    getX401Manifest(multipassId) {
+      const derived = deriveX401ManifestFromFragments(multipassId, fragmentsByProfile.get(multipassId) ?? []);
+      if (derived.x401_supported) return derived;
+      return x401ByProfile.get(multipassId) ?? derived;
     },
 
     getReceiptFragments(multipassId) {
@@ -736,6 +751,10 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
     return jsonOrNotFound(sourceStore.getX402Manifest(profile.multipass_id), 'x402 manifest not found.');
   }
 
+  if (readParts.resource === 'x401' && !readParts.resourceId) {
+    return jsonOrNotFound(sourceStore.getX401Manifest(profile.multipass_id), 'x401 manifest not found.');
+  }
+
   if (readParts.resource === 'receipts' && !readParts.resourceId) {
     return jsonResponse({
       schema_version: profile.schema_version,
@@ -775,6 +794,7 @@ function createRecordSourceStore(record) {
     agentCards: [record.agentCard],
     standardsProfiles: [record.standardsProfile],
     x402Manifests: [record.x402Manifest],
+    x401Manifests: record.x401Manifest ? [record.x401Manifest] : [],
     receiptFragments: record.receipts ?? [],
   });
 }
@@ -960,8 +980,8 @@ function createDiscoveryDocument(baseUrl) {
     schema_version: '0.1.0',
     service: 'helixa-multipass',
     name: 'Helixa Multipass',
-    description: 'Helixa Multipass publishes a public agent profile language for discovering agent metadata, proof context, payment routes, and public change history without granting execution authority.',
-    purpose: 'Give humans and agents a stable public agent profile entry point before they inspect trust context such as CRED, proofs, x402 manifests, receipts, routes, or changes.',
+    description: 'Helixa Multipass publishes a public agent profile language for discovering agent metadata, x401 proof context, x402 payment routes, and public change history without granting execution authority.',
+    purpose: 'Give humans and agents a stable public agent profile entry point before they inspect trust context such as CRED, proofs, x401 manifests, x402 manifests, receipts, routes, or changes.',
     primary_phrase: 'public agent profile',
     routes: {
       discovery: `${baseUrl}/.well-known/multipass.json`,
@@ -974,6 +994,7 @@ function createDiscoveryDocument(baseUrl) {
       tools: `${baseUrl}/api/multipass/{id}/tools`,
       hydrated: `${baseUrl}/api/multipass/{id}/hydrated`,
       standards: `${baseUrl}/api/multipass/{id}/standards`,
+      x401: `${baseUrl}/api/multipass/{id}/x401`,
       x402: `${baseUrl}/api/multipass/{id}/x402`,
       receipts: `${baseUrl}/api/multipass/{id}/receipts`,
       receipt: `${baseUrl}/api/multipass/{id}/receipts/{receipt_id}`,
@@ -998,12 +1019,13 @@ function createDiscoveryDocument(baseUrl) {
     agent_instructions: [
       'Start with resolve when you have user input, a slug, or an external agent identifier; it returns the best public Multipass profile candidate or activation preview.',
       'Use agent-card for a compact machine-readable profile summary suitable for agent routing, capability display, and service endpoint inspection.',
-      'Use hydrated when you need the profile plus public companion resources, including fragments, tools, standards, x402, receipts, routes, and changes.',
+      'Use hydrated when you need the profile plus public companion resources, including fragments, tools, standards, x401 identity proof metadata, x402 payment metadata, receipts, routes, and changes.',
     ],
     boundaries: [
       'Viewing a Multipass public agent profile does not execute tools or call agent services.',
       'Viewing or resolving a profile does not transfer custody or ownership.',
       'Public metadata does not expose private credentials or grant approvals.',
+      'x401 proof metadata describes identity or authority requirements; it does not expose private credentials.',
       'Payments, receipts, and CRED are trust context; trust is not bought by payment.',
     ],
   };
@@ -1023,7 +1045,7 @@ function createOpenApiDocument(baseUrl) {
     info: {
       title: 'Helixa Multipass API',
       version: '0.1.0',
-      description: 'Public Multipass API for public agent profiles. CRED, proofs, x402, receipts, routes, and changes provide trust context; payments and receipts do not buy trust.',
+      description: 'Public Multipass API for public agent profiles. CRED, x401 proof metadata, x402 payment metadata, receipts, routes, and changes provide trust context; payments and receipts do not buy trust.',
     },
     servers: [{ url: baseUrl }],
     paths: {
@@ -1038,6 +1060,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}/card': { get: { summary: 'Compatibility alias for fetching the agent-readable card', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/agent-card': { get: { summary: 'Fetch agent-readable card', description: 'Fetch the compact, machine-readable public agent profile card for routing and display.', parameters: [pathParameter('id')], responses: { 200: { description: 'Agent card' } } } },
       '/api/multipass/{id}/standards': { get: { summary: 'Fetch standards compatibility profile', parameters: [pathParameter('id')], responses: { 200: { description: 'Standards profile' } } } },
+      '/api/multipass/{id}/x401': { get: { summary: 'Fetch public x401 identity proof manifest', parameters: [pathParameter('id')], responses: { 200: { description: 'x401 manifest' } } } },
       '/api/multipass/{id}/x402': { get: { summary: 'Fetch public x402 manifest', parameters: [pathParameter('id')], responses: { 200: { description: 'x402 manifest' } } } },
       '/api/multipass/{id}/receipts': { get: { summary: 'Fetch public receipt fragments', parameters: [pathParameter('id')], responses: { 200: { description: 'Receipt fragment collection' } } } },
       '/api/multipass/{id}/receipts/{receipt_id}': { get: { summary: 'Fetch one public receipt fragment', parameters: [pathParameter('id'), pathParameter('receipt_id')], responses: { 200: { description: 'Receipt fragment' } } } },
@@ -1073,6 +1096,7 @@ function createProfileRoutes(baseUrl, identifier) {
     tools: `${baseUrl}/api/multipass/${encoded}/tools`,
     hydrated: `${baseUrl}/api/multipass/${encoded}/hydrated`,
     standards: `${baseUrl}/api/multipass/${encoded}/standards`,
+    x401: `${baseUrl}/api/multipass/${encoded}/x401`,
     x402: `${baseUrl}/api/multipass/${encoded}/x402`,
     receipts: `${baseUrl}/api/multipass/${encoded}/receipts`,
     changes: `${baseUrl}/api/multipass/${encoded}/changes`,
@@ -1089,6 +1113,7 @@ function decorateAgentCardForDiscovery(card, profile, baseUrl) {
     { rel: 'profile', href: routes.profile },
     { rel: 'hydrated', href: routes.hydrated },
     { rel: 'tools', href: routes.tools },
+    { rel: 'x401', href: routes.x401 },
     { rel: 'x402', href: routes.x402 },
     { rel: 'receipts', href: routes.receipts },
     { rel: 'changes', href: routes.changes },
@@ -1104,8 +1129,9 @@ function decorateAgentCardForDiscovery(card, profile, baseUrl) {
 
   return {
     ...card,
-    summary: card.summary ?? `${displayName} public agent profile. Includes public identity, proof, tool, x402, receipt, and change context when available.`,
+    summary: card.summary ?? `${displayName} public agent profile. Includes public identity, x401 proof, tool, x402 payment, receipt, and change context when available.`,
     services: Array.isArray(card.services) ? card.services : [],
+    x401_manifest_url: card.x401_manifest_url ?? routes.x401,
     links,
     boundaries: Array.isArray(card.boundaries)
       ? card.boundaries

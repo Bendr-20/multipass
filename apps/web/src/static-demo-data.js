@@ -116,6 +116,7 @@ export const STATIC_DEMO_DATA = {
           "chain_id": 8453
         }
       ],
+      "x401_manifest_url": "/multipass/static/x401-manifest.json",
       "x402_manifest_url": "/multipass/static/x402-manifest.json",
       "paid_endpoints_enabled": false
     },
@@ -526,6 +527,7 @@ export const STATIC_DEMO_DATA = {
         "visibility": "public"
       }
     ],
+    "x401_manifest_url": "/multipass/static/x401-manifest.json",
     "x402_manifest_url": "/multipass/static/x402-manifest.json",
     "accepted_assets": [
       {
@@ -568,6 +570,7 @@ export const STATIC_DEMO_DATA = {
     "primary_refs": {
       "erc8004_identity": null,
       "controller_asset": null,
+      "x401_manifest": "mp_bendr_2:x401",
       "x402_manifest": "mp_bendr_2:x402"
     },
     "standard_refs": [
@@ -616,6 +619,54 @@ export const STATIC_DEMO_DATA = {
       "ERC-8257": "0.1.0"
     },
     "last_verified_at": null
+  },
+  "x401": {
+    "schema_version": "0.1.0",
+    "multipass_id": "mp_bendr_2",
+    "x401_supported": true,
+    "proof_challenge_protocol": "x401",
+    "current_header_names": {
+      "request": "PROOF-REQUEST",
+      "response": "PROOF-RESPONSE",
+      "result": "PROOF-RESULT"
+    },
+    "trusted_issuers": [
+      {
+        "issuer_id": "helixa",
+        "name": "Helixa",
+        "status": "supported",
+        "reference_url": "https://helixa.xyz"
+      }
+    ],
+    "proof_requirements": [
+      {
+        "requirement_id": "x401:proof:agent_authority",
+        "description": "Public metadata for an x401-compatible identity or delegated-authority proof before high-trust agent actions.",
+        "credential_format": "openid4vp",
+        "claim_types": [
+          "personhood",
+          "delegated_authority"
+        ],
+        "assurance_level": "issuer_attested",
+        "accepted_issuers": [
+          "helixa"
+        ],
+        "required_before_payment": true,
+        "visibility": "public"
+      }
+    ],
+    "route_policies": [
+      {
+        "route_id": "lookup",
+        "x401_required": true,
+        "x402_after_x401": true,
+        "scope": "Satisfy identity or authority proof before paid or high-trust agent profile actions."
+      }
+    ],
+    "boundaries": [
+      "Public x401 metadata does not expose private credentials.",
+      "x401 support does not imply a commercial relationship with any issuer."
+    ]
   },
   "x402": {
     "schema_version": "0.1.0",

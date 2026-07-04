@@ -8,6 +8,7 @@ export const multipassProfileSchema = require('../schemas/multipass-profile.sche
 export const receiptFragmentSchema = require('../schemas/receipt-fragment.schema.json');
 export const standardsProfileSchema = require('../schemas/standards-profile.schema.json');
 export const x402ManifestSchema = require('../schemas/x402-manifest.schema.json');
+export const x401ManifestSchema = require('../schemas/x401-manifest.schema.json');
 
 export const subjectTypes = ['agent', 'human', 'swarm', 'collection', 'project', 'organization'];
 
@@ -102,6 +103,12 @@ export const schemaRegistry = [
     id: x402ManifestSchema.$id,
     title: x402ManifestSchema.title,
     schema: x402ManifestSchema,
+  },
+  {
+    name: 'x401-manifest',
+    id: x401ManifestSchema.$id,
+    title: x401ManifestSchema.title,
+    schema: x401ManifestSchema,
   },
   {
     name: 'receipt-fragment',

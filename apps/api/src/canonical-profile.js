@@ -57,6 +57,7 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
   };
   const agentCard = sourceStore.getAgentCard?.(multipassId, { baseUrl }) ?? null;
   const standards = sourceStore.getStandardsProfile?.(multipassId) ?? null;
+  const x401 = sourceStore.getX401Manifest?.(multipassId) ?? null;
   const x402 = sourceStore.getX402Manifest?.(multipassId) ?? null;
   const receipts = sourceStore.getReceiptFragments?.(multipassId) ?? [];
   const changes = sourceStore.getChangeLog?.(multipassId) ?? {
@@ -83,6 +84,7 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
     agent_card: agentCard,
     card: agentCard,
     standards,
+    x401,
     x402,
     receipts: { schema_version: schemaVersion, multipass_id: multipassId, receipts },
     tools,
@@ -119,6 +121,7 @@ function createHydratedRoutes(baseUrl, identifier) {
     fragments: `${root}/api/multipass/${encoded}/fragments`,
     tools: `${root}/api/multipass/${encoded}/tools`,
     standards: `${root}/api/multipass/${encoded}/standards`,
+    x401: `${root}/api/multipass/${encoded}/x401`,
     x402: `${root}/api/multipass/${encoded}/x402`,
     receipts: `${root}/api/multipass/${encoded}/receipts`,
     changes: `${root}/api/multipass/${encoded}/changes`,

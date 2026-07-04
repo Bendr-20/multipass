@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.helixa.ai/multipass/x401-manifest.schema.json",
+  "title": "x401 Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "multipass_id",
+    "x401_supported",
+    "proof_challenge_protocol",
+    "current_header_names",
+    "trusted_issuers",
+    "proof_requirements",
+    "route_policies",
+    "boundaries"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "multipass_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "x401_supported": {
+      "type": "boolean"
+    },
+    "proof_challenge_protocol": {
+      "type": "string",
+      "enum": [
+        "x401"
+      ]
+    },
+    "current_header_names": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "response",
+        "result"
+      ],
+      "properties": {
+        "request": {
+          "type": "string",
+          "enum": [
+            "PROOF-REQUEST"
+          ]
+        },
+        "response": {
+          "type": "string",
+          "enum": [
+            "PROOF-RESPONSE"
+          ]
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "PROOF-RESULT"
+          ]
+        }
+      }
+    },
+    "trusted_issuers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issuer_id",
+          "name",
+          "status"
+        ],
+        "properties": {
+          "issuer_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "planned",
+              "untrusted",
+              "unknown"
+            ]
+          },
+          "reference_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          }
+        }
+      }
+    },
+    "proof_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requirement_id",
+          "description",
+          "credential_format",
+          "claim_types",
+          "assurance_level",
+          "accepted_issuers",
+          "required_before_payment",
+          "visibility"
+        ],
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "credential_format": {
+            "type": "string",
+            "enum": [
+              "openid4vp",
+              "w3c_vc",
+              "proof_satisfaction_token",
+              "unknown"
+            ]
+          },
+          "claim_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "assurance_level": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "self_attested",
+              "platform_verified",
+              "cryptographic",
+              "issuer_attested",
+              "onchain_verified"
+            ]
+          },
+          "accepted_issuers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required_before_payment": {
+            "type": "boolean"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "gated"
+            ]
+          }
+        }
+      }
+    },
+    "route_policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "route_id",
+          "x401_required",
+          "x402_after_x401",
+          "scope"
+        ],
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "x401_required": {
+            "type": "boolean"
+          },
+          "x402_after_x401": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    }
+  }
+}

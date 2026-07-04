@@ -1278,7 +1278,7 @@ function renderProofLedger(proofCards, expandedCard) {
 const MULTIPASS_INPUT_SIGNALS = ['AgentDNA', 'Owner wallet', 'Manager agent', 'Endpoints', 'NFT provenance'];
 const MULTIPASS_CORE_SIGNALS = ['Human-owned', 'Agent-managed', 'Standards-readable'];
 const MULTIPASS_PROFILE_SIGNALS = ['Public proof', 'Permissions', 'Work routes', 'Trust context', 'Shareable profile'];
-const MULTIPASS_PROTOCOL_CHIPS = ['ERC-8004', 'AgentDNA', 'Cred', 'x402', 'MCP/A2A'];
+const MULTIPASS_PROTOCOL_CHIPS = ['ERC-8004', 'AgentDNA', 'Cred', 'x401', 'x402', 'MCP/A2A'];
 
 function renderMultipassSignalList(items) {
   return items.map((item) => `<span>${escapeHtml(item)}</span>`).join('');

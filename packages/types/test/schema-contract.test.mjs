@@ -26,6 +26,7 @@ const multipassProfileSchema = require('../schemas/multipass-profile.schema.json
 const receiptFragmentSchema = require('../schemas/receipt-fragment.schema.json');
 const standardsProfileSchema = require('../schemas/standards-profile.schema.json');
 const x402ManifestSchema = require('../schemas/x402-manifest.schema.json');
+const x401ManifestSchema = require('../schemas/x401-manifest.schema.json');
 
 const expectedSchemas = [
   ['multipass-profile', multipassProfileSchema],
@@ -33,6 +34,7 @@ const expectedSchemas = [
   ['agent-card', agentCardSchema],
   ['standards-profile', standardsProfileSchema],
   ['x402-manifest', x402ManifestSchema],
+  ['x401-manifest', x401ManifestSchema],
   ['receipt-fragment', receiptFragmentSchema],
 ];
 
@@ -126,9 +128,11 @@ test('identity fragments have direct shapes for endpoint, custody, verification,
 
   assert.deepEqual(identityFragmentSchema.properties.fragment_type.enum, fragmentTypes);
   assert.ok(identityFragmentSchema.properties.endpoint_ref);
+  assert.ok(identityFragmentSchema.properties.x401_proof_ref);
   assert.ok(identityFragmentSchema.properties.custody_ref);
   assert.ok(identityFragmentSchema.properties.verification_ref);
   assert.ok(identityFragmentSchema.properties.tool_manifest_ref);
+  assert.ok(identityFragmentSchema.properties.endpoint_ref.properties.protocol.enum.includes('x401'));
   assert.deepEqual(identityFragmentSchema.properties.tool_manifest_ref.type, ['object', 'null']);
   assert.ok(identityFragmentSchema.allOf?.some((branch) => (
     branch.if?.properties?.fragment_type?.const === 'tool_manifest'

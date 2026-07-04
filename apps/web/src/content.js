@@ -351,6 +351,7 @@ export function summarizeProfile(profile) {
 
 export function createStoryCards(data) {
   const publicFragments = filterPublicFragments(data.fragments);
+  const x401 = normalizeX401Manifest(data.x401);
 
   return [
     {
@@ -365,8 +366,10 @@ export function createStoryCards(data) {
     },
     {
       title: 'Portable by design',
-      label: `${data.x402.endpoints.length} x402 endpoint`,
-      body: 'Apps can read the same public agent profile across discovery, access, settlement, and custody flows.',
+      label: x401.x401_supported ? `x401 + ${data.x402.endpoints.length} x402 endpoint` : `${data.x402.endpoints.length} x402 endpoint`,
+      body: x401.x401_supported
+        ? 'Apps can read the same public agent profile across discovery, identity proof, access, settlement, and custody flows.'
+        : 'Apps can read the same public agent profile across discovery, access, settlement, and custody flows.',
     },
   ];
 }
@@ -374,6 +377,7 @@ export function createStoryCards(data) {
 export function createProofCards(data, selectedAgent = null) {
   const publicFragments = selectPublicFragments(data.fragments, selectedAgent);
   const publicFragmentDocument = createPublicFragmentDocument(data.fragments, publicFragments);
+  const x401 = normalizeX401Manifest(data.x401);
 
   return [
     {
@@ -405,6 +409,13 @@ export function createProofCards(data, selectedAgent = null) {
       json: redactPrivateData(data.standards),
     },
     {
+      title: 'x401',
+      status: x401.x401_supported ? `${x401.proof_requirements.length} requirements` : 'not required',
+      summary: formatX401Requirements(x401),
+      why: 'x401 metadata explains identity or authority proof requirements without exposing private credentials or implying any issuer relationship.',
+      json: redactPrivateData(x401),
+    },
+    {
       title: 'x402',
       status: `${data.x402.endpoints.length} endpoints`,
       summary: data.x402.endpoints.map((endpoint) => `${endpoint.endpoint_id} accepts ${endpoint.asset}`).join(', ') || 'No endpoints returned.',
@@ -421,6 +432,22 @@ export function createProofCards(data, selectedAgent = null) {
   ];
 }
 
+
+function normalizeX401Manifest(x401) {
+  return {
+    x401_supported: Boolean(x401?.x401_supported),
+    proof_requirements: Array.isArray(x401?.proof_requirements) ? x401.proof_requirements : [],
+    ...(x401 && typeof x401 === 'object' ? x401 : {}),
+  };
+}
+
+function formatX401Requirements(x401) {
+  if (!x401.x401_supported) return 'No x401 proof requirement published.';
+  return x401.proof_requirements
+    .map((requirement) => requirement.description || requirement.requirement_id)
+    .filter(Boolean)
+    .join(', ') || 'x401 proof challenge metadata is published.';
+}
 
 function createPublicFragmentDocument(fragmentDocument, publicFragments) {
   const publicDocument = { fragments: redactPrivateData(publicFragments) };

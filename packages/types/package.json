@@ -16,7 +16,8 @@
     "./schemas/multipass-profile.schema.json": "./schemas/multipass-profile.schema.json",
     "./schemas/receipt-fragment.schema.json": "./schemas/receipt-fragment.schema.json",
     "./schemas/standards-profile.schema.json": "./schemas/standards-profile.schema.json",
-    "./schemas/x402-manifest.schema.json": "./schemas/x402-manifest.schema.json"
+    "./schemas/x402-manifest.schema.json": "./schemas/x402-manifest.schema.json",
+    "./schemas/x401-manifest.schema.json": "./schemas/x401-manifest.schema.json"
   },
   "files": [
     "README.md",

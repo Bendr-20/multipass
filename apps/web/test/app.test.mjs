@@ -872,6 +872,7 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.match(proofPanel?.textContent ?? '', /Shareable profile/);
   assert.match(proofPanel?.textContent ?? '', /ERC-8004/);
   assert.match(proofPanel?.textContent ?? '', /Cred/);
+  assert.match(proofPanel?.textContent ?? '', /x401/);
   assert.match(proofPanel?.textContent ?? '', /x402/);
   assert.match(proofPanel?.textContent ?? '', /MCP\/A2A/);
   assert.doesNotMatch(proofPanel?.textContent ?? '', /Wiretap|ClawBank/);
@@ -1446,18 +1447,18 @@ test('profile page keeps product education cards and raw fragment ids out of def
   assert.ok(carousel.compareDocumentPosition(proof) & root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING);
 });
 
-test('proof ledger renders all six document types and JSON toggles open and close', async () => {
+test('proof ledger renders all seven document types and JSON toggles open and close', async () => {
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  for (const title of ['Profile', 'Public Fragments', 'Agent Card', 'Standards', 'x402', 'Receipt']) {
+  for (const title of ['Profile', 'Public Fragments', 'Agent Card', 'Standards', 'x401', 'x402', 'Receipt']) {
     assert.match(root.textContent, new RegExp(title));
   }
   assert.match(root.textContent, /canonical summary/i);
   assert.match(root.textContent, /without claiming every adapter is live/i);
   assert.match(root.textContent, /without implying live settlement/i);
   assert.match(root.textContent, /without becoming trust by itself/i);
-  assert.equal(root.querySelectorAll('.ledger-entry .why').length, 6);
+  assert.equal(root.querySelectorAll('.ledger-entry .why').length, 7);
 
   const firstToggle = root.querySelector('[data-action="toggle-json"]');
   assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');

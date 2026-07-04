@@ -26,6 +26,7 @@ test('buildDemoRoutes creates proxied routes for every proof document', () => {
     fragments: '/multipass-api/api/multipass/bendr-2/fragments',
     card: '/multipass-api/api/multipass/bendr-2/agent-card',
     standards: '/multipass-api/api/multipass/bendr-2/standards',
+    x401: '/multipass-api/api/multipass/bendr-2/x401',
     x402: '/multipass-api/api/multipass/bendr-2/x402',
     receipt: '/multipass-api/api/multipass/bendr-2/receipts/receipt_bendr_lookup',
   });
@@ -37,6 +38,7 @@ test('buildSavedRoutes creates public saved profile companion routes including t
     fragments: '/multipass-api/api/multipass/bendr-2-1/fragments',
     card: '/multipass-api/api/multipass/bendr-2-1/card',
     standards: '/multipass-api/api/multipass/bendr-2-1/standards',
+    x401: '/multipass-api/api/multipass/bendr-2-1/x401',
     x402: '/multipass-api/api/multipass/bendr-2-1/x402',
     tools: '/multipass-api/api/multipass/bendr-2-1/tools',
     changes: '/multipass-api/api/multipass/bendr-2-1/changes',
@@ -140,6 +142,7 @@ test('loadMultipassDemo fetches every document and returns normalized data', asy
     '/multipass-api/api/multipass/bendr-2/fragments': { fragments: [] },
     '/multipass-api/api/multipass/bendr-2/agent-card': { name: 'Bendr 2.0' },
     '/multipass-api/api/multipass/bendr-2/standards': { standard_refs: [] },
+    '/multipass-api/api/multipass/bendr-2/x401': { x401_supported: true, proof_requirements: [] },
     '/multipass-api/api/multipass/bendr-2/x402': { endpoints: [] },
     '/multipass-api/api/multipass/bendr-2/receipts/receipt_bendr_lookup': { receipt_id: 'receipt_bendr_lookup' },
   };
@@ -168,6 +171,7 @@ test('loadHydratedMultipassDemo normalizes canonical API data into app shape', a
     fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
     agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
     standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x401: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', x401_supported: true, proof_requirements: [] },
     x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
     tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [{ tool_id: 'agent-lookup', name: 'Agent lookup' }] },
     changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
@@ -188,6 +192,7 @@ test('loadHydratedMultipassDemo normalizes canonical API data into app shape', a
   assert.equal(data.card.name, 'Bendr 2.0');
   assert.deepEqual(data.card.capabilities, []);
   assert.equal(data.tools.tools[0].tool_id, 'agent-lookup');
+  assert.equal(data.x401.x401_supported, true);
   assert.equal(data.sourceLabel, 'Helixa AgentDNA source');
   assert.equal(data.modeLabel, 'Activated Multipass');
   assert.equal(data.activation.state, 'activated');
@@ -208,6 +213,7 @@ test('loadCanonicalHelixaMultipass fetches canonical hydrated API with normalize
     fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
     agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
     standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x401: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', x401_supported: true, proof_requirements: [] },
     x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
     tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] },
     changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
@@ -238,6 +244,7 @@ test('loadHydratedMultipassDemo preserves saved-profile activation semantics', a
     fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
     agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
     standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x401: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', x401_supported: true, proof_requirements: [] },
     x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
     tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] },
     changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
@@ -264,6 +271,7 @@ test('loadHydratedMultipassDemo keeps activation preview share path on agent que
     fragments: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', fragments: [] },
     agent_card: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', name: 'Bendr 2.0', service_endpoints: [] },
     standards: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', standard_refs: [] },
+    x401: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', x401_supported: true, proof_requirements: [] },
     x402: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', endpoints: [] },
     tools: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] },
     changes: { schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', entries: [] },
@@ -289,6 +297,7 @@ test('loadSavedMultipassDemo fetches saved profile public tools with companion d
     '/multipass-api/api/multipass/bendr-2-1/fragments': { multipass_id: 'mp_helixa_agent_1', fragments: [] },
     '/multipass-api/api/multipass/bendr-2-1/card': { multipass_id: 'mp_helixa_agent_1', name: 'Saved Bendr' },
     '/multipass-api/api/multipass/bendr-2-1/standards': { standard_refs: [] },
+    '/multipass-api/api/multipass/bendr-2-1/x401': { x401_supported: false, proof_requirements: [] },
     '/multipass-api/api/multipass/bendr-2-1/x402': { endpoints: [] },
     '/multipass-api/api/multipass/bendr-2-1/tools': { multipass_id: 'mp_helixa_agent_1', tools: [{ tool_id: 'bendr-lookup', name: 'Bendr lookup' }] },
     '/multipass-api/api/multipass/bendr-2-1/changes': { entries: [] },
@@ -312,12 +321,14 @@ test('loadSavedMultipassDemo fetches saved profile public tools with companion d
     '/multipass-api/api/multipass/bendr-2-1/fragments',
     '/multipass-api/api/multipass/bendr-2-1/card',
     '/multipass-api/api/multipass/bendr-2-1/standards',
+    '/multipass-api/api/multipass/bendr-2-1/x401',
     '/multipass-api/api/multipass/bendr-2-1/x402',
     '/multipass-api/api/multipass/bendr-2-1/tools',
     '/multipass-api/api/multipass/bendr-2-1/changes',
   ]);
   assert.equal(data.profile.slug, 'bendr-2-1');
   assert.equal(data.tools.tools[0].tool_id, 'bendr-lookup');
+  assert.equal(data.x401.x401_supported, false);
   assert.equal(data.canonicalHydrated, false);
 });
 

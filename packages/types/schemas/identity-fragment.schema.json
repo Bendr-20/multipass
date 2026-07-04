@@ -253,7 +253,8 @@
             "api",
             "mcp",
             "a2a",
-            "x402"
+            "x402",
+            "x401"
           ]
         },
         "manifest_url": {
@@ -553,6 +554,124 @@
             "null"
           ],
           "format": "date-time"
+        }
+      }
+    },
+    "x401_proof_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "x401-specific public proof metadata. This never includes raw private credential material.",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "issuer_id",
+        "requirement_id",
+        "credential_format",
+        "claim_types",
+        "result",
+        "private_credential_state"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "x401"
+          ]
+        },
+        "issuer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issuer_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 120
+        },
+        "requirement_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credential_format": {
+          "type": "string",
+          "enum": [
+            "openid4vp",
+            "w3c_vc",
+            "proof_satisfaction_token",
+            "unknown"
+          ]
+        },
+        "claim_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "inconclusive",
+            "expired"
+          ]
+        },
+        "header_names": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "request",
+            "response",
+            "result"
+          ],
+          "properties": {
+            "request": {
+              "type": "string",
+              "enum": [
+                "PROOF-REQUEST"
+              ]
+            },
+            "response": {
+              "type": "string",
+              "enum": [
+                "PROOF-RESPONSE"
+              ]
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "PROOF-RESULT"
+              ]
+            }
+          }
+        },
+        "required_before_payment": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "private_credential_state": {
+          "type": "string",
+          "enum": [
+            "not_exposed",
+            "redacted",
+            "unavailable"
+          ]
         }
       }
     }

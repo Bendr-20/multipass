@@ -40,6 +40,7 @@ export function buildSavedRoutes(apiBase, slug) {
     fragments: `${root}/fragments`,
     card: `${root}/card`,
     standards: `${root}/standards`,
+    x401: `${root}/x401`,
     x402: `${root}/x402`,
     tools: `${root}/tools`,
     changes: `${root}/changes`,
@@ -86,6 +87,7 @@ export function buildDemoRoutes(apiBase, subject) {
     fragments: `${root}/fragments`,
     card: `${root}/agent-card`,
     standards: `${root}/standards`,
+    x401: `${root}/x401`,
     x402: `${root}/x402`,
     receipt: `${root}/receipts/${encodeURIComponent(subject.receiptId)}`,
   };
@@ -114,6 +116,14 @@ async function loadJsonWithStatus(route, fetchImpl = fetch) {
     return { ok: true, status: response.status, body: JSON.parse(text) };
   } catch (error) {
     throw new Error(`API returned invalid JSON for ${route}: ${error.message}`);
+  }
+}
+
+async function loadOptionalX401(route, fetchImpl = fetch) {
+  try {
+    return await loadJson(route, fetchImpl);
+  } catch {
+    return createDefaultX401Manifest();
   }
 }
 
@@ -158,11 +168,12 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
   }
 
   const routes = buildSavedRoutes(apiBase, slug);
-  const [profile, fragments, card, standards, x402, tools, changes] = await Promise.all([
+  const [profile, fragments, card, standards, x401, x402, tools, changes] = await Promise.all([
     loadJson(routes.profile, fetchImpl),
     loadJson(routes.fragments, fetchImpl),
     loadJson(routes.card, fetchImpl),
     loadJson(routes.standards, fetchImpl),
+    loadOptionalX401(routes.x401, fetchImpl),
     loadJson(routes.x402, fetchImpl),
     loadJson(routes.tools, fetchImpl),
     loadJson(routes.changes, fetchImpl),
@@ -174,6 +185,7 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
     fragments,
     card,
     standards,
+    x401,
     x402,
     tools,
     receipt: createUnavailableReceipt(profile),
@@ -194,16 +206,36 @@ export async function loadSavedMultipassDemo({ apiBase = DEFAULT_API_BASE, slug,
 
 export async function loadMultipassDemo({ apiBase = DEFAULT_API_BASE, subject, fetchImpl = fetch }) {
   const routes = buildDemoRoutes(apiBase, subject);
-  const [profile, fragments, card, standards, x402, receipt] = await Promise.all([
+  const [profile, fragments, card, standards, x401, x402, receipt] = await Promise.all([
     loadJson(routes.profile, fetchImpl),
     loadJson(routes.fragments, fetchImpl),
     loadJson(routes.card, fetchImpl),
     loadJson(routes.standards, fetchImpl),
+    loadOptionalX401(routes.x401, fetchImpl),
     loadJson(routes.x402, fetchImpl),
     loadJson(routes.receipt, fetchImpl),
   ]);
 
-  return { profile, fragments, card, standards, x402, receipt, routes, modeLabel: 'Local API Demo', sourceLabel: 'local API' };
+  return { profile, fragments, card, standards, x401, x402, receipt, routes, modeLabel: 'Local API Demo', sourceLabel: 'local API' };
+}
+
+
+function createDefaultX401Manifest(profile = {}) {
+  return {
+    schema_version: '0.1.0',
+    multipass_id: profile?.multipass_id ?? 'unknown',
+    x401_supported: false,
+    proof_challenge_protocol: 'x401',
+    current_header_names: {
+      request: 'PROOF-REQUEST',
+      response: 'PROOF-RESPONSE',
+      result: 'PROOF-RESULT',
+    },
+    trusted_issuers: [],
+    proof_requirements: [],
+    route_policies: [],
+    boundaries: ['No public x401 proof requirements are published for this profile.'],
+  };
 }
 
 function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
@@ -211,6 +243,7 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
   const fragments = hydrated?.fragments ?? { fragments: [] };
   const card = normalizeHydratedCard(hydrated?.['agent_card'] ?? hydrated?.card);
   const standards = hydrated?.standards ?? { standard_refs: [] };
+  const x401 = hydrated?.x401 ?? createDefaultX401Manifest(profile);
   const x402 = hydrated?.x402 ?? { endpoints: [] };
   const tools = hydrated?.tools ?? { tools: [] };
   const changes = hydrated?.changes ?? { entries: [] };
@@ -233,6 +266,7 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
     fragments,
     card,
     standards,
+    x401,
     x402,
     tools,
     receipt: hydrated?.receipt ?? createUnavailableReceipt(profile),

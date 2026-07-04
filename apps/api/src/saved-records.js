@@ -23,6 +23,7 @@ import {
   normalizeBankrServiceTool,
   summarizeToolsResponse,
 } from './tool-manifest.js';
+import { deriveX401ManifestFromFragments } from './x401-manifest.js';
 
 const PUBLIC_SOURCE_SNAPSHOT_FIELDS = new Set([
   'apiUrl',
@@ -165,6 +166,12 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       const derived = deriveX402ManifestFromTools(multipassId, bundle.fragments);
       if (derived.endpoints.length > 0) return derived;
       return bundle.x402Manifest;
+    },
+
+    getX401Manifest(multipassId) {
+      const bundle = readBundleById(db, multipassId);
+      if (!bundle) return null;
+      return deriveX401ManifestFromFragments(multipassId, bundle.fragments);
     },
 
     getReceiptFragments(multipassId) {

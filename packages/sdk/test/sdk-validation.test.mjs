@@ -9,6 +9,7 @@ import {
   assertMultipassProfile,
   getActivationSummary,
   getAgentCard,
+  getX401Manifest,
   getMultipassProfile,
   getPublicFragments,
   isClaimed,
@@ -20,18 +21,21 @@ import {
   loadReceiptFragmentFromFile,
   loadStandardsProfileFromFile,
   loadX402ManifestFromFile,
+  loadX401ManifestFromFile,
   parseAgentCardJson,
   parseIdentityFragmentJson,
   parseMultipassProfileJson,
   parseReceiptFragmentJson,
   parseStandardsProfileJson,
   parseX402ManifestJson,
+  parseX401ManifestJson,
   validateAgentCard,
   validateIdentityFragment,
   validateMultipassProfile,
   validateReceiptFragment,
   validateStandardsProfile,
   validateX402Manifest,
+  validateX401Manifest,
 } from '../src/index.js';
 
 const profile = {
@@ -240,6 +244,39 @@ const x402Manifest = {
   ],
 };
 
+const x401Manifest = {
+  schema_version: '0.1.0',
+  multipass_id: 'mp_bendr',
+  x401_supported: true,
+  proof_challenge_protocol: 'x401',
+  current_header_names: {
+    request: 'PROOF-REQUEST',
+    response: 'PROOF-RESPONSE',
+    result: 'PROOF-RESULT',
+  },
+  trusted_issuers: [
+    { issuer_id: 'proof', name: 'Proof', status: 'supported', reference_url: 'https://www.proof.com/x401' },
+  ],
+  proof_requirements: [
+    {
+      requirement_id: 'human_authorization',
+      description: 'Verified human authorization for delegated agent action.',
+      credential_format: 'openid4vp',
+      claim_types: ['personhood', 'delegated_authority'],
+      assurance_level: 'issuer_attested',
+      accepted_issuers: ['proof'],
+      required_before_payment: true,
+      visibility: 'public',
+    },
+  ],
+  route_policies: [
+    { route_id: 'paid-action', x401_required: true, x402_after_x401: true, scope: 'agent may request a paid high-trust action' },
+  ],
+  boundaries: [
+    'Public x401 metadata does not expose private credentials or imply a commercial relationship with any issuer.',
+  ],
+};
+
 const receiptFragment = {
   schema_version: '0.1.0',
   receipt_id: 'receipt_1',
@@ -260,6 +297,7 @@ const cases = [
   ['agent-card', agentCard, validateAgentCard, parseAgentCardJson, loadAgentCardFromFile],
   ['standards-profile', standardsProfile, validateStandardsProfile, parseStandardsProfileJson, loadStandardsProfileFromFile],
   ['x402-manifest', x402Manifest, validateX402Manifest, parseX402ManifestJson, loadX402ManifestFromFile],
+  ['x401-manifest', x401Manifest, validateX401Manifest, parseX401ManifestJson, loadX401ManifestFromFile],
   ['receipt-fragment', receiptFragment, validateReceiptFragment, parseReceiptFragmentJson, loadReceiptFragmentFromFile],
 ];
 
@@ -440,4 +478,18 @@ test('profile summary helpers expose claimed state and activation summary withou
     supportedStandards: ['ERC-8004'],
     paidEndpointsEnabled: false,
   });
+});
+
+
+test('SDK fetches x401 manifests from the public Multipass route', async () => {
+  const fetched = await getX401Manifest('bendr-2', {
+    apiBase: 'https://multipass.example.test',
+    fetchImpl: async (url) => {
+      assert.equal(url, 'https://multipass.example.test/api/multipass/bendr-2/x401');
+      return new Response(JSON.stringify(x401Manifest), { status: 200 });
+    },
+  });
+
+  assert.equal(fetched.x401_supported, true);
+  assert.equal(fetched.current_header_names.request, 'PROOF-REQUEST');
 });

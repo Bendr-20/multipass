@@ -459,6 +459,7 @@ test('story and proof cards cover the intended demo sections', () => {
     'Public Fragments',
     'Agent Card',
     'Standards',
+    'x401',
     'x402',
     'Receipt',
   ]);
@@ -467,6 +468,7 @@ test('story and proof cards cover the intended demo sections', () => {
     assert.ok(card.why.length > 20, `${card.title} needs a useful explanation`);
   }
   assert.match(proofCards.find((card) => card.title === 'Standards').why, /reference/i);
+  assert.match(proofCards.find((card) => card.title === 'x401').why, /identity/i);
   assert.match(proofCards.find((card) => card.title === 'x402').why, /access/i);
   assert.match(proofCards.find((card) => card.title === 'Receipt').why, /evidence/i);
 });

@@ -1,6 +1,6 @@
 const ROUTE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
 const ROUTE_STATUSES = ['pending', 'stale', 'disputed', 'revoked'];
-const ROUTE_PROTOCOLS = ['web', 'api', 'mcp', 'a2a', 'x402'];
+const ROUTE_PROTOCOLS = ['web', 'api', 'mcp', 'a2a', 'x401', 'x402'];
 const ROUTE_REVIEW_POLICIES = ['pause_on_transfer', 'reverify_on_transfer', 'historical_on_transfer', 'never_transfer'];
 
 const ROUTE_STATUS_MESSAGES = new Map([
@@ -14,6 +14,7 @@ const ROUTE_PROTOCOL_LABELS = new Map([
   ['api', 'API reference'],
   ['mcp', 'MCP reference'],
   ['a2a', 'A2A reference'],
+  ['x401', 'x401 reference'],
   ['x402', 'x402 reference'],
 ]);
 
