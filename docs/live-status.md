@@ -1,8 +1,10 @@
 # Multipass Live Status
 
-Last updated: 2026-07-01 UTC
+Last updated: 2026-07-04 UTC
 
 This document is the operator-facing source of truth for what the current Multipass V0 surface does and does not do.
+
+Language frame: Multipass is a public agent profile. Cred, proof fragments, x402 metadata, receipts, routes, standards, and change history are trust context inside that profile; viewing them does not grant authority or execute tools.
 
 ## Live surfaces
 
