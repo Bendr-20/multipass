@@ -251,6 +251,9 @@ async function savedProfileNoToolsFetch(url) {
 }
 
 function fillGroupActivationForm(root, overrides = {}) {
+  if (!root.querySelector('[data-role="group-activation-form"]')) {
+    root.querySelector('[data-action="show-group-activation"]')?.click();
+  }
   const form = root.querySelector('[data-role="group-activation-form"]');
   assert.ok(form);
   form.querySelector('[name="subject_type"]').value = overrides.subject_type ?? 'swarm';
@@ -577,14 +580,13 @@ test('homepage keeps activation below the standalone desktop hero', async () => 
   assert.ok(hero);
   assert.ok(heroCard);
   assert.ok(activation);
-  assert.ok(groupActivation);
+  assert.equal(groupActivation, null);
   assert.ok(systemPanel);
   assert.equal(hero.children.length, 1);
   assert.equal(hero.firstElementChild, heroCard);
   assert.equal(hero.contains(activation), false);
   assert.equal(hero.nextElementSibling, activation);
-  assert.equal(activation.nextElementSibling, groupActivation);
-  assert.equal(groupActivation.nextElementSibling, systemPanel);
+  assert.equal(activation.nextElementSibling, systemPanel);
   assert.ok(heroCard.querySelector('.product-hero-main'));
   assert.ok(heroCard.contains(root.querySelector('.profile-visual-strip')));
   assert.equal(heroCard.firstElementChild?.classList.contains('product-hero-main'), true);
@@ -592,9 +594,25 @@ test('homepage keeps activation below the standalone desktop hero', async () => 
 });
 
 
-test('group activation homepage renders collection or swarm controls and action labels', async () => {
+test('group activation stays hidden behind the Activate Swarm button on the homepage', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const resolver = root.querySelector('.live-resolver');
+  const actionStack = resolver?.querySelector('.live-resolver-actions');
+  const activateButton = actionStack?.querySelector('button[type="submit"]');
+  const showSwarmButton = actionStack?.querySelector('[data-action="show-group-activation"]');
+  assert.ok(resolver);
+  assert.ok(actionStack);
+  assert.equal(actionStack?.children[0], activateButton);
+  assert.equal(actionStack?.children[1], showSwarmButton);
+  assert.ok(showSwarmButton);
+  assert.equal(showSwarmButton.textContent, 'Activate Swarm');
+  assert.equal(root.querySelector('.group-activation-section'), null);
+  assert.doesNotMatch(root.textContent, /Activate collection or swarm/);
+
+  showSwarmButton.click();
+  await flushAsyncEvents();
 
   const section = root.querySelector('.group-activation-section');
   const panel = root.querySelector('.group-activation-panel');
@@ -1381,8 +1399,8 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.equal(proofPanel?.querySelector('a, button, form, input, textarea, select, [data-action]'), null);
   const activation = root.querySelector('.live-resolver');
   const groupActivation = root.querySelector('.group-activation-section');
-  assert.equal(proofPanel?.previousElementSibling, groupActivation);
-  assert.equal(groupActivation?.previousElementSibling, activation);
+  assert.equal(groupActivation, null);
+  assert.equal(proofPanel?.previousElementSibling, activation);
   assert.equal(activation?.previousElementSibling, hero);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);

@@ -47,7 +47,8 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.visual-card-button \.profile-card-visual img\s*\{[^}]*object-fit:\s*contain;/s);
   assert.doesNotMatch(css, /\.product-hero > \.live-resolver\s*\{/s);
   assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*margin:\s*28px 0;/s);
-  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(280px, 0\.58fr\) auto;/s);
+  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(280px, 0\.58fr\);/s);
+  assert.match(css, /\.live-resolver-actions\s*\{[^}]*display:\s*grid;[^}]*gap:\s*10px;/s);
   assert.doesNotMatch(css, /\.product-home-shell \.live-resolver\s*\{[^}]*min-height:\s*560px;/s);
   assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*auto auto auto;/s);
   assert.match(mobileBlock, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*min\(300px, 86%\);/s);

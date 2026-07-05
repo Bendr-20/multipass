@@ -59,6 +59,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     toolError: null,
     toolActiveFragmentId: null,
     groupActivation: createInitialGroupActivationState(),
+    groupActivationExpanded: false,
     groupActivationRequestId: 0,
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
@@ -140,6 +141,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimCsrfToken: null,
       claimSessionStatus: null,
       groupActivation: createInitialGroupActivationState(),
+      groupActivationExpanded: false,
       groupActivationRequestId: state.groupActivationRequestId + 1,
       ...clearedRouteState(),
     };
@@ -229,6 +231,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimCsrfToken: null,
       claimSessionStatus: null,
       groupActivation: createInitialGroupActivationState(),
+      groupActivationExpanded: false,
       groupActivationRequestId: state.groupActivationRequestId + 1,
       ...clearedRouteState(),
     };
@@ -324,12 +327,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  function showGroupActivation() {
+    state = { ...state, groupActivationExpanded: true };
+    render(root, state, handlers);
+  }
+
   async function previewGroupActivation() {
     if (state.groupActivation?.status === 'saving') return;
     const input = readGroupActivationPayload(root, state.groupActivation);
     const requestId = state.groupActivationRequestId + 1;
     state = {
       ...state,
+      groupActivationExpanded: true,
       groupActivationRequestId: requestId,
       groupActivation: { status: 'previewing', input, preview: null, result: null, error: null },
     };
@@ -360,6 +369,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     if (!previous.preview || !areGroupActivationInputsEqual(input, previous.input)) {
       state = {
         ...state,
+        groupActivationExpanded: true,
         groupActivationRequestId: state.groupActivationRequestId + 1,
         groupActivation: {
           status: 'error',
@@ -375,6 +385,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const requestId = state.groupActivationRequestId + 1;
     state = {
       ...state,
+      groupActivationExpanded: true,
       groupActivationRequestId: requestId,
       groupActivation: { ...previous, status: 'saving', input, result: null, error: null },
     };
@@ -403,6 +414,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     state = {
       ...state,
       groupActivation: createInitialGroupActivationState(),
+      groupActivationExpanded: true,
       groupActivationRequestId: state.groupActivationRequestId + 1,
     };
     render(root, state, handlers);
@@ -734,7 +746,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1633,9 +1645,9 @@ function renderProductHome(root, state, handlers = {}) {
         </div>
       </section>
 
-      ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
+      ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error', showGroupActivationButton: true })}
 
-      ${renderGroupActivationSection(state.groupActivation)}
+      ${state.groupActivationExpanded ? renderGroupActivationSection(state.groupActivation) : ''}
 
       ${renderMultipassWhatItDoesPanel()}
 
@@ -1856,6 +1868,7 @@ function bindGroupActivationEvents(root, handlers = {}) {
     event.preventDefault();
     handlers.previewGroupActivation?.();
   });
+  root.querySelector('[data-action="show-group-activation"]')?.addEventListener('click', () => handlers.showGroupActivation?.());
   root.querySelector('[data-action="preview-group-multipass"]')?.addEventListener('click', () => handlers.previewGroupActivation?.());
   root.querySelector('[data-action="save-group-multipass"]')?.addEventListener('click', () => handlers.saveGroupActivation?.());
   root.querySelector('[data-action="reset-group-multipass"]')?.addEventListener('click', () => handlers.resetGroupActivation?.());
@@ -1941,6 +1954,7 @@ function renderSharePanel(data, heroCopy) {
 
 function renderLiveResolver(state, options = {}) {
   const showResetButton = options.showResetButton !== false;
+  const showGroupActivationButton = options.showGroupActivationButton === true;
   return `
     <section id="live-resolver" class="live-resolver" aria-label="Activate a live agent record">
       <form data-action="resolve-live-agent">
@@ -1953,8 +1967,11 @@ function renderLiveResolver(state, options = {}) {
           <span>AgentDNA ID, ERC-8004-style ID, token ID, or agent name</span>
           <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
         </label>
-        <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
-        ${showResetButton ? '<button type="button" data-action="reset-static-demo">Back to Multipass home</button>' : ''}
+        <div class="live-resolver-actions">
+          <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
+          ${showGroupActivationButton ? '<button type="button" class="activate-swarm-button" data-action="show-group-activation">Activate Swarm</button>' : ''}
+          ${showResetButton ? '<button type="button" data-action="reset-static-demo">Back to Multipass home</button>' : ''}
+        </div>
       </form>
       ${state.resolverError ? `<p class="resolver-message error">${escapeHtml(state.resolverError)}</p>` : ''}
       ${state.retryMessage ? `<p class="resolver-message error">${escapeHtml(state.retryMessage)}</p>` : ''}

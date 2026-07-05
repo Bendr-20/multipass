@@ -210,7 +210,7 @@ button:focus-visible {
 }
 
 .product-home-shell .live-resolver form {
-  grid-template-columns: minmax(0, 0.92fr) minmax(280px, 0.58fr) auto;
+  grid-template-columns: minmax(0, 0.92fr) minmax(280px, 0.58fr);
 }
 
 .profile-visual-strip {
@@ -803,7 +803,7 @@ h1 {
 
 .live-resolver form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
   gap: 14px;
   align-items: end;
 }
@@ -837,17 +837,28 @@ h1 {
   font: inherit;
 }
 
+.live-resolver-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .live-resolver button {
   border: 1px solid var(--ink);
   background: var(--ink);
   color: var(--paper);
   padding: 12px 14px;
   font-weight: 900;
+  width: 100%;
 }
 
 .live-resolver button[type="button"] {
   background: var(--paper);
   color: var(--ink);
+}
+
+.live-resolver .activate-swarm-button[type="button"] {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .live-resolver button:disabled {
