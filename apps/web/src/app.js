@@ -14,6 +14,7 @@ import { createGroupActivationPayload, normalizeGroupMemberInput, renderGroupAct
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
+const PUBLIC_AGENTS_PATH = '/multipass/agents';
 
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
@@ -808,9 +809,14 @@ function getInitialPageKind() {
   if (typeof window === 'undefined') return 'profile';
   const locationUrl = new URL(window.location.href);
   if (isStaticSwarmProfileRoute(locationUrl)) return 'profile';
+  if (isPublicAgentsRoute(locationUrl)) return 'agents';
   if (getSavedSlugFromLocation(locationUrl)) return 'profile';
   if (locationUrl.searchParams.has('agent')) return 'profile';
   return locationUrl.pathname === '/multipass' || locationUrl.pathname === '/multipass/' ? 'product_home' : 'profile';
+}
+
+function isPublicAgentsRoute(locationUrl) {
+  return locationUrl.pathname === PUBLIC_AGENTS_PATH || locationUrl.pathname === `${PUBLIC_AGENTS_PATH}/`;
 }
 
 function isStaticSwarmProfileRoute(locationUrl) {
@@ -855,7 +861,8 @@ function defaultLoadDemo({ fetchImpl } = {}) {
   const apiBase = getApiBaseFromLocation(locationUrl);
   const savedSlug = getSavedSlugFromLocation(locationUrl);
   if (isStaticSwarmProfileRoute(locationUrl)) return loadStaticSwarmProfileDemo();
-  if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
+  if (isPublicAgentsRoute(locationUrl) && shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
+  if (savedSlug && !isPublicAgentsRoute(locationUrl)) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
   if (shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
 
   return loadMultipassDemo({
@@ -1078,6 +1085,11 @@ function render(root, state, handlers = {}) {
   const { data } = state;
   if (state.pageKind === 'product_home') {
     renderProductHome(root, state, handlers);
+    return;
+  }
+
+  if (state.pageKind === 'agents') {
+    renderPublicAgentsPage(root, state, handlers);
     return;
   }
 
@@ -1637,7 +1649,7 @@ function renderProductHome(root, state, handlers = {}) {
             <h1>Portable identity profiles for agents.</h1>
             <p class="lead">Multipass turns agent records into shareable profiles with public proof, ownership context, routes, and update history.</p>
             <div class="homepage-actions">
-              <a href="#agent-visuals" class="homepage-action primary">View agents</a>
+              <a href="/multipass/agents" class="homepage-action primary">View agents</a>
               <a href="#live-resolver" class="homepage-action">Activate an agent</a>
             </div>
           </div>
@@ -1650,7 +1662,22 @@ function renderProductHome(root, state, handlers = {}) {
       ${state.groupActivationExpanded ? renderGroupActivationSection(state.groupActivation) : ''}
 
       ${renderMultipassWhatItDoesPanel()}
+    </div>
+  `;
 
+  bindProductHomeEvents(root, handlers, state);
+}
+
+function renderPublicAgentsPage(root, state, handlers = {}) {
+  const agentCarousel = createAgentCarousel(state.data);
+  root.innerHTML = `
+    <div class="record-shell public-agents-shell">
+      ${renderRecordHeader('Public Agent Gallery')}
+      <section class="public-agents-hero" aria-label="Multipass public agents">
+        <p class="eyebrow">View agents</p>
+        <h1>Public Multipass agents.</h1>
+        <p class="lead">Browse live agent and swarm profiles without crowding the Multipass home page.</p>
+      </section>
       ${renderPublicAgentGallery(agentCarousel, state)}
     </div>
   `;

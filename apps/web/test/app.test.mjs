@@ -953,7 +953,7 @@ test('homepage renders agent visuals without extra context copy', async () => {
 
   assert.equal(root.querySelector('.product-card-grid'), null);
   assert.equal(root.querySelector('.share-panel'), null);
-  assert.equal(root.querySelector('a[href="#agent-visuals"]')?.textContent, 'View agents');
+  assert.equal(root.querySelector('a[href="/multipass/agents"]')?.textContent, 'View agents');
   const strip = root.querySelector('.profile-visual-strip');
   assert.ok(strip);
   assert.equal(strip.querySelector('.card-carousel-head'), null);
@@ -1000,10 +1000,20 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
-test('homepage renders public agent gallery cards with safe Multipass links', async () => {
+test('homepage View agents opens a dedicated public agents route instead of rendering the full gallery inline', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
+  assert.equal(root.querySelector('.public-agent-gallery'), null);
+  assert.equal(root.querySelector('a[href="/multipass/agents"]')?.textContent, 'View agents');
+});
+
+test('dedicated agents route renders public agent gallery cards with safe Multipass links', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/agents');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.product-home-shell'), null);
+  assert.equal(root.querySelector('.live-resolver'), null);
   const gallery = root.querySelector('.public-agent-gallery');
   assert.ok(gallery);
   assert.match(gallery.textContent, /Public agent gallery/);
@@ -1019,8 +1029,8 @@ test('homepage renders public agent gallery cards with safe Multipass links', as
   assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
-test('homepage swarm card click opens a standalone swarm Multipass route', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/');
+test('agents route swarm card click opens a standalone swarm Multipass route', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/agents');
   const calls = [];
   await createApp({
     root,
