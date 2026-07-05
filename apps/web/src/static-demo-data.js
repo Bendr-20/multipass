@@ -365,48 +365,6 @@ export const STATIC_DEMO_DATA = {
       },
       {
         "schema_version": "0.1.0",
-        "fragment_id": "frag_e2etest_identity",
-        "multipass_id": "mp_e2etest",
-        "fragment_type": "attestation",
-        "status": "pending",
-        "assurance_level": "self_attested",
-        "visibility": "public",
-        "transfer_policy": "reverify_on_transfer",
-        "source": {
-          "source_type": "owner_submission",
-          "source_id": "e2etest_identity",
-          "issuer": "Helixa",
-          "observed_at": "2026-06-24T23:50:00Z",
-          "reference_url": "https://helixa.xyz/agent/0"
-        },
-        "public_value": "E2ETest is a low-assurance test record.",
-        "proof_reference": "record:e2etest-identity",
-        "created_at": "2026-06-24T23:50:00Z",
-        "updated_at": "2026-06-24T23:50:00Z"
-      },
-      {
-        "schema_version": "0.1.0",
-        "fragment_id": "frag_e2etest_cred",
-        "multipass_id": "mp_e2etest",
-        "fragment_type": "risk_summary",
-        "status": "disputed",
-        "assurance_level": "unverified",
-        "visibility": "public",
-        "transfer_policy": "never_transfer",
-        "source": {
-          "source_type": "platform_check",
-          "source_id": "e2etest_cred",
-          "issuer": "Helixa",
-          "observed_at": "2026-06-24T23:50:00Z",
-          "reference_url": "https://helixa.xyz/agent/0"
-        },
-        "public_value": "Lower trust context for a test agent.",
-        "proof_reference": "record:e2etest-cred",
-        "created_at": "2026-06-24T23:50:00Z",
-        "updated_at": "2026-06-24T23:50:00Z"
-      },
-      {
-        "schema_version": "0.1.0",
         "fragment_id": "frag_helixa_swarm_roster",
         "multipass_id": "mp_helixa_swarm",
         "fragment_type": "custody_record",
@@ -421,7 +379,7 @@ export const STATIC_DEMO_DATA = {
           "observed_at": "2026-06-24T23:38:00Z",
           "reference_url": "https://helixa.xyz/multipass/"
         },
-        "public_value": "Parent Multipass manages Bendr, Quigbot, and E2ETest agents as one collection roster.",
+        "public_value": "Parent Multipass manages Bendr 2.0, Quigbot, Helixa, Phantom Relay, and Nox as one public swarm roster.",
         "proof_reference": "record:helixa-swarm-roster",
         "created_at": "2026-06-24T23:38:00Z",
         "updated_at": "2026-06-24T23:38:00Z",
@@ -768,31 +726,6 @@ export const STATIC_DEMO_DATA = {
       ]
     },
     {
-      "name": "E2ETest",
-      "tokenId": 0,
-      "helixaId": "8453:0",
-      "framework": "openclaw",
-      "credScore": 41,
-      "credTier": "Marginal",
-      "verified": false,
-      "profileUrl": "https://helixa.xyz/agent/0",
-      "proofFragmentIds": ["frag_e2etest_identity", "frag_e2etest_cred"],
-      "ownerSnapshot": {
-        "owner": "Owner pending",
-        "operator": "Helixa record",
-        "custodyEpoch": "Draft epoch",
-        "permissionState": "Review required before active routes",
-        "visibility": "Public test profile",
-        "recentChange": "Low-assurance test record imported",
-        "reviewAction": "Verify owner before production use"
-      },
-      "changeReviewLedger": [
-        { "event": "Low-assurance test record imported", "source": "Helixa record", "impact": "Routes remain inactive", "reviewState": "Review required" },
-        { "event": "Owner verification missing", "source": "Owner registry", "impact": "Production use blocked", "reviewState": "Reverify" },
-        { "event": "Private credentials hidden", "source": "Private vault", "impact": "No public data exposed", "reviewState": "No public action" }
-      ]
-    },
-    {
       "name": "Helixa Swarm",
       "tokenId": "swarm:helixa",
       "helixaId": "8453:swarm:helixa",
@@ -802,14 +735,16 @@ export const STATIC_DEMO_DATA = {
       "verified": true,
       "profileUrl": "https://helixa.xyz/swarm/helixa",
       "subjectType": "swarm",
-      "members": 3,
+      "members": 5,
       "role": "Parent Multipass",
       "custody": "Custody epoch ready",
       "proofFragmentIds": ["frag_helixa_swarm_roster", "frag_helixa_swarm_tools", "frag_helixa_swarm_cred"],
       "roster": [
-        { "name": "Bendr 2.0", "role": "Lead agent" },
-        { "name": "Quigbot", "role": "Product agent" },
-        { "name": "E2ETest", "role": "Test agent" }
+        { "name": "Bendr 2.0", "role": "Lead Agent / Trust Router", "tokenId": 1, "helixaId": "8453:1", "profileUrl": "https://helixa.xyz/agent/1" },
+        { "name": "Quigbot", "role": "Product / Strategy Agent", "tokenId": 81, "helixaId": "8453:81", "profileUrl": "https://helixa.xyz/agent/81" },
+        { "name": "Helixa", "role": "Protocol / Identity Agent", "tokenId": 1066, "helixaId": "8453:1066", "profileUrl": "https://helixa.xyz/agent/1066" },
+        { "name": "Phantom Relay", "role": "Routing / Relay Agent", "tokenId": 1058, "helixaId": "8453:1058", "profileUrl": "https://helixa.xyz/agent/1058" },
+        { "name": "Nox", "role": "Ops / Safety Agent", "tokenId": 1059, "helixaId": "8453:1059", "profileUrl": "https://helixa.xyz/agent/1059" }
       ],
       "sharedControls": ["Tool approval policy", "Route policy reference", "Owner approval required"],
       "aggregateCred": "Cred 78 Prime summarizes the roster without replacing individual agent scores.",

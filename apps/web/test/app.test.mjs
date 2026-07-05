@@ -117,26 +117,6 @@ function sampleData() {
           public_value: 'Quigbot Cred score 75, Prime tier.',
         },
         {
-          fragment_id: 'frag_e2etest_identity',
-          fragment_type: 'attestation',
-          status: 'pending',
-          assurance_level: 'self_attested',
-          visibility: 'public',
-          transfer_policy: 'reverify_on_transfer',
-          source: { source_type: 'owner_submission', issuer: 'Helixa' },
-          public_value: 'E2ETest is a low-assurance test record.',
-        },
-        {
-          fragment_id: 'frag_e2etest_cred',
-          fragment_type: 'risk_summary',
-          status: 'disputed',
-          assurance_level: 'unverified',
-          visibility: 'public',
-          transfer_policy: 'never_transfer',
-          source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Lower trust context for a test agent.',
-        },
-        {
           fragment_id: 'frag_helixa_swarm_roster',
           fragment_type: 'custody_record',
           status: 'verified',
@@ -144,7 +124,7 @@ function sampleData() {
           visibility: 'public',
           transfer_policy: 'pause_on_transfer',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
-          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest agents as one collection roster.',
+          public_value: 'Parent Multipass manages Bendr 2.0, Quigbot, Helixa, Phantom Relay, and Nox as one public swarm roster.',
         },
         {
           fragment_id: 'frag_helixa_swarm_tools',
@@ -178,8 +158,7 @@ function sampleData() {
         { event: 'Private credentials hidden', source: 'Private vault', impact: 'No public data exposed', reviewState: 'No public action' },
       ] },
       { name: 'Quigbot', tokenId: 81, helixaId: '8453:81', framework: 'openclaw', credScore: 75, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/agent/81', visual: { imageUrl: NAKAMIGO_2432_IMAGE, label: 'Nakamigo #2432 visual identity', tone: 'prime' }, proofFragmentIds: ['frag_quigbot_identity', 'frag_quigbot_cred'] },
-      { name: 'E2ETest', tokenId: 0, helixaId: '8453:0', framework: 'openclaw', credScore: 41, credTier: 'Marginal', verified: false, profileUrl: 'https://helixa.xyz/agent/0', proofFragmentIds: ['frag_e2etest_identity', 'frag_e2etest_cred'] },
-      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 3, role: 'Parent Multipass', custody: 'Custody epoch ready', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'], roster: [{ name: 'Bendr 2.0', role: 'Lead agent' }, { name: 'Quigbot', role: 'Product agent' }, { name: 'E2ETest', role: 'Test agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.', transferPreview: { currentOwner: '0x3395...480E0', custodyEpoch: 'Epoch 03', claimAction: 'Claim swarm', permissionsState: 'Permissions paused', toolAction: 'Reverify shared tools', privateAccessAction: 'Rotate private access', historyState: 'History preserved', credContinuity: 'Cred continues with ownership-change context.' }, ownerSnapshot: { owner: '0x3395...480E0', operator: 'Helixa ops', custodyEpoch: 'Epoch 03', permissionState: 'Paused until owner review', visibility: 'Public profile, gated private data', recentChange: 'Transfer detected 2026-06-24', reviewAction: 'Reverify routes before resume' }, changeReviewLedger: [
+      { name: 'Helixa Swarm', tokenId: 'swarm:helixa', helixaId: '8453:swarm:helixa', framework: 'multi-agent', credScore: 78, credTier: 'Prime', verified: true, profileUrl: 'https://helixa.xyz/swarm/helixa', subjectType: 'swarm', members: 5, role: 'Parent Multipass', custody: 'Custody epoch ready', proofFragmentIds: ['frag_helixa_swarm_roster', 'frag_helixa_swarm_tools', 'frag_helixa_swarm_cred'], roster: [{ name: 'Bendr 2.0', role: 'Lead Agent / Trust Router' }, { name: 'Quigbot', role: 'Product / Strategy Agent' }, { name: 'Helixa', role: 'Protocol / Identity Agent' }, { name: 'Phantom Relay', role: 'Routing / Relay Agent' }, { name: 'Nox', role: 'Ops / Safety Agent' }], sharedControls: ['Tool approvals', 'Route policy', 'Owner approval'], aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.', transferBehavior: 'Permissions pause and tool routes reverify when custody changes.', transferPreview: { currentOwner: '0x3395...480E0', custodyEpoch: 'Epoch 03', claimAction: 'Claim swarm', permissionsState: 'Permissions paused', toolAction: 'Reverify shared tools', privateAccessAction: 'Rotate private access', historyState: 'History preserved', credContinuity: 'Cred continues with ownership-change context.' }, ownerSnapshot: { owner: '0x3395...480E0', operator: 'Helixa ops', custodyEpoch: 'Epoch 03', permissionState: 'Paused until owner review', visibility: 'Public profile, gated private data', recentChange: 'Transfer detected 2026-06-24', reviewAction: 'Reverify routes before resume' }, changeReviewLedger: [
         { event: 'Cred import refreshed', source: 'Helixa API', impact: 'Aggregate Cred context updated', reviewState: 'Verified' },
         { event: 'Transfer detected', source: 'Owner registry', impact: 'Permissions paused', reviewState: 'Review required' },
         { event: 'Shared route policy changed', source: 'Policy reference', impact: 'Routes paused for recheck', reviewState: 'Paused' },
@@ -501,7 +480,7 @@ test('homepage renders agent visuals without extra context copy', async () => {
   assert.equal(strip.querySelector('.visual-card-track')?.hasAttribute('style'), false);
   assert.equal(strip.querySelector('.card-track'), null);
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
-  assert.equal(strip.querySelectorAll('a.visual-card-button').length, 4);
+  assert.equal(strip.querySelectorAll('a.visual-card-button').length, 3);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
   assert.equal(strip.querySelector('a.visual-card-button[href="/multipass/?agent=1"]')?.textContent.includes('Open profile'), true);
   const quigbotVisual = strip.querySelector('a.visual-card-button[href="/multipass/?agent=81"]')?.querySelector('img[data-visual-card-image="true"]');
@@ -532,7 +511,6 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
     '/multipass/?agent=1',
     '/multipass/?agent=81',
-    '/multipass/?agent=0',
     '/multipass/',
   ]);
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/agent/"]'), null);
@@ -546,7 +524,7 @@ test('homepage renders public agent gallery cards with safe Multipass links', as
   const gallery = root.querySelector('.public-agent-gallery');
   assert.ok(gallery);
   assert.match(gallery.textContent, /Public agent gallery/);
-  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 4);
+  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=1"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));
   assert.match(gallery.textContent, /Cred/);
@@ -765,7 +743,7 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.equal(root.querySelector('.clarity-grid'), null);
   assert.equal(root.querySelectorAll('.clarity-card').length, 0);
   assert.ok(root.querySelector('.card-carousel'));
-  assert.equal(root.querySelectorAll('.card-button').length, 4);
+  assert.equal(root.querySelectorAll('.card-button').length, 3);
   assert.match(root.querySelector('.card-detail').textContent, /Helixa ID/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
@@ -837,7 +815,7 @@ test('static homepage keeps agent visuals inspection-only', async () => {
   assert.ok(strip.querySelector('.visual-card-track'));
   assert.equal(strip.querySelector('.card-track'), null);
   assert.equal(strip.querySelectorAll('.card-button').length, 0);
-  assert.equal(strip.querySelectorAll('.visual-card-button').length, 4);
+  assert.equal(strip.querySelectorAll('.visual-card-button').length, 3);
   assert.equal(strip.querySelector('.visual-carousel-controls'), null);
   assert.doesNotMatch(strip.textContent, /claim|approve|transfer|payment|wallet/i);
 });
@@ -1289,14 +1267,15 @@ test('landing page presents Helixa Swarm as a parent collection card', async () 
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  assert.equal(root.querySelectorAll('.card-button').length, 4);
+  assert.equal(root.querySelectorAll('.card-button').length, 3);
   assert.match(root.textContent, /Helixa Swarm/);
   assert.match(root.textContent, /Parent Multipass/);
-  assert.match(root.textContent, /3 agents/);
+  assert.match(root.textContent, /5 agents/);
+  assert.doesNotMatch(root.textContent, /E2ETest/);
   assert.match(root.textContent, /Custody epoch ready/);
   assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Swarm roster/);
 
-  root.querySelectorAll('.card-button')[3].click();
+  root.querySelectorAll('.card-button')[2].click();
   assert.match(root.querySelector('.fragment-map').textContent, /Swarm roster/);
   assert.match(root.querySelector('.fragment-map').textContent, /Shared tool policy/);
   assert.match(root.querySelector('.fragment-map').textContent, /Aggregate Cred context/);
@@ -1308,16 +1287,21 @@ test('selecting Helixa Swarm shows roster roles policy references and transfer b
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  root.querySelectorAll('.card-button')[3].click();
+  root.querySelectorAll('.card-button')[2].click();
 
   const detail = root.querySelector('.card-detail').textContent;
   assert.match(detail, /Swarm detail/);
   assert.match(detail, /Bendr 2\.0/);
-  assert.match(detail, /Lead agent/);
+  assert.match(detail, /Lead Agent \/ Trust Router/);
   assert.match(detail, /Quigbot/);
-  assert.match(detail, /Product agent/);
-  assert.match(detail, /E2ETest/);
-  assert.match(detail, /Test agent/);
+  assert.match(detail, /Product \/ Strategy Agent/);
+  assert.match(detail, /Helixa/);
+  assert.match(detail, /Protocol \/ Identity Agent/);
+  assert.match(detail, /Phantom Relay/);
+  assert.match(detail, /Routing \/ Relay Agent/);
+  assert.match(detail, /Nox/);
+  assert.match(detail, /Ops \/ Safety Agent/);
+  assert.doesNotMatch(detail, /E2ETest/);
   assert.match(detail, /Policy references/);
   assert.match(detail, /Tool approval policy/);
   assert.match(detail, /Route policy reference/);
@@ -1346,7 +1330,7 @@ test('selected card renders owner and custody snapshot without executable contro
   assert.match(snapshot.textContent, /Review stale standards reference/);
   assert.doesNotMatch(snapshot.textContent, /Execute|Approve now|Transfer now/i);
 
-  root.querySelectorAll('.card-button')[3].click();
+  root.querySelectorAll('.card-button')[2].click();
   snapshot = root.querySelector('.owner-snapshot');
   assert.match(snapshot.textContent, /Helixa ops/);
   assert.match(snapshot.textContent, /Paused until owner review/);
@@ -1372,7 +1356,7 @@ test('selected card renders change review ledger below owner snapshot without ex
   const snapshot = root.querySelector('.owner-snapshot');
   assert.ok(snapshot.compareDocumentPosition(ledger) & root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING);
 
-  root.querySelectorAll('.card-button')[3].click();
+  root.querySelectorAll('.card-button')[2].click();
   ledger = root.querySelector('.change-review-ledger');
   const transfer = root.querySelector('.transfer-preview');
   assert.match(ledger.textContent, /Transfer detected/);
@@ -1387,7 +1371,7 @@ test('selected card renders ownership state with paused permissions and preserve
   const root = setupDom();
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
-  root.querySelectorAll('.card-button')[3].click();
+  root.querySelectorAll('.card-button')[2].click();
 
   const preview = root.querySelector('.transfer-preview');
   assert.ok(preview);
@@ -1418,11 +1402,6 @@ test('proof section follows selected card', async () => {
   assert.doesNotMatch(root.querySelector('.fragment-map').textContent, /Helixa AgentDNA identity/);
 
   root.querySelectorAll('.card-button')[2].click();
-  proofTitles = [...root.querySelectorAll('.fragment-card h3')].map((node) => node.textContent);
-  assert.deepEqual(proofTitles, ['E2ETest test identity', 'Lower trust context']);
-  assert.match(root.querySelector('.proof-ledger').textContent, /2 public/);
-
-  root.querySelectorAll('.card-button')[3].click();
   proofTitles = [...root.querySelectorAll('.fragment-card h3')].map((node) => node.textContent);
   assert.deepEqual(proofTitles, ['Swarm roster', 'Shared tool policy', 'Aggregate Cred context']);
   assert.match(root.querySelector('.proof-ledger').textContent, /3 public/);

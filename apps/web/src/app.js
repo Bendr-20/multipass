@@ -2002,7 +2002,7 @@ function renderSwarmCardDetail(card) {
       <div>
         <p class="card-label">Swarm detail</p>
         <h3>${escapeHtml(card.name)}</h3>
-        <p>Parent Multipass for a collection of agents with shared routes, custody context, and proof that still preserves each member profile.</p>
+        <p>Parent Multipass for Helixa's core agent team. It groups public roster context while each member keeps its own AgentDNA, Cred context, ownership, and permissions.</p>
       </div>
       <div class="swarm-panels">
         <section class="swarm-panel">

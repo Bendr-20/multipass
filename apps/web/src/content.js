@@ -305,8 +305,6 @@ function formatFragmentTitle(fragment) {
     frag_bendr_social_x: 'Social handle check',
     frag_quigbot_identity: 'Quigbot identity',
     frag_quigbot_cred: 'Quigbot Cred context',
-    frag_e2etest_identity: 'E2ETest test identity',
-    frag_e2etest_cred: 'Lower trust context',
     frag_helixa_swarm_roster: 'Swarm roster',
     frag_helixa_swarm_tools: 'Shared tool policy',
     frag_helixa_swarm_cred: 'Aggregate Cred context',

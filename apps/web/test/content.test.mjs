@@ -15,11 +15,24 @@ import {
   createStoryCards,
   summarizeProfile,
 } from '../src/content.js';
+import { STATIC_DEMO_DATA } from '../src/static-demo-data.js';
 
 test('DEMO_SUBJECT contains Bendr V0 metadata', () => {
   assert.equal(DEMO_SUBJECT.slug, 'bendr-2');
   assert.equal(DEMO_SUBJECT.receiptId, 'receipt_bendr_lookup');
   assert.equal(DEMO_SUBJECT.label, 'Bendr 2.0');
+});
+
+
+test('static Helixa Swarm demo uses approved public roster only', () => {
+  const swarm = STATIC_DEMO_DATA.agentCards.find((card) => card.tokenId === 'swarm:helixa');
+  assert.equal(swarm.members, 5);
+  assert.deepEqual(swarm.roster.map((member) => member.name), ['Bendr 2.0', 'Quigbot', 'Helixa', 'Phantom Relay', 'Nox']);
+  assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead Agent / Trust Router', 'Product / Strategy Agent', 'Protocol / Identity Agent', 'Routing / Relay Agent', 'Ops / Safety Agent']);
+
+  const publicDemoText = JSON.stringify(STATIC_DEMO_DATA);
+  assert.doesNotMatch(publicDemoText, /E2ETest/);
+  assert.doesNotMatch(publicDemoText, /e2etest/i);
 });
 
 
@@ -109,7 +122,7 @@ test('agent carousel includes collection swarm cards with roster and custody con
         verified: true,
         profileUrl: 'https://helixa.xyz/swarm/helixa',
         subjectType: 'swarm',
-        members: 3,
+        members: 5,
         role: 'Parent Multipass',
         custody: 'Custody epoch ready',
       },
@@ -119,7 +132,7 @@ test('agent carousel includes collection swarm cards with roster and custody con
   });
 
   assert.equal(carousel.cards[0].subjectLabel, 'swarm');
-  assert.equal(carousel.cards[0].memberLabel, '3 agents');
+  assert.equal(carousel.cards[0].memberLabel, '5 agents');
   assert.equal(carousel.cards[0].role, 'Parent Multipass');
   assert.equal(carousel.cards[0].custody, 'Custody epoch ready');
 });
@@ -138,13 +151,15 @@ test('swarm cards expose roster roles policy references and transfer behavior', 
         verified: true,
         profileUrl: 'https://helixa.xyz/swarm/helixa',
         subjectType: 'swarm',
-        members: 3,
+        members: 5,
         role: 'Parent Multipass',
         custody: 'Custody epoch ready',
         roster: [
-          { name: 'Bendr 2.0', role: 'Lead agent' },
-          { name: 'Quigbot', role: 'Product agent' },
-          { name: 'E2ETest', role: 'Test agent' },
+          { name: 'Bendr 2.0', role: 'Lead Agent / Trust Router' },
+          { name: 'Quigbot', role: 'Product / Strategy Agent' },
+          { name: 'Helixa', role: 'Protocol / Identity Agent' },
+          { name: 'Phantom Relay', role: 'Routing / Relay Agent' },
+          { name: 'Nox', role: 'Ops / Safety Agent' },
         ],
         sharedControls: ['Tool approval policy', 'Route policy reference', 'Owner approval required'],
         aggregateCred: 'Cred 78 Prime summarizes the roster without replacing individual agent scores.',
@@ -157,7 +172,8 @@ test('swarm cards expose roster roles policy references and transfer behavior', 
 
   const swarm = carousel.cards[0];
   assert.equal(swarm.detailMode, 'swarm');
-  assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead agent', 'Product agent', 'Test agent']);
+  assert.deepEqual(swarm.roster.map((member) => member.name), ['Bendr 2.0', 'Quigbot', 'Helixa', 'Phantom Relay', 'Nox']);
+  assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead Agent / Trust Router', 'Product / Strategy Agent', 'Protocol / Identity Agent', 'Routing / Relay Agent', 'Ops / Safety Agent']);
   assert.deepEqual(swarm.sharedControls, ['Tool approval policy', 'Route policy reference', 'Owner approval required']);
   assert.match(swarm.aggregateCred, /without replacing individual agent scores/i);
   assert.match(swarm.transferBehavior, /Permissions pause/i);
@@ -204,7 +220,7 @@ test('agent carousel exposes transfer state preview without transferring secrets
         verified: true,
         profileUrl: 'https://helixa.xyz/swarm/helixa',
         subjectType: 'swarm',
-        members: 3,
+        members: 5,
         role: 'Parent Multipass',
         custody: 'Custody epoch ready',
         transferPreview: {
@@ -246,7 +262,7 @@ test('agent carousel exposes change review ledger rows without executable action
         verified: true,
         profileUrl: 'https://helixa.xyz/swarm/helixa',
         subjectType: 'swarm',
-        members: 3,
+        members: 5,
         role: 'Parent Multipass',
         custody: 'Custody epoch ready',
         changeReviewLedger: [
@@ -348,7 +364,7 @@ test('fragment trust map names swarm proof signals without raw ids as titles', (
           assurance_level: 'platform_verified',
           visibility: 'public',
           transfer_policy: 'pause_on_transfer',
-          public_value: 'Parent Multipass manages Bendr, Quigbot, and E2ETest agents.',
+          public_value: 'Parent Multipass manages Bendr 2.0, Quigbot, Helixa, Phantom Relay, and Nox as one public swarm roster.',
           source: { source_type: 'platform_check', issuer: 'Helixa' },
         },
       ],
