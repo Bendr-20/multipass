@@ -230,6 +230,30 @@ test('normalizeGroupActivationInput enforces summary and shared policy note maxi
   assert.equal(normalizeGroupActivationInput(validPayload({ shared_policy_note: 'x'.repeat(500) })).sharedPolicyNote.length, 500);
 });
 
+test('resolveGroupMembers resolves member records concurrently', async () => {
+  const normalized = normalizeGroupActivationInput(validPayload({ member_ids: ['1', '81', '1066'] }));
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const calls = [];
+
+  const resolved = await resolveGroupMembers(normalized, async (tokenId) => {
+    calls.push(tokenId);
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, tokenId === '1' ? 30 : 5));
+    inFlight -= 1;
+    return fakeActivationRecord(tokenId, {
+      profile: { display_name: `Agent ${tokenId}`, cred_summary: { score: 50 } },
+      agentCard: { name: `Agent ${tokenId}` },
+      sourceSnapshot: { credTier: 'Qualified' },
+    });
+  });
+
+  assert.deepEqual(calls, ['1', '81', '1066']);
+  assert.equal(maxInFlight, 3);
+  assert.deepEqual(resolved.memberSummaries.map((member) => member.token_id), ['1', '81', '1066']);
+});
+
 test('normalizeGroupActivationInput reads only pinned snake_case public API keys', () => {
   const normalized = normalizeGroupActivationInput({
     subject_type: 'swarm',

@@ -177,6 +177,34 @@ test('activateHelixaRecord fetches by token id and maps the live response', asyn
   assert.equal(record.source.canonicalId, '8453:81');
 });
 
+test('activateHelixaRecord timeboxes slow ERC-8004 discovery and keeps the public agent record usable', async () => {
+  const record = await activateHelixaRecord('1', {
+    observedAt: '2026-06-29T22:50:00.000Z',
+    discoveryTimeoutMs: 1,
+    fetchImpl: async () => new Response(JSON.stringify({
+      tokenId: '1',
+      name: 'Bendr 2.0',
+      owner: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      agentAddress: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+    }), { status: 200 }),
+    erc8004Discovery: async () => new Promise((resolve) => {
+      setTimeout(() => resolve([{
+        chainId: 8453,
+        registryAddress: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+        tokenId: '18531',
+        owner: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+        custody: 'agent_owned',
+        name: 'Bendr 2.0',
+        match: 'metadata_registration',
+      }]), 20);
+    }),
+  });
+
+  assert.equal(record.profile.slug, 'bendr-2-1');
+  assert.equal(record.standardsProfile.primary_refs.erc8004_identity, null);
+  assert.equal(record.sourceContext.sourceSnapshot.erc8004Identities, undefined);
+});
+
 test('activateHelixaRecord imports identities returned by an ERC-8004 discovery service', async () => {
   let discoveryInput;
   const record = await activateHelixaRecord('1', {

@@ -80,10 +80,7 @@ export async function resolveGroupMembers(normalized, activationService) {
     );
   }
 
-  const records = [];
-  const memberSummaries = [];
-
-  for (const member of normalized.members) {
+  const resolvedMembers = await Promise.all(normalized.members.map(async (member) => {
     let record;
     try {
       record = await activationService(member.tokenId);
@@ -95,11 +92,13 @@ export async function resolveGroupMembers(normalized, activationService) {
       throw groupMemberNotFound(member);
     }
 
-    records.push(record);
-    memberSummaries.push(createMemberSummary(member, record));
-  }
+    return { record, memberSummary: createMemberSummary(member, record) };
+  }));
 
-  return { records, memberSummaries };
+  return {
+    records: resolvedMembers.map(({ record }) => record),
+    memberSummaries: resolvedMembers.map(({ memberSummary }) => memberSummary),
+  };
 }
 
 

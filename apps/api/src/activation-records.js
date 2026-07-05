@@ -18,6 +18,7 @@ const ERC8004_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a1
 const ERC8004_BLOCKSCOUT_API = 'https://base.blockscout.com/api';
 const BASE_RPC_URL = 'https://mainnet.base.org';
 const BASE_RPC_FALLBACK_URLS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.llamarpc.com'];
+const DEFAULT_ERC8004_DISCOVERY_TIMEOUT_MS = 8000;
 const ERC8004_IDENTITY_ABI = [
   {
     type: 'function',
@@ -288,7 +289,7 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
   };
 }
 
-export async function activateHelixaRecord(input, { fetchImpl = fetch, observedAt, erc8004Discovery = discoverErc8004Identities } = {}) {
+export async function activateHelixaRecord(input, { fetchImpl = fetch, observedAt, erc8004Discovery = discoverErc8004Identities, discoveryTimeoutMs } = {}) {
   const parsed = parseActivationInput(input);
   const agent = await fetchHelixaAgent(parsed.tokenId, fetchImpl);
   const returnedTokenId = agent?.tokenId === undefined || agent?.tokenId === null ? parsed.tokenId : normalizeTokenId(agent.tokenId);
@@ -296,8 +297,38 @@ export async function activateHelixaRecord(input, { fetchImpl = fetch, observedA
     throw new Error('Helixa API returned an agent token ID that did not match the activation input.');
   }
   const normalizedAgent = { ...agent, tokenId: parsed.tokenId };
-  const erc8004Identities = await erc8004Discovery(normalizedAgent, { observedAt });
+  const erc8004Identities = await discoverErc8004IdentitiesWithTimeout(normalizedAgent, {
+    observedAt,
+    erc8004Discovery,
+    timeoutMs: discoveryTimeoutMs,
+  });
   return buildSavedRecordFromHelixaAgent(normalizedAgent, { observedAt, erc8004Identities });
+}
+
+async function discoverErc8004IdentitiesWithTimeout(agent, { observedAt, erc8004Discovery, timeoutMs }) {
+  const normalizedTimeoutMs = normalizeDiscoveryTimeoutMs(timeoutMs ?? process.env.MULTIPASS_ERC8004_DISCOVERY_TIMEOUT_MS);
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve([]), normalizedTimeoutMs);
+  });
+
+  try {
+    const discovered = await Promise.race([
+      Promise.resolve().then(() => erc8004Discovery(agent, { observedAt })),
+      timeout,
+    ]);
+    return Array.isArray(discovered) ? discovered : [];
+  } catch {
+    return [];
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function normalizeDiscoveryTimeoutMs(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return DEFAULT_ERC8004_DISCOVERY_TIMEOUT_MS;
+  return Math.min(Math.max(Math.floor(number), 1), 30000);
 }
 
 export async function discoverErc8004Identities(agent, options = {}) {
