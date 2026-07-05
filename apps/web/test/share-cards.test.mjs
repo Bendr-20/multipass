@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import {
   getAgentShareCard,
@@ -6,6 +7,7 @@ import {
   getAgentSharePageUrl,
   getAgentSharePath,
 } from '../src/share-cards.js';
+import { GENERATED_SHARE_CARDS } from '../src/generated-share-cards.js';
 
 const manifest = {
   '81': {
@@ -36,4 +38,11 @@ test('share-card helpers reject invalid direct card input', () => {
   assert.equal(getAgentSharePath({ tokenId: '81', version: 'visual-2' }), null);
   assert.equal(getAgentShareImageUrl({ tokenId: '../81', version: 'ab052a87' }, 'https://helixa.xyz'), null);
   assert.equal(getAgentSharePageUrl({ tokenId: '81', version: '' }, 'https://helixa.xyz'), null);
+});
+
+test('generated public share cards exclude the internal test agent token', () => {
+  assert.equal(GENERATED_SHARE_CARDS['0'], undefined);
+  assert.equal(existsSync(new URL('../public/share/0/index.html', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../public/share/0.jpg', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../public/share/0.png', import.meta.url)), false);
 });

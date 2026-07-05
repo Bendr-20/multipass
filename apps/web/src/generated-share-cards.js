@@ -1,9 +1,4 @@
 export const GENERATED_SHARE_CARDS = Object.freeze({
-  '0': Object.freeze({
-    tokenId: '0',
-    version: '1b7a4b08',
-    visualSource: null,
-  }),
   '1': Object.freeze({
     tokenId: '1',
     version: 'e6f95ad8',
