@@ -2664,12 +2664,13 @@ function normalizeMarketplacePresenceSource(entry) {
 function normalizeMarketplacePresenceServices(services) {
   if (!Array.isArray(services)) return [];
   return services.map((service) => {
-    if (typeof service === 'string') return { name: service, price: '', endpointUrl: '' };
+    if (typeof service === 'string') return { name: service, price: '', paymentMode: '', endpointUrl: '' };
     if (!service || typeof service !== 'object' || Array.isArray(service)) return null;
     const name = firstPresentText(service.name, service.label, service.service);
     const price = firstPresentText(service.price, service.priceLabel, service.price_label);
+    const paymentMode = firstPresentText(service.paymentMode, service.payment_mode, service.mode);
     const endpointUrl = firstPresentText(service.endpointUrl, service.endpoint_url, service.url);
-    return name || price || endpointUrl ? { name: name || 'Marketplace service', price, endpointUrl } : null;
+    return name || price || paymentMode || endpointUrl ? { name: name || 'Marketplace service', price, paymentMode, endpointUrl } : null;
   }).filter(Boolean);
 }
 
@@ -2716,7 +2717,7 @@ function marketplacePresenceReputationFacts(reputation) {
 
 function renderMarketplacePresenceCard(card) {
   const verifiedSourceUrl = getPlatformVerifiedMarketplacePresenceSourceUrl(card);
-  const statusLabel = verifiedSourceUrl ? 'Platform verified source' : 'Public metadata';
+  const statusLabel = getMarketplacePresenceStatusLabel(card, verifiedSourceUrl);
   const statusLink = verifiedSourceUrl ? renderSafeLink(statusLabel, verifiedSourceUrl) : escapeHtml(statusLabel);
   const provenanceFacts = [
     { label: 'Marketplace', value: card.marketplace },
@@ -2768,6 +2769,7 @@ function renderMarketplacePresenceServices(services) {
           <article class="marketplace-presence-service">
             <strong>${escapeHtml(service.name || 'Marketplace service')}</strong>
             ${service.price ? `<span>${escapeHtml(service.price)}</span>` : ''}
+            ${service.paymentMode ? `<span>${escapeHtml(service.paymentMode)}</span>` : ''}
             ${isRenderablePublicUrl(service.endpointUrl) ? renderSafeLink('Endpoint', service.endpointUrl) : ''}
           </article>
         `).join('')}
@@ -2804,11 +2806,20 @@ function renderMarketplacePresenceReputation(reputation) {
   `;
 }
 
+function getMarketplacePresenceStatusLabel(card, verifiedSourceUrl) {
+  if (verifiedSourceUrl) return 'Platform verified source';
+  const normalizedStatus = String(card?.status ?? '').trim().toLowerCase();
+  if (!normalizedStatus || normalizedStatus === 'platform_verified') return 'Public metadata';
+  return normalizedStatus
+    .replaceAll('_', ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
 function getPlatformVerifiedMarketplacePresenceSourceUrl(card) {
   const proof = card?.proof && typeof card.proof === 'object' && !Array.isArray(card.proof) ? card.proof : null;
   if (String(proof?.assurance ?? '').toLowerCase() !== 'platform_verified') return '';
-  const proofSource = proof.source && typeof proof.source === 'object' && !Array.isArray(proof.source) ? proof.source : {};
-  const sourceUrl = firstPresentText(proofSource.url, proofSource.reference_url, proof.sourceUrl, proof.source_url, card.source?.url);
+  const sourceUrl = firstPresentText(card?.source?.url);
   return isRenderablePublicUrl(sourceUrl) ? sourceUrl : '';
 }
 

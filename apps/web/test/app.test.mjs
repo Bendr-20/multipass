@@ -189,6 +189,7 @@ function okxMarketplacePresence(overrides = {}) {
       {
         name: 'CertiK Security APIs',
         price: '0.001 USDT',
+        paymentMode: 'x402 marketplace checkout',
         endpointUrl: 'https://skills-for-okx.certik.com/api/services',
       },
     ],
@@ -2261,7 +2262,7 @@ test('marketplace listing renderer does not link unsafe URLs', async () => {
 
 test('profile Trust context renders marketplace presence cards from public metadata', async () => {
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
-  const data = { ...sampleData(), marketplacePresence: [null, {}, { marketplace: 'Empty marketplace' }, okxMarketplacePresence()] };
+  const data = { ...sampleData(), marketplacePresence: [null, {}, { marketplace: 'Empty marketplace' }, okxMarketplacePresence({ status: 'public_import', paymentRails: [] })] };
 
   await createApp({ root, loadDemo: async () => data }).start();
 
@@ -2276,8 +2277,11 @@ test('profile Trust context renders marketplace presence cards from public metad
   assert.match(panel.textContent, /Listing ID/);
   assert.match(panel.textContent, /1965/);
   assert.match(panel.textContent, /CertiK Security APIs/);
-  assert.match(panel.textContent, /0\.001 USDT/);
-  assert.match(panel.textContent, /x402 marketplace checkout/);
+  const serviceCard = panel.querySelector('.marketplace-presence-service');
+  assert.ok(serviceCard);
+  assert.match(serviceCard.textContent, /0\.001 USDT/);
+  assert.match(serviceCard.textContent, /x402 marketplace checkout/);
+  assert.match(panel.textContent, /Public import/);
   assert.match(panel.textContent, /X Layer 196/);
   assert.match(panel.textContent, /5\.0/);
   assert.match(panel.textContent, /100%/);
@@ -2360,7 +2364,12 @@ test('marketplace presence only renders platform verified with verified source e
   const data = {
     ...sampleData(),
     marketplacePresence: [
-      okxMarketplacePresence({ listingId: 'claimed-only', status: 'platform_verified', source: { url: '' } }),
+      okxMarketplacePresence({
+        listingId: 'claimed-only',
+        status: 'platform_verified',
+        source: { url: '' },
+        proof: { assurance: 'platform_verified', source: { url: 'https://source.example.test/proof-only/1965' } },
+      }),
       okxMarketplacePresence({
         listingId: 'verified-source',
         source: { url: 'https://source.example.test/verified/1965' },

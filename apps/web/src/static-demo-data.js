@@ -787,7 +787,7 @@ export const STATIC_DEMO_DATA = {
       "marketplace": "OKX.AI",
       "listingId": "1965",
       "profileUrl": "https://www.okx.ai/agents/1965",
-      "status": "public_metadata",
+      "status": "public_import",
       "source": {
         "label": "Public marketplace metadata",
         "url": "https://www.okx.ai/agents/1965",
@@ -798,6 +798,7 @@ export const STATIC_DEMO_DATA = {
         {
           "name": "CertiK Security APIs",
           "price": "0.001 USDT",
+          "paymentMode": "x402 marketplace checkout",
           "endpointUrl": "https://skills-for-okx.certik.com/api/services"
         }
       ],
