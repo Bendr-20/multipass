@@ -19,6 +19,28 @@ export async function saveActivatedMultipass({ agent, apiBase, fetchImpl = fetch
   });
 }
 
+export async function previewGroupMultipass(payload = {}, { apiBase, fetchImpl = fetch } = {}) {
+  return requestSavedJson({
+    apiBase,
+    path: '/api/multipass/groups/preview',
+    method: 'POST',
+    body: payload ?? {},
+    fetchImpl,
+    errorPrefix: 'Group preview failed',
+  });
+}
+
+export async function saveGroupMultipass(payload = {}, { apiBase, fetchImpl = fetch } = {}) {
+  return requestSavedJson({
+    apiBase,
+    path: '/api/multipass/groups',
+    method: 'POST',
+    body: payload ?? {},
+    fetchImpl,
+    errorPrefix: 'Group activation failed',
+  });
+}
+
 export async function createClaimNonce({ id, apiBase, fetchImpl = fetch } = {}) {
   const safeId = requireMultipassIdentifier(id);
   return requestSavedJson({

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, SavedMultipassError, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from '../src/saved-multipass-api.js';
 
 test('saveActivatedMultipass posts agent input and returns saved payload', async () => {
   const calls = [];
@@ -199,4 +199,78 @@ test('fragment helpers create update and revoke with credentials and CSRF', asyn
     { status: 'stale', endpoint_ref: { ...endpointRef, protocol: 'mcp' } },
     {},
   ]);
+});
+
+test('previewGroupMultipass posts group payload to preview route', async () => {
+  const calls = [];
+  const payload = {
+    subject_type: 'swarm',
+    display_name: 'Helixa Swarm',
+    summary: 'Public parent Multipass for core agents.',
+    shared_policy_note: 'Owner approval required for shared routes.',
+    member_ids: ['1', '81', '1066'],
+  };
+
+  const result = await previewGroupMultipass(payload, {
+    apiBase: 'https://api.example.test/base',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ state: 'group_preview', members: [{ token_id: '1' }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(calls[0].url, 'https://api.example.test/base/api/multipass/groups/preview');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.credentials, 'include');
+  assert.equal(calls[0].init.headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(calls[0].init.body), payload);
+  assert.deepEqual(result, { state: 'group_preview', members: [{ token_id: '1' }] });
+});
+
+test('saveGroupMultipass posts group payload to save route', async () => {
+  const calls = [];
+  const payload = {
+    subject_type: 'collection',
+    display_name: 'Agent Collection',
+    summary: 'Public parent Multipass for a collection.',
+    shared_policy_note: 'Owner approval required for group-level authority.',
+    member_ids: ['1', '81'],
+  };
+
+  const result = await saveGroupMultipass(payload, {
+    apiBase: '/multipass-api',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ state: 'saved_group_unclaimed', sharePath: '/multipass/agent-collection-1234abcd' }), { status: 201 });
+    },
+  });
+
+  assert.equal(calls[0].url, '/multipass-api/api/multipass/groups');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.credentials, 'include');
+  assert.deepEqual(JSON.parse(calls[0].init.body), payload);
+  assert.equal(result.sharePath, '/multipass/agent-collection-1234abcd');
+});
+
+test('group Multipass API calls surface structured non-OK API errors', async () => {
+  await assert.rejects(
+    () => previewGroupMultipass({ member_ids: [] }, {
+      apiBase: 'https://api.example.test',
+      fetchImpl: async () => new Response(JSON.stringify({
+        error: {
+          code: 'invalid_group_activation',
+          message: 'At least two members are required.',
+          details: { field: 'member_ids' },
+        },
+      }), { status: 400 }),
+    }),
+    (error) => {
+      assert.equal(error instanceof SavedMultipassError, true);
+      assert.equal(error.message, 'At least two members are required.');
+      assert.equal(error.details.status, 400);
+      assert.equal(error.details.body.error.code, 'invalid_group_activation');
+      assert.equal(error.details.body.error.details.field, 'member_ids');
+      return true;
+    },
+  );
 });
