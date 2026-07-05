@@ -334,8 +334,8 @@ function normalizeMemberSummaries(normalized, resolved) {
 function normalizeMemberSummary(summary, member) {
   return {
     name: firstNonEmptyString(summary?.name) ?? `AgentDNA ${member.tokenId}`,
-    token_id: String(summary?.token_id ?? member.tokenId),
-    canonical_id: String(summary?.canonical_id ?? member.canonicalId),
+    token_id: member.tokenId,
+    canonical_id: member.canonicalId,
     cred_score: normalizeCredScore(summary?.cred_score),
     cred_tier: firstNonEmptyString(summary?.cred_tier) ?? null,
     source_status: firstNonEmptyString(summary?.source_status) ?? 'resolved',

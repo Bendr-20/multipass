@@ -454,6 +454,28 @@ test('buildGroupActivationRecord builds deterministic group IDs and persistence 
   assert.ok(longRecord.profile.slug.endsWith(`-${expectedFingerprint(longName)}`));
 });
 
+test('buildGroupActivationRecord keeps normalized member IDs as the source of truth', () => {
+  const { normalized, resolved } = fakeResolvedGroup();
+  const mismatchedResolved = {
+    ...resolved,
+    memberSummaries: resolved.memberSummaries.map((summary, index) => index === 0
+      ? { ...summary, token_id: '999', canonical_id: '8453:999' }
+      : summary),
+  };
+
+  const record = buildGroupActivationRecord(normalized, mismatchedResolved, { observedAt: OBSERVED_AT });
+
+  assert.deepEqual(record.sourceContext.sourceSnapshot.memberSummaries.map(({ token_id, canonical_id }) => ({
+    token_id,
+    canonical_id,
+  })), [
+    { token_id: '1', canonical_id: '8453:1' },
+    { token_id: '81', canonical_id: '8453:81' },
+    { token_id: '1066', canonical_id: '8453:1066' },
+  ]);
+  assert.equal(record.fragments.find((fragment) => fragment.fragment_id.includes('_erc8004_1'))?.proof_reference, '8453:1');
+});
+
 test('buildGroupActivationRecord output passes schemas and saves through the SQLite activated-record store', () => {
   const { normalized, resolved } = fakeResolvedGroup();
   const record = buildGroupActivationRecord(normalized, resolved, { observedAt: OBSERVED_AT });
@@ -481,6 +503,7 @@ test('buildGroupActivationRecord output passes schemas and saves through the SQL
   assert.equal(saved.profile.multipass_id, record.profile.multipass_id);
   assert.equal(saved.profile.slug, record.profile.slug);
   assert.equal(store.resolveBySource('multipass_group', record.source.canonicalId).profile.multipass_id, record.profile.multipass_id);
+  assert.deepEqual(store.getSourceContext(saved.profile.multipass_id).sourceSnapshot, record.sourceContext.sourceSnapshot);
 });
 
 test('buildGroupActivationRecord creates public roster, policy, aggregate Cred, standards, and x401 fragments', () => {
