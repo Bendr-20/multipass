@@ -122,13 +122,25 @@ Response body:
     "x402Manifest": {},
     "receipts": []
   },
-  "members": []
+  "members": [
+    {
+      "name": "Bendr 2.0",
+      "token_id": "1",
+      "canonical_id": "8453:1",
+      "cred_score": 82,
+      "cred_tier": "Prime",
+      "source_status": "resolved",
+      "profile_url": "https://helixa.xyz/agent/1"
+    }
+  ]
 }
 ```
 
 ### `POST /api/multipass/groups`
 
 Creates or returns a durable saved group Multipass record.
+
+If the same normalized subject type, base slug, and ordered member canonical IDs already exist, the endpoint returns `state: "saved_group_existing"`, `created: false`, and the existing profile/share path with HTTP 200. New records return `state: "saved_group_unclaimed"`, `created: true`, and HTTP 201.
 
 Request body is the same public payload as preview. The server must not trust a client-supplied preview record. It re-normalizes input, re-resolves members, rebuilds the saved bundle, and then persists or returns the existing record. There is no preview token in V0.
 
@@ -165,6 +177,7 @@ Create `apps/api/src/group-activation.js` with small exported units:
 - `normalizeGroupActivationInput(input)`
   - Validates subject type, display name, summary, member IDs, and policy note.
   - Accepts only `swarm` or `collection`.
+  - Enforces display name length 3 to 120 chars, summary max 500 chars, and shared policy note max 500 chars.
   - Normalizes IDs to Base AgentDNA token IDs and `8453:<token>` canonical IDs.
   - Rejects duplicate members after normalization with a validation error.
   - Enforces a practical V0 member limit of 2 to 24 records.
@@ -179,8 +192,8 @@ Create `apps/api/src/group-activation.js` with small exported units:
   - Produces the same saved-record bundle shape used by `saveActivatedRecord`.
   - Uses `source.sourceType = "multipass_group"`.
   - Uses a deterministic source canonical ID from subject type, normalized base slug, and ordered member canonical IDs.
-  - Computes a short roster fingerprint from subject type plus ordered member canonical IDs.
-  - Creates stable IDs as `mp_group_<subject-type>_<fingerprint>` and `<base-slug>-<fingerprint>` so the same display name with a different roster cannot collide.
+  - Computes a short group fingerprint from subject type, normalized base slug, and ordered member canonical IDs.
+  - Creates stable IDs as `mp_group_<subject-type>_<fingerprint>` and `<base-slug>-<fingerprint>` so the same display name with a different roster cannot collide, and the same roster under a different display-name context also receives a distinct primary key.
   - Creates fragments for roster, shared policy, aggregate Cred context, standards references, and x401 authority metadata.
   - Creates an agent card for the parent group with approval-required contact policy.
   - Creates a standards profile with member `ERC-8004` refs where available.
@@ -190,7 +203,7 @@ Create `apps/api/src/group-activation.js` with small exported units:
 - `createGroupActivationPreview(input, options)`
   - Normalizes, resolves, builds, and returns the unsaved record plus member summaries.
 
-`apps/api/src/index.js` should route the two new endpoints and pass the existing activation service and saved records. The existing saved-record store can persist the record without a new table because the bundle matches the current shape. If `saveActivatedRecord` hits the same `source_type + source_canonical_id`, return the existing record. If a slug collision still happens for an unrelated legacy record, retry once with `<base-slug>-<fingerprint>-group`; otherwise return a structured conflict error rather than mutating another profile.
+`apps/api/src/index.js` should route the two new endpoints and pass the existing activation service and saved records. The existing saved-record store can persist the record without a new table because the bundle matches the current shape. If `saveActivatedRecord` hits the same `source_type + source_canonical_id`, return the existing record with `state: "saved_group_existing"` and `created: false`. If a slug collision still happens for an unrelated legacy record, retry once with `<base-slug>-<fingerprint>-group`; otherwise return a structured conflict error rather than mutating another profile.
 
 ## Data Model
 
@@ -290,6 +303,8 @@ Validation errors should be clear and user-facing:
 
 Failures must not create partial saved records.
 
+Preview member summaries must use a stable UI contract: `name`, `token_id`, `canonical_id`, `cred_score`, `cred_tier`, `source_status`, and `profile_url`. `cred_score`, `cred_tier`, and `profile_url` may be `null`; `source_status` is `resolved` in successful preview responses.
+
 API error responses should follow the existing JSON error style:
 
 ```json
@@ -324,11 +339,12 @@ API tests:
 - `normalizeGroupActivationInput` accepts swarm and collection.
 - Invalid subject type fails.
 - Member IDs normalize and duplicate normalized members are rejected.
-- Preview resolves members through a fake activation service.
+- Preview resolves members through a fake activation service and returns stable member summaries with `name`, `token_id`, `canonical_id`, `cred_score`, `cred_tier`, `source_status`, and `profile_url`.
 - Preview fails if one member fails.
 - Build output passes SDK assertions for profile, fragments, agent card, standards, x401, x402, and receipts.
-- Save endpoint creates a durable group record.
-- Re-saving the same normalized group returns the existing record.
+- Save endpoint creates a durable group record with HTTP 201 and `state: "saved_group_unclaimed"`.
+- Re-saving the same normalized group returns the existing record with HTTP 200, `state: "saved_group_existing"`, and `created: false`.
+- Same roster with a different normalized display-name base slug creates a distinct `multipass_id` because the fingerprint includes the base slug.
 - x401 endpoint works for saved group records and returns `x401_supported: true`, trusted issuer `helixa`, and proof requirement `group_authority`.
 
 Web tests:
