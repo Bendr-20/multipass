@@ -511,7 +511,7 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
     '/multipass/?agent=1',
     '/multipass/?agent=81',
-    '/multipass/',
+    '/multipass/#agent-card-2',
   ]);
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/agent/"]'), null);
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
@@ -527,12 +527,44 @@ test('homepage renders public agent gallery cards with safe Multipass links', as
   assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=1"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/#agent-card-2"]'));
   assert.match(gallery.textContent, /Cred/);
   assert.match(gallery.textContent, /Custody/);
   assert.match(gallery.textContent, /Proof/);
   assert.match(gallery.textContent, /Open profile/);
   assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/agent/"]'), null);
   assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/swarm/"]'), null);
+});
+
+test('homepage swarm card click opens static swarm detail instead of reloading home', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    loadLiveDemo: async (input) => {
+      calls.push(input);
+      return sampleData();
+    },
+  }).start();
+
+  const card = [...root.querySelectorAll('.public-agent-card')].find((candidate) => /Helixa Swarm/.test(candidate.textContent));
+  assert.ok(card);
+  assert.notEqual(card.getAttribute('href'), '/multipass/');
+
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  card.dispatchEvent(click);
+  await Promise.resolve();
+
+  assert.equal(click.defaultPrevented, true);
+  assert.deepEqual(calls, []);
+  assert.ok(root.querySelector('.product-home-shell'));
+  const detail = root.querySelector('.homepage-selected-agent-detail')?.textContent ?? '';
+  assert.match(detail, /Swarm detail/);
+  assert.match(detail, /Bendr 2\.0/);
+  assert.match(detail, /Phantom Relay/);
+  assert.match(detail, /Permissions pause and tool routes reverify/);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/#agent-card-2');
 });
 
 test('homepage profile card click resolves in place without showing stale profile shell', async () => {

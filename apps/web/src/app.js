@@ -1340,6 +1340,8 @@ function renderProductHome(root, state, handlers = {}) {
       ${renderMultipassWhatItDoesPanel()}
 
       ${renderPublicAgentGallery(agentCarousel, state)}
+
+      ${renderHomepageSelectedAgentDetail(agentCarousel, state)}
     </div>
   `;
 
@@ -1361,14 +1363,14 @@ function renderAgentVisualStrip(carousel, selectedIndex, state = {}) {
 
 function renderAgentVisualLink(card, index, selectedIndex, loadingAgent = null) {
   const selected = index === selectedIndex;
-  const href = getHomepageMultipassProfileHref(card);
+  const href = getHomepageMultipassProfileHref(card, index);
   const agent = getHomepageMultipassProfileAgent(card);
   const imageUrl = safeHttpsUrl(card.visual?.imageUrl);
   const label = card.visual?.label ?? `${card.name} visual identity`;
   const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
-  const resolveAttrs = getHomeProfileResolveAttrs(agent, index);
+  const actionAttrs = getHomeProfileActionAttrs(card, index);
   return `
-    <a class="visual-card-button${selected ? ' selected' : ''}${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${resolveAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}${loading ? ' aria-busy="true"' : ''}>
+    <a class="visual-card-button${selected ? ' selected' : ''}${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${actionAttrs} aria-label="Open ${escapeAttribute(card.name)} Multipass profile"${selected ? ' aria-current="true"' : ''}${loading ? ' aria-busy="true"' : ''}>
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(label)}">
         ${imageUrl ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(label)}" loading="eager" decoding="async" data-visual-card-image="true" />` : ''}
         <span>${escapeHtml(card.visual?.initials ?? 'MP')}</span>
@@ -1398,13 +1400,13 @@ function renderPublicAgentGallery(carousel, state = {}) {
 }
 
 function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
-  const href = getHomepageMultipassProfileHref(card);
+  const href = getHomepageMultipassProfileHref(card, index);
   const agent = getHomepageMultipassProfileAgent(card);
   const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
-  const resolveAttrs = getHomeProfileResolveAttrs(agent, index);
+  const actionAttrs = getHomeProfileActionAttrs(card, index);
   const proof = card.proofSummary ?? `${Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds.length : 0} public proof signals`;
   return `
-    <a class="public-agent-card${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${resolveAttrs}${loading ? ' aria-busy="true"' : ''}>
+    <a class="public-agent-card${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${actionAttrs}${loading ? ' aria-busy="true"' : ''}>
       <strong>${escapeHtml(card.name)}</strong>
       <span>Cred: ${escapeHtml(card.credLabel ?? (card.credScore === null || card.credScore === undefined ? 'Pending' : `Cred ${card.credScore}`))}</span>
       <span>Custody: ${escapeHtml(card.custody ?? card.ownerSnapshot?.permissionState ?? 'Public context only')}</span>
@@ -1414,8 +1416,31 @@ function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
   `;
 }
 
+function renderHomepageSelectedAgentDetail(carousel, state = {}) {
+  const cards = carousel.cards ?? [];
+  if (!cards.length) return '';
+  const activeIndex = Math.max(0, Math.min(state.selectedAgentCard ?? 0, cards.length - 1));
+  const selectedAgent = cards[activeIndex] ?? cards[0];
+  if (getHomepageMultipassProfileAgent(selectedAgent)) return '';
+
+  return `
+    <section id="agent-card-${activeIndex}" class="homepage-selected-agent-detail" tabindex="-1" aria-label="${escapeAttribute(selectedAgent.name)} Multipass detail">
+      ${renderAgentCardDetail(selectedAgent)}
+      ${renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot)}
+      ${renderChangeReviewLedger(selectedAgent.changeReviewLedger)}
+      ${renderTransferPreview(selectedAgent)}
+    </section>
+  `;
+}
+
 function getHomeProfileResolveAttrs(agent, index) {
   return agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}" data-index="${index}"` : '';
+}
+
+function getHomeProfileActionAttrs(card, index) {
+  const agent = getHomepageMultipassProfileAgent(card);
+  if (agent) return getHomeProfileResolveAttrs(agent, index);
+  return ` data-action="select-home-agent-card" data-index="${index}"`;
 }
 
 function getHomepageMultipassProfileAgent(card) {
@@ -1438,9 +1463,12 @@ function isPrefetchableHomepageAgent(agent) {
   return /^8453:[1-9]\d*$/.test(value);
 }
 
-function getHomepageMultipassProfileHref(card) {
+function getHomepageMultipassProfileHref(card, index = 0) {
   const agent = getHomepageMultipassProfileAgent(card);
   if (agent) return `/multipass/?agent=${encodeURIComponent(agent)}`;
+
+  const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
+  if (card.subjectType === 'swarm' || card.detailMode === 'swarm') return `/multipass/#agent-card-${safeIndex}`;
 
   if (card.profileUrl) {
     try {
@@ -1477,6 +1505,19 @@ function bindProductHomeEvents(root, handlers, state) {
         link.getAttribute('data-agent') ?? '',
         Number.isInteger(selectedAgentCard) ? { selectedAgentCard } : undefined,
       );
+    });
+  });
+  root.querySelectorAll('[data-action="select-home-agent-card"]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      const selectedAgentCard = Number(link.dataset.index);
+      state.selectedAgentCard = Number.isInteger(selectedAgentCard) ? selectedAgentCard : 0;
+      if (typeof window !== 'undefined') window.history?.pushState?.({}, '', `/multipass/#agent-card-${state.selectedAgentCard}`);
+      renderProductHome(root, state, handlers);
+      const detail = root.querySelector(`#agent-card-${state.selectedAgentCard}`);
+      detail?.focus?.();
+      detail?.scrollIntoView?.({ block: 'start' });
     });
   });
   bindVisualImageFallbacks(root);
