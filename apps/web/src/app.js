@@ -1,7 +1,7 @@
 import { getActivationState } from './activation.js';
 import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, isCanonicalHelixaFallbackError, loadCanonicalHelixaMultipass, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
-import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
+import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
@@ -10,6 +10,7 @@ import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMes
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
+import { createGroupActivationPayload, normalizeGroupMemberInput, renderGroupActivationError, renderGroupActivationPanel, renderGroupActivationPreview, renderGroupActivationSuccess } from './group-activation.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
@@ -57,6 +58,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     toolStatus: null,
     toolError: null,
     toolActiveFragmentId: null,
+    groupActivation: createInitialGroupActivationState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -136,6 +138,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimError: null,
       claimCsrfToken: null,
       claimSessionStatus: null,
+      groupActivation: createInitialGroupActivationState(),
       ...clearedRouteState(),
     };
     const requestId = state.resolverRequestId;
@@ -223,6 +226,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimError: null,
       claimCsrfToken: null,
       claimSessionStatus: null,
+      groupActivation: createInitialGroupActivationState(),
       ...clearedRouteState(),
     };
     render(root, state, handlers);
@@ -315,6 +319,62 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       state = { ...state, saveStatus: 'error', saveError: error.message };
       render(root, state, handlers);
     }
+  }
+
+  async function previewGroupActivation() {
+    const input = readGroupActivationPayload(root, state.groupActivation);
+    state = {
+      ...state,
+      groupActivation: { status: 'previewing', input, preview: null, result: null, error: null },
+    };
+    render(root, state, handlers);
+
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const preview = await previewGroupMultipass(input, { apiBase, fetchImpl });
+      state = {
+        ...state,
+        groupActivation: { status: 'previewed', input, preview, result: null, error: null },
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        groupActivation: { status: 'error', input, preview: null, result: null, error },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function saveGroupActivation() {
+    const input = readGroupActivationPayload(root, state.groupActivation);
+    const previous = state.groupActivation ?? createInitialGroupActivationState();
+    state = {
+      ...state,
+      groupActivation: { ...previous, status: 'saving', input, result: null, error: null },
+    };
+    render(root, state, handlers);
+
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await saveGroupMultipass(input, { apiBase, fetchImpl });
+      state = {
+        ...state,
+        groupActivation: { ...state.groupActivation, status: 'saved', input, result, error: null },
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        groupActivation: { ...previous, status: 'error', input, result: null, error },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  function resetGroupActivation() {
+    state = { ...state, groupActivation: createInitialGroupActivationState() };
+    render(root, state, handlers);
   }
 
   async function claimWithWallet() {
@@ -643,7 +703,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -791,6 +851,26 @@ const defaultClaimApi = {
   refreshMultipassTool,
   logoutMultipassSession,
 };
+
+function createInitialGroupActivationState() {
+  return { status: 'idle', input: {}, preview: null, result: null, error: null };
+}
+
+function readGroupActivationPayload(root, groupState = {}) {
+  const form = root?.querySelector?.('[data-role="group-activation-form"]');
+  if (form) return createGroupActivationPayload(createFormData(form));
+  return normalizeGroupActivationInputObject(groupState.input ?? {});
+}
+
+function normalizeGroupActivationInputObject(input = {}) {
+  return {
+    subject_type: String(input.subject_type ?? input.subjectType ?? 'swarm').trim() || 'swarm',
+    display_name: String(input.display_name ?? input.displayName ?? '').trim(),
+    summary: String(input.summary ?? '').trim(),
+    shared_policy_note: String(input.shared_policy_note ?? input.sharedPolicyNote ?? '').trim(),
+    member_ids: normalizeGroupMemberInput(input.member_ids ?? input.memberIds ?? ''),
+  };
+}
 
 function getManageIdentifier(state) {
   return state.savedProfile?.slug ?? state.data?.profile?.slug ?? state.data?.profile?.multipass_id ?? null;
@@ -1051,26 +1131,32 @@ function renderProfilePage(root, state, handlers = {}) {
   const agentCarousel = createAgentCarousel(data);
   const selectedAgent = selectProfileAgent(data, agentCarousel, state.selectedAgentCard);
   const activationState = getActivationState(data, state);
-  const fragmentTrustMap = createFragmentTrustMap(data, selectedAgent);
-  const proofCards = createProofCards(data, selectedAgent);
+  const isGroupProfile = isSavedGroupMultipassProfile(data);
+  const fragmentTrustMap = isGroupProfile ? null : createFragmentTrustMap(data, selectedAgent);
+  const proofCards = isGroupProfile ? [] : createProofCards(data, selectedAgent);
   const visualIdentity = createProfileVisualIdentity(data, selectedAgent);
   const headerMeta = data.liveProfilePage?.headerMeta ?? 'Portable Agent Identities';
 
   const auraTitle = getProfileAuraTitle(data, selectedAgent);
   const auraSharePath = getProfileAuraSharePath(data, selectedAgent);
+  const detailDrawers = isGroupProfile
+    ? renderSavedGroupProfileDetailDrawers({ data, state })
+    : renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state });
+  const footerCopy = isGroupProfile
+    ? 'Public parent Multipass. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
+    : (['activated', 'saved'].includes(activationState.kind)
+      ? 'Public agent profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
+      : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.');
 
   root.innerHTML = `
     <div class="record-shell">
       ${renderRecordHeader(headerMeta)}
-      <main class="multipass-profile-page">
+      <main class="multipass-profile-page${isGroupProfile ? ' group-multipass-profile-page' : ''}">
         ${renderAgentAura(visualIdentity, { title: auraTitle, sharePath: auraSharePath })}
-        ${renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state })}
+        ${detailDrawers}
         <footer class="footer-note">
           <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
-          <span>${escapeHtml(['activated', 'saved'].includes(activationState.kind)
-            ? 'Public agent profile. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.'
-            : 'This is a public Multipass profile. Wallet claims, saved records, and live route updates require activation.'
-          )}</span>
+          <span>${escapeHtml(footerCopy)}</span>
         </footer>
       </main>
     </div>
@@ -1246,6 +1332,132 @@ function initialsForDisplayName(value) {
   return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? '').join('') || 'MP';
 }
 
+function isSavedGroupMultipassProfile(data = {}) {
+  const subjectType = String(data.profile?.subject_type ?? data.profile?.subjectType ?? '').toLowerCase();
+  return data.modeLabel === 'Activated Multipass' && ['swarm', 'collection'].includes(subjectType);
+}
+
+function renderSavedGroupProfileDetailDrawers({ data, state }) {
+  const subjectType = normalizeGroupSubjectType(data.profile?.subject_type ?? data.profile?.subjectType);
+  const rosterTitle = `${titleCase(subjectType)} roster`;
+  const overview = renderSavedGroupOverview(data, subjectType);
+  const roster = renderSavedGroupRosterContext(data, subjectType);
+  const management = renderClaimManagementPanel(state) || renderProfileInfoPanel(
+    'Ownership and management',
+    'Public visitors can inspect this parent Multipass only. Management requires source-owner proof; viewing cannot expose private credentials or alter live routes.'
+  );
+  const proofSummary = renderSavedGroupProofSummary(data);
+
+  return `
+    <section class="profile-detail-drawers group-profile-detail-drawers" aria-label="Parent Multipass details">
+      ${renderProfileDrawer('Parent Multipass', `${titleCase(subjectType)} identity and share state`, overview, { open: true })}
+      ${renderProfileDrawer(rosterTitle, 'Resolved public AgentDNA member context', roster, { open: true })}
+      ${renderProfileDrawer('Ownership and management', 'Source-owner management context', management)}
+      ${renderProfileDrawer('Public member proof', 'Visible group evidence without raw fragment IDs', proofSummary)}
+    </section>
+  `;
+}
+
+function renderSavedGroupOverview(data, subjectType) {
+  const profile = data.profile ?? {};
+  const displayName = profile.display_name ?? data.liveProfilePage?.headline ?? 'Group Multipass';
+  const summary = profile.summary ?? `${displayName} is a public parent Multipass for a ${subjectType} roster.`;
+  const sharePath = isSafeMultipassSharePath(data.liveProfilePage?.sharePath) ? data.liveProfilePage.sharePath : '';
+  return `
+    <section class="group-profile-panel group-profile-overview">
+      <p class="card-label">Parent Multipass</p>
+      <h2>${escapeHtml(displayName)}</h2>
+      <p>${escapeHtml(summary)}</p>
+      <dl class="group-profile-facts">
+        <div><dt>Subject type</dt><dd>${escapeHtml(titleCase(subjectType))}</dd></div>
+        <div><dt>Share route</dt><dd>${escapeHtml(sharePath || 'Safe share route pending')}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(profile.status ?? 'public metadata')}</dd></div>
+      </dl>
+      <p class="group-profile-safety">Public parent Multipass metadata only. Viewing cannot execute approvals, change authority, expose private credentials, or alter live routes.</p>
+    </section>
+  `;
+}
+
+function renderSavedGroupRosterContext(data, subjectType) {
+  const fragments = getPublicGroupFragments(data);
+  const rosterFragment = findGroupFragment(fragments, 'roster') ?? fragments.find((fragment) => String(fragment.public_value ?? '').toLowerCase().includes('roster'));
+  const policyFragment = findGroupFragment(fragments, 'policy') ?? fragments.find((fragment) => String(fragment.public_value ?? '').toLowerCase().includes('policy'));
+  const credFragment = findGroupFragment(fragments, 'cred') ?? fragments.find((fragment) => fragment.fragment_type === 'risk_summary');
+  const entries = [
+    rosterFragment ? { label: `${titleCase(subjectType)} members`, value: rosterFragment.public_value } : null,
+    policyFragment ? { label: 'Shared policy', value: policyFragment.public_value } : null,
+    credFragment ? { label: 'Member Cred context', value: credFragment.public_value } : null,
+  ].filter(Boolean);
+
+  if (!entries.length) {
+    return renderProfileInfoPanel('Public member roster', 'No public roster fragment is published for this parent Multipass yet.');
+  }
+
+  return `
+    <section class="group-roster-context">
+      <p class="card-label">Public member roster</p>
+      <h2>${escapeHtml(titleCase(subjectType))} member context</h2>
+      <div class="group-roster-items">
+        ${entries.map((entry) => `
+          <article class="group-roster-item">
+            <strong>${escapeHtml(entry.label)}</strong>
+            <p>${escapeHtml(entry.value)}</p>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderSavedGroupProofSummary(data) {
+  const fragments = getPublicGroupFragments(data);
+  if (!fragments.length) return renderProfileInfoPanel('Public member proof', 'No public group fragments are published yet.');
+  return `
+    <section class="group-proof-summary">
+      <p class="card-label">Public group evidence</p>
+      <div class="group-proof-list">
+        ${fragments.map((fragment) => `
+          <article class="group-proof-item">
+            <strong>${escapeHtml(formatDisplayLabel(fragment.fragment_type ?? 'fragment'))}</strong>
+            <span>${escapeHtml(formatDisplayLabel(fragment.status ?? 'pending'))}</span>
+            <p>${escapeHtml(fragment.public_value ?? 'Public value pending.')}</p>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function getPublicGroupFragments(data = {}) {
+  return (data.fragments?.fragments ?? []).filter((fragment) => fragment?.visibility === 'public');
+}
+
+function findGroupFragment(fragments, marker) {
+  const normalizedMarker = String(marker ?? '').toLowerCase();
+  return fragments.find((fragment) => {
+    const id = String(fragment.fragment_id ?? '').toLowerCase();
+    const sourceId = String(fragment.source?.source_id ?? '').toLowerCase();
+    return id.includes(normalizedMarker) || sourceId.includes(normalizedMarker);
+  }) ?? null;
+}
+
+function normalizeGroupSubjectType(value) {
+  const normalized = String(value ?? '').toLowerCase();
+  return ['swarm', 'collection'].includes(normalized) ? normalized : 'group';
+}
+
+function titleCase(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatDisplayLabel(value) {
+  return String(value ?? '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state }) {
   const selectedAgentDetail = selectedAgent?.detailMode === 'swarm'
     ? renderProfileDrawer('Swarm roster', 'Members, policy references, custody, and transfer behavior', [
@@ -1388,6 +1600,8 @@ function renderProductHome(root, state, handlers = {}) {
 
       ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error' })}
 
+      ${renderGroupActivationSection(state.groupActivation)}
+
       ${renderMultipassWhatItDoesPanel()}
 
       ${renderPublicAgentGallery(agentCarousel, state)}
@@ -1395,6 +1609,22 @@ function renderProductHome(root, state, handlers = {}) {
   `;
 
   bindProductHomeEvents(root, handlers, state);
+}
+
+function renderGroupActivationSection(groupState = createInitialGroupActivationState()) {
+  return `
+    <section class="group-activation-section" aria-label="Activate collection or swarm workspace">
+      ${renderGroupActivationPanel(groupState)}
+      <div class="group-activation-output" aria-live="polite">
+        ${renderGroupActivationError(groupState.error)}
+        ${renderGroupActivationPreview(groupState.preview)}
+        ${renderGroupActivationSuccess(groupState.result)}
+      </div>
+      <div class="group-activation-reset">
+        <button type="button" data-action="reset-group-multipass">Reset group Multipass</button>
+      </div>
+    </section>
+  `;
 }
 
 function renderAgentVisualStrip(carousel, selectedIndex, state = {}) {
@@ -1583,6 +1813,17 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelectorAll('[data-action="select-lookup-match"]').forEach((button) => {
     button.addEventListener('click', () => handlers.resolveLiveAgent?.(button.dataset.tokenId ?? ''));
   });
+  bindGroupActivationEvents(root, handlers);
+}
+
+function bindGroupActivationEvents(root, handlers = {}) {
+  root.querySelector('[data-role="group-activation-form"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlers.previewGroupActivation?.();
+  });
+  root.querySelector('[data-action="preview-group-multipass"]')?.addEventListener('click', () => handlers.previewGroupActivation?.());
+  root.querySelector('[data-action="save-group-multipass"]')?.addEventListener('click', () => handlers.saveGroupActivation?.());
+  root.querySelector('[data-action="reset-group-multipass"]')?.addEventListener('click', () => handlers.resetGroupActivation?.());
 }
 
 function bindVisualImageFallbacks(root) {

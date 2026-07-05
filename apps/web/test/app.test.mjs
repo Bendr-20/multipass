@@ -250,6 +250,130 @@ async function savedProfileNoToolsFetch(url) {
   return savedProfileFetch(url);
 }
 
+function fillGroupActivationForm(root, overrides = {}) {
+  const form = root.querySelector('[data-role="group-activation-form"]');
+  assert.ok(form);
+  form.querySelector('[name="subject_type"]').value = overrides.subject_type ?? 'swarm';
+  form.querySelector('[name="display_name"]').value = overrides.display_name ?? 'Helixa Swarm';
+  form.querySelector('[name="summary"]').value = overrides.summary ?? 'Public parent Multipass for the core Helixa agent team.';
+  form.querySelector('[name="member_ids"]').value = overrides.member_ids ?? '1, 81\n1066';
+  form.querySelector('[name="shared_policy_note"]').value = overrides.shared_policy_note ?? 'Owner approval required for shared routes.';
+  return form;
+}
+
+function groupPreviewResponse(overrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    state: 'group_preview',
+    record: {
+      profile: {
+        display_name: 'Helixa Swarm',
+        subject_type: 'swarm',
+        ...(overrides.profile ?? {}),
+      },
+    },
+    members: [
+      { name: 'Bendr 2.0', token_id: '1', canonical_id: '8453:1', cred_score: 82, cred_tier: 'Prime', source_status: 'resolved' },
+      { name: 'Quigbot', token_id: '81', canonical_id: '8453:81', cred_score: 76, cred_tier: 'Prime', source_status: 'resolved' },
+      { name: 'Helixa', token_id: '1066', canonical_id: '8453:1066', cred_score: 70, cred_tier: 'Prime', source_status: 'resolved' },
+    ],
+    ...overrides,
+  };
+}
+
+function groupSaveResponse(overrides = {}) {
+  return {
+    schema_version: '0.1.0',
+    state: 'saved_group_unclaimed',
+    created: true,
+    multipass_id: 'mp_group_swarm_9c41a2',
+    slug: 'helixa-swarm-9c41a2',
+    sharePath: '/multipass/helixa-swarm-9c41a2',
+    profile: { display_name: 'Helixa Swarm', subject_type: 'swarm', slug: 'helixa-swarm-9c41a2' },
+    ...overrides,
+  };
+}
+
+async function savedGroupProfileFetch(url) {
+  const value = String(url);
+  if (value.endsWith('/hydrated')) {
+    return new Response('missing', { status: 404 });
+  }
+  if (value.endsWith('/api/multipass/helixa-collection-9c41a2')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      display_name: 'Helixa Collection',
+      multipass_id: 'mp_group_collection_9c41a2',
+      slug: 'helixa-collection-9c41a2',
+      status: 'active',
+      subject_type: 'collection',
+      summary: 'Public parent Multipass for a curated member collection.',
+      owner_summary: {
+        owner_state: 'unclaimed',
+        verification_status: 'none',
+        visibility: 'public',
+        summary: 'Group management is unclaimed.',
+      },
+      cred_summary: { trust_state: 'context', public_note: 'Aggregate member Cred context only; no group score is assigned.' },
+    }), { status: 200 });
+  }
+  if (value.endsWith('/fragments')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      multipass_id: 'mp_group_collection_9c41a2',
+      fragments: [
+        {
+          fragment_id: 'frag_group_collection_9c41a2_roster',
+          fragment_type: 'custody_record',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'registry_import', source_id: 'collection:helixa', issuer: 'Helixa' },
+          public_value: 'Roster includes 3 public AgentDNA members: Bendr 2.0, Quigbot, and Nox.',
+        },
+        {
+          fragment_id: 'frag_group_collection_9c41a2_policy',
+          fragment_type: 'endpoint',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'owner_submission', source_id: 'collection:helixa:policy', issuer: 'Helixa' },
+          public_value: 'Shared policy requires owner approval before collection-level route changes.',
+          endpoint_ref: { protocol: 'api' },
+        },
+        {
+          fragment_id: 'frag_group_collection_9c41a2_cred',
+          fragment_type: 'risk_summary',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          source: { source_type: 'platform_check', source_id: 'collection:helixa:cred', issuer: 'Helixa' },
+          public_value: 'Bendr 2.0 Cred 82 Prime, Quigbot Cred 76 Prime, Nox Cred 69 Prime. Aggregate context only; no group score is assigned.',
+        },
+      ],
+    }), { status: 200 });
+  }
+  if (value.endsWith('/card') || value.endsWith('/agent-card')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      name: 'Helixa Collection',
+      description: 'Parent Multipass card for a public member collection.',
+      capabilities: [],
+      service_endpoints: [],
+      trust_summary: { identity_status: 'verified', assurance_level: 'platform_verified', summary: 'Parent Multipass for a collection roster.' },
+    }), { status: 200 });
+  }
+  if (value.endsWith('/standards')) return new Response(JSON.stringify({ standard_refs: [{ standard_id: 'ERC-8004', status: 'member_refs_available' }] }), { status: 200 });
+  if (value.endsWith('/x401')) return new Response(JSON.stringify({ x401_supported: true, trusted_issuers: [{ issuer_id: 'helixa' }], proof_requirements: [{ requirement_id: 'group_authority' }], route_policies: [] }), { status: 200 });
+  if (value.endsWith('/x402')) return new Response(JSON.stringify({ endpoints: [] }), { status: 200 });
+  if (value.endsWith('/tools')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_group_collection_9c41a2', tools: [] }), { status: 200 });
+  if (value.endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_group_collection_9c41a2', entries: [{ message: 'Group Multipass activated from public AgentDNA member records.' }] }), { status: 200 });
+  throw new Error(`Unexpected group URL ${url}`);
+}
+
 async function savedQuigbotFetch(url) {
   const value = String(url);
   if (value.endsWith('/hydrated')) {
@@ -447,21 +571,214 @@ test('homepage keeps activation below the standalone desktop hero', async () => 
   const hero = root.querySelector('.product-hero');
   const heroCard = root.querySelector('.product-hero-copy');
   const activation = root.querySelector('.live-resolver');
+  const groupActivation = root.querySelector('.group-activation-section');
   const systemPanel = root.querySelector('.multipass-system-panel');
 
   assert.ok(hero);
   assert.ok(heroCard);
   assert.ok(activation);
+  assert.ok(groupActivation);
   assert.ok(systemPanel);
   assert.equal(hero.children.length, 1);
   assert.equal(hero.firstElementChild, heroCard);
   assert.equal(hero.contains(activation), false);
   assert.equal(hero.nextElementSibling, activation);
-  assert.equal(activation.nextElementSibling, systemPanel);
+  assert.equal(activation.nextElementSibling, groupActivation);
+  assert.equal(groupActivation.nextElementSibling, systemPanel);
   assert.ok(heroCard.querySelector('.product-hero-main'));
   assert.ok(heroCard.contains(root.querySelector('.profile-visual-strip')));
   assert.equal(heroCard.firstElementChild?.classList.contains('product-hero-main'), true);
   assert.equal(heroCard.querySelector('.product-hero-main')?.nextElementSibling, root.querySelector('.profile-visual-strip'));
+});
+
+
+test('group activation homepage renders collection or swarm controls and action labels', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const section = root.querySelector('.group-activation-section');
+  const panel = root.querySelector('.group-activation-panel');
+  const text = section?.textContent ?? '';
+
+  assert.ok(section);
+  assert.ok(panel);
+  assert.match(text, /Activate collection or swarm/);
+  assert.match(text, /Subject type/);
+  assert.match(text, /Display name/);
+  assert.match(text, /Summary/);
+  assert.match(text, /Member IDs/);
+  assert.match(text, /Shared policy note/);
+  assert.match(text, /Preview group Multipass/);
+  assert.match(text, /Activate group Multipass/);
+  assert.ok(panel.querySelector('option[value="swarm"]'));
+  assert.ok(panel.querySelector('option[value="collection"]'));
+  assert.equal(panel.querySelector('[data-action="save-group-multipass"]')?.hasAttribute('disabled'), true);
+  assert.match(text, /public parent Multipass metadata only/i);
+});
+
+test('group activation preview submits through the client and renders parent profile with member summaries', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const requests = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (url, options) => {
+      requests.push({ url: String(url), options, body: JSON.parse(options.body) });
+      assert.equal(options.method, 'POST');
+      if (String(url).endsWith('/api/multipass/groups/preview')) {
+        return new Response(JSON.stringify(groupPreviewResponse()), { status: 200 });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  fillGroupActivationForm(root);
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(50);
+
+  assert.deepEqual(requests.map((request) => request.url), ['/multipass-api/api/multipass/groups/preview']);
+  assert.deepEqual(requests[0].body, {
+    subject_type: 'swarm',
+    display_name: 'Helixa Swarm',
+    summary: 'Public parent Multipass for the core Helixa agent team.',
+    shared_policy_note: 'Owner approval required for shared routes.',
+    member_ids: ['1', '81', '1066'],
+  });
+  const preview = root.querySelector('.group-activation-preview');
+  assert.ok(preview);
+  assert.match(preview.textContent, /Helixa Swarm/);
+  assert.match(preview.textContent, /Proposed parent profile for swarm/);
+  assert.match(preview.textContent, /Bendr 2\.0/);
+  assert.match(preview.textContent, /Quigbot/);
+  assert.match(preview.textContent, /Token ID 1/);
+  assert.match(preview.textContent, /Token ID 81/);
+  assert.match(preview.textContent, /Cred 82 Prime/);
+  assert.equal(root.querySelector('[data-action="save-group-multipass"]')?.hasAttribute('disabled'), false);
+  assert.equal(root.querySelector('[data-action="save-group-multipass"]')?.hidden, false);
+});
+
+test('group activation structured validation errors render as blocking user-facing errors', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      error: {
+        code: 'invalid_group_activation',
+        message: 'At least two unique members are required.',
+        details: { field: 'member_ids' },
+      },
+    }), { status: 400 }),
+  }).start();
+
+  fillGroupActivationForm(root, { display_name: 'Broken Group', member_ids: '1' });
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(50);
+
+  const error = root.querySelector('.group-activation-error[role="alert"]');
+  assert.ok(error);
+  assert.match(error.textContent, /At least two unique members are required/);
+  assert.match(error.textContent, /invalid_group_activation/);
+  assert.match(error.textContent, /member_ids/);
+  assert.equal(root.querySelector('.group-activation-preview'), null);
+  assert.equal(root.querySelector('[name="display_name"]')?.value, 'Broken Group');
+  assert.equal(root.querySelector('[name="member_ids"]')?.value, '1');
+});
+
+test('group activation reset clears preview result and error state without navigating', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const startingHref = window.location.href;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => new Response(JSON.stringify(groupPreviewResponse()), { status: 200 }),
+  }).start();
+
+  fillGroupActivationForm(root);
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(50);
+  assert.ok(root.querySelector('.group-activation-preview'));
+
+  root.querySelector('[data-action="reset-group-multipass"]').click();
+  await flushAsyncEvents(20);
+
+  assert.equal(window.location.href, startingHref);
+  assert.equal(root.querySelector('.group-activation-preview'), null);
+  assert.equal(root.querySelector('.group-activation-success'), null);
+  assert.equal(root.querySelector('.group-activation-error'), null);
+  assert.equal(root.querySelector('[name="display_name"]')?.value, '');
+  assert.equal(root.querySelector('[data-action="save-group-multipass"]')?.hasAttribute('disabled'), true);
+});
+
+test('group activation save calls client and renders deterministic safe share path link', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  const requests = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (url, options) => {
+      requests.push({ url: String(url), body: JSON.parse(options.body) });
+      if (String(url).endsWith('/api/multipass/groups/preview')) {
+        return new Response(JSON.stringify(groupPreviewResponse()), { status: 200 });
+      }
+      if (String(url).endsWith('/api/multipass/groups')) {
+        return new Response(JSON.stringify(groupSaveResponse()), { status: 201 });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  fillGroupActivationForm(root);
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(50);
+  root.querySelector('[data-action="save-group-multipass"]').click();
+  await flushAsyncEvents(50);
+
+  assert.deepEqual(requests.map((request) => request.url), [
+    '/multipass-api/api/multipass/groups/preview',
+    '/multipass-api/api/multipass/groups',
+  ]);
+  assert.deepEqual(requests[1].body.member_ids, ['1', '81', '1066']);
+  const success = root.querySelector('.group-activation-success');
+  assert.ok(success);
+  assert.match(success.textContent, /\/multipass\/helixa-swarm-9c41a2/);
+  assert.match(success.textContent, /unclaimed management/i);
+  const link = success.querySelector('a[href="/multipass/helixa-swarm-9c41a2"]');
+  assert.ok(link);
+  assert.equal(link.textContent, 'Open parent Multipass');
+  assert.equal(success.querySelector('a[href^="https://"]'), null);
+});
+
+test('group activation saved route renders parent Multipass roster context instead of agent-only copy', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/helixa-collection-9c41a2?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedGroupProfileFetch }).start();
+
+  const profile = root.querySelector('.multipass-profile-page');
+  assert.ok(profile);
+  const roster = profileDrawerByTitle(profile, 'Collection roster');
+  assert.ok(roster);
+  assert.match(profile.textContent, /Helixa Collection/);
+  assert.match(profile.textContent, /Parent Multipass/);
+  assert.match(roster.textContent, /collection roster/i);
+  assert.match(roster.textContent, /Bendr 2\.0/);
+  assert.match(roster.textContent, /Quigbot/);
+  assert.match(roster.textContent, /Nox/);
+  assert.match(roster.textContent, /Shared policy requires owner approval/);
+  assert.doesNotMatch(profile.textContent, /public agent profile/i);
+  assert.doesNotMatch(profile.textContent, /Agent Activation|stable public agent profile|Portable Agent Identity/);
+  assert.doesNotMatch(profile.textContent, /frag_group_collection_9c41a2/);
+});
+
+test('group activation safety wording scan avoids authority payment and credential claims', async () => {
+  const homepage = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ homepage, root: homepage, loadDemo: async () => sampleData() }).start();
+  const savedRoot = setupDom('https://helixa.xyz/multipass/helixa-collection-9c41a2?api=https://api.example.test');
+  await createApp({ root: savedRoot, fetchImpl: savedGroupProfileFetch }).start();
+
+  const combined = `${homepage.textContent}\n${savedRoot.textContent}`;
+  assert.doesNotMatch(combined, /owns member|acts for member|acts on behalf|executes tools|can execute tools|releases credentials|private credentials available|payment proves trust|buys trust|buy trust|trust purchased|custody transferred|transfer ownership|grants authority/i);
+  assert.doesNotMatch(combined, /x402 payment call|wallet signing required|onchain write/i);
 });
 
 test('homepage renders agent visuals without extra context copy', async () => {
@@ -774,7 +1091,10 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /mp_bendr_2/);
   assert.doesNotMatch(root.querySelector('.homepage-hero')?.textContent ?? '', /bendr-2/);
   assert.match(root.textContent, /Bendr 2\.0 Public Profile/);
-  assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
+  const resolver = root.querySelector('.live-resolver');
+  assert.ok(resolver);
+  assert.doesNotMatch(resolver.textContent, /\b(?:preview|demo|fixture)\b/i);
+  assert.doesNotMatch(root.textContent, /\b(?:demo|fixture)\b/i);
   assert.match(root.textContent, /Proof ledger/);
   assert.doesNotMatch(root.textContent, /Card first/);
   assert.match(root.textContent, /Example public agent profiles/);
@@ -855,7 +1175,8 @@ test('resolver bar renders without changing default static data', async () => {
   assert.doesNotMatch(resolver.textContent, /Helixa ID, name, or handle/);
   assert.match(root.textContent, /Bendr 2\.0/);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
-  assert.doesNotMatch(root.textContent, /\b(?:preview|demo|fixture)\b/i);
+  assert.doesNotMatch(resolver.textContent, /\b(?:preview|demo|fixture)\b/i);
+  assert.doesNotMatch(root.textContent, /\b(?:demo|fixture)\b/i);
 });
 
 test('static homepage keeps agent visuals inspection-only', async () => {
@@ -911,14 +1232,16 @@ test('static initial state presents Multipass product home instead of Bendr prof
   assert.equal(proofPanel?.querySelectorAll('.homepage-proof-stat').length, 0);
   assert.equal(proofPanel?.querySelector('a, button, form, input, textarea, select, [data-action]'), null);
   const activation = root.querySelector('.live-resolver');
-  assert.equal(proofPanel?.previousElementSibling, activation);
+  const groupActivation = root.querySelector('.group-activation-section');
+  assert.equal(proofPanel?.previousElementSibling, groupActivation);
+  assert.equal(groupActivation?.previousElementSibling, activation);
   assert.equal(activation?.previousElementSibling, hero);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.activation-summary'), null);
   assert.equal(root.querySelector('.proof-ledger'), null);
   assert.doesNotMatch(root.textContent, /Bendr 2\.0 Public Profile/);
-  assert.doesNotMatch(root.textContent, /\b(?:Preview|preview|Demo|demo|fixture|Fixture)\b/);
+  assert.doesNotMatch(root.textContent, /\b(?:Demo|demo|fixture|Fixture)\b/);
 });
 
 

@@ -1899,6 +1899,197 @@ h1 {
   line-height: 1.55;
 }
 
+.group-activation-section {
+  display: grid;
+  gap: 16px;
+  margin: 28px 0;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 88% 8%, rgba(54, 95, 125, 0.10), transparent 17rem),
+    var(--paper);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.group-activation-panel h2,
+.group-activation-preview h3,
+.group-activation-success h3 {
+  margin: 0 0 10px;
+  letter-spacing: -0.045em;
+}
+
+.group-activation-panel p,
+.group-activation-preview p,
+.group-activation-success p,
+.group-activation-error p,
+.group-profile-panel p,
+.group-roster-item p,
+.group-proof-item p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.group-activation-panel form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.group-activation-panel label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.group-activation-panel input,
+.group-activation-panel select,
+.group-activation-panel textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  padding: 12px;
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.group-activation-panel textarea {
+  resize: vertical;
+}
+
+.group-activation-panel label:nth-of-type(n + 3),
+.group-activation-actions {
+  grid-column: 1 / -1;
+}
+
+.group-activation-actions,
+.group-activation-reset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.group-activation-actions button,
+.group-activation-reset button {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 14px;
+  font-weight: 900;
+}
+
+.group-activation-actions button + button,
+.group-activation-reset button {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.group-activation-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.group-activation-output {
+  display: grid;
+  gap: 14px;
+}
+
+.group-activation-preview,
+.group-activation-success,
+.group-activation-error,
+.group-profile-panel,
+.group-roster-context,
+.group-proof-summary {
+  border: 1px solid var(--soft-line);
+  background: rgba(255, 250, 241, 0.72);
+  padding: 18px;
+}
+
+.group-activation-error {
+  border-color: rgba(138, 58, 40, 0.42);
+  background: rgba(138, 58, 40, 0.08);
+}
+
+.group-activation-error-code,
+.group-activation-error-details {
+  display: inline-flex;
+  margin: 6px 8px 0 0;
+  color: #8a3a28;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.group-activation-members,
+.group-roster-items,
+.group-proof-list {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.group-activation-members li,
+.group-roster-item,
+.group-proof-item {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--soft-line);
+  background: var(--paper-soft);
+  padding: 12px;
+}
+
+.group-activation-members span,
+.group-proof-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.group-activation-share-path {
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
+.group-activation-success a {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.group-profile-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.group-profile-facts div {
+  border: 1px solid var(--soft-line);
+  background: var(--paper-soft);
+  padding: 12px;
+}
+
+.group-profile-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.group-profile-facts dd {
+  margin: 8px 0 0;
+  font-weight: 900;
+}
+
 @media (min-width: 901px) {
   .multipass-profile-page {
     gap: 16px;
@@ -2669,6 +2860,26 @@ h1 {
   }
 
   .live-resolver button {
+    width: 100%;
+  }
+
+  .group-activation-section {
+    margin: 22px 0;
+    padding: 16px;
+  }
+
+  .group-activation-panel form,
+  .group-profile-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .group-activation-actions,
+  .group-activation-reset {
+    display: grid;
+  }
+
+  .group-activation-actions button,
+  .group-activation-reset button {
     width: 100%;
   }
 
