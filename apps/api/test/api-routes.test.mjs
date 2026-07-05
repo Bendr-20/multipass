@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import { MultipassValidationError, assertAgentCard, assertX401Manifest } from '@helixa/multipass-sdk';
@@ -384,6 +385,110 @@ function makeSaveApi() {
       return makeSavedRecord();
     },
   });
+}
+
+const GROUP_OBSERVED_AT = '2026-07-05T06:00:00.000Z';
+
+function groupPayload(overrides = {}) {
+  return {
+    subject_type: 'swarm',
+    display_name: 'Helixa Swarm',
+    summary: 'Public parent Multipass for Helixa agents.',
+    member_ids: ['1', '81', '1066'],
+    shared_policy_note: 'Owner approval required for shared policy changes.',
+    ...overrides,
+  };
+}
+
+function fakeGroupMemberRecord(tokenId, overrides = {}) {
+  const id = String(tokenId);
+  const defaults = {
+    1: { name: 'Bendr 2.0', credScore: 82, tier: 'Prime' },
+    81: { name: 'Quigbot', credScore: 75, tier: 'Prime' },
+    1066: { name: 'Helixa', credScore: 80, tier: 'Prime' },
+    1058: { name: 'Phantom Relay', credScore: 70, tier: 'Qualified' },
+  }[id] ?? { name: `AgentDNA ${id}`, credScore: null, tier: null };
+  const name = overrides.name ?? defaults.name;
+  return {
+    profile: {
+      display_name: name,
+      cred_summary: defaults.credScore === null ? null : { score: overrides.credScore ?? defaults.credScore },
+    },
+    agentCard: { name },
+    standardsProfile: {
+      standard_refs: [
+        {
+          standard_id: 'ERC-8004',
+          status: 'active',
+          chain_id: 8453,
+          contract_address: '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432',
+          record_id: `8453:${id}`,
+          adapter_version: '0.1.0',
+          last_verified_at: GROUP_OBSERVED_AT,
+          assurance_level: 'onchain_verified',
+        },
+      ],
+    },
+    source: {
+      sourceType: 'helixa_agent',
+      canonicalId: `8453:${id}`,
+      tokenId: id,
+    },
+    sourceContext: {
+      sourceSnapshot: {
+        credTier: overrides.credTier ?? defaults.tier,
+        profileUrl: `https://helixa.xyz/agent/${id}`,
+      },
+    },
+  };
+}
+
+function makeGroupApi(options = {}) {
+  const savedRecords = options.savedRecords ?? createSqliteSavedRecords({ databasePath: ':memory:' });
+  const recordsByTokenId = options.recordsByTokenId ?? new Map([
+    ['1', fakeGroupMemberRecord('1')],
+    ['81', fakeGroupMemberRecord('81')],
+    ['1066', fakeGroupMemberRecord('1066')],
+    ['1058', fakeGroupMemberRecord('1058')],
+  ]);
+  const activationService = options.activationService ?? (async (tokenId) => recordsByTokenId.get(String(tokenId)) ?? null);
+  return {
+    savedRecords,
+    api: createMultipassApi({
+      store: createFixtureStore(),
+      savedRecords,
+      baseUrl: 'https://multipass.example.test',
+      activationService,
+    }),
+  };
+}
+
+function expectedGroupSlug(payload = groupPayload()) {
+  const baseSlug = String(payload.display_name ?? '')
+    .trim()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-') || 'group';
+  const members = normalizeExpectedMemberIds(payload.member_ids).join(',');
+  const fingerprint = createHash('sha256')
+    .update(`${payload.subject_type}|${baseSlug}|${members}`)
+    .digest('hex')
+    .slice(0, 8);
+  return `${baseSlug}-${fingerprint}`;
+}
+
+function normalizeExpectedMemberIds(input) {
+  const values = Array.isArray(input) ? input : String(input ?? '').split(/[\s,]+/g);
+  return values
+    .filter((value) => String(value).trim())
+    .map((value) => {
+      const raw = String(value).trim();
+      const canonical = raw.match(/^8453:(\d+)$/);
+      return canonical ? `8453:${canonical[1]}` : `8453:${raw}`;
+    });
 }
 
 async function requestJson(api, path) {
@@ -867,6 +972,245 @@ test('POST /api/multipass saves idempotent persistent records', async () => {
   assert.equal(second.body.multipass_id, 'mp_helixa_agent_1');
   assert.equal(second.body.slug, 'bendr-2-1');
   assert.equal(second.body.sharePath, '/multipass/bendr-2-1');
+});
+
+test('POST /api/multipass/groups/preview returns group preview record and stable members', async () => {
+  const { api, savedRecords } = makeGroupApi();
+
+  const preview = await postJson(api, '/api/multipass/groups/preview', groupPayload());
+
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.schema_version, '0.1.0');
+  assert.equal(preview.body.state, 'group_preview');
+  assert.equal(preview.body.record.source.sourceType, 'multipass_group');
+  assert.equal(preview.body.record.profile.slug, expectedGroupSlug());
+  assert.deepEqual(preview.body.members.map((member) => ({
+    name: member.name,
+    token_id: member.token_id,
+    canonical_id: member.canonical_id,
+  })), [
+    { name: 'Bendr 2.0', token_id: '1', canonical_id: '8453:1' },
+    { name: 'Quigbot', token_id: '81', canonical_id: '8453:81' },
+    { name: 'Helixa', token_id: '1066', canonical_id: '8453:1066' },
+  ]);
+  assert.equal(savedRecords.resolveProfile(preview.body.record.profile.slug), null);
+});
+
+test('POST /api/multipass/groups/preview returns structured validation errors with details', async () => {
+  const { api } = makeGroupApi();
+
+  const result = await postJson(api, '/api/multipass/groups/preview', groupPayload({ display_name: 'Hi' }));
+
+  assert.equal(result.response.status, 400);
+  assert.equal(result.body.schema_version, '0.1.0');
+  assert.equal(result.body.error.code, 'invalid_group_activation');
+  assert.match(result.body.error.message, /Display name/);
+  assert.equal(result.body.error.details.field, 'display_name');
+  assert.equal(result.body.error.details.min, 3);
+});
+
+test('POST /api/multipass/groups/preview maps unresolved members to group_member_not_found', async () => {
+  const { api } = makeGroupApi({
+    activationService: async (tokenId) => (tokenId === '1' ? fakeGroupMemberRecord('1') : null),
+  });
+
+  const result = await postJson(api, '/api/multipass/groups/preview', groupPayload({ member_ids: ['1', '81'] }));
+
+  assert.equal(result.response.status, 404);
+  assert.equal(result.body.error.code, 'group_member_not_found');
+  assert.equal(result.body.error.details.token_id, '81');
+  assert.equal(result.body.error.details.canonical_id, '8453:81');
+});
+
+test('POST /api/multipass/groups/preview maps resolver rate limits through the route layer', async () => {
+  const { api } = makeGroupApi({
+    activationService: async (tokenId) => {
+      if (tokenId === '1') return fakeGroupMemberRecord('1');
+      const error = new Error('Too many requests');
+      error.status = 429;
+      throw error;
+    },
+  });
+
+  const result = await postJson(api, '/api/multipass/groups/preview', groupPayload({ member_ids: ['1', '81'] }));
+
+  assert.equal(result.response.status, 429);
+  assert.equal(result.body.error.code, 'group_member_rate_limited');
+  assert.equal(result.body.error.details.token_id, '81');
+  assert.equal(result.body.error.details.resolver_status, 429);
+});
+
+test('POST /api/multipass/groups/preview maps resolver outages through the route layer', async () => {
+  const { api } = makeGroupApi({
+    activationService: async (tokenId) => {
+      if (tokenId === '1') return fakeGroupMemberRecord('1');
+      const error = new Error('ECONNRESET');
+      error.status = 503;
+      throw error;
+    },
+  });
+
+  const result = await postJson(api, '/api/multipass/groups/preview', groupPayload({ member_ids: ['1', '81'] }));
+
+  assert.equal(result.response.status, 503);
+  assert.equal(result.body.error.code, 'group_member_resolution_unavailable');
+  assert.equal(result.body.error.details.token_id, '81');
+  assert.equal(result.body.error.details.resolver_status, 503);
+});
+
+test('POST /api/multipass/groups ignores client-supplied record fields and rebuilds server-side', async () => {
+  const { api, savedRecords } = makeGroupApi();
+
+  const result = await postJson(api, '/api/multipass/groups', {
+    ...groupPayload({ member_ids: ['1', '81'] }),
+    record: { profile: { slug: 'client-injected-slug', multipass_id: 'mp_client_injected' } },
+    preview: { profile: { slug: 'client-preview-slug' } },
+    members: [{ name: 'Injected Member', token_id: '999', canonical_id: '8453:999' }],
+    slug: 'client-slug',
+    multipass_id: 'mp_client_supplied',
+  });
+
+  assert.equal(result.response.status, 201);
+  assert.equal(result.body.state, 'saved_group_unclaimed');
+  assert.equal(result.body.slug, expectedGroupSlug(groupPayload({ member_ids: ['1', '81'] })));
+  assert.notEqual(result.body.slug, 'client-slug');
+  assert.notEqual(result.body.multipass_id, 'mp_client_supplied');
+  assert.deepEqual(savedRecords.getSourceContext(result.body.multipass_id).sourceSnapshot.memberSummaries.map((member) => member.name), [
+    'Bendr 2.0',
+    'Quigbot',
+  ]);
+  assert.doesNotMatch(JSON.stringify(savedRecords.getSourceContext(result.body.multipass_id)), /client|Injected/);
+});
+
+test('POST /api/multipass/groups returns saved group response for new records', async () => {
+  const { api } = makeGroupApi();
+
+  const result = await postJson(api, '/api/multipass/groups', groupPayload());
+
+  assert.equal(result.response.status, 201);
+  assert.equal(result.body.schema_version, '0.1.0');
+  assert.equal(result.body.state, 'saved_group_unclaimed');
+  assert.equal(result.body.created, true);
+  assert.equal(result.body.multipass_id, result.body.profile.multipass_id);
+  assert.equal(result.body.slug, expectedGroupSlug());
+  assert.equal(result.body.profile.slug, expectedGroupSlug());
+  assert.equal(result.body.sharePath, `/multipass/${encodeURIComponent(result.body.profile.slug)}`);
+});
+
+test('POST /api/multipass/groups returns existing saved group for the same normalized payload', async () => {
+  const { api } = makeGroupApi();
+
+  const first = await postJson(api, '/api/multipass/groups', groupPayload({ member_ids: ['1', '8453:81'] }));
+  const second = await postJson(api, '/api/multipass/groups', groupPayload({ member_ids: ['1', '81'] }));
+
+  assert.equal(first.response.status, 201);
+  assert.equal(second.response.status, 200);
+  assert.equal(second.body.state, 'saved_group_existing');
+  assert.equal(second.body.created, false);
+  assert.equal(second.body.multipass_id, first.body.multipass_id);
+  assert.equal(second.body.slug, first.body.slug);
+});
+
+test('POST /api/multipass/groups retries one unrelated slug collision with group suffix', async () => {
+  const payload = groupPayload({ display_name: 'Collision Group', member_ids: ['1', '81'] });
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const collidingSlug = expectedGroupSlug(payload);
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+    sourceType: 'other_source',
+    canonicalId: 'other:colliding-slug',
+    slug: collidingSlug,
+    multipassId: 'mp_unrelated_slug_collision',
+  }));
+  const { api } = makeGroupApi({ savedRecords });
+
+  const result = await postJson(api, '/api/multipass/groups', payload);
+
+  assert.equal(result.response.status, 201);
+  assert.equal(result.body.created, true);
+  assert.equal(result.body.slug, `${collidingSlug}-group`);
+  assert.equal(savedRecords.resolveProfile('mp_unrelated_slug_collision').slug, collidingSlug);
+});
+
+test('POST /api/multipass/groups returns structured conflict after a second unrelated slug collision', async () => {
+  const payload = groupPayload({ display_name: 'Double Collision Group', member_ids: ['1', '81'] });
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const collidingSlug = expectedGroupSlug(payload);
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+    sourceType: 'other_source',
+    canonicalId: 'other:colliding-slug-one',
+    slug: collidingSlug,
+    multipassId: 'mp_unrelated_slug_collision_one',
+  }));
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+    sourceType: 'other_source',
+    canonicalId: 'other:colliding-slug-two',
+    slug: `${collidingSlug}-group`,
+    multipassId: 'mp_unrelated_slug_collision_two',
+  }));
+  const { api } = makeGroupApi({ savedRecords });
+
+  const result = await postJson(api, '/api/multipass/groups', payload);
+
+  assert.equal(result.response.status, 409);
+  assert.equal(result.body.error.code, 'group_slug_conflict');
+  assert.match(result.body.error.message, /generated slug/i);
+  assert.equal(result.body.error.details.slug, collidingSlug);
+  assert.equal(result.body.error.details.retry_slug, `${collidingSlug}-group`);
+  assert.doesNotMatch(JSON.stringify(result.body), /UNIQUE constraint|SQLite/i);
+});
+
+test('saved group x401 route exposes Helixa group authority proof metadata', async () => {
+  const { api } = makeGroupApi();
+  const saved = await postJson(api, '/api/multipass/groups', groupPayload());
+
+  const x401 = await requestJson(api, `/api/multipass/${saved.body.slug}/x401`);
+
+  assert.equal(x401.response.status, 200);
+  assert.equal(x401.body.multipass_id, saved.body.multipass_id);
+  assert.equal(x401.body.x401_supported, true);
+  assert.equal(x401.body.trusted_issuers[0].issuer_id, 'helixa');
+  assert.equal(x401.body.proof_requirements[0].requirement_id, 'group_authority');
+});
+
+test('POST /api/multipass/groups persists group sourceSnapshot through the API path', async () => {
+  const { api, savedRecords } = makeGroupApi();
+
+  const saved = await postJson(api, '/api/multipass/groups', groupPayload({
+    display_name: 'Source Snapshot Group',
+    summary: 'Snapshot survives the route layer.',
+    shared_policy_note: 'Snapshot policy note.',
+    member_ids: ['1', '81'],
+  }));
+
+  assert.equal(saved.response.status, 201);
+  assert.deepEqual(savedRecords.getSourceContext(saved.body.multipass_id).sourceSnapshot, {
+    sourceType: 'multipass_group',
+    subjectType: 'swarm',
+    displayName: 'Source Snapshot Group',
+    summary: 'Snapshot survives the route layer.',
+    sharedPolicyNote: 'Snapshot policy note.',
+    fingerprint: saved.body.multipass_id.replace('mp_group_swarm_', ''),
+    memberSummaries: [
+      {
+        name: 'Bendr 2.0',
+        token_id: '1',
+        canonical_id: '8453:1',
+        cred_score: 82,
+        cred_tier: 'Prime',
+        source_status: 'resolved',
+        profile_url: 'https://helixa.xyz/agent/1',
+      },
+      {
+        name: 'Quigbot',
+        token_id: '81',
+        canonical_id: '8453:81',
+        cred_score: 75,
+        cred_tier: 'Prime',
+        source_status: 'resolved',
+        profile_url: 'https://helixa.xyz/agent/81',
+      },
+    ],
+  });
 });
 
 test('GET saved profile resolves before fixture store and exposes saved documents', async () => {

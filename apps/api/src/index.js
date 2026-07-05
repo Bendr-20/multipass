@@ -13,6 +13,7 @@ import {
   buildHydratedProfileResponse,
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
+import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
 import {
   deriveAgentCardServiceUpdates,
@@ -218,6 +219,9 @@ export function createMultipassApi({
         if (error instanceof ApiNotFoundError) {
           return errorResponse(404, 'not_found', error.message);
         }
+        if (error instanceof GroupActivationError) {
+          return errorResponse(error.status ?? 400, error.code, error.message, error.details ?? {});
+        }
         if (error instanceof TypeError) {
           return errorResponse(400, 'invalid_request', error.message);
         }
@@ -230,6 +234,14 @@ export function createMultipassApi({
 async function handlePostRequest(request, parts, context) {
   if (parts[0] !== 'api' || parts[1] !== 'multipass') {
     return errorResponse(404, 'not_found', 'Route not found.');
+  }
+
+  if (parts[2] === 'groups' && parts[3] === 'preview' && parts.length === 4) {
+    return handleGroupPreview(request, context);
+  }
+
+  if (parts[2] === 'groups' && parts.length === 3) {
+    return handleSaveGroupMultipass(request, context);
   }
 
   if (parts[2] === 'activate' && parts.length === 3) {
@@ -358,6 +370,111 @@ async function handleSaveMultipass(request, { savedRecords, activationService })
     profile: saved.profile,
     sharePath: `/multipass/${encodeURIComponent(saved.profile.slug)}`,
   }, saved.created ? 201 : 200);
+}
+
+async function handleGroupPreview(request, context) {
+  if (!context.activationService) {
+    return errorResponse(503, 'not_configured', 'Multipass group activation is not configured.');
+  }
+
+  const body = await readJsonBody(request);
+  const preview = await createGroupActivationPreview(body, { activationService: context.activationService });
+  return jsonResponse({
+    schema_version: '0.1.0',
+    state: 'group_preview',
+    record: preview.record,
+    members: preview.members,
+  });
+}
+
+async function handleSaveGroupMultipass(request, context) {
+  if (!context.savedRecords) {
+    return errorResponse(503, 'not_configured', 'Multipass activation records are not configured.');
+  }
+  if (!context.activationService) {
+    return errorResponse(503, 'not_configured', 'Multipass group activation is not configured.');
+  }
+
+  const body = await readJsonBody(request);
+  const preview = await createGroupActivationPreview(body, { activationService: context.activationService });
+  const saved = saveGroupActivationRecord(context.savedRecords, preview.record);
+  return jsonResponse({
+    schema_version: '0.1.0',
+    state: saved.created ? 'saved_group_unclaimed' : 'saved_group_existing',
+    created: saved.created,
+    multipass_id: saved.profile.multipass_id,
+    slug: saved.profile.slug,
+    profile: saved.profile,
+    sharePath: `/multipass/${encodeURIComponent(saved.profile.slug)}`,
+  }, saved.created ? 201 : 200);
+}
+
+function saveGroupActivationRecord(savedRecords, record) {
+  try {
+    return savedRecords.saveActivatedRecord(record);
+  } catch (error) {
+    if (!isSavedRecordSlugCollisionError(error)) {
+      if (isSavedRecordUniquenessError(error)) {
+        throwGroupSlugConflict(record.profile.slug, null);
+      }
+      throw error;
+    }
+  }
+
+  const retrySlug = createGroupRetrySlug(record);
+  try {
+    return savedRecords.saveActivatedRecord(cloneRecordWithSlug(record, retrySlug));
+  } catch (error) {
+    if (isSavedRecordUniquenessError(error)) {
+      throwGroupSlugConflict(record.profile.slug, retrySlug);
+    }
+    throw error;
+  }
+}
+
+function throwGroupSlugConflict(slug, retrySlug) {
+  throw new GroupActivationError(
+    'group_slug_conflict',
+    'A saved Multipass group already uses the generated slug. Try a more specific group display name.',
+    409,
+    pruneUndefined({ slug, retry_slug: retrySlug }),
+  );
+}
+
+function createGroupRetrySlug(record) {
+  const currentSlug = String(record?.profile?.slug ?? '').trim() || 'group';
+  const fingerprint = String(record?.sourceContext?.sourceSnapshot?.fingerprint ?? '').trim();
+  if (/^[a-f0-9]{8}$/.test(fingerprint) && currentSlug.endsWith(`-${fingerprint}`)) {
+    const suffix = `-${fingerprint}-group`;
+    const maxBaseLength = 81 - suffix.length;
+    const base = currentSlug
+      .slice(0, -(fingerprint.length + 1))
+      .slice(0, maxBaseLength)
+      .replace(/-+$/g, '') || 'group';
+    return `${base}${suffix}`;
+  }
+
+  const base = currentSlug.slice(0, 75).replace(/-+$/g, '') || 'group';
+  return `${base}-group`;
+}
+
+function cloneRecordWithSlug(record, slug) {
+  const currentSlug = String(record?.profile?.slug ?? '').trim();
+  const serialized = JSON.stringify(record);
+  const cloned = JSON.parse(currentSlug ? serialized.split(currentSlug).join(slug) : serialized);
+  cloned.profile = { ...cloned.profile, slug };
+  return cloned;
+}
+
+function isSavedRecordSlugCollisionError(error) {
+  const message = String(error?.message ?? '');
+  return isSavedRecordUniquenessError(error) && /saved_records\.slug|\bslug\b/i.test(message);
+}
+
+function isSavedRecordUniquenessError(error) {
+  const message = String(error?.message ?? '');
+  const code = String(error?.code ?? '');
+  return /UNIQUE constraint failed|constraint/i.test(message) || code.includes('SQLITE_CONSTRAINT');
 }
 
 function handleClaimNonce(request, identifier, context) {
@@ -965,12 +1082,13 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
   });
 }
 
-function errorResponse(status, code, message) {
+function errorResponse(status, code, message, details) {
   return jsonResponse({
     schema_version: '0.1.0',
     error: {
       code,
       message,
+      ...(details === undefined ? {} : { details }),
     },
   }, status);
 }
