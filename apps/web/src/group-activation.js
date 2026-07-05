@@ -63,8 +63,8 @@ export function renderGroupActivationPanel(state = {}) {
   </section>`;
 }
 
-export function renderGroupActivationPreview(preview = {}) {
-  if (!preview) return '';
+export function renderGroupActivationPreview(preview = null) {
+  if (!hasPreviewData(preview)) return '';
   const profile = preview.record?.profile ?? preview.profile ?? {};
   const displayName = profile.display_name ?? profile.displayName ?? preview.display_name ?? 'Proposed group Multipass';
   const subjectType = profile.subject_type ?? profile.subjectType ?? preview.subject_type ?? 'group';
@@ -82,8 +82,8 @@ export function renderGroupActivationPreview(preview = {}) {
   </section>`;
 }
 
-export function renderGroupActivationSuccess(result = {}) {
-  if (!result) return '';
+export function renderGroupActivationSuccess(result = null) {
+  if (!hasSuccessData(result)) return '';
   const profileName = result.profile?.display_name ?? result.profile?.displayName ?? 'Group Multipass';
   const sharePath = getSafeGroupSharePath(result);
   const shareMarkup = sharePath
@@ -109,6 +109,17 @@ export function renderGroupActivationError(error) {
     <p>${escapeHtml(structured.message)}</p>
     ${code}${details}
   </section>`;
+}
+
+function hasPreviewData(preview) {
+  return Boolean(
+    preview
+      && (preview.record?.profile || preview.profile || preview.display_name || preview.displayName || preview.subject_type || preview.subjectType || (Array.isArray(preview.members) && preview.members.length > 0)),
+  );
+}
+
+function hasSuccessData(result) {
+  return Boolean(result && (result.profile || result.sharePath || result.slug));
 }
 
 function renderPreviewMember(member = {}) {

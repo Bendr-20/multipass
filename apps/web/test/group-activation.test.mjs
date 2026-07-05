@@ -114,6 +114,53 @@ test('renderGroupActivationSuccess renders share path, safe profile link, and un
   assert.equal(emojiPattern.test(html), false);
 });
 
+test('preview and success helpers render nothing without real data', () => {
+  assert.equal(renderGroupActivationPreview(), '');
+  assert.equal(renderGroupActivationSuccess(), '');
+});
+
+test('group activation helpers escape adversarial content and reject unsafe share paths', () => {
+  const previewHtml = renderGroupActivationPreview({
+    record: {
+      profile: {
+        display_name: '<img src=x onerror=alert(1)>',
+        subject_type: 'swarm<script>alert(1)</script>',
+      },
+    },
+    members: [
+      {
+        name: '<svg onload=alert(1)>',
+        token_id: '1<script>',
+        cred_score: '<b>99</b>',
+        cred_tier: 'Prime<script>',
+        source_status: 'resolved<script>',
+      },
+    ],
+  });
+  const previewRoot = parse(previewHtml);
+  assert.equal(previewRoot.querySelector('img, svg, script'), null);
+  assert.doesNotMatch(previewHtml, /<img|<svg|<script/i);
+  assert.match(previewHtml, /&lt;img/);
+  assert.match(previewHtml, /&lt;svg/);
+
+  for (const unsafePath of [
+    'https://evil.example/multipass/group-1234abcd',
+    '/multipass/../admin',
+    '/multipass/group%2fadmin',
+    'javascript:alert(1)',
+  ]) {
+    const successHtml = renderGroupActivationSuccess({
+      sharePath: unsafePath,
+      slug: 'group-1234abcd',
+      profile: { display_name: '<b>Group</b>' },
+    });
+    const root = parse(successHtml);
+    assert.equal(root.querySelector('a'), null);
+    assert.doesNotMatch(successHtml, /href="https?:|href="javascript:|<b>/i);
+    assert.match(successHtml, /&lt;b&gt;Group&lt;\/b&gt;/);
+  }
+});
+
 test('renderGroupActivationError handles structured API errors', () => {
   const html = renderGroupActivationError({
     details: {
