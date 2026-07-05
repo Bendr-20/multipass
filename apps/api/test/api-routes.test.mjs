@@ -1131,6 +1131,37 @@ test('POST /api/multipass/groups retries one unrelated slug collision with group
   assert.equal(savedRecords.resolveProfile('mp_unrelated_slug_collision').slug, collidingSlug);
 });
 
+test('POST /api/multipass/groups slug retry preserves sourceSnapshot copy that mentions original slug', async () => {
+  const basePayload = groupPayload({ display_name: 'Collision Copy Group', member_ids: ['1', '81'] });
+  const collidingSlug = expectedGroupSlug(basePayload);
+  const payload = {
+    ...basePayload,
+    summary: `Summary keeps ${collidingSlug} as public copy.`,
+    shared_policy_note: `Policy keeps ${collidingSlug} as public copy.`,
+  };
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+    sourceType: 'other_source',
+    canonicalId: 'other:copy-slug-collision',
+    slug: collidingSlug,
+    multipassId: 'mp_unrelated_copy_slug_collision',
+  }));
+  const recordsByTokenId = new Map([
+    ['1', fakeGroupMemberRecord('1')],
+    ['81', fakeGroupMemberRecord('81', { name: `Member keeps ${collidingSlug} literal` })],
+  ]);
+  const { api } = makeGroupApi({ savedRecords, recordsByTokenId });
+
+  const result = await postJson(api, '/api/multipass/groups', payload);
+
+  assert.equal(result.response.status, 201);
+  assert.equal(result.body.slug, `${collidingSlug}-group`);
+  const sourceSnapshot = savedRecords.getSourceContext(result.body.multipass_id).sourceSnapshot;
+  assert.equal(sourceSnapshot.summary, `Summary keeps ${collidingSlug} as public copy.`);
+  assert.equal(sourceSnapshot.sharedPolicyNote, `Policy keeps ${collidingSlug} as public copy.`);
+  assert.equal(sourceSnapshot.memberSummaries[1].name, `Member keeps ${collidingSlug} literal`);
+});
+
 test('POST /api/multipass/groups returns structured conflict after a second unrelated slug collision', async () => {
   const payload = groupPayload({ display_name: 'Double Collision Group', member_ids: ['1', '81'] });
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });

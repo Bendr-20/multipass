@@ -460,10 +460,81 @@ function createGroupRetrySlug(record) {
 
 function cloneRecordWithSlug(record, slug) {
   const currentSlug = String(record?.profile?.slug ?? '').trim();
-  const serialized = JSON.stringify(record);
-  const cloned = JSON.parse(currentSlug ? serialized.split(currentSlug).join(slug) : serialized);
+  const cloned = cloneJsonValue(record);
+
   cloned.profile = { ...cloned.profile, slug };
+  rewriteSlugUrlFields(cloned.profile.discovery_profile, currentSlug, slug);
+
+  rewriteSlugUrlFields(cloned.agentCard, currentSlug, slug);
+  rewriteSlugUrlFields(cloned.standardsProfile, currentSlug, slug);
+
+  for (const fragment of cloned.fragments ?? []) {
+    rewriteSlugUrlFields(fragment.source, currentSlug, slug);
+    rewriteSlugUrlFields(fragment.endpoint_ref, currentSlug, slug);
+    rewriteSlugUrlFields(fragment.verification_ref, currentSlug, slug);
+    rewriteSlugUrlFields(fragment.x401_proof_ref, currentSlug, slug);
+  }
+
   return cloned;
+}
+
+function cloneJsonValue(value) {
+  return typeof structuredClone === 'function'
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value));
+}
+
+function rewriteSlugUrlFields(value, currentSlug, nextSlug) {
+  if (!currentSlug || !nextSlug || !value || typeof value !== 'object') return;
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => rewriteSlugUrlFields(item, currentSlug, nextSlug));
+    return;
+  }
+
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (isSlugUrlField(key)) {
+      value[key] = rewriteGeneratedMultipassSlugUrl(fieldValue, currentSlug, nextSlug);
+    } else if (fieldValue && typeof fieldValue === 'object') {
+      rewriteSlugUrlFields(fieldValue, currentSlug, nextSlug);
+    }
+  }
+}
+
+function isSlugUrlField(key) {
+  return /(?:^|_)(?:url|href|uri|path)$|(?:Url|Href|Uri|Path)$/.test(key);
+}
+
+function rewriteGeneratedMultipassSlugUrl(value, currentSlug, nextSlug) {
+  if (typeof value !== 'string' || !value.includes(currentSlug)) return value;
+
+  const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(value);
+  let url;
+  try {
+    url = new URL(value, 'https://multipass.invalid');
+  } catch {
+    return value;
+  }
+
+  const parts = url.pathname.split('/');
+  let changed = false;
+  for (let index = 1; index < parts.length; index += 1) {
+    if (parts[index - 1] !== 'multipass') continue;
+    let decodedPart;
+    try {
+      decodedPart = decodeURIComponent(parts[index]);
+    } catch {
+      decodedPart = parts[index];
+    }
+    if (decodedPart !== currentSlug) continue;
+    parts[index] = encodeURIComponent(nextSlug);
+    changed = true;
+  }
+
+  if (!changed) return value;
+  url.pathname = parts.join('/');
+  if (isAbsolute) return url.toString();
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function isSavedRecordSlugCollisionError(error) {
