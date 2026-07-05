@@ -27,6 +27,7 @@ export function renderGroupActivationPanel(state = {}) {
   const hasPreview = Boolean(state.preview);
   const isPreviewing = state.status === 'previewing';
   const isSaving = state.status === 'saving';
+  const previewDisabled = isPreviewing || isSaving;
   const saveDisabled = hasPreview && !isSaving ? '' : ' disabled';
   const saveHidden = hasPreview ? '' : ' hidden';
   const previewLabel = isPreviewing ? 'Previewing group Multipass...' : 'Preview group Multipass';
@@ -56,7 +57,7 @@ export function renderGroupActivationPanel(state = {}) {
         <textarea name="shared_policy_note" required rows="3">${escapeHtml(input.shared_policy_note ?? input.sharedPolicyNote ?? '')}</textarea>
       </label>
       <div class="group-activation-actions">
-        <button type="button" data-action="preview-group-multipass"${isPreviewing ? ' disabled' : ''}>${previewLabel}</button>
+        <button type="button" data-action="preview-group-multipass"${previewDisabled ? ' disabled' : ''}>${previewLabel}</button>
         <button type="button" data-action="save-group-multipass"${saveDisabled}${saveHidden}>${saveLabel}</button>
       </div>
     </form>

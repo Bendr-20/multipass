@@ -325,6 +325,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function previewGroupActivation() {
+    if (state.groupActivation?.status === 'saving') return;
     const input = readGroupActivationPayload(root, state.groupActivation);
     const requestId = state.groupActivationRequestId + 1;
     state = {
@@ -356,6 +357,21 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function saveGroupActivation() {
     const input = readGroupActivationPayload(root, state.groupActivation);
     const previous = state.groupActivation ?? createInitialGroupActivationState();
+    if (!previous.preview || !areGroupActivationInputsEqual(input, previous.input)) {
+      state = {
+        ...state,
+        groupActivationRequestId: state.groupActivationRequestId + 1,
+        groupActivation: {
+          status: 'error',
+          input,
+          preview: null,
+          result: null,
+          error: new Error('Preview the current group details before activating.'),
+        },
+      };
+      render(root, state, handlers);
+      return;
+    }
     const requestId = state.groupActivationRequestId + 1;
     state = {
       ...state,
@@ -885,6 +901,10 @@ function normalizeGroupActivationInputObject(input = {}) {
     shared_policy_note: String(input.shared_policy_note ?? input.sharedPolicyNote ?? '').trim(),
     member_ids: normalizeGroupMemberInput(input.member_ids ?? input.memberIds ?? ''),
   };
+}
+
+function areGroupActivationInputsEqual(left = {}, right = {}) {
+  return JSON.stringify(normalizeGroupActivationInputObject(left)) === JSON.stringify(normalizeGroupActivationInputObject(right));
 }
 
 function getManageIdentifier(state) {
