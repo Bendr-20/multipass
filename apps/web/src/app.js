@@ -861,8 +861,8 @@ function defaultLoadDemo({ fetchImpl } = {}) {
   const apiBase = getApiBaseFromLocation(locationUrl);
   const savedSlug = getSavedSlugFromLocation(locationUrl);
   if (isStaticSwarmProfileRoute(locationUrl)) return loadStaticSwarmProfileDemo();
-  if (isPublicAgentsRoute(locationUrl) && shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
-  if (savedSlug && !isPublicAgentsRoute(locationUrl)) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
+  if (isPublicAgentsRoute(locationUrl)) return loadStaticMultipassDemo();
+  if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
   if (shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
 
   return loadMultipassDemo({

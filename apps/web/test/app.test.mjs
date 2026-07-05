@@ -1029,6 +1029,23 @@ test('dedicated agents route renders public agent gallery cards with safe Multip
   assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
+test('production agents route uses the full static gallery instead of the single API demo profile', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/agents');
+  await createApp({
+    root,
+    fetchImpl: async () => {
+      throw new Error('Agents gallery route should not fetch the single-profile API demo.');
+    },
+  }).start();
+
+  const gallery = root.querySelector('.public-agent-gallery');
+  assert.ok(gallery);
+  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
+  assert.match(gallery.textContent, /Bendr 2\.0/);
+  assert.match(gallery.textContent, /Quigbot/);
+  assert.match(gallery.textContent, /Helixa Swarm/);
+});
+
 test('agents route swarm card click opens a standalone swarm Multipass route', async () => {
   const root = setupDom('https://helixa.xyz/multipass/agents');
   const calls = [];
