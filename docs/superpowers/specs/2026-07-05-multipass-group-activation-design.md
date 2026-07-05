@@ -192,7 +192,8 @@ Create `apps/api/src/group-activation.js` with small exported units:
   - Produces the same saved-record bundle shape used by `saveActivatedRecord`.
   - Uses `source.sourceType = "multipass_group"`.
   - Uses a deterministic source canonical ID from subject type, normalized base slug, and ordered member canonical IDs.
-  - Computes a short group fingerprint from subject type, normalized base slug, and ordered member canonical IDs.
+  - Computes a short group fingerprint as the first 8 lowercase hex chars of SHA-256 over `subjectType|baseSlug|canonicalId1,canonicalId2,...`.
+  - Truncates the base slug so `<base-slug>-<fingerprint>` always satisfies the existing slug schema and length limit.
   - Creates stable IDs as `mp_group_<subject-type>_<fingerprint>` and `<base-slug>-<fingerprint>` so the same display name with a different roster cannot collide, and the same roster under a different display-name context also receives a distinct primary key.
   - Creates fragments for roster, shared policy, aggregate Cred context, standards references, and x401 authority metadata.
   - Creates an agent card for the parent group with approval-required contact policy.
