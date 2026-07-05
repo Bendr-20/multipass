@@ -511,7 +511,7 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.deepEqual([...strip.querySelectorAll('a.visual-card-button')].map((link) => link.getAttribute('href')), [
     '/multipass/?agent=1',
     '/multipass/?agent=81',
-    '/multipass/#agent-card-2',
+    '/multipass/swarm/helixa',
   ]);
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/agent/"]'), null);
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
@@ -527,7 +527,7 @@ test('homepage renders public agent gallery cards with safe Multipass links', as
   assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=1"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));
-  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/#agent-card-2"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/swarm/helixa"]'));
   assert.match(gallery.textContent, /Cred/);
   assert.match(gallery.textContent, /Custody/);
   assert.match(gallery.textContent, /Proof/);
@@ -536,7 +536,7 @@ test('homepage renders public agent gallery cards with safe Multipass links', as
   assert.equal(gallery.querySelector('a[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
-test('homepage swarm card click opens static swarm detail instead of reloading home', async () => {
+test('homepage swarm card click opens a standalone swarm Multipass route', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   const calls = [];
   await createApp({
@@ -550,7 +550,7 @@ test('homepage swarm card click opens static swarm detail instead of reloading h
 
   const card = [...root.querySelectorAll('.public-agent-card')].find((candidate) => /Helixa Swarm/.test(candidate.textContent));
   assert.ok(card);
-  assert.notEqual(card.getAttribute('href'), '/multipass/');
+  assert.equal(card.getAttribute('href'), '/multipass/swarm/helixa');
 
   const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
   card.dispatchEvent(click);
@@ -558,13 +558,32 @@ test('homepage swarm card click opens static swarm detail instead of reloading h
 
   assert.equal(click.defaultPrevented, true);
   assert.deepEqual(calls, []);
-  assert.ok(root.querySelector('.product-home-shell'));
-  const detail = root.querySelector('.homepage-selected-agent-detail')?.textContent ?? '';
-  assert.match(detail, /Swarm detail/);
-  assert.match(detail, /Bendr 2\.0/);
-  assert.match(detail, /Phantom Relay/);
-  assert.match(detail, /Permissions pause and tool routes reverify/);
-  assert.equal(window.location.href, 'https://helixa.xyz/multipass/#agent-card-2');
+  assert.equal(root.querySelector('.product-home-shell'), null);
+  assert.equal(root.querySelector('.homepage-selected-agent-detail'), null);
+  const profilePage = root.querySelector('.multipass-profile-page');
+  assert.ok(profilePage);
+  assert.match(profilePage.textContent, /Swarm detail/);
+  assert.match(profilePage.textContent, /Bendr 2\.0/);
+  assert.match(profilePage.textContent, /Phantom Relay/);
+  assert.match(profilePage.textContent, /Permissions pause and tool routes reverify/);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/swarm/helixa');
+});
+
+test('static swarm route loads standalone Multipass page without API calls', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/swarm/helixa');
+  await createApp({
+    root,
+    fetchImpl: async () => {
+      throw new Error('static swarm route must not call the API');
+    },
+  }).start();
+
+  assert.equal(root.querySelector('.product-home-shell'), null);
+  assert.ok(root.querySelector('.multipass-profile-page'));
+  assert.match(root.textContent, /Helixa Swarm/);
+  assert.match(root.textContent, /Swarm detail/);
+  assert.match(root.textContent, /Nox/);
+  assert.doesNotMatch(root.textContent, /E2ETest/);
 });
 
 test('homepage profile card click resolves in place without showing stale profile shell', async () => {

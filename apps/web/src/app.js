@@ -12,6 +12,8 @@ import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
+const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
+
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
   { label: 'Register Agent', href: 'https://helixa.xyz/' },
@@ -702,15 +704,54 @@ function getInitialResolverInput() {
 function getInitialPageKind() {
   if (typeof window === 'undefined') return 'profile';
   const locationUrl = new URL(window.location.href);
+  if (isStaticSwarmProfileRoute(locationUrl)) return 'profile';
   if (getSavedSlugFromLocation(locationUrl)) return 'profile';
   if (locationUrl.searchParams.has('agent')) return 'profile';
   return locationUrl.pathname === '/multipass' || locationUrl.pathname === '/multipass/' ? 'product_home' : 'profile';
+}
+
+function isStaticSwarmProfileRoute(locationUrl) {
+  return locationUrl.pathname === STATIC_SWARM_PROFILE_PATH || locationUrl.pathname === `${STATIC_SWARM_PROFILE_PATH}/`;
+}
+
+async function loadStaticSwarmProfileDemo() {
+  return createStaticSwarmProfileData(await loadStaticMultipassDemo());
+}
+
+function createStaticSwarmProfileData(data, selectedIndex = 2) {
+  const cards = data?.['agentCards'] ?? [];
+  const card = cards[selectedIndex] ?? cards.find((candidate) => candidate.subjectType === 'swarm' || String(candidate.tokenId ?? '') === 'swarm:helixa') ?? cards[0] ?? {};
+  return {
+    ...data,
+    profile: {
+      ...(data?.profile ?? {}),
+      display_name: card.name ?? 'Helixa Swarm',
+      multipass_id: 'mp_helixa_swarm',
+      slug: 'swarm-helixa',
+      subject_type: 'swarm',
+      status: 'static_public_profile',
+    },
+    resolver: {
+      tokenId: String(card.tokenId ?? 'swarm:helixa'),
+      canonicalId: card.helixaId ?? '8453:swarm:helixa',
+    },
+    liveProfilePage: {
+      ...(data?.liveProfilePage ?? {}),
+      headline: `${card.name ?? 'Helixa Swarm'} Multipass`,
+      headerMeta: `Public swarm Multipass · ${card.helixaId ?? '8453:swarm:helixa'}`,
+      sharePath: STATIC_SWARM_PROFILE_PATH,
+    },
+    modeLabel: 'Static Swarm Multipass',
+    sourceLabel: 'static public Multipass route',
+    activation: { state: 'static_profile' },
+  };
 }
 
 function defaultLoadDemo({ fetchImpl } = {}) {
   const locationUrl = new URL(window.location.href);
   const apiBase = getApiBaseFromLocation(locationUrl);
   const savedSlug = getSavedSlugFromLocation(locationUrl);
+  if (isStaticSwarmProfileRoute(locationUrl)) return loadStaticSwarmProfileDemo();
   if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
   if (shouldUseStaticDemo(locationUrl)) return loadStaticMultipassDemo();
 
@@ -934,6 +975,7 @@ function isResolvedProfileView(state) {
   if (state.resolverStatus === 'loaded') return true;
   if (typeof window === 'undefined') return false;
   const locationUrl = new URL(window.location.href);
+  if (isStaticSwarmProfileRoute(locationUrl)) return true;
   if (getSavedSlugFromLocation(locationUrl)) return true;
   return /^\/(profile|agent)\//.test(locationUrl.pathname);
 }
@@ -1022,7 +1064,7 @@ function renderProfilePage(root, state, handlers = {}) {
       ${renderRecordHeader(headerMeta)}
       <main class="multipass-profile-page">
         ${renderAgentAura(visualIdentity, { title: auraTitle, sharePath: auraSharePath })}
-        ${renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state })}
+        ${renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state })}
         <footer class="footer-note">
           <button class="profile-home-button" type="button" data-action="reset-static-demo">Back to Multipass home</button>
           <span>${escapeHtml(['activated', 'saved'].includes(activationState.kind)
@@ -1204,7 +1246,15 @@ function initialsForDisplayName(value) {
   return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? '').join('') || 'MP';
 }
 
-function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, state }) {
+function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state }) {
+  const selectedAgentDetail = selectedAgent?.detailMode === 'swarm'
+    ? renderProfileDrawer('Swarm roster', 'Members, policy references, custody, and transfer behavior', [
+        renderAgentCardDetail(selectedAgent),
+        renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot),
+        renderChangeReviewLedger(selectedAgent.changeReviewLedger),
+        renderTransferPreview(selectedAgent),
+      ].join(''), { open: true })
+    : '';
   const shareAndStatus = [
     data.heroNote ? renderProfileInfoPanel('Profile note', data.heroNote) : '',
     state.resolverStatus === 'loaded' ? '<p class="resolver-message">Live source resolved into an activation preview. No approvals, custody, or authority changes.</p>' : '',
@@ -1233,6 +1283,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
 
   return `
     <section class="profile-detail-drawers" aria-label="Multipass profile details">
+      ${selectedAgentDetail}
       ${renderProfileDrawer('Share and status', 'Public URL and display state', shareAndStatus)}
       ${renderProfileDrawer('Ownership and management', 'Source-owner authority context', claimManagement)}
       ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
@@ -1340,8 +1391,6 @@ function renderProductHome(root, state, handlers = {}) {
       ${renderMultipassWhatItDoesPanel()}
 
       ${renderPublicAgentGallery(agentCarousel, state)}
-
-      ${renderHomepageSelectedAgentDetail(agentCarousel, state)}
     </div>
   `;
 
@@ -1416,23 +1465,6 @@ function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
   `;
 }
 
-function renderHomepageSelectedAgentDetail(carousel, state = {}) {
-  const cards = carousel.cards ?? [];
-  if (!cards.length) return '';
-  const activeIndex = Math.max(0, Math.min(state.selectedAgentCard ?? 0, cards.length - 1));
-  const selectedAgent = cards[activeIndex] ?? cards[0];
-  if (getHomepageMultipassProfileAgent(selectedAgent)) return '';
-
-  return `
-    <section id="agent-card-${activeIndex}" class="homepage-selected-agent-detail" tabindex="-1" aria-label="${escapeAttribute(selectedAgent.name)} Multipass detail">
-      ${renderAgentCardDetail(selectedAgent)}
-      ${renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot)}
-      ${renderChangeReviewLedger(selectedAgent.changeReviewLedger)}
-      ${renderTransferPreview(selectedAgent)}
-    </section>
-  `;
-}
-
 function getHomeProfileResolveAttrs(agent, index) {
   return agent ? ` data-action="resolve-home-profile" data-agent="${escapeAttribute(agent)}" data-index="${index}"` : '';
 }
@@ -1467,8 +1499,7 @@ function getHomepageMultipassProfileHref(card, index = 0) {
   const agent = getHomepageMultipassProfileAgent(card);
   if (agent) return `/multipass/?agent=${encodeURIComponent(agent)}`;
 
-  const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
-  if (card.subjectType === 'swarm' || card.detailMode === 'swarm') return `/multipass/#agent-card-${safeIndex}`;
+  if (card.subjectType === 'swarm' || card.detailMode === 'swarm') return STATIC_SWARM_PROFILE_PATH;
 
   if (card.profileUrl) {
     try {
@@ -1512,12 +1543,33 @@ function bindProductHomeEvents(root, handlers, state) {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       const selectedAgentCard = Number(link.dataset.index);
-      state.selectedAgentCard = Number.isInteger(selectedAgentCard) ? selectedAgentCard : 0;
-      if (typeof window !== 'undefined') window.history?.pushState?.({}, '', `/multipass/#agent-card-${state.selectedAgentCard}`);
-      renderProductHome(root, state, handlers);
-      const detail = root.querySelector(`#agent-card-${state.selectedAgentCard}`);
-      detail?.focus?.();
-      detail?.scrollIntoView?.({ block: 'start' });
+      const nextIndex = Number.isInteger(selectedAgentCard) ? selectedAgentCard : 0;
+      const carousel = createAgentCarousel(state.data);
+      const selectedCard = carousel.cards?.[nextIndex];
+      const href = link.getAttribute('href') || getHomepageMultipassProfileHref(selectedCard, nextIndex);
+      if (selectedCard?.subjectType === 'swarm' || selectedCard?.detailMode === 'swarm') {
+        if (typeof window !== 'undefined') window.history?.pushState?.({}, '', href);
+        state = {
+          ...state,
+          pageKind: 'profile',
+          data: createStaticSwarmProfileData(state.staticData ?? state.data, nextIndex),
+          selectedAgentCard: nextIndex,
+          resolverStatus: null,
+          resolverError: null,
+          resolverInFlightInput: null,
+          lookupMatches: [],
+          saveStatus: null,
+          saveError: null,
+          savedSharePath: null,
+          savedProfile: null,
+          claimStatus: null,
+          claimError: null,
+          claimCsrfToken: null,
+          claimSessionStatus: null,
+          ...clearedRouteState(),
+        };
+        render(root, state, handlers);
+      }
     });
   });
   bindVisualImageFallbacks(root);
