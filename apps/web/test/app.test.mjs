@@ -1017,6 +1017,7 @@ test('dedicated agents route renders public agent gallery cards with safe Multip
   const gallery = root.querySelector('.public-agent-gallery');
   assert.ok(gallery);
   assert.match(gallery.textContent, /Public agent gallery/);
+  assert.doesNotMatch(root.textContent, /without crowding/i);
   assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=1"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));

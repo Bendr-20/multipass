@@ -1676,7 +1676,6 @@ function renderPublicAgentsPage(root, state, handlers = {}) {
       <section class="public-agents-hero" aria-label="Multipass public agents">
         <p class="eyebrow">View agents</p>
         <h1>Public Multipass agents.</h1>
-        <p class="lead">Browse live agent and swarm profiles without crowding the Multipass home page.</p>
       </section>
       ${renderPublicAgentGallery(agentCarousel, state)}
     </div>
