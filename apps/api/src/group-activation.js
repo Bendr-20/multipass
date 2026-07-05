@@ -44,6 +44,38 @@ export function normalizeGroupActivationInput(input = {}) {
   };
 }
 
+export async function resolveGroupMembers(normalized, activationService) {
+  if (typeof activationService !== 'function') {
+    throw new GroupActivationError(
+      'group_member_resolution_unavailable',
+      'Group member resolution is not configured.',
+      503,
+      {},
+    );
+  }
+
+  const records = [];
+  const memberSummaries = [];
+
+  for (const member of normalized.members) {
+    let record;
+    try {
+      record = await activationService(member.tokenId);
+    } catch (error) {
+      throw mapMemberResolutionError(error, member);
+    }
+
+    if (!record) {
+      throw groupMemberNotFound(member);
+    }
+
+    records.push(record);
+    memberSummaries.push(createMemberSummary(member, record));
+  }
+
+  return { records, memberSummaries };
+}
+
 function normalizeSubjectType(value) {
   if (typeof value !== 'string') {
     throwInvalid('subject_type', 'Subject type must be swarm or collection.', {
@@ -155,6 +187,125 @@ function parseMemberId(value, index) {
 
 function toMember(tokenId) {
   return { tokenId, canonicalId: `${CHAIN_ID}:${tokenId}` };
+}
+
+function createMemberSummary(member, record) {
+  const sourceSnapshot = record?.sourceContext?.sourceSnapshot ?? {};
+
+  return {
+    name: firstNonEmptyString(record?.profile?.display_name, record?.agentCard?.name) ?? `AgentDNA ${member.tokenId}`,
+    token_id: member.tokenId,
+    canonical_id: member.canonicalId,
+    cred_score: extractCredScore(record, sourceSnapshot),
+    cred_tier: firstNonEmptyString(sourceSnapshot.credTier, sourceSnapshot.tier, sourceSnapshot.cred_tier) ?? null,
+    source_status: 'resolved',
+    profile_url: firstNonEmptyString(sourceSnapshot.profileUrl, sourceSnapshot.profile_url) ?? null,
+  };
+}
+
+function extractCredScore(record, sourceSnapshot) {
+  const credSummary = record?.profile?.cred_summary;
+  const profileScore = extractCredSummaryScore(credSummary);
+  if (profileScore !== null) return profileScore;
+  return normalizeCredScore(sourceSnapshot.credScore ?? sourceSnapshot.cred_score);
+}
+
+function extractCredSummaryScore(credSummary) {
+  if (credSummary === undefined || credSummary === null) return null;
+  if (typeof credSummary === 'number' || typeof credSummary === 'string') {
+    return normalizeCredScore(credSummary);
+  }
+  if (!isPlainObject(credSummary)) return null;
+
+  return normalizeCredScore(
+    credSummary.score
+      ?? credSummary.cred_score
+      ?? credSummary.credScore
+      ?? credSummary.value,
+  );
+}
+
+function normalizeCredScore(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (!normalized) return null;
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function mapMemberResolutionError(error, member) {
+  if (isNotFoundError(error)) {
+    return groupMemberNotFound(member, error);
+  }
+
+  if (isRateLimitError(error)) {
+    return new GroupActivationError(
+      'group_member_rate_limited',
+      `Group member ${member.canonicalId} could not be resolved because the resolver is rate-limited.`,
+      429,
+      memberErrorDetails(member, error),
+    );
+  }
+
+  return new GroupActivationError(
+    'group_member_resolution_unavailable',
+    `Group member ${member.canonicalId} could not be resolved because the resolver is unavailable.`,
+    503,
+    memberErrorDetails(member, error),
+  );
+}
+
+function groupMemberNotFound(member, error = null) {
+  return new GroupActivationError(
+    'group_member_not_found',
+    `Group member ${member.canonicalId} was not found in the public Helixa AgentDNA source.`,
+    404,
+    memberErrorDetails(member, error),
+  );
+}
+
+function memberErrorDetails(member, error = null) {
+  const details = {
+    token_id: member.tokenId,
+    canonical_id: member.canonicalId,
+  };
+  const resolverStatus = resolverStatusCode(error);
+  if (resolverStatus) {
+    details.resolver_status = resolverStatus;
+  }
+  return details;
+}
+
+function isNotFoundError(error) {
+  if (resolverStatusCode(error) === 404) return true;
+  const code = String(error?.code ?? '').toLowerCase();
+  const message = String(error?.message ?? '').toLowerCase();
+  return code.includes('not_found') || code.includes('notfound') || /\bnot found\b|no helixa agent|\b404\b/.test(message);
+}
+
+function isRateLimitError(error) {
+  if (resolverStatusCode(error) === 429) return true;
+  const code = String(error?.code ?? '').toLowerCase();
+  const message = String(error?.message ?? '').toLowerCase();
+  return code.includes('rate') || /rate[- ]?limit|too many requests|\b429\b/.test(message);
+}
+
+function resolverStatusCode(error) {
+  const status = error?.status ?? error?.statusCode ?? error?.response?.status;
+  return Number.isInteger(status) ? status : null;
 }
 
 function throwInvalidMemberId(value, index) {
