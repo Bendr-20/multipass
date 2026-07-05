@@ -59,6 +59,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     toolError: null,
     toolActiveFragmentId: null,
     groupActivation: createInitialGroupActivationState(),
+    groupActivationRequestId: 0,
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -139,6 +140,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimCsrfToken: null,
       claimSessionStatus: null,
       groupActivation: createInitialGroupActivationState(),
+      groupActivationRequestId: state.groupActivationRequestId + 1,
       ...clearedRouteState(),
     };
     const requestId = state.resolverRequestId;
@@ -227,6 +229,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       claimCsrfToken: null,
       claimSessionStatus: null,
       groupActivation: createInitialGroupActivationState(),
+      groupActivationRequestId: state.groupActivationRequestId + 1,
       ...clearedRouteState(),
     };
     render(root, state, handlers);
@@ -323,8 +326,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function previewGroupActivation() {
     const input = readGroupActivationPayload(root, state.groupActivation);
+    const requestId = state.groupActivationRequestId + 1;
     state = {
       ...state,
+      groupActivationRequestId: requestId,
       groupActivation: { status: 'previewing', input, preview: null, result: null, error: null },
     };
     render(root, state, handlers);
@@ -332,12 +337,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const preview = await previewGroupMultipass(input, { apiBase, fetchImpl });
+      if (state.groupActivationRequestId !== requestId) return;
       state = {
         ...state,
         groupActivation: { status: 'previewed', input, preview, result: null, error: null },
       };
       render(root, state, handlers);
     } catch (error) {
+      if (state.groupActivationRequestId !== requestId) return;
       state = {
         ...state,
         groupActivation: { status: 'error', input, preview: null, result: null, error },
@@ -349,8 +356,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function saveGroupActivation() {
     const input = readGroupActivationPayload(root, state.groupActivation);
     const previous = state.groupActivation ?? createInitialGroupActivationState();
+    const requestId = state.groupActivationRequestId + 1;
     state = {
       ...state,
+      groupActivationRequestId: requestId,
       groupActivation: { ...previous, status: 'saving', input, result: null, error: null },
     };
     render(root, state, handlers);
@@ -358,12 +367,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const result = await saveGroupMultipass(input, { apiBase, fetchImpl });
+      if (state.groupActivationRequestId !== requestId) return;
       state = {
         ...state,
         groupActivation: { ...state.groupActivation, status: 'saved', input, result, error: null },
       };
       render(root, state, handlers);
     } catch (error) {
+      if (state.groupActivationRequestId !== requestId) return;
       state = {
         ...state,
         groupActivation: { ...previous, status: 'error', input, result: null, error },
@@ -373,7 +384,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   function resetGroupActivation() {
-    state = { ...state, groupActivation: createInitialGroupActivationState() };
+    state = {
+      ...state,
+      groupActivation: createInitialGroupActivationState(),
+      groupActivationRequestId: state.groupActivationRequestId + 1,
+    };
     render(root, state, handlers);
   }
 

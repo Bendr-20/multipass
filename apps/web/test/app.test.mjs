@@ -750,6 +750,64 @@ test('group activation save calls client and renders deterministic safe share pa
   assert.equal(success.querySelector('a[href^="https://"]'), null);
 });
 
+test('group activation reset ignores stale preview responses', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  let resolvePreview;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => new Promise((resolve) => { resolvePreview = resolve; }),
+  }).start();
+
+  fillGroupActivationForm(root);
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(10);
+  assert.match(root.querySelector('.group-activation-panel')?.textContent ?? '', /Previewing group Multipass/);
+
+  root.querySelector('[data-action="reset-group-multipass"]').click();
+  resolvePreview(new Response(JSON.stringify(groupPreviewResponse()), { status: 200 }));
+  await flushAsyncEvents(50);
+
+  assert.equal(root.querySelector('.group-activation-preview'), null);
+  assert.equal(root.querySelector('.group-activation-error'), null);
+  assert.equal(root.querySelector('[name="display_name"]')?.value, '');
+  assert.equal(root.querySelector('[data-action="save-group-multipass"]')?.hasAttribute('disabled'), true);
+});
+
+test('group activation reset ignores stale save responses', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  let resolveSave;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/api/multipass/groups/preview')) {
+        return new Response(JSON.stringify(groupPreviewResponse()), { status: 200 });
+      }
+      if (String(url).endsWith('/api/multipass/groups')) {
+        return new Promise((resolve) => { resolveSave = resolve; });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  }).start();
+
+  fillGroupActivationForm(root);
+  root.querySelector('[data-action="preview-group-multipass"]').click();
+  await flushAsyncEvents(50);
+  root.querySelector('[data-action="save-group-multipass"]').click();
+  await flushAsyncEvents(10);
+  assert.match(root.querySelector('.group-activation-panel')?.textContent ?? '', /Activating group Multipass/);
+
+  root.querySelector('[data-action="reset-group-multipass"]').click();
+  resolveSave(new Response(JSON.stringify(groupSaveResponse()), { status: 201 }));
+  await flushAsyncEvents(50);
+
+  assert.equal(root.querySelector('.group-activation-success'), null);
+  assert.equal(root.querySelector('.group-activation-error'), null);
+  assert.equal(root.querySelector('[name="display_name"]')?.value, '');
+  assert.equal(root.querySelector('[data-action="save-group-multipass"]')?.hasAttribute('disabled'), true);
+});
+
 test('group activation saved route renders parent Multipass roster context instead of agent-only copy', async () => {
   const root = setupDom('https://helixa.xyz/multipass/helixa-collection-9c41a2?api=https://api.example.test');
   await createApp({ root, fetchImpl: savedGroupProfileFetch }).start();
