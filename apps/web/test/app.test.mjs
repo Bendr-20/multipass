@@ -583,6 +583,9 @@ test('static swarm route loads standalone Multipass page without API calls', asy
   assert.match(root.textContent, /Helixa Swarm/);
   assert.match(root.textContent, /Swarm detail/);
   assert.match(root.textContent, /Nox/);
+  const auraImage = root.querySelector('.aura-card img');
+  assert.equal(auraImage?.getAttribute('src'), 'https://helixa.xyz/multipass/helixa-logo.png');
+  assert.equal(auraImage?.getAttribute('alt'), 'Helixa logo swarm identity');
   assert.doesNotMatch(root.textContent, /E2ETest/);
 });
 

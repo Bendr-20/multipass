@@ -734,6 +734,11 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Prime",
       "verified": true,
       "profileUrl": "https://helixa.xyz/swarm/helixa",
+      "visual": {
+        "imageUrl": "https://helixa.xyz/multipass/helixa-logo.png",
+        "label": "Helixa logo swarm identity",
+        "tone": "swarm"
+      },
       "subjectType": "swarm",
       "members": 5,
       "role": "Parent Multipass",

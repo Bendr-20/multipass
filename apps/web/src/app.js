@@ -1195,7 +1195,7 @@ function createProfileVisualIdentity(data, selectedAgent) {
   const imageUrl = managerAvatarUrl
     ?? selectedAgent?.visual?.imageUrl
     ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null);
-  const visualSourceLabel = managerAvatarUrl ? 'Manager public avatar URL' : (tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials');
+  const visualSourceLabel = managerAvatarUrl ? 'Manager public avatar URL' : (selectedAgent?.visual?.label ?? (tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials'));
   const chips = [
     helixaId,
     selectedAgent?.credLabel,
@@ -1205,7 +1205,7 @@ function createProfileVisualIdentity(data, selectedAgent) {
 
   return {
     source: 'helixa_aura',
-    label: `${name} visual identity`,
+    label: selectedAgent?.visual?.label ?? `${name} visual identity`,
     initials: selectedAgent?.visual?.initials ?? initialsForDisplayName(name),
     tone: selectedAgent?.visual?.tone ?? String(data.profile?.cred_summary?.trust_state ?? 'pending').toLowerCase(),
     imageUrl,

@@ -29,6 +29,11 @@ test('static Helixa Swarm demo uses approved public roster only', () => {
   assert.equal(swarm.members, 5);
   assert.deepEqual(swarm.roster.map((member) => member.name), ['Bendr 2.0', 'Quigbot', 'Helixa', 'Phantom Relay', 'Nox']);
   assert.deepEqual(swarm.roster.map((member) => member.role), ['Lead Agent / Trust Router', 'Product / Strategy Agent', 'Protocol / Identity Agent', 'Routing / Relay Agent', 'Ops / Safety Agent']);
+  assert.deepEqual(swarm.visual, {
+    imageUrl: 'https://helixa.xyz/multipass/helixa-logo.png',
+    label: 'Helixa logo swarm identity',
+    tone: 'swarm',
+  });
 
   const publicDemoText = JSON.stringify(STATIC_DEMO_DATA);
   assert.doesNotMatch(publicDemoText, /E2ETest/);
