@@ -173,6 +173,43 @@ function sampleData() {
   };
 }
 
+function okxMarketplacePresence(overrides = {}) {
+  const base = {
+    marketplace: 'OKX.AI',
+    listingId: '1965',
+    profileUrl: 'https://www.okx.ai/agents/1965',
+    status: 'public_metadata',
+    source: {
+      label: 'Public marketplace metadata',
+      url: 'https://www.okx.ai/agents/1965',
+      checkedAt: '2026-07-05T21:45:02Z',
+      provenance: 'public marketplace metadata',
+    },
+    services: [
+      {
+        name: 'CertiK Security APIs',
+        price: '0.001 USDT',
+        endpointUrl: 'https://skills-for-okx.certik.com/api/services',
+      },
+    ],
+    paymentRails: [
+      { asset: 'USDT', mode: 'x402 marketplace checkout', chain: 'X Layer 196' },
+    ],
+    reputation: { score: '5.0', positiveRate: '100%', soldCount: '53', reviewCount: '1' },
+    facts: [{ label: 'Marketplace/payment chain', value: 'X Layer 196' }],
+  };
+  return {
+    ...base,
+    ...overrides,
+    source: { ...base.source, ...(overrides.source ?? {}) },
+    proof: overrides.proof,
+    services: overrides.services ?? base.services,
+    paymentRails: overrides.paymentRails ?? base.paymentRails,
+    reputation: { ...base.reputation, ...(overrides.reputation ?? {}) },
+    facts: overrides.facts ?? base.facts,
+  };
+}
+
 function samplePublicTools() {
   return {
     schema_version: '0.1.0',
@@ -2220,6 +2257,162 @@ test('marketplace listing renderer does not link unsafe URLs', async () => {
   assert.equal(listing.querySelector('a[href^="javascript:"]'), null);
   assert.match(listing.textContent, /Unsafe/);
   assert.match(listing.textContent, /Unsafe link/);
+});
+
+test('profile Trust context renders marketplace presence cards from public metadata', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = { ...sampleData(), marketplacePresence: [null, {}, { marketplace: 'Empty marketplace' }, okxMarketplacePresence()] };
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const trustDrawer = profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context');
+  const panel = trustDrawer.querySelector('.marketplace-presence-panel');
+  assert.ok(panel);
+  assert.ok(trustDrawer.contains(panel));
+  assert.equal(panel.querySelectorAll('.marketplace-presence-card').length, 1);
+  assert.doesNotMatch(panel.textContent, /Empty marketplace/);
+  assert.match(panel.textContent, /Marketplace Presence/);
+  assert.match(panel.textContent, /OKX\.AI/);
+  assert.match(panel.textContent, /Listing ID/);
+  assert.match(panel.textContent, /1965/);
+  assert.match(panel.textContent, /CertiK Security APIs/);
+  assert.match(panel.textContent, /0\.001 USDT/);
+  assert.match(panel.textContent, /x402 marketplace checkout/);
+  assert.match(panel.textContent, /X Layer 196/);
+  assert.match(panel.textContent, /5\.0/);
+  assert.match(panel.textContent, /100%/);
+  assert.match(panel.textContent, /53/);
+  assert.match(panel.textContent, /1/);
+  assert.match(panel.textContent, /2026-07-05T21:45:02Z/);
+  assert.match(panel.textContent, /Public marketplace metadata only/);
+});
+
+test('marketplace presence links only render safe public URLs', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = {
+    ...sampleData(),
+    marketplacePresence: [okxMarketplacePresence({
+      profileUrl: 'javascript:alert(1)',
+      source: { url: 'https://source.example.test/public/1965' },
+      services: [{ name: 'Private endpoint test', price: '0.001 USDT', endpointUrl: 'https://user:pass@example.com/private' }],
+    })],
+  };
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const panel = root.querySelector('.marketplace-presence-panel');
+  assert.ok(panel);
+  assert.equal(panel.querySelector('a[href^="javascript:"]'), null);
+  assert.equal(panel.querySelector('a[href="https://user:pass@example.com/private"]'), null);
+  assert.doesNotMatch(panel.innerHTML, /user:pass/);
+  const safeSource = panel.querySelector('a[href="https://source.example.test/public/1965"]');
+  assert.ok(safeSource);
+  assert.equal(safeSource.getAttribute('target'), '_blank');
+  assert.match(safeSource.getAttribute('rel') ?? '', /noopener/);
+  assert.match(safeSource.getAttribute('rel') ?? '', /noreferrer/);
+});
+
+test('marketplace presence skips empty data while preserving routes and legacy marketplace listing', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = {
+    ...sampleData(),
+    marketplacePresence: [],
+    fragments: {
+      ...sampleData().fragments,
+      fragments: [
+        ...sampleData().fragments.fragments,
+        {
+          fragment_id: 'frag_presence_route_safe',
+          fragment_type: 'endpoint',
+          status: 'pending',
+          assurance_level: 'self_attested',
+          visibility: 'public',
+          transfer_policy: 'pause_on_transfer',
+          source: { source_type: 'owner_submission', issuer: null },
+          public_value: 'Marketplace-safe route',
+          endpoint_ref: { endpoint_id: 'marketplace-safe-route', url: 'https://helixa.xyz/multipass/bendr-2-1', protocol: 'web' },
+          updated_at: '2026-07-05T21:40:00Z',
+        },
+      ],
+    },
+    marketplaceListing: {
+      title: 'Legacy marketplace listing',
+      summary: 'Compatibility panel stays visible.',
+      identity: { verifiedLabel: 'Verified AgentDNA' },
+      score: { tier: 'Preferred', label: 'Cred 80' },
+      routes: [],
+      paymentReferences: [],
+      proof: { publicFragmentCount: 0, verifiedSignalCount: 0, reviewRequiredCount: 0, privateCredentialState: 'No secrets or private credentials exposed' },
+      links: [],
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const trustDrawer = profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context');
+  assert.equal(trustDrawer.querySelector('.marketplace-presence-panel'), null);
+  assert.ok(trustDrawer.querySelector('.public-routes-panel'));
+  assert.ok(trustDrawer.querySelector('.marketplace-listing'));
+});
+
+test('marketplace presence only renders platform verified with verified source evidence', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = {
+    ...sampleData(),
+    marketplacePresence: [
+      okxMarketplacePresence({ listingId: 'claimed-only', status: 'platform_verified', source: { url: '' } }),
+      okxMarketplacePresence({
+        listingId: 'verified-source',
+        source: { url: 'https://source.example.test/verified/1965' },
+        proof: { assurance: 'platform_verified' },
+      }),
+    ],
+  };
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const cards = [...root.querySelectorAll('.marketplace-presence-card')];
+  const claimedOnly = cards.find((card) => card.textContent.includes('claimed-only'));
+  const verifiedSource = cards.find((card) => card.textContent.includes('verified-source'));
+  assert.ok(claimedOnly);
+  assert.ok(verifiedSource);
+  assert.doesNotMatch(claimedOnly.textContent, /Platform verified source/);
+  assert.match(claimedOnly.textContent, /Public metadata/);
+  assert.match(verifiedSource.textContent, /Platform verified source/);
+});
+
+test('marketplace presence safety copy avoids authority payment and credential overclaims', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = { ...sampleData(), marketplacePresence: [okxMarketplacePresence()] };
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const copy = root.querySelector('.marketplace-presence-panel')?.textContent.toLowerCase() ?? '';
+  for (const phrase of [
+    'payment proves trust',
+    'private credentials available',
+    'acts on behalf',
+    'executes tools',
+    'custody transfer',
+    'authority over marketplace account',
+    'official okx integration',
+  ]) {
+    assert.equal(copy.includes(phrase), false, phrase);
+  }
+});
+
+test('static Multipass profile includes OKX-style marketplace presence metadata', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/swarm/helixa');
+
+  await createApp({ root, prefetchProfiles: false }).start();
+
+  const trustDrawer = profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Trust context');
+  const panel = trustDrawer.querySelector('.marketplace-presence-panel');
+  assert.ok(panel);
+  assert.match(panel.textContent, /OKX\.AI/);
+  assert.match(panel.textContent, /X Layer 196/);
+  assert.match(panel.textContent, /public marketplace metadata/i);
+  assert.doesNotMatch(panel.textContent, /official OKX integration/i);
 });
 
 test('public profile button restores Multipass home after live resolve from homepage', async () => {

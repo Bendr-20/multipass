@@ -781,5 +781,33 @@ export const STATIC_DEMO_DATA = {
         { "event": "Private credentials hidden", "source": "Private vault", "impact": "No secrets or private credentials exposed", "reviewState": "No public action" }
       ]
     }
+  ],
+  "marketplacePresence": [
+    {
+      "marketplace": "OKX.AI",
+      "listingId": "1965",
+      "profileUrl": "https://www.okx.ai/agents/1965",
+      "status": "public_metadata",
+      "source": {
+        "label": "Public marketplace metadata",
+        "url": "https://www.okx.ai/agents/1965",
+        "checkedAt": "2026-07-05T21:45:02Z",
+        "provenance": "public marketplace metadata"
+      },
+      "services": [
+        {
+          "name": "CertiK Security APIs",
+          "price": "0.001 USDT",
+          "endpointUrl": "https://skills-for-okx.certik.com/api/services"
+        }
+      ],
+      "paymentRails": [
+        { "asset": "USDT", "mode": "x402 marketplace checkout", "chain": "X Layer 196" }
+      ],
+      "reputation": { "score": "5.0", "positiveRate": "100%", "soldCount": "53", "reviewCount": "1" },
+      "facts": [
+        { "label": "Marketplace/payment chain", "value": "X Layer 196" }
+      ]
+    }
   ]
 };

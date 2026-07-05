@@ -1543,7 +1543,8 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
     'No dedicated visual provenance has been published for this profile yet.'
   );
   const publicRoutes = renderPublicRoutesPanel(data);
-  const trustContext = [publicRoutes, renderMarketplaceListing(data.marketplaceListing)].filter(Boolean).join('') || renderProfileInfoPanel(
+  const marketplacePresence = renderMarketplacePresencePanel(data);
+  const trustContext = [publicRoutes, marketplacePresence, renderMarketplaceListing(data.marketplaceListing)].filter(Boolean).join('') || renderProfileInfoPanel(
     'Trust context',
     'Marketplace and route compatibility context is not published for this profile yet. Public proof remains available below.'
   );
@@ -2596,6 +2597,228 @@ function renderTransferStep(label, value) {
       <strong>${escapeHtml(value)}</strong>
     </article>
   `;
+}
+
+function renderMarketplacePresencePanel(data) {
+  const cards = getMarketplacePresenceEntries(data)
+    .map(normalizeMarketplacePresenceEntry)
+    .filter(Boolean);
+
+  if (!cards.length) return '';
+
+  return `
+    <section class="marketplace-presence-panel" aria-label="Marketplace Presence">
+      <div class="marketplace-presence-heading">
+        <p class="card-label">Marketplace Presence</p>
+        <h3>Portable marketplace context.</h3>
+        <p>Public marketplace metadata for portable trust context. These references do not execute marketplace actions or prove trust by payment alone.</p>
+      </div>
+      <div class="marketplace-presence-list">
+        ${cards.map(renderMarketplacePresenceCard).join('')}
+      </div>
+      <p class="marketplace-presence-safety">Public marketplace metadata only. Viewing does not execute marketplace actions, change authority, call tools, release credentials, or prove trust by payment alone.</p>
+    </section>
+  `;
+}
+
+function getMarketplacePresenceEntries(data) {
+  if (Array.isArray(data?.marketplacePresence)) return data.marketplacePresence;
+  if (Array.isArray(data?.profile?.marketplacePresence)) return data.profile.marketplacePresence;
+  return [];
+}
+
+function normalizeMarketplacePresenceEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+
+  const marketplace = firstPresentText(entry.marketplace, entry.marketplaceName, entry.platform, entry.name);
+  const listingId = firstPresentText(entry.listingId, entry.listing_id, entry.id);
+  const profileUrl = firstPresentText(entry.profileUrl, entry.profile_url, entry.url);
+  const source = normalizeMarketplacePresenceSource(entry);
+  const services = normalizeMarketplacePresenceServices(entry.services ?? entry.serviceListings ?? entry.offerings);
+  const paymentRails = normalizeMarketplacePresencePaymentRails(entry.paymentRails ?? entry.payment_rails ?? entry.payments);
+  const reputation = normalizeMarketplacePresenceReputation(entry.reputation ?? entry.reputationFacts ?? entry.stats);
+  const facts = normalizeMarketplacePresenceFacts(entry.facts ?? entry.provenanceFacts);
+  const status = firstPresentText(entry.status, entry.state);
+
+  const hasRenderableContext = [listingId, profileUrl, source.url, source.checkedAt, source.provenance, status].some(Boolean)
+    || services.length > 0
+    || paymentRails.length > 0
+    || marketplacePresenceReputationFacts(reputation).length > 0
+    || facts.length > 0;
+
+  if (!marketplace || !hasRenderableContext) return null;
+
+  return { marketplace, listingId, profileUrl, source, services, paymentRails, reputation, facts, status, proof: entry.proof };
+}
+
+function normalizeMarketplacePresenceSource(entry) {
+  const source = entry?.source && typeof entry.source === 'object' && !Array.isArray(entry.source) ? entry.source : {};
+  return {
+    label: firstPresentText(source.label, source.name, entry.sourceLabel, 'Source'),
+    url: firstPresentText(source.url, source.reference_url, entry.sourceUrl, entry.source_url),
+    checkedAt: firstPresentText(source.checkedAt, source.checked_at, source.observed_at, entry.checkedAt, entry.checked_at),
+    provenance: firstPresentText(source.provenance, source.type, source.source_type, entry.provenance),
+  };
+}
+
+function normalizeMarketplacePresenceServices(services) {
+  if (!Array.isArray(services)) return [];
+  return services.map((service) => {
+    if (typeof service === 'string') return { name: service, price: '', endpointUrl: '' };
+    if (!service || typeof service !== 'object' || Array.isArray(service)) return null;
+    const name = firstPresentText(service.name, service.label, service.service);
+    const price = firstPresentText(service.price, service.priceLabel, service.price_label);
+    const endpointUrl = firstPresentText(service.endpointUrl, service.endpoint_url, service.url);
+    return name || price || endpointUrl ? { name: name || 'Marketplace service', price, endpointUrl } : null;
+  }).filter(Boolean);
+}
+
+function normalizeMarketplacePresencePaymentRails(paymentRails) {
+  if (!Array.isArray(paymentRails)) return [];
+  return paymentRails.map((rail) => {
+    if (typeof rail === 'string') return { asset: rail, mode: '', chain: '' };
+    if (!rail || typeof rail !== 'object' || Array.isArray(rail)) return null;
+    const asset = firstPresentText(rail.asset, rail.token, rail.rail);
+    const mode = firstPresentText(rail.mode, rail.paymentMode, rail.payment_mode, rail.label);
+    const chain = firstPresentText(rail.chain, rail.network, rail.chainLabel, rail.chain_label);
+    return asset || mode || chain ? { asset, mode, chain } : null;
+  }).filter(Boolean);
+}
+
+function normalizeMarketplacePresenceReputation(reputation) {
+  const source = reputation && typeof reputation === 'object' && !Array.isArray(reputation) ? reputation : {};
+  return {
+    score: firstPresentText(source.score, source.rating),
+    positiveRate: firstPresentText(source.positiveRate, source.positive_rate, source.positive),
+    soldCount: firstPresentText(source.soldCount, source.sold_count, source.sold, source.sales),
+    reviewCount: firstPresentText(source.reviewCount, source.review_count, source.reviews),
+  };
+}
+
+function normalizeMarketplacePresenceFacts(facts) {
+  if (!Array.isArray(facts)) return [];
+  return facts.map((fact) => {
+    if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return null;
+    const label = firstPresentText(fact.label, fact.name);
+    const value = firstPresentText(fact.value, fact.text);
+    return label && value ? { label, value } : null;
+  }).filter(Boolean);
+}
+
+function marketplacePresenceReputationFacts(reputation) {
+  return [
+    { label: 'Score', value: reputation.score },
+    { label: 'Positive rate', value: reputation.positiveRate },
+    { label: 'Sold', value: reputation.soldCount },
+    { label: 'Reviews', value: reputation.reviewCount },
+  ].filter((fact) => fact.value);
+}
+
+function renderMarketplacePresenceCard(card) {
+  const verifiedSourceUrl = getPlatformVerifiedMarketplacePresenceSourceUrl(card);
+  const statusLabel = verifiedSourceUrl ? 'Platform verified source' : 'Public metadata';
+  const statusLink = verifiedSourceUrl ? renderSafeLink(statusLabel, verifiedSourceUrl) : escapeHtml(statusLabel);
+  const provenanceFacts = [
+    { label: 'Marketplace', value: card.marketplace },
+    { label: 'Listing ID', value: card.listingId || 'Not published' },
+    { label: 'Status', html: statusLink },
+    { label: 'Source checked', value: card.source.checkedAt || 'Not published' },
+    { label: 'Provenance', value: card.source.provenance || 'Public marketplace metadata' },
+    ...card.facts,
+  ];
+
+  return `
+    <article class="marketplace-presence-card" data-listing-id="${escapeAttribute(card.listingId || '')}">
+      <div class="marketplace-presence-card-head">
+        <div>
+          <p class="card-label">Marketplace</p>
+          <h4>${escapeHtml(card.marketplace)}</h4>
+        </div>
+        <div class="marketplace-presence-links">
+          ${card.profileUrl ? renderSafeLink('Marketplace profile', card.profileUrl) : ''}
+          ${card.source.url ? renderSafeLink(card.source.label || 'Source', card.source.url) : ''}
+        </div>
+      </div>
+      <div class="marketplace-presence-facts">
+        ${provenanceFacts.map(renderMarketplacePresenceFact).join('')}
+      </div>
+      ${renderMarketplacePresenceServices(card.services)}
+      ${renderMarketplacePresencePaymentRails(card.paymentRails)}
+      ${renderMarketplacePresenceReputation(card.reputation)}
+    </article>
+  `;
+}
+
+function renderMarketplacePresenceFact(fact) {
+  return `
+    <article class="marketplace-presence-fact">
+      <span>${escapeHtml(fact?.label ?? '')}</span>
+      <strong>${fact?.html ?? escapeHtml(fact?.value ?? 'Not published')}</strong>
+    </article>
+  `;
+}
+
+function renderMarketplacePresenceServices(services) {
+  if (!services.length) return '';
+  return `
+    <section class="marketplace-presence-subsection">
+      <h5>Services</h5>
+      <div class="marketplace-presence-service-list">
+        ${services.map((service) => `
+          <article class="marketplace-presence-service">
+            <strong>${escapeHtml(service.name || 'Marketplace service')}</strong>
+            ${service.price ? `<span>${escapeHtml(service.price)}</span>` : ''}
+            ${isRenderablePublicUrl(service.endpointUrl) ? renderSafeLink('Endpoint', service.endpointUrl) : ''}
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderMarketplacePresencePaymentRails(paymentRails) {
+  if (!paymentRails.length) return '';
+  return `
+    <section class="marketplace-presence-subsection">
+      <h5>Payment rails</h5>
+      <div class="marketplace-presence-chip-list">
+        ${paymentRails.map((rail) => [rail.asset, rail.mode, rail.chain]
+          .filter(Boolean)
+          .map((value) => `<span class="marketplace-presence-chip">${escapeHtml(value)}</span>`)
+          .join('')).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderMarketplacePresenceReputation(reputation) {
+  const facts = marketplacePresenceReputationFacts(reputation);
+  if (!facts.length) return '';
+  return `
+    <section class="marketplace-presence-subsection">
+      <h5>Reputation facts</h5>
+      <div class="marketplace-presence-facts compact">
+        ${facts.map(renderMarketplacePresenceFact).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function getPlatformVerifiedMarketplacePresenceSourceUrl(card) {
+  const proof = card?.proof && typeof card.proof === 'object' && !Array.isArray(card.proof) ? card.proof : null;
+  if (String(proof?.assurance ?? '').toLowerCase() !== 'platform_verified') return '';
+  const proofSource = proof.source && typeof proof.source === 'object' && !Array.isArray(proof.source) ? proof.source : {};
+  const sourceUrl = firstPresentText(proofSource.url, proofSource.reference_url, proof.sourceUrl, proof.source_url, card.source?.url);
+  return isRenderablePublicUrl(sourceUrl) ? sourceUrl : '';
+}
+
+function firstPresentText(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 function renderMarketplaceListing(listing) {

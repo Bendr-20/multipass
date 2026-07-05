@@ -1217,6 +1217,159 @@ h1 {
   font-size: 13px;
 }
 
+.marketplace-presence-panel {
+  margin: 28px 0;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(47, 125, 85, 0.08), transparent 32%),
+    linear-gradient(180deg, var(--paper), rgba(255, 250, 241, 0.82));
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.marketplace-presence-heading {
+  max-width: 760px;
+  margin-bottom: 18px;
+}
+
+.marketplace-presence-heading h3 {
+  margin-bottom: 8px;
+  font-size: clamp(1.7rem, 4vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.055em;
+}
+
+.marketplace-presence-heading p:last-child {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.marketplace-presence-list {
+  display: grid;
+  gap: 14px;
+}
+
+.marketplace-presence-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 241, 0.84);
+  padding: 18px;
+}
+
+.marketplace-presence-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--soft-line);
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+
+.marketplace-presence-card h4 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.marketplace-presence-links,
+.marketplace-presence-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.marketplace-presence-links a,
+.marketplace-presence-links span,
+.marketplace-presence-chip,
+.marketplace-presence-service a {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--charcoal);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.marketplace-presence-links a,
+.marketplace-presence-service a {
+  color: var(--blue);
+}
+
+.marketplace-presence-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.marketplace-presence-facts.compact {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.marketplace-presence-fact,
+.marketplace-presence-service {
+  min-width: 0;
+  border: 1px solid var(--soft-line);
+  background: var(--paper-soft);
+  padding: 12px;
+}
+
+.marketplace-presence-fact span,
+.marketplace-presence-subsection h5,
+.marketplace-presence-service span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.marketplace-presence-fact strong,
+.marketplace-presence-fact a,
+.marketplace-presence-service strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.marketplace-presence-subsection {
+  margin-top: 14px;
+}
+
+.marketplace-presence-service-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.marketplace-presence-service {
+  display: grid;
+  gap: 8px;
+}
+
+.marketplace-presence-service span {
+  margin: 0;
+  color: var(--brass);
+}
+
+.marketplace-presence-safety {
+  margin: 16px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .marketplace-listing {
   margin: 28px 0;
   border: 1px solid var(--line);
@@ -1887,6 +2040,7 @@ h1 {
 .profile-detail-drawer-body > .save-panel,
 .profile-detail-drawer-body > .claim-management-panel,
 .profile-detail-drawer-body > .aura-provenance-drawer,
+.profile-detail-drawer-body > .marketplace-presence-panel,
 .profile-detail-drawer-body > .marketplace-listing,
 .profile-detail-drawer-body > .public-tools-panel,
 .profile-detail-drawer-body > .fragment-map,
@@ -2965,9 +3119,25 @@ h1 {
     text-align: center;
   }
 
+  .marketplace-presence-panel,
   .marketplace-listing {
     margin: 22px 0;
     padding: 18px;
+  }
+
+  .marketplace-presence-card-head {
+    display: grid;
+    gap: 12px;
+  }
+
+  .marketplace-presence-card h4 {
+    font-size: 24px;
+  }
+
+  .marketplace-presence-facts,
+  .marketplace-presence-facts.compact,
+  .marketplace-presence-service-list {
+    grid-template-columns: 1fr;
   }
 
   .listing-shell {
