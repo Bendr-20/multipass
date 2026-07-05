@@ -899,6 +899,25 @@ test('group activation saved route renders parent Multipass roster context inste
   assert.doesNotMatch(profile.textContent, /frag_group_collection_9c41a2/);
 });
 
+test('group parent owner command center uses parent metadata controls copy', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/helixa-collection-9c41a2?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedGroupProfileFetch }).start();
+
+  const commandCenters = root.querySelectorAll('.claim-management-panel');
+  assert.equal(commandCenters.length, 1);
+  const panel = commandCenters[0];
+  assert.match(panel.textContent, /Owner Command Center/);
+  assert.match(panel.textContent, /parent Multipass/i);
+  assert.match(panel.textContent, /group metadata/i);
+  assert.match(panel.textContent, /roster/i);
+  assert.match(panel.textContent, /policy/i);
+  assert.match(panel.textContent, /public proof fragments/i);
+  assert.match(panel.textContent, /source-owner proof/i);
+  assert.match(panel.textContent, /manual review/i);
+  assert.doesNotMatch(panel.textContent, /public agent profile|agent-only|stable public agent profile/i);
+  assert.doesNotMatch(panel.textContent, /owns member|acts for member|acts on behalf|executes tools|can execute tools|releases credentials|private credentials available|payment proves trust|buys trust|buy trust|trust purchased|custody transferred|transfer ownership|grants authority/i);
+});
+
 test('group activation safety wording scan avoids authority payment and credential claims', async () => {
   const homepage = setupDom('https://helixa.xyz/multipass/');
   await createApp({ homepage, root: homepage, loadDemo: async () => sampleData() }).start();

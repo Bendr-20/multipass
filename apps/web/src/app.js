@@ -1981,28 +1981,29 @@ function renderClaimManagementPanel(state) {
   const canEdit = Boolean(state.claimCsrfToken);
   const claimButtonLabel = getClaimButtonLabel(state);
   const walletUnconfigured = state.walletSnapshot?.configured === false;
+  const copy = getClaimManagementCopy({ profile, canEdit, walletUnconfigured });
   return `
     <section class="owner-command-center claim-management-panel" aria-label="Owner Command Center">
       <section class="owner-command-overview" data-command-section="overview" aria-label="Owner command overview">
         <div class="owner-command-copy">
           <p class="card-label">Owner Command Center</p>
           <h2>Owner Command Center</h2>
-          <p>Manage safe public metadata controls for this saved Multipass profile. This does not transfer custody. It does not call tools, grant access, release credentials, or prove trust by payment alone.</p>
+          <p>${escapeHtml(copy.overview)}</p>
         </div>
         ${renderOwnerCommandFacts({ status, profile, ownerSummary })}
         <div class="owner-command-control-note">
           <h3>What you control</h3>
-          <p>You control safe public metadata: display fields, visibility, route cards, and public proof fragments. Private credentials and source authority stay outside this panel.</p>
+          <p>${escapeHtml(copy.controlNote)}</p>
         </div>
         <div class="owner-command-next">
           <h3>Next best action</h3>
-          <p>${escapeHtml(getOwnerCommandNextAction({ canEdit, walletUnconfigured }))}</p>
+          <p>${escapeHtml(copy.nextAction)}</p>
         </div>
         <div class="owner-command-unlock">
           <div class="claim-management-copy">
             <p class="card-label">Claim management</p>
-            <h3>Manage safe public profile fields.</h3>
-            <p>Owner-wallet verification or manual review can unlock public profile edits only. This does not transfer custody, tools, credentials, or ownership.</p>
+            <h3>${escapeHtml(copy.claimHeading)}</h3>
+            <p>${escapeHtml(copy.claimSummary)}</p>
             <div class="claim-status-row">
               <span>Status</span>
               <strong>${escapeHtml(status)}</strong>
@@ -2016,19 +2017,47 @@ function renderClaimManagementPanel(state) {
             <form class="manual-review-form" data-action="submit-manual-review">
               <label><span>Manager wallet for review</span><input name="proposedManagerWallet" placeholder="0x..." autocomplete="off" /></label>
               <label><span>Contact route</span><input name="contactRoute" placeholder="agentmail:team@example.test" autocomplete="off" /></label>
-              <label><span>Review note</span><textarea name="note" rows="2" placeholder="Why this wallet should manage public fields"></textarea></label>
+              <label><span>Review note</span><textarea name="note" rows="2" placeholder="${escapeAttribute(copy.reviewPlaceholder)}"></textarea></label>
               <button type="submit">Request manual review</button>
             </form>
           </div>
         </div>
         ${renderOwnerDashboardPanel(profile, state)}
       </section>
-      ${canEdit ? `<section class="owner-command-section" data-command-section="profile" aria-label="Public profile controls">${renderPublicProfileEditForm(profile, state)}</section>` : ''}
+      ${canEdit ? `<section class="owner-command-section" data-command-section="profile" aria-label="${escapeAttribute(copy.profileControlsLabel)}">${renderPublicProfileEditForm(profile, state)}</section>` : ''}
       ${canEdit ? `<section class="owner-command-section" data-command-section="routes" aria-label="Public route controls">${renderPublicRoutesManagerPanel(state)}</section>` : ''}
       ${renderToolRegistryPanel(state)}
       ${canEdit ? `<section class="owner-command-section" data-command-section="fragments" aria-label="Public fragment controls">${renderFragmentManagerPanel(state)}</section>` : ''}
     </section>
   `;
+}
+
+function getClaimManagementCopy({ profile, canEdit, walletUnconfigured }) {
+  if (isGroupParentSubject(profile)) {
+    return {
+      overview: 'Manage safe public group metadata controls for this parent Multipass. This does not transfer custody. It does not call tools, grant access, release credentials, or prove trust by payment alone.',
+      controlNote: 'You control safe public group metadata: display fields, visibility, route cards, roster and policy notes, and public proof fragments. Private credentials, member authority, and source authority stay outside this panel.',
+      nextAction: getGroupOwnerCommandNextAction({ canEdit, walletUnconfigured }),
+      claimHeading: 'Manage safe parent Multipass fields.',
+      claimSummary: 'Source-owner proof or manual review can unlock group metadata edits only. This does not transfer custody, tools, credentials, member authority, or ownership.',
+      reviewPlaceholder: 'Why this wallet should manage public group metadata',
+      profileControlsLabel: 'Parent Multipass metadata controls',
+      profileFieldHelp: 'Safe public group metadata fields for this parent Multipass.',
+      avatarHelp: 'Updates the public parent Multipass visual only. HTTPS only; leave blank to clear it. This does not change custody, tools, credentials, ownership, member authority, or source AgentDNA records.',
+    };
+  }
+
+  return {
+    overview: 'Manage safe public metadata controls for this saved Multipass profile. This does not transfer custody. It does not call tools, grant access, release credentials, or prove trust by payment alone.',
+    controlNote: 'You control safe public metadata: display fields, visibility, route cards, and public proof fragments. Private credentials and source authority stay outside this panel.',
+    nextAction: getOwnerCommandNextAction({ canEdit, walletUnconfigured }),
+    claimHeading: 'Manage safe public profile fields.',
+    claimSummary: 'Owner-wallet verification or manual review can unlock public profile edits only. This does not transfer custody, tools, credentials, or ownership.',
+    reviewPlaceholder: 'Why this wallet should manage public fields',
+    profileControlsLabel: 'Public profile controls',
+    profileFieldHelp: 'Safe public fields for the saved Multipass profile.',
+    avatarHelp: 'Updates the public Multipass visual only. HTTPS only; leave blank to clear it. This does not change custody, tools, credentials, ownership, or the source AgentDNA record.',
+  };
 }
 
 function renderOwnerCommandFacts({ status, profile, ownerSummary }) {
@@ -2047,6 +2076,17 @@ function getOwnerCommandNextAction({ canEdit, walletUnconfigured }) {
   if (canEdit) return 'Review public profile fields, route cards, and proof fragments before publishing new discovery metadata.';
   if (walletUnconfigured) return 'Request manual review while wallet login is unavailable for this build.';
   return 'Connect the owner wallet or request manual review to unlock public metadata edits.';
+}
+
+function getGroupOwnerCommandNextAction({ canEdit, walletUnconfigured }) {
+  if (canEdit) return 'Review parent display fields, route cards, roster and policy notes, and public proof fragments before publishing new discovery metadata.';
+  if (walletUnconfigured) return 'Request manual review while wallet login is unavailable for this build.';
+  return 'Connect the source-owner wallet or request manual review to unlock group metadata edits.';
+}
+
+function isGroupParentSubject(profile = {}) {
+  const subjectType = String(profile.subject_type ?? profile.subjectType ?? '').toLowerCase();
+  return ['swarm', 'collection'].includes(subjectType);
 }
 
 function renderToolRegistryPanel(state) {
@@ -2074,14 +2114,16 @@ function renderPublicProfileEditForm(profile, state) {
   const summary = profile.summary ?? discovery.summary ?? '';
   const avatarUrl = profile.avatar_url ?? discovery.avatar_url ?? '';
   const tags = Array.isArray(profile.tags) ? profile.tags : (Array.isArray(discovery.tags) ? discovery.tags : []);
+  const copy = getClaimManagementCopy({ profile, canEdit: Boolean(state.claimCsrfToken), walletUnconfigured: state.walletSnapshot?.configured === false });
+  const isGroup = isGroupParentSubject(profile);
   return `
     <form class="public-profile-edit-form" data-action="update-public-profile" aria-label="Edit public Multipass profile">
-      <p class="card-label">Edit public profile</p>
-      <p class="field-help">Safe public fields for the saved Multipass profile.</p>
+      <p class="card-label">${isGroup ? 'Edit parent Multipass' : 'Edit public profile'}</p>
+      <p class="field-help">${escapeHtml(copy.profileFieldHelp)}</p>
       <label><span>Display name</span><input name="display_name" value="${escapeAttribute(profile.display_name ?? '')}" /></label>
       <label><span>Summary</span><textarea name="summary" rows="3">${escapeHtml(summary)}</textarea></label>
       <label><span>Profile image URL</span><input name="avatar_url" value="${escapeAttribute(avatarUrl)}" placeholder="https://..." /></label>
-      <p class="field-help profile-field-helper">Updates the public Multipass visual only. HTTPS only; leave blank to clear it. This does not change custody, tools, credentials, ownership, or the source AgentDNA record.</p>
+      <p class="field-help profile-field-helper">${escapeHtml(copy.avatarHelp)}</p>
       <label><span>Tags</span><input name="tags" value="${escapeAttribute(tags.join(', '))}" /></label>
       <label><span>Visibility</span>${renderVisibilitySelect(ownerSummary.visibility ?? 'public')}</label>
       <div class="profile-edit-actions">

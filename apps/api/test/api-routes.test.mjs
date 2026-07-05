@@ -459,6 +459,10 @@ function makeGroupApi(options = {}) {
       savedRecords,
       baseUrl: 'https://multipass.example.test',
       activationService,
+      allowedOrigins: options.allowedOrigins,
+      adminSecret: options.adminSecret,
+      fetchImpl: options.fetchImpl,
+      signatureVerifier: options.signatureVerifier,
     }),
   };
 }
@@ -1201,6 +1205,88 @@ test('saved group x401 route exposes Helixa group authority proof metadata', asy
   assert.equal(x401.body.x401_supported, true);
   assert.equal(x401.body.trusted_issuers[0].issuer_id, 'helixa');
   assert.equal(x401.body.proof_requirements[0].requirement_id, 'group_authority');
+});
+
+test('saved group standards-profile alias serves the public standards document', async () => {
+  const { api } = makeGroupApi();
+  const saved = await postJson(api, '/api/multipass/groups', groupPayload());
+
+  const canonical = await requestJson(api, `/api/multipass/${saved.body.slug}/standards`);
+  const alias = await requestJson(api, `/api/multipass/${saved.body.slug}/standards-profile`);
+
+  assert.equal(canonical.response.status, 200);
+  assert.equal(alias.response.status, 200);
+  assert.deepEqual(alias.body, canonical.body);
+  assert.equal(alias.body.multipass_id, saved.body.multipass_id);
+  assert.ok(alias.body.standard_refs.some((ref) => ref.standard_id === 'ERC-8004'));
+});
+
+test('group parent manager controls allow review-approved public edits without mutating imported roster proof', async () => {
+  const { api } = makeGroupApi({
+    adminSecret: 'test-admin-secret',
+    signatureVerifier: async ({ wallet, message, signature }) => {
+      assert.match(message, /Helixa Multipass claim management/);
+      return signature === `valid:${wallet.toLowerCase()}`;
+    },
+  });
+  const saved = await postJson(api, '/api/multipass/groups', groupPayload());
+  assert.equal(saved.response.status, 201);
+
+  const pending = await postJsonWithHeaders(api, `/api/multipass/${saved.body.slug}/claim/verify`, {
+    mode: 'manual_review',
+    proposedManagerWallet: MANAGER_WALLET,
+    contactRoute: 'agentmail:team@example.test',
+    note: 'Approve the team wallet for safe public group metadata edits.',
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(pending.response.status, 202);
+  assert.equal(pending.body.claim_status, 'claim_pending');
+  assert.equal(pending.response.headers.get('set-cookie'), null);
+  assert.match(pending.body.profile.owner_summary.summary, /does not transfer custody, tools, credentials, or ownership/i);
+
+  const approved = await postJsonWithHeaders(api, `/api/admin/multipass/${saved.body.slug}/claims/${pending.body.claim.claim_id}/approve`, {}, {
+    origin: 'https://multipass.example.test',
+    'x-admin-secret': 'test-admin-secret',
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(approved.body.claim_status, 'claimed_review_approved');
+
+  const nonce = await postJsonWithHeaders(api, `/api/multipass/${saved.body.slug}/claim/nonce`, {}, { origin: 'https://multipass.example.test' });
+  const session = await postJsonWithHeaders(api, `/api/multipass/${saved.body.slug}/claim/verify`, {
+    mode: 'wallet_signature',
+    wallet: MANAGER_WALLET,
+    nonce: nonce.body.nonce,
+    signature: `valid:${MANAGER_WALLET.toLowerCase()}`,
+  }, { origin: 'https://multipass.example.test' });
+  assert.equal(session.response.status, 200);
+  assert.equal(session.body.claim_status, 'claimed_review_approved');
+  const headers = {
+    origin: 'https://multipass.example.test',
+    cookie: session.response.headers.get('set-cookie'),
+    'x-csrf-token': session.body.csrfToken,
+  };
+
+  const edited = await patchJsonWithHeaders(api, `/api/multipass/${saved.body.slug}/profile`, {
+    display_name: 'Helixa Swarm Managed',
+    summary: 'Managed public parent Multipass metadata for the Helixa Swarm.',
+    avatar_url: 'https://assets.example.test/helixa-swarm.png',
+    tags: ['helixa', 'swarm', 'managed'],
+  }, headers);
+  assert.equal(edited.response.status, 200);
+  assert.deepEqual(edited.body.changedFields, ['display_name', 'summary', 'avatar_url', 'tags']);
+  assert.equal(edited.body.profile.subject_type, 'swarm');
+  assert.equal(edited.body.profile.display_name, 'Helixa Swarm Managed');
+
+  const fragments = await requestJson(api, `/api/multipass/${saved.body.slug}/fragments`);
+  const roster = fragments.body.fragments.find((fragment) => fragment.fragment_id.includes('_roster'));
+  assert.ok(roster);
+  const readOnlyRosterEdit = await patchJsonWithHeaders(api, `/api/multipass/${saved.body.slug}/fragments/${roster.fragment_id}`, {
+    public_value: 'Manager should not rewrite imported roster proof.',
+  }, headers);
+  assert.equal(readOnlyRosterEdit.response.status, 403);
+  assert.equal(readOnlyRosterEdit.body.error.code, 'forbidden');
+
+  const bodyText = JSON.stringify({ pending: pending.body, approved: approved.body, edited: edited.body, readOnlyRosterEdit: readOnlyRosterEdit.body });
+  assert.doesNotMatch(bodyText, /custody transferred|transfer ownership|executes tools|private credential access|payment proves trust|authority over members/i);
 });
 
 test('POST /api/multipass/groups persists group sourceSnapshot through the API path', async () => {

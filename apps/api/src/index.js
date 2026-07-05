@@ -931,7 +931,7 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
     return jsonOrNotFound(decorateAgentCardForDiscovery(agentCard, profile, normalizedBaseUrl), 'Agent card not found.');
   }
 
-  if (readParts.resource === 'standards' && !readParts.resourceId) {
+  if ((readParts.resource === 'standards' || readParts.resource === 'standards-profile') && !readParts.resourceId) {
     return jsonOrNotFound(sourceStore.getStandardsProfile(profile.multipass_id), 'Standards profile not found.');
   }
 
