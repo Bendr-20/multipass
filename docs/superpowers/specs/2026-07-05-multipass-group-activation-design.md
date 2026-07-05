@@ -130,6 +130,20 @@ Response body:
 
 Creates or returns a durable saved group Multipass record.
 
+Request body is the same public payload as preview. The server must not trust a client-supplied preview record. It re-normalizes input, re-resolves members, rebuilds the saved bundle, and then persists or returns the existing record. There is no preview token in V0.
+
+Request body:
+
+```json
+{
+  "subject_type": "swarm",
+  "display_name": "Helixa Swarm",
+  "summary": "Public parent Multipass for the core Helixa agent team.",
+  "member_ids": ["1", "81", "1066"],
+  "shared_policy_note": "Owner approval required for shared routes and public tool policy changes."
+}
+```
+
 Response body mirrors existing save semantics:
 
 ```json
@@ -137,10 +151,10 @@ Response body mirrors existing save semantics:
   "schema_version": "0.1.0",
   "state": "saved_group_unclaimed",
   "created": true,
-  "multipass_id": "mp_group_helixa_swarm",
-  "slug": "helixa-swarm",
+  "multipass_id": "mp_group_swarm_9c41a2",
+  "slug": "helixa-swarm-9c41a2",
   "profile": {},
-  "sharePath": "/multipass/helixa-swarm"
+  "sharePath": "/multipass/helixa-swarm-9c41a2"
 }
 ```
 
@@ -151,20 +165,22 @@ Create `apps/api/src/group-activation.js` with small exported units:
 - `normalizeGroupActivationInput(input)`
   - Validates subject type, display name, summary, member IDs, and policy note.
   - Accepts only `swarm` or `collection`.
-  - Normalizes IDs to Base AgentDNA token IDs or `8453:<token>` canonical IDs.
+  - Normalizes IDs to Base AgentDNA token IDs and `8453:<token>` canonical IDs.
+  - Rejects duplicate members after normalization with a validation error.
   - Enforces a practical V0 member limit of 2 to 24 records.
 
 - `resolveGroupMembers(input, activationService)`
   - Calls the existing read-only activation service for each member.
   - Uses member profile/card/source data from the returned records.
   - Fails the preview if any member cannot resolve.
-  - Deduplicates members by canonical ID.
+  - Preserves the normalized member order after duplicate validation so roster copy is predictable.
 
 - `buildGroupActivationRecord(normalizedInput, resolvedMembers, options)`
   - Produces the same saved-record bundle shape used by `saveActivatedRecord`.
   - Uses `source.sourceType = "multipass_group"`.
-  - Uses a deterministic source canonical ID from subject type, normalized slug, and member canonical IDs.
-  - Creates a stable `multipass_id` and slug.
+  - Uses a deterministic source canonical ID from subject type, normalized base slug, and ordered member canonical IDs.
+  - Computes a short roster fingerprint from subject type plus ordered member canonical IDs.
+  - Creates stable IDs as `mp_group_<subject-type>_<fingerprint>` and `<base-slug>-<fingerprint>` so the same display name with a different roster cannot collide.
   - Creates fragments for roster, shared policy, aggregate Cred context, standards references, and x401 authority metadata.
   - Creates an agent card for the parent group with approval-required contact policy.
   - Creates a standards profile with member `ERC-8004` refs where available.
@@ -174,7 +190,7 @@ Create `apps/api/src/group-activation.js` with small exported units:
 - `createGroupActivationPreview(input, options)`
   - Normalizes, resolves, builds, and returns the unsaved record plus member summaries.
 
-`apps/api/src/index.js` should route the two new endpoints and pass the existing activation service and saved records. The existing saved-record store can persist the record without a new table because the bundle matches the current shape.
+`apps/api/src/index.js` should route the two new endpoints and pass the existing activation service and saved records. The existing saved-record store can persist the record without a new table because the bundle matches the current shape. If `saveActivatedRecord` hits the same `source_type + source_canonical_id`, return the existing record. If a slug collision still happens for an unrelated legacy record, retry once with `<base-slug>-<fingerprint>-group`; otherwise return a structured conflict error rather than mutating another profile.
 
 ## Data Model
 
@@ -213,7 +229,24 @@ Fragments:
   - One public reference per resolved member when the source record includes ERC-8004 context.
 - x401 fragment:
   - `fragment_type`: `verification_result`
-  - Explains required human or owner authorization for group-level authority.
+  - `status`: `pending` until a real issuer or owner proof is presented
+  - `assurance_level`: `issuer_attested`
+  - `public_value`: explains required human or owner authorization for group-level authority
+  - `verification_ref`: `{ "verification_type": "x401_group_authority", "result": "inconclusive", "issuer": "Helixa", "risk_level": "medium", "score": null }`
+  - `x401_proof_ref` must include the fields required by the current schema and derivation path:
+    - `protocol`: `x401`
+    - `issuer_id`: `helixa`
+    - `issuer_name`: `Helixa`
+    - `requirement_id`: `group_authority`
+    - `credential_format`: `openid4vp`
+    - `claim_types`: `["delegated_authority", "group_membership"]`
+    - `scope`: `Satisfy owner or delegated-authority proof before group-level high-trust or paid action.`
+    - `result`: `inconclusive`
+    - `header_names`: `{ "request": "PROOF-REQUEST", "response": "PROOF-RESPONSE", "result": "PROOF-RESULT" }`
+    - `required_before_payment`: `true`
+    - `private_credential_state`: `not_exposed`
+
+`deriveX401ManifestFromFragments` should return `x401_supported: true` for saved group records because this public fragment carries `x401_proof_ref.protocol = "x401"`.
 
 The saved profile must not expose raw `frag_...` IDs in default human copy. IDs may remain in JSON and explicit proof views.
 
@@ -257,6 +290,31 @@ Validation errors should be clear and user-facing:
 
 Failures must not create partial saved records.
 
+API error responses should follow the existing JSON error style:
+
+```json
+{
+  "schema_version": "0.1.0",
+  "error": {
+    "code": "invalid_group_activation",
+    "message": "At least two unique members are required.",
+    "details": {
+      "field": "member_ids"
+    }
+  }
+}
+```
+
+Expected status/code mapping:
+
+- `400 invalid_group_activation`: validation errors, invalid member format, duplicate normalized member, too few or too many members.
+- `404 group_member_not_found`: a member ID is valid but Helixa has no matching AgentDNA record.
+- `409 group_slug_conflict`: deterministic slug fallback could not avoid a unique slug collision.
+- `429 group_member_rate_limited`: Helixa API rate-limited member resolution.
+- `503 group_member_resolution_unavailable`: Helixa API or resolver dependency unavailable.
+
+Preview and save both fail the whole request for unresolved members. The UI may render these server errors as blocking preview/save errors, but the server does not return a partial preview as success.
+
 ## Testing
 
 Use TDD before implementation.
@@ -265,13 +323,13 @@ API tests:
 
 - `normalizeGroupActivationInput` accepts swarm and collection.
 - Invalid subject type fails.
-- Member IDs normalize and dedupe.
+- Member IDs normalize and duplicate normalized members are rejected.
 - Preview resolves members through a fake activation service.
 - Preview fails if one member fails.
-- Build output passes SDK assertions for profile, fragments, agent card, standards, x402, and receipts.
+- Build output passes SDK assertions for profile, fragments, agent card, standards, x401, x402, and receipts.
 - Save endpoint creates a durable group record.
 - Re-saving the same normalized group returns the existing record.
-- x401 endpoint works for saved group records.
+- x401 endpoint works for saved group records and returns `x401_supported: true`, trusted issuer `helixa`, and proof requirement `group_authority`.
 
 Web tests:
 
@@ -279,7 +337,7 @@ Web tests:
 - Form builds the expected payload from comma and newline member input.
 - Preview renders member names, token IDs, group type, and safety copy.
 - Invalid input renders a useful error.
-- Save success renders `/multipass/<slug>`.
+- Save success renders the deterministic fingerprinted `/multipass/<slug>` path.
 - Saved group profile route renders as a parent Multipass, not an agent profile.
 - No copy implies custody transfer, tool execution, private credential access, or payment execution.
 
