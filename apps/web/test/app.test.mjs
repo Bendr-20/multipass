@@ -2355,6 +2355,29 @@ test('profile Trust context renders Marketplace Connections cards from public me
   assert.match(panel.textContent, /Optional public marketplace metadata only/);
 });
 
+test('public renderer renders derived Marketplace Connection title and summary', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = {
+    ...sampleData(),
+    fragments: { fragments: [{
+      fragment_id: 'frag_marketplace_bankr',
+      fragment_type: 'attestation',
+      status: 'pending',
+      assurance_level: 'self_attested',
+      visibility: 'public',
+      source: { source_type: 'owner_submission', issuer: null, observed_at: '2026-07-06T00:00:00.000Z', reference_url: 'https://bankr.bot/agents/helixa' },
+      marketplace_ref: { marketplace: 'Bankr', profile_url: 'https://bankr.bot/agents/helixa', title: 'Helixa agent profile', summary: 'Public marketplace listing for Helixa services.', listing_id: 'helixa', status: 'manager_supplied' },
+    }] },
+    marketplacePresence: [{ marketplace: 'Bankr', profileUrl: 'https://bankr.bot/agents/helixa/', title: 'Old explicit', summary: 'Old summary.', status: 'public_import' }],
+  };
+  await createApp({ root, loadDemo: async () => data }).start();
+  const panel = root.querySelector('.marketplace-presence-panel');
+  assert.match(panel.textContent, /Helixa agent profile/);
+  assert.match(panel.textContent, /Public marketplace listing for Helixa services/);
+  assert.doesNotMatch(panel.textContent, /Old explicit/);
+  assert.equal(panel.querySelectorAll('.marketplace-presence-card').length, 1);
+});
+
 test('marketplace presence links only render safe public URLs', async () => {
   const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
   const data = {

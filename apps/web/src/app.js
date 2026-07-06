@@ -4,6 +4,7 @@ import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-reso
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
+import { getMarketplacePresenceEntries } from './marketplace-presence.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
@@ -2685,9 +2686,7 @@ function renderTransferStep(label, value) {
 }
 
 function renderMarketplacePresencePanel(data) {
-  const cards = getMarketplacePresenceEntries(data)
-    .map(normalizeMarketplacePresenceEntry)
-    .filter(Boolean);
+  const cards = getMarketplacePresenceEntries(data);
   const optionalSources = ['OKX.AI', 'OpenSea', 'Bankr', 'ACP', 'direct x402'];
 
   return `
@@ -2719,91 +2718,6 @@ function renderMarketplacePresenceEmptyState(optionalSources) {
   `;
 }
 
-function getMarketplacePresenceEntries(data) {
-  if (Array.isArray(data?.marketplacePresence)) return data.marketplacePresence;
-  if (Array.isArray(data?.profile?.marketplacePresence)) return data.profile.marketplacePresence;
-  return [];
-}
-
-function normalizeMarketplacePresenceEntry(entry) {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-
-  const marketplace = firstPresentText(entry.marketplace, entry.marketplaceName, entry.platform, entry.name);
-  const listingId = firstPresentText(entry.listingId, entry.listing_id, entry.id);
-  const profileUrl = firstPresentText(entry.profileUrl, entry.profile_url, entry.url);
-  const source = normalizeMarketplacePresenceSource(entry);
-  const services = normalizeMarketplacePresenceServices(entry.services ?? entry.serviceListings ?? entry.offerings);
-  const paymentRails = normalizeMarketplacePresencePaymentRails(entry.paymentRails ?? entry.payment_rails ?? entry.payments);
-  const reputation = normalizeMarketplacePresenceReputation(entry.reputation ?? entry.reputationFacts ?? entry.stats);
-  const facts = normalizeMarketplacePresenceFacts(entry.facts ?? entry.provenanceFacts);
-  const status = firstPresentText(entry.status, entry.state);
-
-  const hasRenderableContext = [listingId, profileUrl, source.url, source.checkedAt, source.provenance, status].some(Boolean)
-    || services.length > 0
-    || paymentRails.length > 0
-    || marketplacePresenceReputationFacts(reputation).length > 0
-    || facts.length > 0;
-
-  if (!marketplace || !hasRenderableContext) return null;
-
-  return { marketplace, listingId, profileUrl, source, services, paymentRails, reputation, facts, status, proof: entry.proof };
-}
-
-function normalizeMarketplacePresenceSource(entry) {
-  const source = entry?.source && typeof entry.source === 'object' && !Array.isArray(entry.source) ? entry.source : {};
-  return {
-    label: firstPresentText(source.label, source.name, entry.sourceLabel, 'Source'),
-    url: firstPresentText(source.url, source.reference_url, entry.sourceUrl, entry.source_url),
-    checkedAt: firstPresentText(source.checkedAt, source.checked_at, source.observed_at, entry.checkedAt, entry.checked_at),
-    provenance: firstPresentText(source.provenance, source.type, source.source_type, entry.provenance),
-  };
-}
-
-function normalizeMarketplacePresenceServices(services) {
-  if (!Array.isArray(services)) return [];
-  return services.map((service) => {
-    if (typeof service === 'string') return { name: service, price: '', paymentMode: '', endpointUrl: '' };
-    if (!service || typeof service !== 'object' || Array.isArray(service)) return null;
-    const name = firstPresentText(service.name, service.label, service.service);
-    const price = firstPresentText(service.price, service.priceLabel, service.price_label);
-    const paymentMode = firstPresentText(service.paymentMode, service.payment_mode, service.mode);
-    const endpointUrl = firstPresentText(service.endpointUrl, service.endpoint_url, service.url);
-    return name || price || paymentMode || endpointUrl ? { name: name || 'Marketplace service', price, paymentMode, endpointUrl } : null;
-  }).filter(Boolean);
-}
-
-function normalizeMarketplacePresencePaymentRails(paymentRails) {
-  if (!Array.isArray(paymentRails)) return [];
-  return paymentRails.map((rail) => {
-    if (typeof rail === 'string') return { asset: rail, mode: '', chain: '' };
-    if (!rail || typeof rail !== 'object' || Array.isArray(rail)) return null;
-    const asset = firstPresentText(rail.asset, rail.token, rail.rail);
-    const mode = firstPresentText(rail.mode, rail.paymentMode, rail.payment_mode, rail.label);
-    const chain = firstPresentText(rail.chain, rail.network, rail.chainLabel, rail.chain_label);
-    return asset || mode || chain ? { asset, mode, chain } : null;
-  }).filter(Boolean);
-}
-
-function normalizeMarketplacePresenceReputation(reputation) {
-  const source = reputation && typeof reputation === 'object' && !Array.isArray(reputation) ? reputation : {};
-  return {
-    score: firstPresentText(source.score, source.rating),
-    positiveRate: firstPresentText(source.positiveRate, source.positive_rate, source.positive),
-    soldCount: firstPresentText(source.soldCount, source.sold_count, source.sold, source.sales),
-    reviewCount: firstPresentText(source.reviewCount, source.review_count, source.reviews),
-  };
-}
-
-function normalizeMarketplacePresenceFacts(facts) {
-  if (!Array.isArray(facts)) return [];
-  return facts.map((fact) => {
-    if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return null;
-    const label = firstPresentText(fact.label, fact.name);
-    const value = firstPresentText(fact.value, fact.text);
-    return label && value ? { label, value } : null;
-  }).filter(Boolean);
-}
-
 function marketplacePresenceReputationFacts(reputation) {
   return [
     { label: 'Score', value: reputation.score },
@@ -2831,7 +2745,8 @@ function renderMarketplacePresenceCard(card) {
       <div class="marketplace-presence-card-head">
         <div>
           <p class="card-label">Marketplace</p>
-          <h4>${escapeHtml(card.marketplace)}</h4>
+          <h4>${escapeHtml(card.title || card.marketplace)}</h4>
+          ${card.summary ? `<p>${escapeHtml(card.summary)}</p>` : ''}
         </div>
         <div class="marketplace-presence-links">
           ${card.profileUrl ? renderSafeLink('Marketplace profile', card.profileUrl) : ''}
