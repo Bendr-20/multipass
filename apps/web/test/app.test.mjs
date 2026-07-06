@@ -1047,11 +1047,15 @@ test('homepage renders agent visuals without extra context copy', async () => {
   const quigbotVisual = strip.querySelector('a.visual-card-button[href="/multipass/?agent=81"]')?.querySelector('img[data-visual-card-image="true"]');
   assert.equal(quigbotVisual?.getAttribute('src'), 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432');
   assert.doesNotMatch(strip.innerHTML, /api\.helixa\.xyz\/api\/v2\/aura\/81\.png/);
-  assert.ok(root.querySelector('.product-hero-copy')?.contains(strip));
+  const heroCard = root.querySelector('.product-hero-copy');
+  assert.ok(heroCard?.contains(strip));
   const heroMain = root.querySelector('.product-hero-main');
+  const actions = root.querySelector('.homepage-actions');
   assert.ok(heroMain);
-  assert.ok(heroMain.contains(root.querySelector('.homepage-actions')));
+  assert.ok(actions);
+  assert.ok(heroMain.contains(actions));
   assert.equal(heroMain.nextElementSibling, strip);
+  assert.equal(actions.compareDocumentPosition(strip) & root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING, root.ownerDocument.defaultView.Node.DOCUMENT_POSITION_FOLLOWING);
   assert.match(strip.textContent, /Bendr 2\.0/);
   assert.match(strip.textContent, /Quigbot/);
 });

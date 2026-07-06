@@ -411,22 +411,35 @@ button:focus-visible {
 .product-hero-copy {
   min-height: clamp(560px, calc(100vh - 100px), 760px);
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(360px, 0.68fr);
-  align-items: center;
-  gap: clamp(20px, 3vw, 42px);
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: clamp(20px, 3vw, 32px);
 }
 
 .product-hero-main {
-  max-width: 680px;
+  max-width: 760px;
+  justify-self: center;
+  text-align: center;
+}
+
+.product-hero-main h1,
+.product-hero-main .lead {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.product-hero-main .homepage-actions {
+  justify-content: center;
 }
 
 .product-hero-copy .profile-visual-strip {
   min-width: 0;
-  margin-top: 0;
+  width: 100%;
+  margin-top: clamp(18px, 3vw, 28px);
 }
 
 .product-hero-copy .visual-card-button {
-  flex-basis: clamp(190px, 17vw, 230px);
+  flex-basis: clamp(220px, 24vw, 300px);
 }
 
 .homepage-actions {
