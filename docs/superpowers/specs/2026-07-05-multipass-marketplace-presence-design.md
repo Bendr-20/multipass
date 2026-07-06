@@ -1,77 +1,85 @@
-# Multipass Marketplace Presence Design
+# Multipass Marketplace Connections Design
 
 ## Context
 
-OKX.AI validates the agent-commerce direction: agents need public identity, services, payment rails, reviews, task history, and reputation that can travel across marketplaces. Multipass should not try to become the marketplace. It should become the portable trust profile that can carry marketplace presence from OKX.AI, Bankr, ACP, and direct x402 services.
+Multipass should be the portable trust/context layer across agent commerce surfaces. OKX.AI, OpenSea-style tool manifests, Bankr, ACP, and direct x402 services are optional external surfaces an agent may choose to publish. Multipass should not imply Helixa, Bendr, or a swarm is registered on a marketplace unless a real source-referenced connection exists.
 
-The current Multipass web app already has a `marketplaceListing` surface in the profile Trust context drawer. This design extends that concept into structured marketplace presence cards instead of adding an OKX-only badge or a new disconnected page.
+The prior Marketplace Presence implementation proved the rendering surface, but the seeded OKX.AI example was too easy to read as a Helixa/OKX claim. This update changes the model from a seeded example to an always-available optional capability.
 
 ## Goal
 
-Add a source-agnostic Marketplace Presence section to Multipass profiles that can display external marketplace listings as public proof context.
+Rename and reposition Marketplace Presence as **Marketplace Connections**:
 
-The first seeded example will use OKX.AI-style data so the product story is visible immediately and ready for future OKX collaboration.
+- Every Multipass profile Trust context can show the section.
+- If no marketplace connections are published, show a neutral empty state.
+- If one or more real connections are published, render source-referenced public metadata cards.
+- Treat OKX.AI, OpenSea, Bankr, ACP, and direct x402 as optional source types, not default claims.
 
 ## Non-goals
 
-- Do not perform OKX payments, x402 payments, escrow actions, bidding, wallet signing, or onchain writes.
-- Do not claim marketplace reviews prove trust by themselves.
-- Do not scrape/import live OKX data automatically in this first pass.
+- Do not register anything on OKX, OpenSea, Bankr, ACP, or any marketplace.
+- Do not perform payments, x402 payments, escrow actions, bidding, wallet signing, marketplace writes, or onchain writes.
+- Do not scrape/import live marketplace data automatically in this pass.
 - Do not create a competing marketplace or task board.
 - Do not expose private credentials, gated data, or authority over marketplace accounts.
-- Do not add OKX-specific concepts in a way that prevents Bankr, ACP, or other marketplaces from using the same structure.
+- Do not claim an official OKX/OpenSea/Bankr/ACP integration unless a real integration exists.
+- Do not seed a fake marketplace listing into live/static demo profiles.
 
 ## User-facing behavior
 
-On a Multipass profile, the Trust context drawer should show a Marketplace Presence section when marketplace data is published.
+On any Multipass profile, the Trust context drawer shows **Marketplace Connections** after public routes and before the legacy marketplace compatibility panel.
 
-Each marketplace card should display safe public metadata:
+### Empty state
 
-- Marketplace name, for example `OKX.AI`
-- External agent/listing ID, if published
-- External profile URL
-- Published services or service count
-- Payment mode labels, for example `x402`, `escrow`, `USDT`, or `negotiable`
-- Public reputation signals, for example score, positive rate, sold count, and review count
+When no `marketplacePresence` records exist, the section renders neutral copy:
+
+> No marketplace connections published yet.
+> Agents can optionally add source-referenced public listings from OKX.AI, OpenSea, Bankr, ACP, direct x402 services, or other marketplaces. Empty means no public connection is published here; it does not imply absence elsewhere.
+
+The empty state must not mention a specific marketplace as active for that profile.
+
+### Published cards
+
+When marketplace data is published, each card displays safe public metadata:
+
+- Marketplace/source name, for example `OKX.AI`, `OpenSea`, `Bankr`, `ACP`, or `Direct x402`
+- External listing/tool/profile ID, if published
+- External public URL
+- Published services/tools or service count
+- Payment mode labels, for example `x402`, `escrow`, `USDT`, `ETH`, `USDC`, or `negotiable`
+- Public reputation or provenance signals, if published
 - Last checked timestamp or source timestamp
-- Status/provenance, for example `public import`, `manager supplied`, or `platform verified`
+- Status/provenance, for example `public import`, `manager supplied`, or guarded `platform verified`
 - Safety copy: public metadata only; viewing does not execute payments, change authority, call tools, release credentials, or prove trust by payment alone
-
-If no marketplace presence exists, existing Trust context fallback copy remains acceptable.
 
 ## Data shape
 
-Add an optional profile-level collection:
+Keep the existing optional profile-level collection. It remains generic:
 
 ```js
 marketplacePresence: [
   {
-    marketplace: 'OKX.AI',
-    listingId: '1891',
-    profileUrl: 'https://www.okx.ai/agents/1891',
-    title: 'WorldCupCaller on OKX.AI',
-    summary: 'Public OKX.AI listing metadata for service discovery and portable trust context.',
-    status: 'public_import',
+    marketplace: 'OpenSea',
+    listingId: 'base:0xabc...:123',
+    profileUrl: 'https://opensea.io/assets/base/0xabc.../123',
+    title: 'Agent tool manifest on OpenSea',
+    summary: 'Public marketplace metadata for portable trust context.',
+    status: 'manager_supplied',
     source: {
-      label: 'OKX.AI public listing',
-      url: 'https://www.okx.ai/agents/1891',
-      checkedAt: '2026-07-05T21:34:18Z'
+      label: 'OpenSea public item',
+      url: 'https://opensea.io/assets/base/0xabc.../123',
+      checkedAt: '2026-07-06T00:00:00Z'
     },
     services: [
       {
-        name: '2026 World Cup Predictions and Betting',
-        price: '0.5 USDT',
-        paymentMode: 'x402 or marketplace checkout',
+        name: 'Public agent tool manifest',
+        price: null,
+        paymentMode: 'metadata only',
         endpointUrl: null
       }
     ],
-    reputation: {
-      score: '4.77',
-      positiveRate: '96.92%',
-      soldCount: 162,
-      reviewCount: 65
-    },
-    paymentRails: ['USDT', 'x402', 'escrow'],
+    reputation: {},
+    paymentRails: ['metadata only'],
     proof: {
       assurance: 'public_metadata',
       fragmentIds: []
@@ -80,39 +88,37 @@ marketplacePresence: [
 ]
 ```
 
-The collection is intentionally generic. OKX.AI is just the first marketplace value.
+No marketplace entry should be present unless the profile owner, manager, importer, or API has a real public source to reference.
 
 ## Rendering architecture
 
 ### `renderMarketplacePresencePanel(data)`
 
-A new rendering helper accepts `data.marketplacePresence` and returns the card section HTML. It should be independent from the older singular `marketplaceListing` renderer.
+Keep the existing helper name for compatibility, but render user-facing copy as **Marketplace Connections**.
 
 Responsibilities:
 
-- Validate the input is an array.
-- Skip empty or malformed entries safely.
-- Render each card with escaped text and safe external links only.
+- Accept profile-level `data.marketplacePresence` or `data.profile.marketplacePresence`.
+- Render the section for every profile Trust context.
+- If the collection is missing, empty, or only malformed entries, render the neutral empty state.
+- Render valid cards with escaped text and safe external links only.
 - Render services, payment rails, reputation facts, and source/provenance facts.
-- Render the safety note once per section or per card.
+- Render safety copy.
+- Preserve the platform-verified guard: show `Platform verified source` only when `proof.assurance === 'platform_verified'` and `source.url` is a safe public URL.
 
 ### Trust context integration
 
-The Trust context drawer should join these sections in order:
+The Trust context drawer order remains:
 
 1. Public routes
-2. Marketplace Presence
+2. Marketplace Connections
 3. Existing `marketplaceListing` compatibility panel, if present
 
-This preserves the current route-first flow and adds marketplace context without replacing existing profile compatibility copy.
+## Static/demo data
 
-### Static/demo data
+Remove the seeded OKX.AI marketplace presence record from static/demo data. The static swarm profile and normal profiles should show the empty Marketplace Connections slot unless they have real marketplace records.
 
-Seed static demo data with one OKX.AI-style marketplace presence example. The seeded profile should clearly demonstrate the product thesis:
-
-> Multipass follows an agent across marketplaces.
-
-The data must be visibly marked as public marketplace metadata, not an official partnership claim or live verified import.
+This avoids implying that Helixa, Bendr, Quigbot, or Helixa Swarm has registered on OKX.AI.
 
 ## Safety and wording constraints
 
@@ -124,16 +130,20 @@ Copy must avoid these claims:
 - `executes tools`
 - `custody transfer`
 - `authority over marketplace account`
-- `official OKX integration`, unless an actual integration exists
+- `official OKX integration`
+- `official OpenSea integration`
+- `registered on OKX`
+- `registered on OpenSea`
 
 Allowed wording:
 
-- `public marketplace metadata`
-- `portable trust context`
+- `marketplace connections`
+- `optional public marketplace metadata`
 - `source-referenced listing`
-- `payment metadata only`
+- `metadata only`
 - `does not execute marketplace actions`
 - `does not prove trust by payment alone`
+- `no marketplace connections published yet`
 
 ## Tests
 
@@ -141,35 +151,37 @@ Use TDD for implementation.
 
 Required tests:
 
-1. Static profile with marketplace presence renders a Marketplace Presence section in Trust context.
-2. Card renders marketplace name, listing ID, profile link, service, payment rail, reputation facts, and source timestamp.
-3. External profile links use safe `target="_blank" rel="noopener noreferrer"` rendering.
-4. Missing or empty `marketplacePresence` does not render an empty panel.
-5. Safety wording scan rejects authority/payment/credential overclaims.
-6. Existing `marketplaceListing` and public route panels still render when present.
+1. A profile without `marketplacePresence` renders Marketplace Connections empty state in Trust context.
+2. Empty state appears on the static swarm route and does not mention OKX.AI as an active listing.
+3. Existing valid marketplace records still render cards with service payment mode, safe links, status/provenance, and reputation facts.
+4. OpenSea-style marketplace records render as optional public metadata without claiming official OpenSea integration or registration.
+5. Unsafe external URLs are omitted.
+6. Platform verified remains guarded by `proof.assurance === 'platform_verified'` plus safe `source.url`.
+7. Existing public routes and legacy `marketplaceListing` still render.
+8. Safety wording scan rejects authority/payment/credential/registration overclaims.
 
 ## Deployment and verification
 
 Before deploy:
 
-- Run focused web tests for marketplace presence.
+- Run focused web tests for marketplace connections.
 - Run full `pnpm test`.
 - Run `pnpm web:build`.
 
 After deploy:
 
-- Smoke `/multipass/` and at least one profile route.
-- Verify live JS contains the Marketplace Presence copy and seeded OKX.AI label.
-- Verify no forbidden wording appears in live JS/HTML.
+- Smoke `/multipass/`, `/multipass/agents`, `/multipass/swarm/helixa`, and at least one agent route.
+- Verify live JS/CSS contains Marketplace Connections empty-state copy.
+- Verify live JS/HTML does not contain seeded OKX.AI listing copy or blocked overclaim phrases.
 
 ## Future extensions
 
 Later work can add:
 
-- Manager-side marketplace presence editor.
-- Import flow for OKX.AI public listing URLs.
-- API endpoint for marketplace presence documents.
+- Manager-side marketplace connection editor.
+- Import flow for public OKX.AI, OpenSea, Bankr, ACP, and direct x402 URLs.
+- API endpoint for marketplace connection documents.
 - Periodic source freshness checks.
-- Multiple marketplace cards per profile, including Bankr, ACP, OKX.AI, and direct x402 service pages.
+- Multiple marketplace cards per profile.
 
-Those are explicitly out of scope for this first pass.
+Those remain out of scope for this patch.
