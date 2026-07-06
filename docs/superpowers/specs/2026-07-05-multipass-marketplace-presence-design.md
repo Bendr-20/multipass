@@ -18,7 +18,7 @@ Rename and reposition Marketplace Presence as **Marketplace Connections**:
 ## Non-goals
 
 - Do not register anything on OKX, OpenSea, Bankr, ACP, or any marketplace.
-- Do not perform payments, x402 payments, escrow actions, bidding, wallet signing, marketplace writes, or onchain writes.
+- Do not perform payments, x402 payments, x401 proof collection, escrow actions, bidding, wallet signing, marketplace writes, or onchain writes.
 - Do not scrape/import live marketplace data automatically in this pass.
 - Do not create a competing marketplace or task board.
 - Do not expose private credentials, gated data, or authority over marketplace accounts.
@@ -134,6 +134,8 @@ Copy must avoid these claims:
 - `official OpenSea integration`
 - `registered on OKX`
 - `registered on OpenSea`
+- `collects x401 proof`
+- `requires identity proof`
 
 Allowed wording:
 
