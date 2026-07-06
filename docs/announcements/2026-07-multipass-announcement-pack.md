@@ -27,10 +27,10 @@ Safe to say now:
 - Multipass is a public trust profile and identity graph for agents.
 - Multipass can resolve live Helixa AgentDNA records into activation previews.
 - A live AgentDNA source can be activated into a stable public Multipass profile.
-- Bendr has a live Multipass profile with public fragments, tools, standards metadata, x402 metadata, and change history.
+- Bendr has a live Multipass profile with public fragments, tools, Marketplace Connections, standards metadata, x402 metadata, and change history.
 - Multipass exposes agent-readable routes for profile JSON, fragments, tools, agent cards, standards metadata, x402 metadata, receipts, and changes.
 - Claim management lets verified managers edit safe public metadata after wallet proof or review approval.
-- Tool cards are public discovery metadata. They do not execute tools, grant credentials, or transfer authority.
+- Tool cards and Marketplace Connections are public discovery metadata. They do not execute tools, grant credentials, verify payment, or transfer authority.
 - Payment metadata and receipts do not buy trust.
 - Multipass builds on agent standards including ERC-8004. Do not say Helixa created ERC-8004.
 
@@ -43,7 +43,8 @@ Do not say yet:
 - Multipass has live Synagent outcome fragments.
 - Multipass has live ERC-8217 binding writes, ERC-8126 verification providers, or ERC-8183 work attestations.
 - Multipass has a live $CRED-first paid endpoint settlement and receipt loop.
-- Multipass executes tools from public tool cards.
+- Multipass executes tools from public tool cards or Marketplace Connections.
+- Marketplace Connections are official integrations, verified accounts, trust guarantees, or payment verification.
 
 ## Demo links
 
@@ -63,6 +64,8 @@ Read-only proof links for launch checks:
 - Profile JSON: https://helixa.xyz/api/multipass/bendr-2-1
 - Public fragments: https://helixa.xyz/api/multipass/bendr-2-1/fragments
 - Public tool cards: https://helixa.xyz/api/multipass/bendr-2-1/tools
+- Marketplace Connections in profile JSON: https://helixa.xyz/api/multipass/bendr-2-1
+- Marketplace Connection fragments: https://helixa.xyz/api/multipass/bendr-2-1/fragments
 - Agent card: https://helixa.xyz/api/multipass/bendr-2-1/agent-card
 - Standards profile: https://helixa.xyz/api/multipass/bendr-2-1/standards
 - x402 metadata: https://helixa.xyz/api/multipass/bendr-2-1/x402
@@ -76,12 +79,15 @@ Run this after deploy approval and before public posting:
 - `pnpm test` passes.
 - `pnpm web:build` passes.
 - `git diff --check` is clean.
-- No active runtime or current docs contain public legacy wording: `Save Multipass`, `Saved Multipass`, `Saving...`, `display-only`, or `read-only public`.
+- No active runtime contains public legacy activation wording: `Save Multipass`, `Saved Multipass`, `Saving...`.
+- Marketplace Connections use the required display-only safety boundary and do not claim official integration, verified accounts, payment verification, tool execution, credential access, or custody transfer.
 - `https://helixa.xyz/multipass/` returns 200.
 - `https://helixa.xyz/multipass/?agent=1` returns 200 and shows Activate Multipass.
 - `https://helixa.xyz/multipass/bendr-2-1` returns 200 and shows Activated Multipass.
 - `https://helixa.xyz/api/resolve?agent=1` returns 200.
 - `https://helixa.xyz/api/multipass/bendr-2-1/tools` returns 200.
+- `https://helixa.xyz/api/multipass/bendr-2-1` returns 200 and includes Bankr, OpenSea Tool Registry, and Direct x402 Marketplace Connections.
+- `https://helixa.xyz/api/multipass/bendr-2-1/fragments` returns 200 and includes active public `marketplace_ref` fragments.
 - `https://helixa.xyz/api/multipass/bendr-2-1/agent-card` returns 200.
 - `https://helixa.xyz/.well-known/multipass.json` returns 200.
 - No paid x402 call is made during smoke.

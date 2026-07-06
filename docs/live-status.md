@@ -46,7 +46,8 @@ Multipass V0 can:
 - Import matching Base ERC-8004 identities as public `standard_ref` fragments.
 - Support owner-wallet and review-approved manager claim states for saved records.
 - Let verified managers edit allowlisted public profile fields and manager-created public fragments/routes.
-- Keep source imports, Cred context, custody labels, route metadata, and manager edits separate.
+- Let verified managers add, edit, and retire display-only Marketplace Connections stored as public `attestation` fragments with `marketplace_ref`.
+- Keep source imports, Cred context, custody labels, route metadata, Marketplace Connections, and manager edits separate.
 
 ## Safety boundary
 
@@ -55,6 +56,7 @@ The live API exposes public profile and discovery metadata by default. It does n
 - Transfer wallet custody.
 - Reveal private fields or credentials.
 - Grant tool access or execute tools.
+- Treat Marketplace Connections as official integrations, verified accounts, trust guarantees, payment verification, custody, or executable routes.
 - Mutate runtime routes outside Multipass metadata.
 - Make payments or receipts count as trust.
 - Edit Helixa AgentDNA source records.
