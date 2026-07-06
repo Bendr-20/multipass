@@ -76,6 +76,19 @@ test('renderFragmentManagerPanel exposes public-only safety copy editable fields
   assert.match(panel.textContent, /Imported fragment. Read-only here./);
 });
 
+test('generic fragment manager delegates Marketplace Connection fragments instead of rendering generic edit controls', () => {
+  const marketplaceFragment = {
+    ...OWNER_FRAGMENT,
+    fragment_id: 'frag_marketplace_bankr',
+    fragment_type: 'attestation',
+    marketplace_ref: { marketplace: 'Bankr', profile_url: 'https://bankr.bot/agents/helixa', title: 'Helixa', summary: 'Summary.', status: 'manager_supplied' },
+  };
+  const root = setup(renderFragmentManagerPanel({ data: { fragments: { fragments: [marketplaceFragment, OWNER_FRAGMENT] } } }));
+  assert.equal(root.querySelector('[data-fragment-id="frag_marketplace_bankr"] [data-action="update-public-fragment"]'), null);
+  assert.match(root.textContent, /Edit this in Marketplace Connections\./);
+  assert.equal(root.querySelectorAll('[data-action="update-public-fragment"]').length, 1);
+});
+
 test('compactFragmentInput builds generic public proof fragments without endpoint refs', () => {
   const form = setup(`
     <form>

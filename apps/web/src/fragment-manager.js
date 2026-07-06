@@ -91,17 +91,22 @@ function renderCreateFragmentForm(state) {
 }
 
 function renderManagedFragment(fragment, state) {
-  const editable = fragment.source?.source_type === 'owner_submission' && fragment.source?.issuer === null;
+  const marketplaceConnection = isMarketplaceConnectionFragment(fragment);
+  const editable = !marketplaceConnection && fragment.source?.source_type === 'owner_submission' && fragment.source?.issuer === null;
   return `
-    <article class="managed-fragment-card ${editable ? 'editable' : 'readonly'}">
+    <article class="managed-fragment-card ${editable ? 'editable' : 'readonly'}" data-fragment-id="${escapeAttribute(fragment.fragment_id)}">
       <div class="managed-fragment-summary">
         <div class="managed-fragment-title"><strong>${escapeHtml(formatFragmentType(fragment.fragment_type))}</strong><span>${editable ? 'Editable' : 'Read-only'}</span></div>
         <span>${escapeHtml(fragment.status)} · ${escapeHtml(fragment.assurance_level)} · ${escapeHtml(formatTransferPolicy(fragment.transfer_policy))}</span>
         <p>${escapeHtml(fragment.public_value ?? 'No public value')}</p>
       </div>
-      ${editable ? renderManagedFragmentEditForm(fragment, state) : '<p class="resolver-message">Imported fragment. Read-only here.</p>'}
+      ${marketplaceConnection ? '<p class="resolver-message">Edit this in Marketplace Connections.</p>' : editable ? renderManagedFragmentEditForm(fragment, state) : '<p class="resolver-message">Imported fragment. Read-only here.</p>'}
     </article>
   `;
+}
+
+function isMarketplaceConnectionFragment(fragment) {
+  return Boolean(fragment?.marketplace_ref);
 }
 
 function renderManagedFragmentEditForm(fragment, state) {

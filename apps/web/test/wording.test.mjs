@@ -13,6 +13,7 @@ const checkedFiles = [
   join(webRoot, 'src/route-manager.js'),
   join(webRoot, 'src/api.js'),
   join(webRoot, 'src/live-helixa-resolver.js'),
+  join(webRoot, 'src/marketplace-connection-manager.js'),
   join(webRoot, 'src/static-demo-data.js'),
   join(webRoot, 'src/styles.css'),
   join(repoRoot, 'docs/superpowers/specs/2026-06-24-multipass-protocol-artifact-visual-redesign.md'),
@@ -65,6 +66,29 @@ test('Multipass UI copy avoids executable marketplace and transfer overclaims', 
     const text = await readFile(file, 'utf8');
     for (const phrase of blockedUiPhrases) {
       assert.equal(phrase.test(text), false, `${file} contains blocked UI phrase: ${phrase}`);
+    }
+  }
+});
+
+
+const marketplaceCopyFiles = [
+  join(webRoot, 'src/marketplace-connection-manager.js'),
+];
+
+const blockedMarketplacePhrases = [
+  /official integration/i,
+  /payment verified/i,
+  /trusted seller/i,
+  /verified marketplace account/i,
+  /execute service/i,
+  /connect wallet/i,
+];
+
+test('Marketplace Connections copy avoids execution payment and partnership overclaims', async () => {
+  for (const file of marketplaceCopyFiles) {
+    const text = await readFile(file, 'utf8');
+    for (const phrase of blockedMarketplacePhrases) {
+      assert.equal(phrase.test(text), false, `${file} contains blocked Marketplace phrase: ${phrase}`);
     }
   }
 });

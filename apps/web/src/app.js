@@ -3,6 +3,7 @@ import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, get
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
+import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
@@ -59,6 +60,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     toolStatus: null,
     toolError: null,
     toolActiveFragmentId: null,
+    marketplaceConnectionStatus: null,
+    marketplaceConnectionError: null,
+    marketplaceConnectionActiveFragmentId: null,
     groupActivation: createInitialGroupActivationState(),
     groupActivationExpanded: false,
     groupActivationRequestId: 0,
@@ -622,6 +626,58 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     });
   }
 
+  async function createMarketplaceConnection(event) {
+    const id = getManageIdentifier(state);
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !csrfToken) return;
+    let fragment;
+    try {
+      fragment = compactMarketplaceConnectionInput(createFormData(event?.currentTarget));
+    } catch (error) {
+      setMarketplaceConnectionMutationError(error);
+      return;
+    }
+    await mutateMarketplaceConnection({
+      status: 'creating_marketplace_connection',
+      successStatus: 'marketplace_connection_created',
+      operation: ({ apiBase }) => claimApi.createMultipassFragment({ id, apiBase, csrfToken, fragment, fetchImpl }),
+    });
+  }
+
+  async function updateMarketplaceConnection(event) {
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    const current = (state.data?.fragments?.fragments ?? []).find((fragment) => fragment.fragment_id === fragmentId) ?? {};
+    let patch;
+    try {
+      patch = compactMarketplaceConnectionPatch(createFormData(event.currentTarget), current);
+    } catch (error) {
+      setMarketplaceConnectionMutationError(error, fragmentId);
+      return;
+    }
+    await mutateMarketplaceConnection({
+      status: 'updating_marketplace_connection',
+      successStatus: 'marketplace_connection_updated',
+      activeFragmentId: fragmentId,
+      operation: ({ apiBase }) => claimApi.updateMultipassFragment({ id, fragmentId, apiBase, csrfToken, patch, fetchImpl }),
+    });
+  }
+
+  async function retireMarketplaceConnection(event) {
+    const id = getManageIdentifier(state);
+    const fragmentId = event?.currentTarget?.dataset.fragmentId;
+    const csrfToken = state.claimCsrfToken;
+    if (!id || !fragmentId || !csrfToken) return;
+    await mutateMarketplaceConnection({
+      status: 'retiring_marketplace_connection',
+      successStatus: 'marketplace_connection_retired',
+      activeFragmentId: fragmentId,
+      operation: ({ apiBase }) => claimApi.revokeMultipassFragment({ id, fragmentId, apiBase, csrfToken, fetchImpl }),
+    });
+  }
+
   async function importBankrToolMetadata(event) {
     const id = getManageIdentifier(state);
     const csrfToken = state.claimCsrfToken;
@@ -691,6 +747,33 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  function setMarketplaceConnectionMutationError(error, activeFragmentId = null) {
+    state = {
+      ...state,
+      marketplaceConnectionStatus: 'error',
+      marketplaceConnectionError: error.message,
+      marketplaceConnectionActiveFragmentId: activeFragmentId,
+    };
+    render(root, state, handlers);
+  }
+
+  async function mutateMarketplaceConnection({ status, successStatus, activeFragmentId = null, operation }) {
+    state = { ...state, marketplaceConnectionStatus: status, marketplaceConnectionError: null, marketplaceConnectionActiveFragmentId: activeFragmentId };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await operation({ apiBase });
+      state = mergeMarketplaceConnectionMutationState(state, result, {
+        marketplaceConnectionStatus: successStatus,
+        marketplaceConnectionError: null,
+        marketplaceConnectionActiveFragmentId: activeFragmentId,
+      });
+      render(root, state, handlers);
+    } catch (error) {
+      setMarketplaceConnectionMutationError(error, activeFragmentId);
+    }
+  }
+
   function setToolMutationError(error, activeFragmentId = null) {
     state = {
       ...state,
@@ -747,7 +830,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1268,6 +1351,7 @@ function bindProfileEvents(root, state, handlers = {}) {
   });
   bindFragmentManager(root, handlers);
   bindRouteManager(root, handlers);
+  bindMarketplaceConnectionManager(root, handlers);
   bindToolManager(root, handlers);
   root.querySelector('[data-action="reset-static-demo"]')?.addEventListener('click', () => handlers.resetStaticDemo?.());
   root.querySelectorAll('[data-action="resolve-example-agent"]').forEach((button) => {
@@ -2070,6 +2154,7 @@ function renderClaimManagementPanel(state) {
       </section>
       ${canEdit ? `<section class="owner-command-section" data-command-section="profile" aria-label="${escapeAttribute(copy.profileControlsLabel)}">${renderPublicProfileEditForm(profile, state)}</section>` : ''}
       ${canEdit ? `<section class="owner-command-section" data-command-section="routes" aria-label="Public route controls">${renderPublicRoutesManagerPanel(state)}</section>` : ''}
+      ${canEdit ? `<section class="owner-command-section" data-command-section="marketplace-connections" aria-label="Marketplace Connections controls">${renderMarketplaceConnectionManagerPanel(state)}</section>` : ''}
       ${renderToolRegistryPanel(state)}
       ${canEdit ? `<section class="owner-command-section" data-command-section="fragments" aria-label="Public fragment controls">${renderFragmentManagerPanel(state)}</section>` : ''}
     </section>

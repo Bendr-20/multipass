@@ -83,6 +83,7 @@ export function renderMarketplaceConnectionManagerPanel(state = {}) {
         <h3>Marketplace Connections</h3>
         <p>Display-only public metadata. Multipass does not execute marketplace tasks, collect credentials, enforce payment, transfer custody, or grant tools.</p>
         ${state.marketplaceConnectionError ? `<p class="resolver-message error">${escapeHtml(state.marketplaceConnectionError)}</p>` : ''}
+        ${renderMarketplaceConnectionStatus(state.marketplaceConnectionStatus)}
       </div>
       ${renderCreateMarketplaceConnectionForm(state)}
       <div class="marketplace-connection-toolbar">
@@ -243,6 +244,15 @@ function isRetiredMarketplaceFragment(fragment) {
   const fragmentStatus = String(fragment?.status ?? '').toLowerCase();
   const displayStatus = String(fragment?.marketplace_ref?.status ?? '').toLowerCase();
   return ['revoked', 'retired'].includes(fragmentStatus) || ['revoked', 'retired'].includes(displayStatus);
+}
+
+function renderMarketplaceConnectionStatus(status) {
+  const messages = {
+    marketplace_connection_created: 'Marketplace connection saved.',
+    marketplace_connection_updated: 'Marketplace connection updated.',
+    marketplace_connection_retired: 'Marketplace connection retired.',
+  };
+  return messages[status] ? `<p class="resolver-message">${messages[status]}</p>` : '';
 }
 
 function renderCreateMarketplaceConnectionForm(state) {

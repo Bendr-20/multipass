@@ -555,6 +555,46 @@ async function renderClaimedSavedProfileRoot() {
   return root;
 }
 
+async function renderClaimedMarketplaceManager({ initialFragments = [], claimApiOverrides = {} } = {}) {
+  const calls = [];
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
+  const profile = {
+    ...sampleData().profile,
+    slug: 'bendr-2-1',
+    owner_summary: { owner_state: 'claimed', verification_status: 'verified', visibility: 'public' },
+  };
+  const claimApi = {
+    createClaimNonce: async () => ({ nonce: 'nonce-1', message: 'Sign Bendr claim' }),
+    verifyClaimSignature: async () => ({ claim_status: 'claimed_verified_owner', csrfToken: 'csrf-1', profile }),
+    createMultipassFragment: async (input) => {
+      calls.push(['create', input]);
+      const fragment = { fragment_id: 'frag_marketplace_bankr', fragment_type: 'attestation', status: 'pending', visibility: 'public', source: { source_type: 'owner_submission', issuer: null }, marketplace_ref: input.fragment.marketplace_ref };
+      return { fragment, fragments: { fragments: [fragment, ...initialFragments] }, profile };
+    },
+    updateMultipassFragment: async (input) => {
+      calls.push(['update', input]);
+      const fragment = { fragment_id: input.fragmentId, fragment_type: 'attestation', status: 'stale', visibility: 'public', source: { source_type: 'owner_submission', issuer: null }, marketplace_ref: input.patch.marketplace_ref };
+      return { fragment, fragments: { fragments: [fragment] }, profile };
+    },
+    revokeMultipassFragment: async (input) => {
+      calls.push(['revoke', input]);
+      const fragment = { fragment_id: input.fragmentId, fragment_type: 'attestation', status: 'revoked', visibility: 'public', source: { source_type: 'owner_submission', issuer: null }, marketplace_ref: initialFragments[0]?.marketplace_ref };
+      return { fragment, fragments: { fragments: [fragment] }, profile };
+    },
+    ...claimApiOverrides,
+  };
+  const fetchImpl = async () => {
+    const body = sampleData();
+    body.profile = profile;
+    body.fragments = { fragments: initialFragments };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  await createApp({ root, claimApi, walletSigner: async () => ({ wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', signature: '0xsig' }), fetchImpl }).start();
+  root.querySelector('[data-action="claim-with-wallet"]').click();
+  await flushAsyncEvents();
+  return { root, calls };
+}
+
 
 
 function quigbotLiveData(overrides = {}) {
@@ -3353,7 +3393,7 @@ test('claimed saved profile renders one owner command center', async () => {
 
   const commandSectionOrder = [...commandCenter.querySelectorAll('[data-command-section]')]
     .map((section) => section.getAttribute('data-command-section'));
-  assert.deepEqual(commandSectionOrder.slice(0, 5), ['overview', 'profile', 'routes', 'tools', 'fragments']);
+  assert.deepEqual(commandSectionOrder.slice(0, 6), ['overview', 'profile', 'routes', 'marketplace-connections', 'tools', 'fragments']);
 });
 
 test('owner command center safety copy limits public metadata and tool authority claims', async () => {
@@ -3369,6 +3409,54 @@ test('owner command center safety copy limits public metadata and tool authority
   assert.match(safetyCopy, /release credentials/i);
   assert.match(safetyCopy, /prove trust by payment alone/i);
   assert.doesNotMatch(safetyCopy, /tool execution is enabled|access granted|credentials released|trust purchased/i);
+});
+
+test('claimed manager publishes Marketplace Connection with structured fragment payload', async () => {
+  const { root, calls } = await renderClaimedMarketplaceManager();
+  const form = root.querySelector('[data-action="create-marketplace-connection"]');
+  form.querySelector('input[name="marketplace"]').value = 'Bankr';
+  form.querySelector('input[name="profile_url"]').value = 'https://bankr.bot/agents/helixa';
+  form.querySelector('input[name="title"]').value = 'Helixa agent profile';
+  form.querySelector('textarea[name="summary"]').value = 'Public marketplace listing for Helixa services.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  const payload = calls.find(([kind]) => kind === 'create')[1].fragment;
+  assert.equal(payload.fragment_type, 'attestation');
+  assert.equal(payload.status, undefined);
+  assert.equal(payload.transfer_policy, 'historical_on_transfer');
+  assert.equal(payload.marketplace_ref.marketplace, 'Bankr');
+  assert.match(root.querySelector('.marketplace-connection-manager-panel').textContent, /Marketplace connection saved|published/i);
+});
+
+test('claimed manager updates and retires existing Marketplace Connection', async () => {
+  const fragment = { fragment_id: 'frag_marketplace_bankr', fragment_type: 'attestation', status: 'pending', visibility: 'public', source: { source_type: 'owner_submission', issuer: null }, marketplace_ref: { marketplace: 'Bankr', profile_url: 'https://bankr.bot/agents/helixa', title: 'Helixa', summary: 'Summary.', status: 'manager_supplied' } };
+  const { root, calls } = await renderClaimedMarketplaceManager({ initialFragments: [fragment] });
+  const form = root.querySelector('[data-action="update-marketplace-connection"][data-fragment-id="frag_marketplace_bankr"]');
+  form.querySelector('input[name="title"]').value = 'Updated title';
+  form.querySelector('select[name="status"]').value = 'stale';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  const update = calls.find(([kind]) => kind === 'update')[1];
+  assert.equal(update.patch.fragment_type, undefined);
+  assert.equal(update.patch.status, undefined);
+  assert.equal(update.patch.marketplace_ref.title, 'Updated title');
+  root.querySelector('[data-action="retire-marketplace-connection"][data-fragment-id="frag_marketplace_bankr"]').click();
+  await flushAsyncEvents();
+  assert.equal(calls.find(([kind]) => kind === 'revoke')[1].fragmentId, 'frag_marketplace_bankr');
+});
+
+test('Marketplace Connection write errors stay localized to the marketplace panel', async () => {
+  const { root } = await renderClaimedMarketplaceManager({ claimApiOverrides: { createMultipassFragment: async () => { throw new Error('Marketplace API failed.'); } } });
+  const form = root.querySelector('[data-action="create-marketplace-connection"]');
+  form.querySelector('input[name="marketplace"]').value = 'Bankr';
+  form.querySelector('input[name="profile_url"]').value = 'https://bankr.bot/agents/helixa';
+  form.querySelector('input[name="title"]').value = 'Helixa agent profile';
+  form.querySelector('textarea[name="summary"]').value = 'Public marketplace listing for Helixa services.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.marketplace-connection-manager-panel').textContent, /Marketplace API failed/);
+  assert.equal(root.querySelector('.route-manager-panel .resolver-message.error'), null);
+  assert.equal(root.querySelector('.fragment-manager-panel .resolver-message.error'), null);
 });
 
 test('claimed saved profile can import Bankr x402 tool metadata', async () => {
