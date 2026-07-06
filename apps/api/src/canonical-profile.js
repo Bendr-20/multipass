@@ -1,3 +1,5 @@
+import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
+
 const HELIXA_CHAIN_ID = 8453;
 export const HELIXA_SOURCE_TYPE = 'helixa_agent';
 const HYDRATED_PROFILE_MODES = new Set(['activated', 'saved', 'activation_preview']);
@@ -49,6 +51,13 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
   const source = sourceIdentity;
   const schemaVersion = profile.schema_version ?? '0.1.0';
   const publicFragments = sourceStore.getPublicFragments?.(multipassId) ?? [];
+  const derivedMarketplacePresence = deriveMarketplacePresenceFromFragments(publicFragments);
+  const fallbackMarketplacePresence = Array.isArray(profile?.marketplacePresence) ? profile.marketplacePresence : [];
+  const marketplacePresence = derivedMarketplacePresence.length ? derivedMarketplacePresence : fallbackMarketplacePresence;
+  const hasMarketplaceFragments = publicFragments.some((fragment) => fragment?.marketplace_ref);
+  const responseProfile = marketplacePresence.length || hasMarketplaceFragments
+    ? { ...profile, marketplacePresence }
+    : profile;
   const tools = sourceStore.getTools?.(multipassId) ?? {
     schema_version: schemaVersion,
     multipass_id: multipassId,
@@ -79,7 +88,8 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
       token_id: source.tokenId,
       verification_state: mode === 'activation_preview' ? 'imported_unverified' : 'source_verified',
     },
-    profile,
+    profile: responseProfile,
+    ...(marketplacePresence.length || hasMarketplaceFragments ? { marketplacePresence } : {}),
     fragments: { schema_version: schemaVersion, multipass_id: multipassId, fragments: publicFragments },
     agent_card: agentCard,
     card: agentCard,

@@ -1588,6 +1588,234 @@ test('manager visibility edits remove saved records from public search without h
   assert.deepEqual(search.body.matches.map((match) => [match.kind, match.slug]), [['fixture', 'bendr-2']]);
 });
 
+
+function marketplaceRef(overrides = {}) {
+  return {
+    marketplace: 'Bankr',
+    profile_url: 'https://bankr.bot/agents/helixa',
+    title: 'Helixa agent profile',
+    summary: 'Public marketplace listing for Helixa services.',
+    listing_id: 'helixa',
+    status: 'manager_supplied',
+    services: [{ name: 'Deep CRED report', price: '$1 USDC', payment_mode: 'x402', endpoint_url: 'https://api.example.test/service' }],
+    payment_rails: [{ asset: 'USDC', mode: 'x402', chain: 'Base' }],
+    facts: [{ label: 'Source', value: 'Manager supplied public listing' }],
+    ...overrides,
+  };
+}
+
+function marketplacePayload(ref = marketplaceRef()) {
+  return {
+    fragment_type: 'attestation',
+    public_value: `Marketplace connection: ${ref.title} on ${ref.marketplace}. ${ref.summary}`,
+    reference_url: ref.profile_url,
+    transfer_policy: 'historical_on_transfer',
+    marketplace_ref: ref,
+  };
+}
+
+test('manager session creates updates and retires Marketplace Connection fragments', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+
+  const created = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', marketplacePayload(marketplaceRef({ source_checked_at: '2026-07-06' })), headers);
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.fragment.fragment_type, 'attestation');
+  assert.equal(created.body.fragment.status, 'pending');
+  assert.equal(created.body.fragment.assurance_level, 'self_attested');
+  assert.equal(created.body.fragment.visibility, 'public');
+  assert.equal(created.body.fragment.transfer_policy, 'historical_on_transfer');
+  assert.equal(created.body.fragment.source.issuer, null);
+  assert.equal(created.body.fragment.source.reference_url, 'https://bankr.bot/agents/helixa');
+  assert.equal(created.body.fragment.marketplace_ref.source_checked_at, '2026-07-06T00:00:00.000Z');
+
+  const publicRead = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(publicRead.body.multipass_id, 'mp_helixa_agent_1');
+  assert.equal(publicRead.body.profile, undefined);
+  assert.deepEqual(publicRead.body.marketplacePresence.map((entry) => [entry.marketplace, entry.profileUrl]), [['Bankr', 'https://bankr.bot/agents/helixa']]);
+
+  const hydrated = await requestJson(api, '/api/multipass/bendr-2-1/hydrated');
+  assert.deepEqual(hydrated.body.marketplacePresence.map((entry) => [entry.marketplace, entry.profileUrl]), [['Bankr', 'https://bankr.bot/agents/helixa']]);
+  assert.deepEqual(hydrated.body.profile.marketplacePresence.map((entry) => [entry.marketplace, entry.profileUrl]), [['Bankr', 'https://bankr.bot/agents/helixa']]);
+
+  const updatedRef = marketplaceRef({ title: 'Updated title', summary: 'Updated summary.', status: 'stale', source_checked_at: '' });
+  const updated = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${created.body.fragment.fragment_id}`, marketplacePayload(updatedRef), headers);
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.body.fragment.status, 'stale');
+  assert.equal(updated.body.fragment.marketplace_ref.title, 'Updated title');
+  assert.equal(updated.body.fragment.marketplace_ref.summary, 'Updated summary.');
+  assert.equal(Object.hasOwn(updated.body.fragment.marketplace_ref, 'source_checked_at'), false);
+
+  const revoked = await postJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${created.body.fragment.fragment_id}/revoke`, {}, headers);
+  assert.equal(revoked.response.status, 200);
+  assert.equal(revoked.body.fragment.status, 'revoked');
+
+  const afterRevoke = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(afterRevoke.body.marketplacePresence.some((entry) => entry.fragmentId === created.body.fragment.fragment_id), false);
+
+  const changes = await requestJson(api, '/api/multipass/bendr-2-1/changes');
+  assert.match(changes.body.entries.map((entry) => entry.message).join('\n'), /Marketplace connection added: Bankr\./);
+  assert.match(changes.body.entries.map((entry) => entry.message).join('\n'), /Marketplace connection updated: Bankr\./);
+  assert.match(changes.body.entries.map((entry) => entry.message).join('\n'), /Marketplace connection retired: Bankr\./);
+});
+
+test('Marketplace Connection fragment writes reject unsafe and generic top-level-only edits', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+  const created = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', marketplacePayload(), headers);
+  const fragmentId = created.body.fragment.fragment_id;
+
+  const cases = [
+    ['non-https', marketplacePayload(marketplaceRef({ profile_url: 'http://bankr.bot/agents/helixa' }))],
+    ['credentials', marketplacePayload(marketplaceRef({ profile_url: 'https://user:pass@bankr.bot/agents/helixa' }))],
+    ['mismatched reference url', { ...marketplacePayload(), reference_url: 'https://bankr.bot/agents/not-helixa' }],
+    ['service non-https endpoint', marketplacePayload(marketplaceRef({ services: [{ name: 'Bad service', endpoint_url: 'http://api.example.test/service' }] }))],
+    ['service credentialed endpoint', marketplacePayload(marketplaceRef({ services: [{ name: 'Bad service', endpoint_url: 'https://user:pass@api.example.test/service' }] }))],
+    ['unsafe text', marketplacePayload(marketplaceRef({ summary: '<img onerror=alert(1)>' }))],
+    ['wrong type', { ...marketplacePayload(), fragment_type: 'wallet' }],
+    ['verified display status', marketplacePayload(marketplaceRef({ status: 'verified' }))],
+    ['platform verified display status', marketplacePayload(marketplaceRef({ status: 'platform_verified' }))],
+    ['future source checked', marketplacePayload(marketplaceRef({ source_checked_at: '2999-01-01T00:00:00.000Z' }))],
+    ['invalid source checked', marketplacePayload(marketplaceRef({ source_checked_at: 'not a date' }))],
+  ];
+
+  for (const [, payload] of cases) {
+    const result = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', payload, headers);
+    assert.equal(result.response.status, 400);
+  }
+
+  const patchMismatch = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${fragmentId}`, {
+    ...marketplacePayload(),
+    reference_url: 'https://bankr.bot/agents/not-helixa',
+  }, headers);
+  assert.equal(patchMismatch.response.status, 400);
+
+  const guardedPatch = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${fragmentId}`, { status: 'stale' }, headers);
+  assert.equal(guardedPatch.response.status, 403);
+  assert.equal(guardedPatch.body.error.message, 'Marketplace Connection fragments must be edited through Marketplace Connections.');
+
+  for (const patch of [
+    { reference_url: 'https://bankr.bot/agents/other' },
+    { transfer_policy: 'never_transfer' },
+    { public_value: 'Generic edit' },
+    { proof_reference: 'Generic proof' },
+    { endpoint_ref: { endpoint_id: 'bad', url: 'https://example.test', protocol: 'web' } },
+  ]) {
+    const result = await patchJsonWithHeaders(api, `/api/multipass/bendr-2-1/fragments/${fragmentId}`, patch, headers);
+    assert.equal(result.response.status, 403);
+  }
+});
+
+test('Marketplace Connection normalization bounds optional row arrays', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+  const created = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', marketplacePayload(marketplaceRef({
+    services: Array.from({ length: 12 }, (_, index) => ({ name: `Service ${index}` })),
+    payment_rails: Array.from({ length: 12 }, (_, index) => ({ asset: `Asset ${index}` })),
+    facts: Array.from({ length: 12 }, (_, index) => ({ label: `Fact ${index}`, value: 'Public value' })),
+  })), headers);
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.fragment.marketplace_ref.services.length, 8);
+  assert.equal(created.body.fragment.marketplace_ref.payment_rails.length, 8);
+  assert.equal(created.body.fragment.marketplace_ref.facts.length, 8);
+});
+
+test('saved API de-dupes Marketplace Connections by normalized profile URL', async () => {
+  const api = makeClaimApi();
+  const { headers } = await createOwnerSession(api);
+  const first = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', marketplacePayload(marketplaceRef({ title: 'First Bankr listing' })), headers);
+  assert.equal(first.response.status, 201);
+  const duplicate = marketplaceRef({
+    profile_url: 'https://bankr.bot/agents/helixa/',
+    title: 'Duplicate Bankr listing',
+  });
+  const second = await postJsonWithHeaders(api, '/api/multipass/bendr-2-1/fragments', marketplacePayload(duplicate), headers);
+  assert.equal(second.response.status, 201);
+
+  const publicRead = await requestJson(api, '/api/multipass/bendr-2-1');
+  assert.equal(publicRead.body.marketplacePresence.length, 1);
+  assert.equal(publicRead.body.marketplacePresence[0].title, 'First Bankr listing');
+});
+
+test('saved API omits unsafe historical Marketplace Connection text from public reads', async () => {
+  const baseMarketplaceFragment = {
+    schema_version: '0.1.0',
+    multipass_id: 'mp_bendr',
+    fragment_type: 'attestation',
+    status: 'pending',
+    assurance_level: 'self_attested',
+    visibility: 'public',
+    transfer_policy: 'historical_on_transfer',
+    source: {
+      source_type: 'owner_submission',
+      source_id: 'manager:frag_marketplace_historical',
+      issuer: null,
+      observed_at: '2026-07-06T00:00:00Z',
+      reference_url: 'https://bankr.bot/agents/helixa',
+    },
+    public_value: 'Marketplace connection.',
+    created_at: '2026-07-06T00:00:00Z',
+    updated_at: '2026-07-06T00:00:00Z',
+  };
+  const unsafeRequired = {
+    ...baseMarketplaceFragment,
+    fragment_id: 'frag_marketplace_required_unsafe',
+    marketplace_ref: marketplaceRef({ summary: 'Unsafe <script>alert(1)</script>' }),
+  };
+  const unsafeOptional = {
+    ...baseMarketplaceFragment,
+    fragment_id: 'frag_marketplace_optional_unsafe',
+    marketplace_ref: marketplaceRef({
+      listing_id: 'helixa<script>',
+      source_checked_at: '2026-07-06T00:00:00.000Z<script>',
+      services: [
+        { name: 'Deep CRED <script>', price: '$1 USDC', payment_mode: 'javascript:alert(1)', endpoint_url: 'https://api.example.test/service' },
+        { name: '<img onerror=x>' },
+      ],
+      payment_rails: [
+        { asset: 'USDC', mode: 'data:text/html', chain: 'Base' },
+        { asset: '<bad>' },
+      ],
+      reputation: { score: '95', positive_rate: '99%<script>', sold_count: '12', review_count: 'javascript:alert(1)' },
+      facts: [
+        { label: 'Source', value: '<script>alert(1)</script>' },
+        { label: 'Safe fact', value: 'Safe value' },
+        { label: '<img onerror=x>' },
+      ],
+    }),
+  };
+  const api = createMultipassApi({
+    store: {
+      resolveProfile(identifier) {
+        return identifier === 'bendr-2' || identifier === 'mp_bendr' ? profile : null;
+      },
+      getPublicFragments() {
+        return [unsafeRequired, unsafeOptional];
+      },
+      searchProfiles() {
+        return [];
+      },
+    },
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const publicRead = await requestJson(api, '/api/multipass/bendr-2');
+  assert.equal(publicRead.response.status, 200);
+  assert.equal(publicRead.body.marketplacePresence.length, 1);
+  const [entry] = publicRead.body.marketplacePresence;
+  assert.equal(entry.fragmentId, 'frag_marketplace_optional_unsafe');
+  assert.equal(entry.marketplace, 'Bankr');
+  assert.equal(entry.listingId, '');
+  assert.equal(entry.title, 'Helixa agent profile');
+  assert.equal(entry.summary, 'Public marketplace listing for Helixa services.');
+  assert.deepEqual(entry.services, [{ price: '$1 USDC', endpointUrl: 'https://api.example.test/service' }]);
+  assert.deepEqual(entry.paymentRails, [{ asset: 'USDC', chain: 'Base' }]);
+  assert.deepEqual(entry.reputation, { score: '95', sold_count: '12' });
+  assert.deepEqual(entry.facts, [{ label: 'Source' }, { label: 'Safe fact', value: 'Safe value' }]);
+  assert.equal(entry.source.checkedAt, '');
+  assert.doesNotMatch(JSON.stringify(publicRead.body.marketplacePresence), /<|>|javascript:|data:|file:|onerror|onload|script/i);
+});
+
 test('manager session can create update and revoke public fragments through API', async () => {
   const api = makeClaimApi();
   const { headers } = await createOwnerSession(api);
@@ -1598,13 +1826,16 @@ test('manager session can create update and revoke public fragments through API'
     reference_url: 'https://helixa.xyz/multipass/bendr-2-1',
     endpoint_ref: {
       endpoint_id: 'profile-json',
-      url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1',
+      url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1/',
+      manifest_url: 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1/manifest/',
       protocol: 'api',
     },
   }, headers);
   assert.equal(created.response.status, 201);
   assert.equal(created.body.fragment.fragment_type, 'endpoint');
   assert.equal(created.body.fragment.endpoint_ref.protocol, 'api');
+  assert.equal(created.body.fragment.endpoint_ref.url, 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1/');
+  assert.equal(created.body.fragment.endpoint_ref.manifest_url, 'https://helixa.xyz/multipass-api/api/multipass/bendr-2-1/manifest/');
   assert.equal(created.body.profile.public_fragments[0].fragment_id, created.body.fragment.fragment_id);
 
   const publicRead = await requestJson(api, '/api/multipass/bendr-2-1/fragments');

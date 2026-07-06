@@ -14,6 +14,7 @@ import {
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
+import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
 import {
   deriveAgentCardServiceUpdates,
@@ -735,7 +736,7 @@ function requireManagerSession(request, identifier, context) {
 function mapFragmentMutationError(error) {
   const message = error.message ?? 'Fragment mutation failed.';
   if (/not found/i.test(message)) return new ApiNotFoundError(message);
-  if (/read-only|not editable|imported/i.test(message)) return new ApiForbiddenError(message);
+  if (/read-only|not editable|imported|Marketplace Connection fragments must be edited/i.test(message)) return new ApiForbiddenError(message);
   return new ApiInputError('invalid_request', message);
 }
 
@@ -901,7 +902,7 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
   const { profile, sourceStore } = resolved;
 
   if (!readParts.resource) {
-    return jsonResponse(profile);
+    return jsonResponse(decorateProfileWithMarketplacePresence(profile, sourceStore));
   }
 
   if (readParts.resource === 'hydrated' && !readParts.resourceId) {
@@ -1068,6 +1069,15 @@ function resolvePublicProfile(identifier, { store, savedRecords }) {
   if (savedProfile) return { profile: savedProfile, sourceStore: savedRecords };
   const profile = store.resolveProfile(identifier);
   return profile ? { profile, sourceStore: store } : null;
+}
+
+function decorateProfileWithMarketplacePresence(profile, sourceStore) {
+  const fragments = sourceStore.getPublicFragments?.(profile.multipass_id) ?? [];
+  const derived = deriveMarketplacePresenceFromFragments(fragments);
+  const fallback = Array.isArray(profile?.marketplacePresence) ? profile.marketplacePresence : [];
+  const marketplacePresence = derived.length ? derived : fallback;
+  const hasMarketplaceFragments = fragments.some((fragment) => fragment?.marketplace_ref);
+  return marketplacePresence.length || hasMarketplaceFragments ? { ...profile, marketplacePresence } : profile;
 }
 
 function getToolsResponse(sourceStore, multipassId) {

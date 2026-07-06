@@ -12,6 +12,7 @@ import {
 
 import {
   assertManagerEditableFragment,
+  isMarketplaceConnectionFragment,
   normalizeManagerFragmentInput,
   normalizeManagerFragmentPatch,
   summarizePublicFragments,
@@ -456,7 +457,9 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
         normalizeManagerFragmentInput(input, { multipassId: profile.multipass_id, now, randomHex }),
       );
       assertUniqueEndpointId(bundle.fragments, fragment);
-      const fragments = [fragment, ...bundle.fragments];
+      const fragments = isMarketplaceConnectionFragment(fragment)
+        ? [...bundle.fragments, fragment]
+        : [fragment, ...bundle.fragments];
       writeFragmentMutation(db, bundle, fragments, {
         now,
         message: fragmentChangeMessage('added', fragment),
@@ -1065,6 +1068,11 @@ function routeChangeLabel(fragment) {
 }
 
 function fragmentChangeMessage(action, fragment) {
+  if (isMarketplaceConnectionFragment(fragment)) {
+    const marketplace = fragment.marketplace_ref.marketplace ?? 'marketplace';
+    const marketplaceAction = action === 'revoked' ? 'retired' : action;
+    return `Marketplace connection ${marketplaceAction}: ${marketplace}.`;
+  }
   if (fragment?.fragment_type === 'endpoint') return `Public route ${action}: ${routeChangeLabel(fragment)}.`;
   return `Public fragment ${action}: ${fragment.fragment_type}.`;
 }
