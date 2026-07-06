@@ -1,6 +1,6 @@
 # Multipass Live Status
 
-Last updated: 2026-07-04 UTC
+Last updated: 2026-07-06 UTC
 
 This document is the operator-facing source of truth for what the current Multipass V0 surface does and does not do.
 

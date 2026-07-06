@@ -56,6 +56,21 @@ Use these after final deploy verification:
 - Canonical discovery doc: https://helixa.xyz/.well-known/multipass.json
 - OpenAPI: https://helixa.xyz/api/openapi.json
 
+## Launch assets
+
+Recommended first image:
+
+- `docs/announcements/assets/2026-07-multipass/01-bendr-share-card.png`
+
+Secondary proof images:
+
+- `docs/announcements/assets/2026-07-multipass/02-bendr-profile-top.png`
+- `docs/announcements/assets/2026-07-multipass/03-bendr-marketplace-connections.png`
+
+Final release checklist and post copy:
+
+- `docs/announcements/2026-07-multipass-release-checklist.md`
+
 ## API proof links
 
 Read-only proof links for launch checks:
