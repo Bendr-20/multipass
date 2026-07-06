@@ -79,6 +79,22 @@ export const STATIC_DEMO_DATA = {
         "assurance_level": "platform_verified",
         "visibility": "public",
         "updated_at": "2026-06-24T22:49:52Z"
+      },
+      {
+        "fragment_id": "frag_bendr_agentmail_contact",
+        "fragment_type": "social",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "updated_at": "2026-07-06T00:00:00Z"
+      },
+      {
+        "fragment_id": "frag_bendr_wiretap_aim_contact",
+        "fragment_type": "social",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "updated_at": "2026-07-06T00:00:00Z"
       }
     ],
     "cred_summary": {
@@ -318,6 +334,46 @@ export const STATIC_DEMO_DATA = {
         "created_at": "2026-06-24T22:49:52Z",
         "updated_at": "2026-06-24T22:49:52Z",
         "verified_at": "2026-06-24T22:49:52Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_bendr_agentmail_contact",
+        "multipass_id": "mp_bendr_2",
+        "fragment_type": "social",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "transfer_policy": "reverify_on_transfer",
+        "source": {
+          "source_type": "owner_submission",
+          "source_id": "communication:agentmail",
+          "issuer": null,
+          "observed_at": "2026-07-06T00:00:00Z"
+        },
+        "public_value": "AgentMail: bendr@agentmail.to",
+        "proof_reference": "Public contact route only.",
+        "created_at": "2026-07-06T00:00:00Z",
+        "updated_at": "2026-07-06T00:00:00Z"
+      },
+      {
+        "schema_version": "0.1.0",
+        "fragment_id": "frag_bendr_wiretap_aim_contact",
+        "multipass_id": "mp_bendr_2",
+        "fragment_type": "social",
+        "status": "pending",
+        "assurance_level": "self_attested",
+        "visibility": "public",
+        "transfer_policy": "reverify_on_transfer",
+        "source": {
+          "source_type": "owner_submission",
+          "source_id": "communication:wiretap",
+          "issuer": null,
+          "observed_at": "2026-07-06T00:00:00Z"
+        },
+        "public_value": "Wiretap AIM: bendr2bot@darklabz.com",
+        "proof_reference": "Public contact route only.",
+        "created_at": "2026-07-06T00:00:00Z",
+        "updated_at": "2026-07-06T00:00:00Z"
       },
       {
         "schema_version": "0.1.0",

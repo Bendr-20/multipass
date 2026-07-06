@@ -1532,6 +1532,7 @@ test('resolved live profile renders visual-first drawers without homepage or res
     'Ownership and management',
     'Visual provenance',
     'Trust context',
+    'Communication',
     'Tools and services',
     'Public proof fragments',
     'Proof ledger',
@@ -1782,6 +1783,7 @@ test('profile detail drawers keep secondary content collapsed and JSON toggles w
     'Ownership and management',
     'Visual provenance',
     'Trust context',
+    'Communication',
     'Tools and services',
     'Public proof fragments',
     'Proof ledger',
@@ -3960,6 +3962,73 @@ test('claimed saved profile can create update revoke and show fragment errors', 
   assert.deepEqual(calls[1], ['create-fragment', 'bendr-2-1', 'csrf-1', expectedInput]);
   assert.deepEqual(calls[2], ['update-fragment', 'bendr-2-1', 'frag_manager_wallet_1', 'csrf-1', { public_value: 'Updated public wallet', reference_url: 'https://basescan.org/address/0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', proof_reference: 'updated owner note', status: 'stale', transfer_policy: 'pause_on_transfer' }]);
   assert.deepEqual(calls[3], ['revoke-fragment', 'bendr-2-1', 'frag_manager_wallet_1', 'csrf-1']);
+});
+
+test('profile communication drawer renders public contact refs without authority claims', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const data = sampleData();
+  data.fragments.fragments = [
+    ...data.fragments.fragments,
+    {
+      fragment_id: 'frag_comm_email',
+      fragment_type: 'social',
+      status: 'pending',
+      assurance_level: 'self_attested',
+      visibility: 'public',
+      transfer_policy: 'historical_on_transfer',
+      source: { source_type: 'owner_submission', issuer: null, source_id: 'communication:agentmail', observed_at: '2026-07-06T00:00:00.000Z' },
+      public_value: 'AgentMail: bendr@agentmail.to',
+      proof_reference: 'Public contact route only.',
+      updated_at: '2026-07-06T00:00:00.000Z',
+    },
+    {
+      fragment_id: 'frag_comm_wiretap',
+      fragment_type: 'social',
+      status: 'pending',
+      assurance_level: 'self_attested',
+      visibility: 'public',
+      transfer_policy: 'historical_on_transfer',
+      source: { source_type: 'owner_submission', issuer: null, source_id: 'communication:wiretap', observed_at: '2026-07-06T00:00:00.000Z' },
+      public_value: 'Wiretap AIM: bendr2bot@darklabz.com',
+      updated_at: '2026-07-06T00:00:00.000Z',
+    },
+    {
+      fragment_id: 'frag_comm_farcaster',
+      fragment_type: 'social',
+      status: 'pending',
+      assurance_level: 'self_attested',
+      visibility: 'public',
+      transfer_policy: 'historical_on_transfer',
+      source: { source_type: 'owner_submission', issuer: null, source_id: 'communication:farcaster', observed_at: '2026-07-06T00:00:00.000Z' },
+      public_value: 'Farcaster: bendr',
+      updated_at: '2026-07-06T00:00:00.000Z',
+    },
+    {
+      fragment_id: 'frag_comm_private_telegram',
+      fragment_type: 'social',
+      status: 'pending',
+      assurance_level: 'self_attested',
+      visibility: 'private',
+      transfer_policy: 'never_transfer',
+      source: { source_type: 'owner_submission', issuer: null, source_id: 'communication:telegram', observed_at: '2026-07-06T00:00:00.000Z' },
+      public_value: 'Telegram: private-team-chat',
+      updated_at: '2026-07-06T00:00:00.000Z',
+    },
+  ];
+
+  await createApp({ root, loadDemo: async () => data }).start();
+
+  const communicationDrawer = profileDrawerByTitle(root.querySelector('.multipass-profile-page'), 'Communication');
+  assert.ok(communicationDrawer);
+  assert.match(communicationDrawer.textContent, /Public contact and social routes/);
+  assert.match(communicationDrawer.textContent, /AgentMail/);
+  assert.match(communicationDrawer.textContent, /bendr@agentmail\.to/);
+  assert.match(communicationDrawer.textContent, /Wiretap/);
+  assert.match(communicationDrawer.textContent, /bendr2bot@darklabz\.com/);
+  assert.match(communicationDrawer.textContent, /Farcaster/);
+  assert.doesNotMatch(communicationDrawer.textContent, /private-team-chat/);
+  assert.doesNotMatch(communicationDrawer.textContent, /execute|credential|private inbox/i);
+  assert.match(communicationDrawer.textContent, /does not grant reply rights/i);
 });
 
 test('profile trust context renders safe public route cards from endpoint fragments', async () => {

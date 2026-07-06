@@ -5,6 +5,7 @@ import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutM
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
 import { getMarketplacePresenceEntries } from './marketplace-presence.js';
+import { getCommunicationChannels, getCommunicationContactPolicy } from './communication-channels.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
@@ -1637,6 +1638,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
     'Tools and services',
     'No public tool cards are published for this profile yet.'
   );
+  const communication = renderCommunicationChannelsPanel(data);
 
   return `
     <section class="profile-detail-drawers" aria-label="Multipass profile details">
@@ -1645,6 +1647,7 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
       ${renderProfileDrawer('Ownership and management', 'Source-owner authority context', claimManagement)}
       ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
       ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext)}
+      ${renderProfileDrawer('Communication', 'Public contact and social routes', communication)}
       ${renderProfileDrawer('Tools and services', 'Registry-backed public capabilities', publicTools)}
       ${renderProfileDrawer('Public proof fragments', 'Visible profile evidence', renderFragmentTrustMap(fragmentTrustMap))}
       ${renderProfileDrawer('Proof ledger', 'Expandable API records', renderProofLedger(proofCards, state.expandedCard))}
@@ -2683,6 +2686,114 @@ function renderTransferStep(label, value) {
       <strong>${escapeHtml(value)}</strong>
     </article>
   `;
+}
+
+function renderCommunicationChannelsPanel(data) {
+  const channels = getCommunicationChannels(data);
+  const policy = getCommunicationContactPolicy(data);
+  const optionalSources = ['Email', 'Telegram', 'X', 'Farcaster', 'Wiretap', 'AgentMail'];
+
+  return `
+    <section class="communication-panel" aria-label="Communication">
+      <div class="communication-heading">
+        <p class="card-label">Communication</p>
+        <h3>Public contact and social routes.</h3>
+        <p>Public contact references for agent discovery and coordination. Optional sources include ${optionalSources.map(escapeHtml).join(', ')}.</p>
+      </div>
+      ${policy ? renderCommunicationPolicy(policy) : ''}
+      ${channels.length ? `
+        <div class="communication-channel-list">
+          ${channels.map(renderCommunicationChannelCard).join('')}
+        </div>
+      ` : renderCommunicationEmptyState(optionalSources)}
+      <p class="communication-safety">Public contact metadata only. Viewing does not grant reply rights, open hidden messages, authorize actions, or prove account ownership by itself.</p>
+    </section>
+  `;
+}
+
+function renderCommunicationPolicy(policy) {
+  const modeLabel = String(policy.mode ?? '')
+    .replaceAll('_', ' ')
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+  const approval = policy.requiresOwnerApproval === true
+    ? 'Owner approval required'
+    : policy.requiresOwnerApproval === false ? 'Open contact policy' : '';
+  return `
+    <section class="communication-policy">
+      ${modeLabel ? `<span>${escapeHtml(modeLabel)}</span>` : ''}
+      ${approval ? `<strong>${escapeHtml(approval)}</strong>` : ''}
+      ${policy.note ? `<p>${escapeHtml(policy.note)}</p>` : ''}
+    </section>
+  `;
+}
+
+function renderCommunicationEmptyState(optionalSources) {
+  return `
+    <div class="communication-empty">
+      <strong>No public communication routes published yet.</strong>
+      <p>Managers can add optional public contact references later without implying account authority, reply guarantees, or private message access.</p>
+      <div class="communication-chip-list" aria-label="Optional communication sources">
+        ${optionalSources.map((source) => `<span class="communication-chip">${escapeHtml(source)}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderCommunicationChannelCard(channel) {
+  const link = renderCommunicationValue(channel);
+  const facts = [
+    { label: 'Channel', value: channel.label },
+    { label: 'Status', value: communicationStatusLabel(channel.status) },
+    { label: 'Source', value: channel.sourceLabel || 'Public fragment' },
+    { label: 'Proof note', value: channel.proofNote || 'Public reference only' },
+  ];
+  return `
+    <article class="communication-channel-card" data-fragment-id="${escapeAttribute(channel.fragmentId || '')}">
+      <div class="communication-channel-head">
+        <div>
+          <p class="card-label">${escapeHtml(channel.label)}</p>
+          <h4>${link}</h4>
+        </div>
+        ${isRenderableCommunicationUrl(channel.sourceUrl) ? renderSafeLink('Source', channel.sourceUrl) : ''}
+      </div>
+      <div class="communication-facts">
+        ${facts.map(renderCommunicationFact).join('')}
+      </div>
+    </article>
+  `;
+}
+
+function renderCommunicationValue(channel) {
+  if (isRenderableCommunicationUrl(channel.url)) {
+    return `<a href="${escapeAttribute(channel.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(channel.value)}</a>`;
+  }
+  return escapeHtml(channel.value || 'Not published');
+}
+
+function renderCommunicationFact(fact) {
+  return `
+    <article class="communication-fact">
+      <span>${escapeHtml(fact.label)}</span>
+      <strong>${escapeHtml(fact.value || 'Not published')}</strong>
+    </article>
+  `;
+}
+
+function communicationStatusLabel(status) {
+  const normalized = String(status ?? '').trim().toLowerCase();
+  if (!normalized) return 'Published reference';
+  if (normalized === 'pending') return 'Review required';
+  return normalized.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function isRenderableCommunicationUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(String(url));
+    return ['https:', 'http:', 'mailto:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
 }
 
 function renderMarketplacePresencePanel(data) {

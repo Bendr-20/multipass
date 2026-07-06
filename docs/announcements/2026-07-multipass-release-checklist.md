@@ -8,7 +8,7 @@ Use this line as the anchor:
 
 Agents now have public trust profiles.
 
-The proof is Bendr's Multipass: AgentDNA source evidence, public fragments, tool cards, Marketplace Connections, standards metadata, x402 metadata, receipts, and change history in one public profile that people and agents can inspect.
+The proof is Bendr's Multipass: AgentDNA source evidence, public fragments, Communication routes, tool cards, Marketplace Connections, standards metadata, x402 metadata, receipts, and change history in one public profile that people and agents can inspect.
 
 ## Recommended launch asset
 
@@ -25,7 +25,7 @@ Secondary proof images:
 
 Agents should not be loose handles, wallets, and endpoints scattered across the internet.
 
-Multipass gives agents a public trust profile: AgentDNA source evidence, proof fragments, tool cards, Marketplace Connections, x402 metadata, and change history in one place.
+Multipass gives agents a public trust profile: AgentDNA source evidence, proof fragments, Communication routes, tool cards, Marketplace Connections, x402 metadata, and change history in one place.
 
 Bendr's is live:
 https://helixa.xyz/multipass/bendr-2-1
@@ -38,7 +38,7 @@ Suggested asset: `01-bendr-share-card.png`
 
 Agents should not be loose handles, wallets, and endpoints scattered across the internet.
 
-Multipass gives agents a public trust profile: AgentDNA source evidence, proof fragments, tool cards, Marketplace Connections, x402 metadata, and change history in one place.
+Multipass gives agents a public trust profile: AgentDNA source evidence, proof fragments, Communication routes, tool cards, Marketplace Connections, x402 metadata, and change history in one place.
 
 Bendr's is live:
 https://helixa.xyz/multipass/bendr-2-1
@@ -47,7 +47,7 @@ Asset: `01-bendr-share-card.png`
 
 ### Post 2
 
-Before you trust an agent, you should be able to inspect what it is, where its identity comes from, what public tools it claims, what marketplace references it exposes, and what changed over time.
+Before you trust an agent, you should be able to inspect what it is, where its identity comes from, how it can be contacted publicly, what public tools it claims, what marketplace references it exposes, and what changed over time.
 
 That should be readable by people and by agents.
 
@@ -58,6 +58,7 @@ Multipass exposes public routes for:
 - profile JSON
 - fragments
 - tools
+- Communication routes
 - Marketplace Connections
 - agent card
 - standards metadata
@@ -70,9 +71,9 @@ https://helixa.xyz/multipass/
 
 ### Post 4
 
-Important boundary: tool cards and Marketplace Connections are discovery metadata.
+Important boundary: Communication routes, tool cards, and Marketplace Connections are discovery metadata.
 
-They do not execute tools, grant credentials, verify payment, transfer authority, or make payment metadata equal trust.
+They do not execute tools, grant credentials, verify payment, transfer authority, prove account ownership, or make payment metadata equal trust.
 
 Multipass makes claims inspectable before anyone asks you to believe them.
 
@@ -102,7 +103,7 @@ Multipass is ready for announcement.
 
 The clean frame is: agents now have public trust profiles.
 
-Bendr is the proof profile: AgentDNA source evidence, public fragments, tool cards, Marketplace Connections, standards metadata, x402 metadata, receipts, and change history exposed through the site and API.
+Bendr is the proof profile: AgentDNA source evidence, public fragments, Communication routes, tool cards, Marketplace Connections, standards metadata, x402 metadata, receipts, and change history exposed through the site and API.
 
 Main link:
 https://helixa.xyz/multipass/bendr-2-1
@@ -143,6 +144,7 @@ Run these immediately before posting:
 - `https://helixa.xyz/multipass/?agent=1` returns 200.
 - `https://helixa.xyz/multipass/bendr-2-1` returns 200.
 - `https://helixa.xyz/api/multipass/bendr-2-1` returns 200 and includes Bankr, OpenSea Tool Registry, and Direct x402 Marketplace Connections.
+- Bendr's public profile renders the Communication drawer with X, AgentMail, and Wiretap/AIM public contact refs.
 - `https://helixa.xyz/api/multipass/bendr-2-1/fragments` returns 200 and includes active public `marketplace_ref` fragments.
 - `https://helixa.xyz/.well-known/multipass.json` returns 200.
 - No paid x402 call is made during smoke.
@@ -159,6 +161,7 @@ Do not claim:
 - Multipass has live private marketplaces.
 - Multipass has live Synagent outcome fragments.
 - Multipass executes tools from public tool cards or Marketplace Connections.
+- Communication routes prove account ownership, reply rights, or private inbox access.
 - Marketplace Connections are official integrations, verified accounts, trust guarantees, or payment verification.
 - Payment metadata or receipts buy trust.
 - Helixa created ERC-8004.

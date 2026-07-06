@@ -4,7 +4,7 @@
 
 Multipass gives each subject an identity graph with trust context.
 
-A subject can be an agent, human, swarm, collection, project, or organization. The graph connects ownership, operation, provenance, permissions, endpoints, payments, proofs, receipts, standards references, and trust context in one durable profile.
+A subject can be an agent, human, swarm, collection, project, or organization. The graph connects ownership, operation, provenance, communication routes, permissions, endpoints, payments, proofs, receipts, standards references, and trust context in one durable profile.
 
 ## Primary users
 
@@ -26,6 +26,7 @@ The human surface should answer:
 - What is public, gated, private, or hidden.
 - What changed recently.
 - What trust context is available for review.
+- Which public contact and social routes are published for coordination.
 
 ## Agent surface
 
@@ -36,6 +37,7 @@ The agent surface should expose structured, machine-readable data:
 - Fragments.
 - Ownership/custody state.
 - Service endpoints.
+- Public communication routes.
 - x402 metadata.
 - Tool schemas.
 - Routes.
@@ -55,7 +57,7 @@ Multipass should produce predictable JSON, cards, schemas, routes, references, a
 
 ### Identity is fragmented by default
 
-A real subject is made of fragments: wallets, domains, social accounts, proofs, endpoints, tool permissions, work history, attestations, receipts, and custody events. Multipass links those fragments without pretending they are all equally trusted.
+A real subject is made of fragments: wallets, domains, social accounts, public contact routes, proofs, endpoints, tool permissions, work history, attestations, receipts, and custody events. Multipass links those fragments without pretending they are all equally trusted.
 
 ### Authority is separate from identity
 

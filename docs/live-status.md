@@ -44,10 +44,11 @@ Multipass V0 can:
 - Resolve profiles by stable slug, Multipass ID, and supported source identifiers.
 - Return public profile JSON, public fragments, public tool cards, agent cards, standards profiles, x402 metadata, receipt collections, and change logs.
 - Import matching Base ERC-8004 identities as public `standard_ref` fragments.
+- Render public Communication routes from public social/contact fragments, including email-style inboxes, optional Telegram, X/socials, Wiretap/AIM, and Farcaster when published.
 - Support owner-wallet and review-approved manager claim states for saved records.
 - Let verified managers edit allowlisted public profile fields and manager-created public fragments/routes.
 - Let verified managers add, edit, and retire display-only Marketplace Connections stored as public `attestation` fragments with `marketplace_ref`.
-- Keep source imports, Cred context, custody labels, route metadata, Marketplace Connections, and manager edits separate.
+- Keep source imports, Cred context, custody labels, route metadata, Communication routes, Marketplace Connections, and manager edits separate.
 
 ## Safety boundary
 
@@ -56,6 +57,7 @@ The live API exposes public profile and discovery metadata by default. It does n
 - Transfer wallet custody.
 - Reveal private fields or credentials.
 - Grant tool access or execute tools.
+- Treat Communication routes as account ownership proof, reply rights, private inbox access, identity authority, or executable routes.
 - Treat Marketplace Connections as official integrations, verified accounts, trust guarantees, payment verification, custody, or executable routes.
 - Mutate runtime routes outside Multipass metadata.
 - Make payments or receipts count as trust.
