@@ -110,6 +110,14 @@ test('agent share routes expose per-agent X-compatible JPEG social preview metad
   }
 });
 
+test('Bendr share preview uses the public Helixa aura image instead of initials fallback', async () => {
+  const generated = GENERATED_SHARE_CARDS['1'];
+  const html = await readFile(join(shareRoot, '1', 'index.html'), 'utf8');
+
+  assert.equal(generated.visualSource, 'https://api.helixa.xyz/api/v2/aura/1.png');
+  assert.match(html, /<meta name="multipass:visual-source" content="https:\/\/api\.helixa\.xyz\/api\/v2\/aura\/1\.png" \/>/);
+});
+
 test('Quigbot share preview image is not the stale Agent Aura card', () => {
   const imagePath = join(shareRoot, '81.jpg');
 

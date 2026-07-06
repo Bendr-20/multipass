@@ -735,6 +735,11 @@ export const STATIC_DEMO_DATA = {
       "credTier": "Preferred",
       "verified": true,
       "profileUrl": "https://helixa.xyz/agent/1",
+      "visual": {
+        "imageUrl": "https://api.helixa.xyz/api/v2/aura/1.png",
+        "label": "Bendr Agent Aura visual identity",
+        "tone": "preferred"
+      },
       "proofFragmentIds": ["frag_bendr_profile", "frag_bendr_endpoint", "frag_bendr_standard_ref", "frag_bendr_receipt_history", "frag_bendr_route_dispute", "frag_bendr_helixa_identity", "frag_bendr_cred_score"],
       "ownerSnapshot": {
         "owner": "0x3395...480E0",

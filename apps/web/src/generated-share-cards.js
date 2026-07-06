@@ -1,8 +1,8 @@
 export const GENERATED_SHARE_CARDS = Object.freeze({
   '1': Object.freeze({
     tokenId: '1',
-    version: 'e6f95ad8',
-    visualSource: null,
+    version: '4d506d1a',
+    visualSource: 'https://api.helixa.xyz/api/v2/aura/1.png',
   }),
   '81': Object.freeze({
     tokenId: '81',
