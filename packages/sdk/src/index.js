@@ -186,6 +186,9 @@ function collectErrors(schema, value, path) {
   }
 
   if (Array.isArray(value)) {
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push({ path: displayPath(path), message: `expected at most ${schema.maxItems} items` });
+    }
     if (schema.items) {
       for (const [index, item] of value.entries()) {
         errors.push(...collectErrors(schema.items, item, `${path}[${index}]`));

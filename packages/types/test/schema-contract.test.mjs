@@ -143,3 +143,14 @@ test('identity fragments have direct shapes for endpoint, custody, verification,
   assert.ok(identityFragmentSchema.properties.revoked_at);
   assert.ok(identityFragmentSchema.properties.expires_at);
 });
+
+test('identity fragments expose bounded marketplace connection references', () => {
+  const ref = identityFragmentSchema.properties.marketplace_ref;
+  assert.ok(ref);
+  assert.deepEqual(ref.type, ['object', 'null']);
+  assert.equal(ref.additionalProperties, false);
+  assert.deepEqual(ref.properties.status.enum, ['manager_supplied', 'public_import', 'pending', 'stale', 'disputed']);
+  assert.equal(ref.properties.services.maxItems, 8);
+  assert.equal(ref.properties.payment_rails.maxItems, 8);
+  assert.equal(ref.properties.facts.maxItems, 8);
+});

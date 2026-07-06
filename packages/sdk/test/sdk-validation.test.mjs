@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   MultipassValidationError,
+  assertIdentityFragment,
   assertMultipassProfile,
   getActivationSummary,
   getAgentCard,
@@ -141,6 +142,36 @@ const toolManifestFragment = {
   },
   created_at: '2026-06-24T00:00:00Z',
   updated_at: '2026-06-24T00:00:00Z',
+};
+
+const marketplaceFragment = {
+  ...identityFragment,
+  fragment_id: 'frag_marketplace_bankr',
+  fragment_type: 'attestation',
+  status: 'pending',
+  assurance_level: 'self_attested',
+  transfer_policy: 'historical_on_transfer',
+  source: {
+    source_type: 'owner_submission',
+    source_id: 'manager:frag_marketplace_bankr',
+    issuer: null,
+    observed_at: '2026-07-06T00:00:00Z',
+    reference_url: 'https://bankr.bot/agents/helixa',
+  },
+  public_value: 'Marketplace connection: Helixa agent profile on Bankr. Public marketplace listing for Helixa services.',
+  marketplace_ref: {
+    marketplace: 'Bankr',
+    profile_url: 'https://bankr.bot/agents/helixa',
+    title: 'Helixa agent profile',
+    summary: 'Public marketplace listing for Helixa services.',
+    listing_id: 'helixa',
+    status: 'manager_supplied',
+    source_checked_at: '2026-07-06T00:00:00.000Z',
+    services: [{ name: 'Deep CRED report', price: '$1 USDC', payment_mode: 'x402', endpoint_url: 'https://api.example.test/service' }],
+    payment_rails: [{ asset: 'USDC', mode: 'x402', chain: 'Base' }],
+    reputation: { score: '95', positive_rate: '99%', sold_count: '12', review_count: '8' },
+    facts: [{ label: 'Source', value: 'Manager supplied public listing' }],
+  },
 };
 
 const agentCard = {
@@ -330,6 +361,19 @@ test('identity fragment validator accepts tool manifest references', () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);
   assert.equal(result.value, toolManifestFragment);
+});
+
+test('identity fragment validation accepts marketplace connection refs', () => {
+  assert.equal(validateIdentityFragment(marketplaceFragment).ok, true);
+  assert.doesNotThrow(() => assertIdentityFragment(marketplaceFragment));
+});
+
+test('identity fragment validation rejects malformed marketplace connection refs', () => {
+  const invalid = {
+    ...marketplaceFragment,
+    marketplace_ref: { ...marketplaceFragment.marketplace_ref, services: Array.from({ length: 9 }, (_, index) => ({ name: `Service ${index}` })) },
+  };
+  assert.equal(validateIdentityFragment(invalid).ok, false);
 });
 
 test('tool manifest identity fragments require a non-null tool manifest ref', () => {

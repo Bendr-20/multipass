@@ -448,6 +448,150 @@
         }
       }
     },
+    "marketplace_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Display-only public marketplace connection metadata for manager-supplied attestation fragments.",
+      "additionalProperties": false,
+      "required": [
+        "marketplace",
+        "profile_url",
+        "title",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "marketplace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "profile_url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 500
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "listing_id": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "manager_supplied",
+            "public_import",
+            "pending",
+            "stale",
+            "disputed"
+          ]
+        },
+        "source_checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "services": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "price": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "payment_mode": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "endpoint_url": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 500
+              }
+            }
+          }
+        },
+        "payment_rails": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "asset": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "mode": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "chain": {
+                "type": "string",
+                "maxLength": 80
+              }
+            }
+          }
+        },
+        "reputation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "score": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "positive_rate": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "sold_count": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "review_count": {
+              "type": "string",
+              "maxLength": 80
+            }
+          }
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 160
+              }
+            }
+          }
+        }
+      }
+    },
     "custody_ref": {
       "type": [
         "object",
