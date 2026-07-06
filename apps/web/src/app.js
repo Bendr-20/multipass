@@ -2603,21 +2603,34 @@ function renderMarketplacePresencePanel(data) {
   const cards = getMarketplacePresenceEntries(data)
     .map(normalizeMarketplacePresenceEntry)
     .filter(Boolean);
-
-  if (!cards.length) return '';
+  const optionalSources = ['OKX.AI', 'OpenSea', 'Bankr', 'ACP', 'direct x402'];
 
   return `
-    <section class="marketplace-presence-panel" aria-label="Marketplace Presence">
+    <section class="marketplace-presence-panel" aria-label="Marketplace Connections">
       <div class="marketplace-presence-heading">
-        <p class="card-label">Marketplace Presence</p>
-        <h3>Portable marketplace context.</h3>
-        <p>Public marketplace metadata for portable trust context. These references do not execute marketplace actions or prove trust by payment alone.</p>
+        <p class="card-label">Marketplace Connections</p>
+        <h3>Optional marketplace connections.</h3>
+        <p>Public, read-only marketplace metadata for portable trust context. Supported sources include ${optionalSources.map(escapeHtml).join(', ')}. These references do not execute marketplace actions or prove trust by payment alone.</p>
       </div>
-      <div class="marketplace-presence-list">
-        ${cards.map(renderMarketplacePresenceCard).join('')}
-      </div>
-      <p class="marketplace-presence-safety">Public marketplace metadata only. Viewing does not execute marketplace actions, change authority, call tools, release credentials, or prove trust by payment alone.</p>
+      ${cards.length ? `
+        <div class="marketplace-presence-list">
+          ${cards.map(renderMarketplacePresenceCard).join('')}
+        </div>
+      ` : renderMarketplacePresenceEmptyState(optionalSources)}
+      <p class="marketplace-presence-safety">Optional public marketplace metadata only. Viewing does not execute marketplace actions, collect x401 proof, change authority, call tools, release credentials, start escrow, sign with wallets, write onchain, or prove trust by payment alone.</p>
     </section>
+  `;
+}
+
+function renderMarketplacePresenceEmptyState(optionalSources) {
+  return `
+    <div class="marketplace-presence-empty">
+      <strong>No marketplace connections published yet.</strong>
+      <p>Managers can reference optional public listings later without implying registration, custody, account authority, payments, or official marketplace integration.</p>
+      <div class="marketplace-presence-chip-list" aria-label="Optional marketplace connection sources">
+        ${optionalSources.map((source) => `<span class="marketplace-presence-chip">${escapeHtml(source)}</span>`).join('')}
+      </div>
+    </div>
   `;
 }
 
