@@ -64,9 +64,11 @@ test('product homepage resolver and system panel stay centered inside laptop vie
 
   assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*width:\s*min\(100%, 1040px\);[^}]*margin:\s*28px auto;/s);
   assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(240px, 320px\);/s);
-  assert.match(css, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*min\(100%, 1040px\);[^}]*margin:\s*28px auto 0;/s);
-  assert.match(css, /\.system-panel-copy\s*\{[^}]*max-width:\s*760px;[^}]*margin:\s*0 auto;[^}]*text-align:\s*center;/s);
-  assert.match(css, /\.system-panel-copy h2\s*\{[^}]*margin-left:\s*auto;[^}]*margin-right:\s*auto;/s);
-  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(180px, 240px\) minmax\(0, 1fr\);/s);
+  assert.match(css, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*min\(100%, 1180px\);[^}]*margin:\s*28px auto 0;[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(260px, 0\.62fr\) minmax\(0, 1\.38fr\);[^}]*align-items:\s*center;/s);
+  assert.match(css, /\.product-home-shell \.multipass-system-panel \.system-panel-copy\s*\{[^}]*max-width:\s*380px;[^}]*margin:\s*0;[^}]*text-align:\s*left;/s);
+  assert.match(css, /\.product-home-shell \.multipass-system-panel \.system-panel-copy h2\s*\{[^}]*max-width:\s*380px;[^}]*font-size:\s*clamp\(1\.9rem, 3vw, 3\.1rem\);[^}]*margin-left:\s*0;[^}]*margin-right:\s*0;/s);
+  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.product-home-shell \.multipass-system-panel \.multipass-protocol-strip\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*justify-content:\s*center;/s);
+  assert.doesNotMatch(css, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*min\(100%, 1040px\);/s);
   assert.doesNotMatch(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
 });

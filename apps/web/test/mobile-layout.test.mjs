@@ -31,7 +31,7 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.site-menu-button\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*0;[^}]*background:\s*transparent;/s);
   assert.match(css, /\.site-menu-button span\s*\{[^}]*height:\s*2px;[^}]*background:\s*var\(--ink\);/s);
   assert.match(css, /\.multipass-system-panel\s*\{/s);
-  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(180px, 240px\) minmax\(0, 1fr\);/s);
+  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/s);
   assert.match(css, /\.system-node-core\s*\{/s);
   assert.match(css, /\.multipass-protocol-strip\s*\{/s);
   assert.match(mobileBlock, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*1fr;/s);

@@ -531,8 +531,12 @@ button:focus-visible {
 }
 
 .product-home-shell .multipass-system-panel {
-  width: min(100%, 1040px);
+  width: min(100%, 1180px);
   margin: 28px auto 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.62fr) minmax(0, 1.38fr);
+  align-items: center;
+  gap: 18px 20px;
 }
 
 .system-panel-copy {
@@ -554,10 +558,28 @@ button:focus-visible {
   line-height: 1.55;
 }
 
+.product-home-shell .multipass-system-panel .system-panel-copy {
+  max-width: 380px;
+  margin: 0;
+  text-align: left;
+}
+
+.product-home-shell .multipass-system-panel .system-panel-copy h2 {
+  max-width: 380px;
+  font-size: clamp(1.9rem, 3vw, 3.1rem);
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.product-home-shell .multipass-system-panel .system-panel-copy p:not(.card-label) {
+  margin-left: 0;
+  margin-right: 0;
+}
+
 .multipass-system-map {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   align-items: stretch;
 }
 
@@ -613,6 +635,11 @@ button:focus-visible {
 .multipass-protocol-strip {
   border-top: 1px solid var(--line);
   padding-top: 16px;
+}
+
+.product-home-shell .multipass-system-panel .multipass-protocol-strip {
+  grid-column: 1 / -1;
+  justify-content: center;
 }
 
 .eyebrow,
@@ -2488,6 +2515,27 @@ h1 {
 
   .field:last-child {
     border-bottom: 0 !important;
+  }
+
+  .product-home-shell .multipass-system-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .product-home-shell .multipass-system-panel .system-panel-copy {
+    max-width: 760px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .product-home-shell .multipass-system-panel .system-panel-copy h2 {
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .product-home-shell .multipass-system-panel .multipass-protocol-strip {
+    grid-column: auto;
+    justify-content: flex-start;
   }
 
   h1 {
