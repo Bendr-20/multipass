@@ -48,15 +48,19 @@ test('change review ledger tones only the review state column', async () => {
   assert.doesNotMatch(css, /\.change-review-row\.tone-verified strong:last-child/);
 });
 
-test('desktop product homepage hero stacks CTA above the visual carousel', async () => {
+test('desktop product homepage hero is left-aligned and stretched across the card', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
-  assert.match(css, /\.product-hero-copy\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*1fr;[^}]*align-items:\s*start;/s);
-  assert.match(css, /\.product-hero-main\s*\{[^}]*max-width:\s*760px;[^}]*justify-self:\s*center;[^}]*text-align:\s*center;/s);
-  assert.match(css, /\.product-hero-main \.homepage-actions\s*\{[^}]*justify-content:\s*center;/s);
-  assert.match(css, /\.product-hero-copy \.profile-visual-strip\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*margin-top:\s*clamp\(18px, 3vw, 28px\);/s);
-  assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*clamp\(220px, 24vw, 300px\);/s);
-  assert.doesNotMatch(css, /\.product-hero-copy\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(360px, 0\.68fr\);/s);
+  assert.match(css, /\.product-hero-copy\s*\{[^}]*min-height:\s*clamp\(460px, 58vh, 620px\);[^}]*display:\s*grid;[^}]*grid-template-columns:\s*1fr;[^}]*align-items:\s*start;/s);
+  assert.match(css, /\.product-hero-main\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*justify-self:\s*stretch;[^}]*text-align:\s*left;/s);
+  assert.match(css, /\.product-hero-main h1\s*\{[^}]*max-width:\s*min\(100%, 1080px\);[^}]*margin-left:\s*0;[^}]*margin-right:\s*0;/s);
+  assert.match(css, /\.product-hero-main \.lead\s*\{[^}]*max-width:\s*760px;[^}]*margin-left:\s*0;[^}]*margin-right:\s*0;/s);
+  assert.match(css, /\.product-hero-main \.homepage-actions\s*\{[^}]*justify-content:\s*flex-start;/s);
+  assert.match(css, /\.product-hero-copy \.profile-visual-strip\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*margin-top:\s*clamp\(14px, 2vw, 22px\);/s);
+  assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*clamp\(240px, 22vw, 320px\);/s);
+  assert.doesNotMatch(css, /\.product-hero-main\s*\{[^}]*justify-self:\s*center;[^}]*text-align:\s*center;/s);
+  assert.doesNotMatch(css, /\.product-hero-main h1,\s*\.product-hero-main \.lead\s*\{[^}]*margin-left:\s*auto;[^}]*margin-right:\s*auto;/s);
+  assert.doesNotMatch(css, /\.product-hero-main \.homepage-actions\s*\{[^}]*justify-content:\s*center;/s);
 });
 
 test('product homepage resolver and system panel stay centered inside laptop viewports', async () => {

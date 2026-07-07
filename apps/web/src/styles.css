@@ -410,37 +410,44 @@ button:focus-visible {
 }
 
 .product-hero-copy {
-  min-height: clamp(560px, calc(100vh - 100px), 760px);
+  min-height: clamp(460px, 58vh, 620px);
   display: grid;
   grid-template-columns: 1fr;
   align-items: start;
-  gap: clamp(20px, 3vw, 32px);
+  gap: clamp(18px, 2.5vw, 28px);
 }
 
 .product-hero-main {
-  max-width: 760px;
-  justify-self: center;
-  text-align: center;
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
+  text-align: left;
 }
 
-.product-hero-main h1,
+.product-hero-main h1 {
+  max-width: min(100%, 1080px);
+  margin-left: 0;
+  margin-right: 0;
+}
+
 .product-hero-main .lead {
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 760px;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .product-hero-main .homepage-actions {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .product-hero-copy .profile-visual-strip {
   min-width: 0;
   width: 100%;
-  margin-top: clamp(18px, 3vw, 28px);
+  margin-top: clamp(14px, 2vw, 22px);
 }
 
 .product-hero-copy .visual-card-button {
-  flex-basis: clamp(220px, 24vw, 300px);
+  flex-basis: clamp(240px, 22vw, 320px);
 }
 
 .homepage-actions {
