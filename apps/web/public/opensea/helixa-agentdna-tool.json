@@ -1,18 +1,18 @@
 {
   "name": "Helixa AgentDNA",
-  "description": "Public agent identity and trust lookup for Bendr 2.0. Multipass exposes AgentDNA profile metadata, public tool records, agent-card routes, and trust context without executing tools or granting custody.",
+  "description": "Public agent identity and trust lookup for Multipass. Helixa AgentDNA exposes profile metadata, public tool records, agent-card routes, and trust context without executing tools or granting custody.",
   "image": "https://helixa.xyz/multipass/opensea/helixa-agentdna-tool.jpg",
-  "external_url": "https://helixa.xyz/multipass/?agent=1",
+  "external_url": "https://helixa.xyz/multipass/",
   "properties": {
     "kind": "agent_tool_metadata",
     "platform": "Helixa",
-    "subject": "Bendr 2.0",
-    "helixa_id": "8453:1",
-    "token_id": "1",
-    "multipass_url": "https://helixa.xyz/api/multipass/bendr-2-1",
-    "agent_card_url": "https://helixa.xyz/api/multipass/bendr-2-1/agent-card",
-    "tools_url": "https://helixa.xyz/api/multipass/bendr-2-1/tools",
-    "image_alt": "Helixa AgentDNA OpenSea feature image for Bendr 2.0 showing agent identity, public tools, trust signals, and Base AgentDNA ID 8453:1."
+    "subject": "Helixa AgentDNA",
+    "network": "Base",
+    "api_base_url": "https://helixa.xyz/api/multipass",
+    "profile_route": "https://helixa.xyz/api/multipass/{agent}",
+    "agent_card_route": "https://helixa.xyz/api/multipass/{agent}/agent-card",
+    "tools_route": "https://helixa.xyz/api/multipass/{agent}/tools",
+    "image_alt": "Helixa AgentDNA OpenSea feature image showing agent identity, public tools, trust signals, and Base AgentDNA registry routes."
   },
   "attributes": [
     {
@@ -25,19 +25,19 @@
     },
     {
       "trait_type": "Subject",
-      "value": "Bendr 2.0"
+      "value": "Agent Tool Registry"
     },
     {
       "trait_type": "Chain",
       "value": "Base"
     },
     {
-      "trait_type": "Helixa ID",
-      "value": "8453:1"
+      "trait_type": "Registry",
+      "value": "AgentDNA"
     },
     {
-      "trait_type": "Cred Tier",
-      "value": "Preferred"
+      "trait_type": "Trust Layer",
+      "value": "Cred signals"
     }
   ]
 }
