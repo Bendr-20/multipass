@@ -787,6 +787,38 @@ export const STATIC_DEMO_DATA = {
       ]
     },
     {
+      "name": "Zori",
+      "tokenId": "normies:32362",
+      "helixaId": "eip155:1:0xde152afb7db5373f34876e1499fbd893a82dd336:32362",
+      "framework": "normies-agent-nft",
+      "credScore": null,
+      "credTier": "NFT agent",
+      "verified": true,
+      "profileUrl": "https://helixa.xyz/multipass/zori-4354",
+      "visual": {
+        "imageUrl": "https://api.normies.art/agents/image/4354",
+        "label": "Normies #4354 agent visual identity",
+        "tone": "normies"
+      },
+      "role": "Ethereum Normies NFT-backed agent",
+      "custody": "Ethereum Normies NFT-backed, read-only provenance; Multipass management unclaimed",
+      "proofFragmentIds": ["frag_zori_normies_identity", "frag_zori_normies_backing_nft", "frag_zori_normies_custody"],
+      "ownerSnapshot": {
+        "owner": "0x9388...d732",
+        "operator": "No Multipass manager claimed",
+        "custodyEpoch": "Ethereum source record",
+        "permissionState": "Read-only public profile",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Normies agent NFT imported",
+        "reviewAction": "Management remains unclaimed"
+      },
+      "changeReviewLedger": [
+        { "event": "Normies agent identity imported", "source": "Normies public API", "impact": "Cross-chain agent card added", "reviewState": "Verified" },
+        { "event": "Backing NFT provenance imported", "source": "Ethereum Normies #4354", "impact": "NFT-backed context displayed", "reviewState": "Verified" },
+        { "event": "Multipass management unclaimed", "source": "Saved Multipass profile", "impact": "No custody or control overclaim", "reviewState": "No public action" }
+      ]
+    },
+    {
       "name": "Helixa Swarm",
       "tokenId": "swarm:helixa",
       "helixaId": "8453:swarm:helixa",

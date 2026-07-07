@@ -914,7 +914,8 @@ async function loadStaticSwarmProfileDemo() {
 
 function createStaticSwarmProfileData(data, selectedIndex = 2) {
   const cards = data?.['agentCards'] ?? [];
-  const card = cards[selectedIndex] ?? cards.find((candidate) => candidate.subjectType === 'swarm' || String(candidate.tokenId ?? '') === 'swarm:helixa') ?? cards[0] ?? {};
+  const swarmCard = cards.find((candidate) => candidate.subjectType === 'swarm' || String(candidate.tokenId ?? '') === 'swarm:helixa');
+  const card = swarmCard ?? cards[selectedIndex] ?? cards[0] ?? {};
   return {
     ...data,
     profile: {

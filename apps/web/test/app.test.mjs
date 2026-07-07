@@ -1145,6 +1145,26 @@ test('homepage visual carousel is native swipeable linked profiles, not a button
   assert.equal(strip.querySelector('a.visual-card-button[href^="https://helixa.xyz/swarm/"]'), null);
 });
 
+test('production homepage carousel includes Zori as a cross-chain Normies example', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root }).start();
+
+  const strip = root.querySelector('.profile-visual-strip');
+  assert.ok(strip);
+  const links = [...strip.querySelectorAll('a.visual-card-button')];
+  assert.equal(links.length, 4);
+  assert.deepEqual(links.map((link) => link.getAttribute('href')), [
+    '/multipass/?agent=1',
+    '/multipass/?agent=81',
+    '/multipass/zori-4354',
+    '/multipass/swarm/helixa',
+  ]);
+  const zori = strip.querySelector('a.visual-card-button[href="/multipass/zori-4354"]');
+  assert.ok(zori);
+  assert.match(zori.textContent ?? '', /Zori/);
+  assert.equal(zori.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), NORMIES_4354_IMAGE);
+});
+
 test('homepage View agents opens a dedicated public agents route instead of rendering the full gallery inline', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
@@ -1186,10 +1206,14 @@ test('production agents route uses the full static gallery instead of the single
 
   const gallery = root.querySelector('.public-agent-gallery');
   assert.ok(gallery);
-  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 3);
+  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 4);
   assert.match(gallery.textContent, /Bendr 2\.0/);
   assert.match(gallery.textContent, /Quigbot/);
   assert.match(gallery.textContent, /Helixa Swarm/);
+  assert.match(gallery.textContent, /Zori/);
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/zori-4354"]'));
+  assert.match(gallery.textContent, /Ethereum Normies NFT-backed/i);
+  assert.match(gallery.textContent, /Multipass management unclaimed/i);
 });
 
 test('agents route swarm card click opens a standalone swarm Multipass route', async () => {
