@@ -18,6 +18,16 @@ test('mobile layout does not squeeze fragment cards into narrow desktop columns'
 });
 
 
+test('mobile Multipass system panel aligns copy to the product hero rail', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const tabletBlock = css.slice(css.indexOf('@media (max-width: 900px)'), css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(tabletBlock, /\.product-home-shell \.multipass-system-panel \.system-panel-copy\s*\{[^}]*max-width:\s*760px;[^}]*margin:\s*0;[^}]*text-align:\s*left;/s);
+  assert.match(tabletBlock, /\.product-home-shell \.multipass-system-panel \.system-panel-copy h2\s*\{[^}]*max-width:\s*420px;[^}]*margin-left:\s*0;[^}]*margin-right:\s*0;/s);
+  assert.doesNotMatch(tabletBlock, /\.product-home-shell \.multipass-system-panel \.system-panel-copy\s*\{[^}]*margin:\s*0 auto;[^}]*text-align:\s*center;/s);
+});
+
+
 test('mobile resolver keeps a compact single-column hierarchy', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
   const resolverColumnRules = [...css.matchAll(/\.live-resolver form\s*\{[^}]*grid-template-columns:\s*([^;]+);/g)].map((match) => match[1].trim());
