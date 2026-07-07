@@ -645,26 +645,28 @@ test('homepage leads with Multipass product hero instead of Bendr record sheet',
   assert.equal(root.querySelector('.record-sheet'), null);
 });
 
-test('homepage keeps activation below the standalone desktop hero', async () => {
+test('homepage moves activation below the what-it-does panel', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   const hero = root.querySelector('.product-hero');
   const heroCard = root.querySelector('.product-hero-copy');
   const activation = root.querySelector('.live-resolver');
+  const activationCopy = activation?.querySelector('.live-resolver-copy');
   const groupActivation = root.querySelector('.group-activation-section');
   const systemPanel = root.querySelector('.multipass-system-panel');
 
   assert.ok(hero);
   assert.ok(heroCard);
   assert.ok(activation);
+  assert.ok(activationCopy);
   assert.equal(groupActivation, null);
   assert.ok(systemPanel);
   assert.equal(hero.children.length, 1);
   assert.equal(hero.firstElementChild, heroCard);
   assert.equal(hero.contains(activation), false);
-  assert.equal(hero.nextElementSibling, activation);
-  assert.equal(activation.nextElementSibling, systemPanel);
+  assert.equal(hero.nextElementSibling, systemPanel);
+  assert.equal(systemPanel.nextElementSibling, activation);
   assert.ok(heroCard.querySelector('.product-hero-main'));
   assert.ok(heroCard.contains(root.querySelector('.profile-visual-strip')));
   assert.equal(heroCard.firstElementChild?.classList.contains('product-hero-main'), true);
@@ -1510,8 +1512,9 @@ test('static initial state presents Multipass product home instead of Bendr prof
   const activation = root.querySelector('.live-resolver');
   const groupActivation = root.querySelector('.group-activation-section');
   assert.equal(groupActivation, null);
-  assert.equal(proofPanel?.previousElementSibling, activation);
-  assert.equal(activation?.previousElementSibling, hero);
+  assert.equal(proofPanel?.previousElementSibling, hero);
+  assert.equal(proofPanel?.nextElementSibling, activation);
+  assert.equal(activation?.previousElementSibling, proofPanel);
   assert.doesNotMatch(root.textContent, /Bendr is one profile, not the homepage/);
   assert.match(root.textContent, /View agents/);
   assert.equal(root.querySelector('.activation-summary'), null);

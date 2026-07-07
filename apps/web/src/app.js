@@ -1746,11 +1746,11 @@ function renderProductHome(root, state, handlers = {}) {
         </div>
       </section>
 
+      ${renderMultipassWhatItDoesPanel()}
+
       ${renderLiveResolver(state, { showResetButton: state.resolverStatus === 'loading' || state.resolverStatus === 'error', showGroupActivationButton: true })}
 
       ${state.groupActivationExpanded ? renderGroupActivationSection(state.groupActivation) : ''}
-
-      ${renderMultipassWhatItDoesPanel()}
     </div>
   `;
 
@@ -2073,7 +2073,7 @@ function renderLiveResolver(state, options = {}) {
   return `
     <section id="live-resolver" class="live-resolver" aria-label="Activate a live agent record">
       <form data-action="resolve-live-agent">
-        <div>
+        <div class="live-resolver-copy">
           <p class="card-label">Activate a live agent record</p>
           <h2>Build a Multipass from live AgentDNA data.</h2>
           <p>Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name.</p>

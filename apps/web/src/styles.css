@@ -206,12 +206,26 @@ button:focus-visible {
 }
 
 .product-home-shell .live-resolver {
-  width: min(100%, 1040px);
-  margin: 28px auto;
+  width: min(100%, 1180px);
+  margin: 28px auto 0;
+  padding: clamp(22px, 3vw, 30px);
 }
 
 .product-home-shell .live-resolver form {
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  grid-template-columns: minmax(260px, 0.72fr) minmax(260px, 1fr) minmax(180px, 260px);
+  gap: 18px;
+  align-items: end;
+}
+
+.product-home-shell .live-resolver .live-resolver-copy {
+  align-self: center;
+  max-width: 430px;
+}
+
+.product-home-shell .live-resolver .live-resolver-copy h2 {
+  font-size: clamp(1.9rem, 3vw, 3.2rem);
+  line-height: 0.96;
+  letter-spacing: -0.055em;
 }
 
 .profile-visual-strip {
