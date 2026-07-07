@@ -57,7 +57,8 @@ test('desktop product homepage hero is left-aligned and stretched across the car
   assert.match(css, /\.product-hero-main \.lead\s*\{[^}]*max-width:\s*760px;[^}]*margin-left:\s*0;[^}]*margin-right:\s*0;/s);
   assert.match(css, /\.product-hero-main \.homepage-actions\s*\{[^}]*justify-content:\s*flex-start;/s);
   assert.match(css, /\.product-hero-copy \.profile-visual-strip\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*margin-top:\s*clamp\(14px, 2vw, 22px\);/s);
-  assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*clamp\(240px, 22vw, 320px\);/s);
+  assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex:\s*0 0 calc\(\(100% - 24px\) \/ 3\);/s);
+  assert.match(css, /\.product-hero-copy \.visual-card-button \.profile-card-visual\s*\{[^}]*aspect-ratio:\s*4 \/ 3;/s);
   assert.doesNotMatch(css, /\.product-hero-main\s*\{[^}]*justify-self:\s*center;[^}]*text-align:\s*center;/s);
   assert.doesNotMatch(css, /\.product-hero-main h1,\s*\.product-hero-main \.lead\s*\{[^}]*margin-left:\s*auto;[^}]*margin-right:\s*auto;/s);
   assert.doesNotMatch(css, /\.product-hero-main \.homepage-actions\s*\{[^}]*justify-content:\s*center;/s);

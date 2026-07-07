@@ -447,7 +447,11 @@ button:focus-visible {
 }
 
 .product-hero-copy .visual-card-button {
-  flex-basis: clamp(240px, 22vw, 320px);
+  flex: 0 0 calc((100% - 24px) / 3);
+}
+
+.product-hero-copy .visual-card-button .profile-card-visual {
+  aspect-ratio: 4 / 3;
 }
 
 .homepage-actions {
