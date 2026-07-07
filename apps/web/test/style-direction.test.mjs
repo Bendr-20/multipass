@@ -58,3 +58,15 @@ test('desktop product homepage hero stacks CTA above the visual carousel', async
   assert.match(css, /\.product-hero-copy \.visual-card-button\s*\{[^}]*flex-basis:\s*clamp\(220px, 24vw, 300px\);/s);
   assert.doesNotMatch(css, /\.product-hero-copy\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(360px, 0\.68fr\);/s);
 });
+
+test('product homepage resolver and system panel stay centered inside laptop viewports', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*width:\s*min\(100%, 1040px\);[^}]*margin:\s*28px auto;/s);
+  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(240px, 320px\);/s);
+  assert.match(css, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*min\(100%, 1040px\);[^}]*margin:\s*28px auto 0;/s);
+  assert.match(css, /\.system-panel-copy\s*\{[^}]*max-width:\s*760px;[^}]*margin:\s*0 auto;[^}]*text-align:\s*center;/s);
+  assert.match(css, /\.system-panel-copy h2\s*\{[^}]*margin-left:\s*auto;[^}]*margin-right:\s*auto;/s);
+  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(180px, 240px\) minmax\(0, 1fr\);/s);
+  assert.doesNotMatch(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
+});

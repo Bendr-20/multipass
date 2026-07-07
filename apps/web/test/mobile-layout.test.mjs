@@ -31,7 +31,7 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.site-menu-button\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*0;[^}]*background:\s*transparent;/s);
   assert.match(css, /\.site-menu-button span\s*\{[^}]*height:\s*2px;[^}]*background:\s*var\(--ink\);/s);
   assert.match(css, /\.multipass-system-panel\s*\{/s);
-  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
+  assert.match(css, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(180px, 240px\) minmax\(0, 1fr\);/s);
   assert.match(css, /\.system-node-core\s*\{/s);
   assert.match(css, /\.multipass-protocol-strip\s*\{/s);
   assert.match(mobileBlock, /\.multipass-system-map\s*\{[^}]*grid-template-columns:\s*1fr;/s);
@@ -46,8 +46,8 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(css, /\.visual-card-button \.profile-card-visual\s*\{[^}]*aspect-ratio:\s*1 \/ 1;[^}]*border-radius:\s*12px;/s);
   assert.match(css, /\.visual-card-button \.profile-card-visual img\s*\{[^}]*object-fit:\s*contain;/s);
   assert.doesNotMatch(css, /\.product-hero > \.live-resolver\s*\{/s);
-  assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*margin:\s*28px 0;/s);
-  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.92fr\) minmax\(280px, 0\.58fr\);/s);
+  assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*width:\s*min\(100%, 1040px\);[^}]*margin:\s*28px auto;/s);
+  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(240px, 320px\);/s);
   assert.match(css, /\.live-resolver-actions\s*\{[^}]*display:\s*grid;[^}]*gap:\s*10px;/s);
   assert.doesNotMatch(css, /\.product-home-shell \.live-resolver\s*\{[^}]*min-height:\s*560px;/s);
   assert.match(mobileBlock, /\.profile-visual-strip \.visual-card-button\s*\{[^}]*grid-template-rows:\s*auto auto auto;/s);
@@ -61,7 +61,9 @@ test('mobile resolver keeps a compact single-column hierarchy', async () => {
   assert.match(mobileBlock, /\.homepage-proof-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
   assert.doesNotMatch(mobileBlock, /\.homepage-proof-panel h2,\s*\.homepage-proof-grid\s*\{[^}]*display:\s*none;/s);
   assert.match(mobileBlock, /\.live-resolver\s*\{[^}]*padding:\s*16px;/s);
+  assert.match(mobileBlock, /\.product-home-shell \.live-resolver\s*\{[^}]*width:\s*100%;[^}]*margin:\s*22px 0;/s);
   assert.match(mobileBlock, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(mobileBlock, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*100%;[^}]*margin:\s*22px 0 0;/s);
   assert.doesNotMatch(mobileBlock, /\.live-resolver form\s*\{[^}]*minmax\(180px, 260px\)[^}]*auto auto/s);
 });
 

@@ -206,11 +206,12 @@ button:focus-visible {
 }
 
 .product-home-shell .live-resolver {
-  margin: 28px 0;
+  width: min(100%, 1040px);
+  margin: 28px auto;
 }
 
 .product-home-shell .live-resolver form {
-  grid-template-columns: minmax(0, 0.92fr) minmax(280px, 0.58fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
 }
 
 .profile-visual-strip {
@@ -529,19 +530,33 @@ button:focus-visible {
   justify-content: flex-start;
 }
 
+.product-home-shell .multipass-system-panel {
+  width: min(100%, 1040px);
+  margin: 28px auto 0;
+}
+
 .system-panel-copy {
-  max-width: 900px;
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.system-panel-copy h2 {
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .system-panel-copy p:not(.card-label) {
-  max-width: 780px;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
   color: var(--muted);
   line-height: 1.55;
 }
 
 .multipass-system-map {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px) minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
 }
@@ -3088,8 +3103,18 @@ h1 {
     gap: 12px;
   }
 
+  .product-home-shell .live-resolver {
+    width: 100%;
+    margin: 22px 0;
+  }
+
   .product-home-shell .live-resolver form {
     grid-template-columns: 1fr;
+  }
+
+  .product-home-shell .multipass-system-panel {
+    width: 100%;
+    margin: 22px 0 0;
   }
 
   .live-resolver .card-label {
