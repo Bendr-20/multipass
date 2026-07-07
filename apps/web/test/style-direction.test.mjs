@@ -68,7 +68,7 @@ test('product homepage resolver sits below the system panel as a wide desktop ac
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
   assert.match(css, /\.product-home-shell \.live-resolver\s*\{[^}]*width:\s*min\(100%, 1180px\);[^}]*margin:\s*28px auto 0;[^}]*padding:\s*clamp\(22px, 3vw, 30px\);/s);
-  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(260px, 0\.72fr\) minmax\(260px, 1fr\) minmax\(180px, 260px\);[^}]*gap:\s*18px;[^}]*align-items:\s*end;/s);
+  assert.match(css, /\.product-home-shell \.live-resolver form\s*\{[^}]*grid-template-columns:\s*minmax\(310px, 0\.85fr\) minmax\(260px, 1fr\) minmax\(170px, 220px\);[^}]*gap:\s*18px;[^}]*align-items:\s*end;/s);
   assert.match(css, /\.product-home-shell \.live-resolver \.live-resolver-copy\s*\{[^}]*align-self:\s*center;[^}]*max-width:\s*430px;/s);
   assert.match(css, /\.product-home-shell \.live-resolver \.live-resolver-copy h2\s*\{[^}]*font-size:\s*clamp\(1\.9rem, 3vw, 3\.2rem\);[^}]*line-height:\s*0\.96;[^}]*letter-spacing:\s*-0\.055em;/s);
   assert.match(css, /\.product-home-shell \.multipass-system-panel\s*\{[^}]*width:\s*min\(100%, 1180px\);[^}]*margin:\s*28px auto 0;[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(260px, 0\.62fr\) minmax\(0, 1\.38fr\);[^}]*align-items:\s*center;/s);
