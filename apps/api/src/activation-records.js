@@ -13,6 +13,11 @@ import {
 const SCHEMA_VERSION = '0.1.0';
 const HELIXA_CHAIN_ID = 8453;
 const HELIXA_AGENT_API_BASE = 'https://api.helixa.xyz/api/v2/agent';
+const ETHEREUM_CHAIN_ID = 1;
+const NORMIES_API_BASE = 'https://api.normies.art';
+const NORMIES_AGENT_IDENTITY_CONTRACT = '0xde152afb7db5373f34876e1499fbd893a82dd336';
+const NORMIES_ART_CONTRACT = '0x9eb6e2025b64f340691e424b7fe7022ffde12438';
+const NORMIES_SOURCE_TYPE = 'normies_agent_nft';
 const ERC8004_BASE_IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 const ERC8004_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ERC8004_BLOCKSCOUT_API = 'https://base.blockscout.com/api';
@@ -290,6 +295,11 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
 }
 
 export async function activateHelixaRecord(input, { fetchImpl = fetch, observedAt, erc8004Discovery = discoverErc8004Identities, discoveryTimeoutMs } = {}) {
+  const normiesInput = parseNormiesActivationInput(input);
+  if (normiesInput) {
+    return activateNormiesAgentRecord(normiesInput, { fetchImpl, observedAt });
+  }
+
   const parsed = parseActivationInput(input);
   const agent = await fetchHelixaAgent(parsed.tokenId, fetchImpl);
   const returnedTokenId = agent?.tokenId === undefined || agent?.tokenId === null ? parsed.tokenId : normalizeTokenId(agent.tokenId);
@@ -303,6 +313,289 @@ export async function activateHelixaRecord(input, { fetchImpl = fetch, observedA
     timeoutMs: discoveryTimeoutMs,
   });
   return buildSavedRecordFromHelixaAgent(normalizedAgent, { observedAt, erc8004Identities });
+}
+
+
+async function activateNormiesAgentRecord(input, { fetchImpl, observedAt } = {}) {
+  const info = input.agentId
+    ? await fetchNormiesJson(`/agents/by-agent-id/${encodeURIComponent(input.agentId)}/info`, { fetchImpl })
+    : await fetchNormiesJson(`/agents/info/${encodeURIComponent(input.tokenId)}`, { fetchImpl });
+  const normieTokenId = normalizeTokenId(info?.tokenId ?? input.tokenId);
+  const agentId = normalizeTokenId(info?.agentId ?? input.agentId);
+
+  if (input.agentId && agentId !== input.agentId) {
+    throw new Error('Normies API returned an agent ID that did not match the activation input.');
+  }
+  if (input.tokenId && normieTokenId !== input.tokenId) {
+    throw new Error('Normies API returned a token ID that did not match the activation input.');
+  }
+
+  const [bindingBody, ownerBody] = await Promise.all([
+    fetchNormiesJson(`/agents/binding/${encodeURIComponent(normieTokenId)}`, { fetchImpl }),
+    fetchNormiesJson(`/normie/${encodeURIComponent(normieTokenId)}/owner`, { fetchImpl }),
+  ]);
+  const binding = bindingBody?.binding ?? null;
+  const bindingAgentId = normalizeTokenId(binding?.agentId ?? agentId);
+  const bindingTokenId = normalizeTokenId(binding?.tokenId ?? normieTokenId);
+
+  if (bindingAgentId !== agentId || bindingTokenId !== normieTokenId) {
+    throw new Error('Normies API returned a binding that did not match the activation input.');
+  }
+
+  return buildSavedRecordFromNormiesAgent({
+    info: { ...info, tokenId: normieTokenId, agentId },
+    binding: { ...binding, tokenId: normieTokenId, agentId },
+    owner: ownerBody?.owner,
+  }, { observedAt });
+}
+
+async function fetchNormiesJson(path, { fetchImpl }) {
+  const url = `${NORMIES_API_BASE}${path}`;
+  let response;
+  try {
+    response = await fetchImpl(url, { headers: { Accept: 'application/json' } });
+  } catch (error) {
+    throw new Error(`Could not reach the Normies API: ${error?.message ?? error}`);
+  }
+
+  if (!response?.ok) {
+    const status = response?.status ?? 'unknown status';
+    if (status === 404) throw new Error('No Normies agent found for that activation input.');
+    if (status === 429) throw new Error('Normies API is rate-limiting activation requests. Try again shortly.');
+    throw new Error(`GET Normies agent failed with ${status}.`);
+  }
+
+  return typeof response.json === 'function' ? response.json() : JSON.parse(await response.text());
+}
+
+function parseNormiesActivationInput(input) {
+  const raw = String(input ?? '').trim();
+  const match = raw.match(/^eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/);
+  if (!match) return null;
+  const chainId = Number(match[1]);
+  const contractAddress = normalizeAddress(match[2]);
+  const tokenId = match[3];
+  if (chainId !== ETHEREUM_CHAIN_ID || !contractAddress || !isPositiveTokenId(tokenId)) return null;
+  if (addressesEqual(contractAddress, NORMIES_AGENT_IDENTITY_CONTRACT)) {
+    return { chainId, agentContract: NORMIES_AGENT_IDENTITY_CONTRACT, agentId: tokenId };
+  }
+  if (addressesEqual(contractAddress, NORMIES_ART_CONTRACT)) {
+    return { chainId, tokenContract: NORMIES_ART_CONTRACT, tokenId };
+  }
+  return null;
+}
+
+function buildSavedRecordFromNormiesAgent({ info, binding, owner }, options = {}) {
+  const normieTokenId = normalizeTokenId(info?.tokenId ?? binding?.tokenId);
+  const agentId = normalizeTokenId(info?.agentId ?? binding?.agentId);
+  const observedAt = normalizeObservedAt(options.observedAt);
+  const identityId = normiesAgentIdentityId(agentId);
+  const backingNftId = normiesBackingNftId(normieTokenId);
+  const multipassId = `mp_normies_agent_${agentId}`;
+  const displayName = normalizeDisplayName(info?.name, normieTokenId);
+  const slug = slugifyDisplayName(displayName, normieTokenId);
+  const normalizedOwner = normalizeAddress(owner);
+  const imageUrl = `${NORMIES_API_BASE}/agents/image/${encodeURIComponent(normieTokenId)}`;
+  const agentInfoUrl = `${NORMIES_API_BASE}/agents/info/${encodeURIComponent(normieTokenId)}`;
+  const agentCardUrl = `${NORMIES_API_BASE}/agents/agent-card/${encodeURIComponent(normieTokenId)}`;
+  const metadataUrl = `${NORMIES_API_BASE}/agents/metadata/${encodeURIComponent(normieTokenId)}`;
+  const backingTokenAddress = normalizeAddress(binding?.tokenContract) ?? NORMIES_ART_CONTRACT;
+  const summary = createNormiesSummary({ info, displayName, normieTokenId });
+  const fragments = createNormiesPublicFragments({
+    multipassId,
+    normieTokenId,
+    agentId,
+    displayName,
+    observedAt,
+    identityId,
+    backingNftId,
+    owner: normalizedOwner,
+    agentInfoUrl,
+    metadataUrl,
+  });
+
+  const profile = assertMultipassProfile({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    subject_type: 'agent',
+    display_name: displayName,
+    slug,
+    status: 'active',
+    owner_summary: {
+      owner_state: 'unclaimed',
+      verification_status: 'none',
+      visibility: 'public',
+      summary: 'Read-only Ethereum Normies NFT-backed agent profile. Management is not claimed until a separate verification flow completes.',
+    },
+    custody_epoch: null,
+    public_fragments: fragments.map(({ fragment_id, fragment_type, status, assurance_level, visibility, updated_at }) => ({
+      fragment_id,
+      fragment_type,
+      status,
+      assurance_level,
+      visibility,
+      updated_at,
+    })),
+    cred_summary: {
+      trust_state: 'building',
+      attestation_count: 0,
+      receipt_count: 0,
+      last_updated_at: observedAt,
+      public_note: 'ERC-8004-style Normies identity and backing Ethereum NFT provenance imported from public source records.',
+    },
+    discovery_profile: {
+      summary,
+      tags: uniqueStrings(['normies', 'ethereum', 'erc-8004', 'agent-nft', info?.type]),
+      avatar_url: imageUrl,
+      visibility: 'public',
+    },
+    standards_profile: {
+      standards_profile_id: `sp_normies_agent_${agentId}`,
+      supported_standard_ids: ['ERC-8004'],
+      last_verified_at: observedAt,
+    },
+    payment_profile: {
+      accepted_assets: [],
+      x402_manifest_url: null,
+      paid_endpoints_enabled: false,
+    },
+    updated_at: observedAt,
+  });
+
+  const agentCard = assertAgentCard({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    name: displayName,
+    subject_type: 'agent',
+    summary: truncate(summary, 500),
+    boundaries: [
+      'Read-only cross-chain source import. Ethereum NFT ownership does not grant Multipass management without a separate verification flow.',
+    ],
+    capabilities: createNormiesCapabilities(info),
+    message_routes: [],
+    service_endpoints: [
+      {
+        endpoint_id: 'normies_agent_info',
+        url: agentInfoUrl,
+        description: 'Public Normies agent info endpoint for this NFT-backed agent profile.',
+        visibility: 'public',
+      },
+      {
+        endpoint_id: 'normies_agent_card',
+        url: agentCardUrl,
+        description: 'Public Normies agent card endpoint for this NFT-backed agent profile.',
+        visibility: 'public',
+      },
+      {
+        endpoint_id: 'normies_agent_metadata',
+        url: metadataUrl,
+        description: 'Public Normies ERC-8004 metadata endpoint for this agent identity.',
+        visibility: 'public',
+      },
+    ],
+    x402_manifest_url: null,
+    accepted_assets: [],
+    trust_summary: {
+      identity_status: 'verified',
+      assurance_level: 'onchain_verified',
+      last_updated_at: observedAt,
+    },
+    rate_limits: { requests: 0, window_seconds: 60 },
+    contact_policy: {
+      mode: 'approval_required',
+      requires_owner_approval: true,
+      policy_note: 'Imported public Normies identity records are read-only until the owner completes a Multipass management claim.',
+    },
+    standards_refs: [{ standard_id: 'ERC-8004', support_status: 'active', record_id: identityId }],
+  });
+
+  const standardsProfile = assertStandardsProfile({
+    schema_version: SCHEMA_VERSION,
+    standards_profile_id: `sp_normies_agent_${agentId}`,
+    multipass_id: multipassId,
+    primary_refs: {
+      erc8004_identity: identityId,
+      backing_nft: backingNftId,
+    },
+    standard_refs: [
+      {
+        standard_id: 'ERC-8004',
+        status: 'active',
+        chain_id: ETHEREUM_CHAIN_ID,
+        contract_address: NORMIES_AGENT_IDENTITY_CONTRACT,
+        record_id: identityId,
+        adapter_version: '0.1.0',
+        last_verified_at: observedAt,
+        assurance_level: 'onchain_verified',
+      },
+    ],
+    compatibility_summary: {
+      identity_bound: true,
+      owner_verified: false,
+      risk_checked: false,
+      tools_verified: false,
+      work_attested: false,
+      trust_updated: true,
+    },
+    adapter_versions: { 'ERC-8004': '0.1.0' },
+    last_verified_at: observedAt,
+  });
+
+  const x402Manifest = assertX402Manifest({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    endpoints: [],
+  });
+
+  return {
+    source: {
+      sourceType: NORMIES_SOURCE_TYPE,
+      canonicalId: identityId,
+      tokenId: agentId,
+    },
+    sourceContext: {
+      activation: {
+        state: 'saved_unclaimed',
+        origin: 'normies_agent_identity',
+        originSource: ACTIVATION_ORIGIN_SOURCE,
+        sourceType: NORMIES_SOURCE_TYPE,
+        canonicalId: identityId,
+        tokenId: agentId,
+        savedAt: observedAt,
+      },
+      sourceSnapshot: {
+        sourceType: NORMIES_SOURCE_TYPE,
+        id: agentId,
+        tokenId: normieTokenId,
+        canonicalId: identityId,
+        chainId: ETHEREUM_CHAIN_ID,
+        contractAddress: NORMIES_AGENT_IDENTITY_CONTRACT,
+        collectionAddress: backingTokenAddress,
+        owner: normalizedOwner,
+        name: displayName,
+        displayName,
+        summary,
+        description: truncate(String(info?.backstory ?? info?.tagline ?? '').trim(), 1000),
+        imageUrl,
+        metadataUrl,
+        apiUrl: agentInfoUrl,
+        profileUrl: `${NORMIES_API_BASE}/normie/${encodeURIComponent(normieTokenId)}`,
+        traits: sanitizeNormiesTraits(info?.traits),
+        standards: { erc8004Identity: identityId, backingNft: backingNftId },
+      },
+    },
+    profile,
+    fragments: fragments.map(assertIdentityFragment),
+    agentCard,
+    standardsProfile,
+    x402Manifest,
+    receipts: [],
+    change: {
+      change_id: `change_normies_agent_${safeKey(agentId)}_initial_save`,
+      message: 'Multipass saved from public Normies agent NFT source record.',
+      created_at: observedAt,
+    },
+  };
 }
 
 async function discoverErc8004IdentitiesWithTimeout(agent, { observedAt, erc8004Discovery, timeoutMs }) {
@@ -673,6 +966,131 @@ function normalizeAddress(value) {
   const candidate = String(value ?? '').trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(candidate)) return null;
   return candidate;
+}
+
+
+function normiesAgentIdentityId(agentId) {
+  return `eip155:${ETHEREUM_CHAIN_ID}:${NORMIES_AGENT_IDENTITY_CONTRACT}:${agentId}`;
+}
+
+function normiesBackingNftId(tokenId) {
+  return `eip155:${ETHEREUM_CHAIN_ID}:${NORMIES_ART_CONTRACT}:${tokenId}`;
+}
+
+function createNormiesSummary({ info, displayName, normieTokenId }) {
+  const tagline = String(info?.tagline ?? '').trim();
+  const type = String(info?.type ?? '').trim();
+  const level = info?.canvas?.level === undefined ? null : Number(info.canvas.level);
+  const levelText = Number.isFinite(level) ? ` Level ${level}.` : '';
+  const descriptor = tagline || (type ? `${type} agent` : 'agent');
+  return truncate(`${displayName} is an Ethereum Normies NFT-backed agent profile for Normie #${normieTokenId}. ${descriptor}.${levelText} This Multipass import shows public ERC-8004 identity and NFT provenance only; it does not claim Base AgentDNA mint authority or management rights.`, 1000);
+}
+
+function createNormiesCapabilities(info) {
+  const capabilities = [];
+  const communicationStyle = String(info?.communicationStyle ?? '').trim();
+  if (communicationStyle) {
+    capabilities.push({
+      capability_id: 'normies_persona',
+      label: 'Normies persona profile',
+      description: truncate(`Public persona profile with communication style: ${communicationStyle}`, 500),
+      visibility: 'public',
+    });
+  }
+  if (Array.isArray(info?.personalityTraits) && info.personalityTraits.length) {
+    capabilities.push({
+      capability_id: 'normies_traits',
+      label: 'Public personality traits',
+      description: truncate(info.personalityTraits.slice(0, 3).join('; '), 500),
+      visibility: 'public',
+    });
+  }
+  return capabilities;
+}
+
+function createNormiesPublicFragments({ multipassId, normieTokenId, agentId, displayName, observedAt, identityId, backingNftId, owner, agentInfoUrl, metadataUrl }) {
+  const identityExplorerUrl = `https://etherscan.io/token/${NORMIES_AGENT_IDENTITY_CONTRACT}?a=${encodeURIComponent(agentId)}`;
+  const backingExplorerUrl = `https://etherscan.io/token/${NORMIES_ART_CONTRACT}?a=${encodeURIComponent(normieTokenId)}`;
+  const fragments = [
+    createFragment({
+      fragment_id: `frag_normies_agent_${safeKey(agentId)}_erc8004`,
+      multipass_id: multipassId,
+      fragment_type: 'standard_ref',
+      status: 'verified',
+      assurance_level: 'onchain_verified',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'contract_read',
+      source_id: identityId,
+      issuer: 'Normies ERC-8004 Agent Registry',
+      observed_at: observedAt,
+      reference_url: identityExplorerUrl,
+      public_value: `Normies ERC-8004 agent identity ${identityId} for ${displayName}.`,
+      proof_reference: identityId,
+    }),
+    createFragment({
+      fragment_id: `frag_normies_agent_${safeKey(agentId)}_backing_nft`,
+      multipass_id: multipassId,
+      fragment_type: 'collection',
+      status: 'verified',
+      assurance_level: 'onchain_verified',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'contract_read',
+      source_id: backingNftId,
+      issuer: 'Normies',
+      observed_at: observedAt,
+      reference_url: backingExplorerUrl,
+      public_value: `Agent identity is backed by underlying Ethereum Normies NFT #${normieTokenId} (${backingNftId}).`,
+      proof_reference: backingNftId,
+    }),
+    createFragment({
+      fragment_id: `frag_normies_agent_${safeKey(agentId)}_metadata`,
+      multipass_id: multipassId,
+      fragment_type: 'endpoint',
+      status: 'verified',
+      assurance_level: 'platform_verified',
+      transfer_policy: 'pause_on_transfer',
+      source_type: 'platform_check',
+      source_id: `${identityId}:metadata`,
+      issuer: 'Normies',
+      observed_at: observedAt,
+      reference_url: metadataUrl,
+      public_value: 'Public Normies ERC-8004 metadata endpoint for this agent identity.',
+      endpoint_ref: { endpoint_id: 'normies_agent_metadata', url: metadataUrl, protocol: 'api' },
+    }),
+  ];
+
+  if (owner) {
+    fragments.push(createFragment({
+      fragment_id: `frag_normies_agent_${safeKey(agentId)}_custody`,
+      multipass_id: multipassId,
+      fragment_type: 'custody_record',
+      status: 'verified',
+      assurance_level: 'onchain_verified',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'contract_read',
+      source_id: `${backingNftId}:owner`,
+      issuer: 'Normies',
+      observed_at: observedAt,
+      reference_url: agentInfoUrl,
+      public_value: `Current Ethereum owner ${owner} observed for Normies NFT #${normieTokenId}. This does not grant Multipass management.`,
+      proof_reference: owner,
+    }));
+  }
+
+  return fragments;
+}
+
+function sanitizeNormiesTraits(value) {
+  if (!isPlainObject(value)) return undefined;
+  const attributes = isPlainObject(value.attributes) ? value.attributes : value;
+  const sanitized = {};
+  for (const [key, entry] of Object.entries(attributes)) {
+    const safeName = truncate(String(key ?? '').trim(), 80);
+    const safeValue = sanitizePublicPrimitive(entry);
+    if (!safeName || safeValue === undefined || !String(safeValue).trim()) continue;
+    sanitized[safeName] = typeof safeValue === 'string' ? truncate(safeValue, 200) : safeValue;
+  }
+  return Object.keys(sanitized).length ? sanitized : undefined;
 }
 
 function createPublicFragments({ tokenId, canonicalId, multipassId, displayName, observedAt, sourceSnapshot, sourceUrl, erc8004Identities = [] }) {

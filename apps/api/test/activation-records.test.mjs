@@ -205,6 +205,112 @@ test('activateHelixaRecord timeboxes slow ERC-8004 discovery and keeps the publi
   assert.equal(record.sourceContext.sourceSnapshot.erc8004Identities, undefined);
 });
 
+test('activateHelixaRecord imports Ethereum Normies ERC-8004 agent identity with backing NFT provenance', async () => {
+  const identityId = 'eip155:1:0xde152afb7db5373f34876e1499fbd893a82dd336:32362';
+  const backingNftId = 'eip155:1:0x9eb6e2025b64f340691e424b7fe7022ffde12438:4354';
+  const owner = '0x93886649b07888129fa320eb95756c35cf80d732';
+  const requested = [];
+
+  const record = await activateHelixaRecord(identityId, {
+    observedAt: '2026-07-07T01:20:00.000Z',
+    fetchImpl: async (url, init) => {
+      requested.push({ url: String(url), init });
+      if (String(url) === 'https://api.normies.art/agents/by-agent-id/32362/info') {
+        return new Response(JSON.stringify({
+          tokenId: '4354',
+          agentId: '32362',
+          chainId: 1,
+          name: 'Zori',
+          type: 'Human',
+          tagline: 'Pixel-born philosopher',
+          backstory: 'Born from block data and human ambition.',
+          greeting: 'Zori, Normie #4354. Calm seas.',
+          personalityTraits: ['chooses bold over safe', 'grounded and approachable'],
+          communicationStyle: 'warm and conversational',
+          quirks: ['Picks sides on every question'],
+          systemPrompt: 'must not persist',
+          registeredAt: '2026-05-15T17:03:59.000Z',
+          registeredBy: '0x8a8035f056af830b7205c58c1dc037f826fc2b92',
+          txHash: '0xe17f4869424d352418add110c49a17a239a9c957e1725225e19f889197831cd6',
+          canvas: { level: 31, actionPoints: 305, customized: true, diff: { added: [], removed: [], net: 102 } },
+          traits: {
+            name: 'Normie #4354',
+            attributes: {
+              Type: 'Human',
+              Gender: 'Male',
+              Age: 'Middle-Aged',
+              'Legendary Canvas': 'Serc',
+            },
+          },
+          interactions: { status: 'coming_soon' },
+          mcp: { status: 'coming_soon' },
+        }), { status: 200 });
+      }
+      if (String(url) === 'https://api.normies.art/agents/binding/4354') {
+        return new Response(JSON.stringify({
+          binding: {
+            id: '0:0x9eb6e2025b64f340691e424b7fe7022ffde12438:4354',
+            agentId: '32362',
+            standard: 0,
+            tokenContract: '0x9eb6e2025b64f340691e424b7fe7022ffde12438',
+            tokenId: '4354',
+            registeredBy: '0x8a8035f056af830b7205c58c1dc037f826fc2b92',
+            blockNumber: '25101923',
+            timestamp: '1778864639',
+            txHash: '0xe17f4869424d352418add110c49a17a239a9c957e1725225e19f889197831cd6',
+          },
+        }), { status: 200 });
+      }
+      if (String(url) === 'https://api.normies.art/normie/4354/owner') {
+        return new Response(JSON.stringify({ tokenId: '4354', owner }), { status: 200 });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    },
+  });
+
+  assert.deepEqual(requested.map((entry) => entry.init?.headers), [
+    { Accept: 'application/json' },
+    { Accept: 'application/json' },
+    { Accept: 'application/json' },
+  ]);
+  assert.equal(record.source.sourceType, 'normies_agent_nft');
+  assert.equal(record.source.canonicalId, identityId);
+  assert.equal(record.source.tokenId, '32362');
+  assert.equal(record.profile.display_name, 'Zori');
+  assert.equal(record.profile.slug, 'zori-4354');
+  assert.equal(record.profile.discovery_profile.avatar_url, 'https://api.normies.art/agents/image/4354');
+  assert.match(record.profile.discovery_profile.summary, /Ethereum Normies NFT-backed agent profile/);
+  assert.equal(record.profile.owner_summary.owner_state, 'unclaimed');
+  assert.equal(record.profile.owner_summary.verification_status, 'none');
+  assert.equal(record.standardsProfile.primary_refs.erc8004_identity, identityId);
+  assert.equal(record.standardsProfile.primary_refs.backing_nft, backingNftId);
+  assert.equal(record.standardsProfile.standard_refs[0].chain_id, 1);
+  assert.equal(record.standardsProfile.standard_refs[0].contract_address, '0xde152afb7db5373f34876e1499fbd893a82dd336');
+  assert.equal(record.standardsProfile.compatibility_summary.identity_bound, true);
+  assert.equal(record.agentCard.trust_summary.identity_status, 'verified');
+  assert.deepEqual(record.agentCard.standards_refs, [{ standard_id: 'ERC-8004', support_status: 'active', record_id: identityId }]);
+  assert.ok(record.agentCard.service_endpoints.some((endpoint) => endpoint.url === 'https://api.normies.art/agents/info/4354'));
+  assert.ok(record.agentCard.service_endpoints.some((endpoint) => endpoint.url === 'https://api.normies.art/agents/agent-card/4354'));
+
+  const identityFragment = record.fragments.find((fragment) => fragment.proof_reference === identityId);
+  const backingFragment = record.fragments.find((fragment) => fragment.proof_reference === backingNftId);
+  const custodyFragment = record.fragments.find((fragment) => fragment.fragment_type === 'custody_record');
+  assert.equal(identityFragment?.fragment_type, 'standard_ref');
+  assert.equal(identityFragment?.assurance_level, 'onchain_verified');
+  assert.match(identityFragment?.public_value ?? '', /Normies ERC-8004 agent identity/);
+  assert.equal(backingFragment?.fragment_type, 'collection');
+  assert.match(backingFragment?.public_value ?? '', /underlying Ethereum Normies NFT #4354/);
+  assert.equal(custodyFragment?.assurance_level, 'onchain_verified');
+  assert.match(custodyFragment?.public_value ?? '', /does not grant Multipass management/);
+  assert.equal(record.sourceContext.sourceSnapshot.owner, owner);
+  assert.equal(record.sourceContext.sourceSnapshot.tokenId, '4354');
+  assert.equal(record.sourceContext.sourceSnapshot.id, '32362');
+  assert.doesNotMatch(JSON.stringify(record), /must not persist|systemPrompt/);
+  assertMultipassProfile(record.profile);
+  assertStandardsProfile(record.standardsProfile);
+  assertAgentCard(record.agentCard);
+});
+
 test('activateHelixaRecord imports identities returned by an ERC-8004 discovery service', async () => {
   let discoveryInput;
   const record = await activateHelixaRecord('1', {
