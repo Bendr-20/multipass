@@ -123,3 +123,40 @@ test('Quigbot share preview image is not the stale Agent Aura card', () => {
 
   assert.notEqual(sha256File(imagePath), STALE_QUIGBOT_AURA_SHARE_JPEG_SHA256);
 });
+
+test('Zori Normies profile exposes an image preview share route that opens the saved profile', async () => {
+  const tokenId = '32362';
+  const htmlPath = join(shareRoot, tokenId, 'index.html');
+  const jpgPath = join(shareRoot, `${tokenId}.jpg`);
+  const pngPath = join(shareRoot, `${tokenId}.png`);
+  const generated = GENERATED_SHARE_CARDS[tokenId];
+
+  assert.ok(generated, 'missing generated share manifest for Zori Normies agent');
+  assert.equal(generated.tokenId, tokenId);
+  assert.equal(generated.profilePath, '/multipass/zori-4354');
+  assert.equal(generated.visualSource, 'https://api.normies.art/agents/image/4354');
+  assert.equal(generated.version, sha256File(jpgPath).slice(0, generated.version.length));
+
+  assert.equal(existsSync(htmlPath), true);
+  assert.equal(existsSync(jpgPath), true);
+  assert.equal(existsSync(pngPath), true);
+  assert.deepEqual(imageSizeFromFile(jpgPath), { width: 1200, height: 630, type: 'jpeg' });
+  assert.deepEqual(imageSizeFromFile(pngPath), { width: 1200, height: 630, type: 'png' });
+  assert.ok(statSync(jpgPath).size > 20_000);
+
+  const html = await readFile(htmlPath, 'utf8');
+  const shareUrl = 'https://helixa.xyz/multipass/share/32362/';
+  const expectedImageUrl = getAgentShareImageUrl(generated, 'https://helixa.xyz');
+  assert.ok(html.includes('<title>Zori Multipass</title>'));
+  assert.ok(html.includes(`<link rel="canonical" href="${shareUrl}" />`));
+  assert.ok(html.includes('<meta property="og:title" content="Zori Multipass" />'));
+  assert.ok(html.includes(`<meta property="og:image" content="${expectedImageUrl}" />`));
+  assert.ok(html.includes(`<meta property="og:image:secure_url" content="${expectedImageUrl}" />`));
+  assert.ok(html.includes(`<meta name="twitter:image" content="${expectedImageUrl}" />`));
+  assert.ok(html.includes('<meta name="twitter:image:alt" content="Zori Multipass preview" />'));
+  assert.ok(html.includes('<meta name="multipass:visual-source" content="https://api.normies.art/agents/image/4354" />'));
+  assert.ok(html.includes('<img src="../32362.jpg" alt="Zori Multipass preview" />'));
+  assert.ok(html.includes('<a class="open-profile" href="https://helixa.xyz/multipass/zori-4354">Open Multipass profile</a>'));
+  assert.ok(html.includes("window.location.replace('https://helixa.xyz/multipass/zori-4354')"));
+  assert.doesNotMatch(html, /agent=32362/);
+});

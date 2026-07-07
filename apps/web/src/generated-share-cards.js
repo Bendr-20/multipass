@@ -9,4 +9,10 @@ export const GENERATED_SHARE_CARDS = Object.freeze({
     version: '0eff4f85',
     visualSource: 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432',
   }),
+  '32362': Object.freeze({
+    tokenId: '32362',
+    version: '9145d898',
+    visualSource: 'https://api.normies.art/agents/image/4354',
+    profilePath: '/multipass/zori-4354',
+  }),
 });

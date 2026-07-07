@@ -5,6 +5,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { EXTERNAL_SHARE_CARD_PROFILES } from '../src/external-share-cards.js';
 import { getAgentShareImageUrl } from '../src/share-cards.js';
 import { STATIC_DEMO_DATA } from '../src/static-demo-data.js';
 
@@ -31,7 +32,7 @@ function parseArgs(argv) {
 }
 
 function numericAgentCards(data) {
-  return [...(data.agentCards ?? [])]
+  return [...(data.agentCards ?? []), ...EXTERNAL_SHARE_CARD_PROFILES]
     .filter((card) => /^\d+$/.test(String(card.tokenId ?? '')))
     .sort((a, b) => Number(a.tokenId) - Number(b.tokenId));
 }
@@ -303,11 +304,28 @@ async function shortHashFile(path) {
 }
 
 async function buildGeneratedCard(card, jpgPath) {
+  const profilePath = normalizeProfilePath(card.profilePath, card.tokenId);
   return {
     tokenId: String(card.tokenId),
     version: await shortHashFile(jpgPath),
     visualSource: card.visual?.imageUrl ?? null,
+    ...(profilePath ? { profilePath } : {}),
   };
+}
+
+function normalizeProfilePath(value, tokenId) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw, absoluteOrigin);
+    if (parsed.origin !== absoluteOrigin) return null;
+    const path = `${parsed.pathname}${parsed.search}`;
+    if (path === `/multipass/?agent=${encodeURIComponent(String(tokenId))}`) return path;
+    if (/^\/multipass\/[a-z0-9][a-z0-9-]{1,80}\/?$/.test(path)) return path.replace(/\/$/, '');
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function escapeJavaScriptSingleQuoted(value) {
@@ -320,7 +338,8 @@ async function writeShareHtml(card, generatedCard, htmlPath) {
   const title = `${card.name} Multipass`;
   const description = `Portable agent identity profile for ${card.name}.`;
   const shareUrl = `${absoluteOrigin}/multipass/share/${encodedTokenId}/`;
-  const profileUrl = `${absoluteOrigin}/multipass/?agent=${encodedTokenId}`;
+  const profilePath = generatedCard.profilePath ?? `/multipass/?agent=${encodedTokenId}`;
+  const profileUrl = new URL(profilePath, absoluteOrigin).toString();
   const imageUrl = getAgentShareImageUrl(generatedCard, absoluteOrigin);
   const visualSource = generatedCard.visualSource
     ? `    <meta name="multipass:visual-source" content="${escapeHtml(generatedCard.visualSource)}" />\n`
@@ -402,6 +421,7 @@ function buildManifestSource(generatedCards) {
     lines.push(`    tokenId: ${jsString(card.tokenId)},`);
     lines.push(`    version: ${jsString(card.version)},`);
     lines.push(`    visualSource: ${card.visualSource == null ? 'null' : jsString(card.visualSource)},`);
+    if (card.profilePath) lines.push(`    profilePath: ${jsString(card.profilePath)},`);
     lines.push('  }),');
   }
   lines.push('});');

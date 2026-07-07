@@ -9,7 +9,9 @@ import { isSafeMultipassSharePath } from '../src/save-panel.js';
 import { getAgentSharePath } from '../src/share-cards.js';
 
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
+const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
 const QUIGBOT_GENERATED_SHARE_PATH = getAgentSharePath(GENERATED_SHARE_CARDS['81']);
+const ZORI_GENERATED_SHARE_PATH = getAgentSharePath(GENERATED_SHARE_CARDS['32362']);
 
 function sampleData() {
   return {
@@ -286,6 +288,65 @@ async function savedProfileNoToolsFetch(url) {
     return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_helixa_agent_1', tools: [] }), { status: 200 });
   }
   return savedProfileFetch(url);
+}
+
+async function savedZoriProfileFetch(url) {
+  const value = String(url);
+  if (value.endsWith('/hydrated')) {
+    return new Response('missing', { status: 404 });
+  }
+  if (value.endsWith('/api/multipass/zori-4354')) {
+    return new Response(JSON.stringify({
+      schema_version: '0.1.0',
+      multipass_id: 'mp_normies_agent_32362',
+      subject_type: 'agent',
+      display_name: 'Zori',
+      slug: 'zori-4354',
+      status: 'active',
+      owner_summary: {
+        owner_state: 'unclaimed',
+        verification_status: 'none',
+        visibility: 'public',
+        summary: 'Read-only Ethereum Normies NFT-backed agent profile.',
+      },
+      custody_epoch: null,
+      public_fragments: [],
+      cred_summary: {
+        trust_state: 'building',
+        attestation_count: 0,
+        receipt_count: 0,
+        last_updated_at: '2026-07-07T01:30:00.000Z',
+        public_note: 'ERC-8004-style Normies identity and backing Ethereum NFT provenance imported from public source records.',
+      },
+      discovery_profile: {
+        summary: 'Zori is an Ethereum Normies NFT-backed agent profile for Normie #4354.',
+        tags: ['normies', 'ethereum', 'erc-8004', 'agent-nft'],
+        avatar_url: NORMIES_4354_IMAGE,
+        visibility: 'public',
+      },
+      standards_profile: {
+        standards_profile_id: 'sp_normies_agent_32362',
+        supported_standard_ids: ['ERC-8004'],
+        last_verified_at: '2026-07-07T01:30:00.000Z',
+      },
+      payment_profile: { accepted_assets: [], x402_manifest_url: null, paid_endpoints_enabled: false },
+      updated_at: '2026-07-07T01:30:00.000Z',
+    }), { status: 200 });
+  }
+  if (value.endsWith('/fragments')) return new Response(JSON.stringify({ multipass_id: 'mp_normies_agent_32362', fragments: [] }), { status: 200 });
+  if (value.endsWith('/card') || value.endsWith('/agent-card')) return new Response(JSON.stringify({ ...sampleData().card, multipass_id: 'mp_normies_agent_32362', name: 'Zori' }), { status: 200 });
+  if (value.endsWith('/standards')) return new Response(JSON.stringify({
+    ...sampleData().standards,
+    multipass_id: 'mp_normies_agent_32362',
+    primary_refs: {
+      erc8004_identity: 'eip155:1:0xde152afb7db5373f34876e1499fbd893a82dd336:32362',
+      backing_nft: 'eip155:1:0x9eb6e2025b64f340691e424b7fe7022ffde12438:4354',
+    },
+  }), { status: 200 });
+  if (value.endsWith('/x402')) return new Response(JSON.stringify({ ...sampleData().x402, multipass_id: 'mp_normies_agent_32362' }), { status: 200 });
+  if (value.endsWith('/tools')) return new Response(JSON.stringify({ schema_version: '0.1.0', multipass_id: 'mp_normies_agent_32362', tools: [] }), { status: 200 });
+  if (value.endsWith('/changes')) return new Response(JSON.stringify({ multipass_id: 'mp_normies_agent_32362', entries: [] }), { status: 200 });
+  throw new Error(`Unexpected Zori URL ${url}`);
 }
 
 function fillGroupActivationForm(root, overrides = {}) {
@@ -1585,6 +1646,19 @@ test('saved Quigbot profile refresh survives trailing slash route', async () => 
   const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
   assert.ok(auraCard);
   assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NAKAMIGO_2432_IMAGE);
+  assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
+});
+
+test('saved Normies profile uses its generated preview share route instead of static Base fallback', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/zori-4354?api=https://api.example.test');
+  await createApp({ root, fetchImpl: savedZoriProfileFetch }).start();
+
+  const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.ok(auraCard);
+  assert.equal(auraCard.querySelector('h2')?.textContent, 'Zori');
+  assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NORMIES_4354_IMAGE);
+  assert.equal(auraCard.querySelector('.aura-share-action')?.getAttribute('data-share-url'), ZORI_GENERATED_SHARE_PATH);
+  assert.doesNotMatch(auraCard.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
 });
 
