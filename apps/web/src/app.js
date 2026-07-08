@@ -1898,7 +1898,8 @@ function getHomeProfileResolveAttrs(agent, index) {
 function getHomeProfileActionAttrs(card, index) {
   const agent = getHomepageMultipassProfileAgent(card);
   if (agent) return getHomeProfileResolveAttrs(agent, index);
-  return ` data-action="select-home-agent-card" data-index="${index}"`;
+  if (card.subjectType === 'swarm' || card.detailMode === 'swarm') return ` data-action="select-home-agent-card" data-index="${index}"`;
+  return '';
 }
 
 function getHomepageMultipassProfileAgent(card) {

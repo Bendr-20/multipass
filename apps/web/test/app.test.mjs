@@ -1165,6 +1165,23 @@ test('production homepage carousel includes Zori as a cross-chain Normies exampl
   assert.equal(zori.querySelector('img[data-visual-card-image="true"]')?.getAttribute('src'), NORMIES_4354_IMAGE);
 });
 
+test('homepage saved-route profile cards keep native link navigation', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root }).start();
+
+  const zori = root.querySelector('a.visual-card-button[href="/multipass/zori-4354"]');
+  assert.ok(zori);
+  assert.equal(zori.getAttribute('data-action'), null);
+
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  zori.dispatchEvent(click);
+  await Promise.resolve();
+
+  assert.equal(click.defaultPrevented, false);
+  assert.equal(window.location.href, 'https://helixa.xyz/multipass/');
+  assert.equal(root.querySelector('.multipass-profile-page'), null);
+});
+
 test('homepage View agents opens a dedicated public agents route instead of rendering the full gallery inline', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
   await createApp({ root, loadDemo: async () => sampleData() }).start();
