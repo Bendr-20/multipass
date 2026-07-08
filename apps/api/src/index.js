@@ -1070,41 +1070,102 @@ function isPrivateIpLiteral(host) {
 function renderShareCardSvg(profile, sourceStore, baseUrl, { profileImageUrl = null } = {}) {
   const displayName = profile.display_name ?? profile.slug ?? 'Multipass';
   const title = truncate(displayName, 42);
-  const summary = truncate(profile.discovery_profile?.summary || 'Public Multipass profile for agents and AI-native systems.', 115);
-  const tags = uniqueStrings(profile.discovery_profile?.tags ?? []).slice(0, 4);
+  const summary = truncate(profile.discovery_profile?.summary || 'Public Multipass profile for agents and AI-native systems.', 112);
+  const tags = uniqueStrings(profile.discovery_profile?.tags ?? []).slice(0, 3);
   const status = titleCase(profile.owner_summary?.owner_state ?? 'public profile');
   const subject = titleCase(profile.subject_type ?? 'agent');
   const initials = initialsForShareCard(displayName);
+  const leftHeadline = subject === 'Agent' ? 'Portable agent identity' : `Portable ${subject.toLowerCase()} identity`;
+  const tagLine = tags.length ? tags.join('  ·  ') : 'identity · proof · discovery';
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="${escapeSvg(title)} Multipass preview">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#090907"/><stop offset="0.58" stop-color="#17110d"/><stop offset="1" stop-color="#312216"/></linearGradient>
-    <radialGradient id="glow" cx="0.84" cy="0.1" r="0.7"><stop offset="0" stop-color="#c99b59" stop-opacity="0.5"/><stop offset="1" stop-color="#c99b59" stop-opacity="0"/></radialGradient>
-    <filter id="shadow"><feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.35"/></filter>
-    <clipPath id="profileImageClip"><rect x="766" y="116" width="320" height="320" rx="54" ry="54"/></clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff8eb" />
+      <stop offset="0.47" stop-color="#f3e4ce" />
+      <stop offset="1" stop-color="#dfd1ff" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.12" cy="0.16" r="0.76">
+      <stop offset="0" stop-color="#fff1a8" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#fff1a8" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.88" cy="0.12" r="0.82">
+      <stop offset="0" stop-color="#9b7cff" stop-opacity="0.54" />
+      <stop offset="1" stop-color="#9b7cff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffaf1" stop-opacity="0.94" />
+      <stop offset="1" stop-color="#f7ecdb" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="initialGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#191b1c" />
+      <stop offset="0.48" stop-color="#6a4cff" />
+      <stop offset="1" stop-color="#e8874f" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#2c2419" flood-opacity="0.18" />
+    </filter>
+    <clipPath id="visualClip">
+      <rect x="770" y="120" width="320" height="320" rx="72" />
+    </clipPath>
   </defs>
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <rect width="1200" height="630" fill="url(#glow)"/>
-  <rect x="70" y="70" width="1060" height="490" rx="52" fill="#14100d" stroke="#d8b06b" stroke-opacity="0.28" filter="url(#shadow)"/>
-  <text x="112" y="135" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" fill="#d8b06b" letter-spacing="5">MULTIPASS</text>
-  <text x="112" y="240" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="900" fill="#fff7e8">${escapeSvg(title)}</text>
-  <text x="112" y="298" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="700" fill="#d7c1a2">${escapeSvg(subject)} · ${escapeSvg(status)}</text>
-  ${wrapSvgText(summary, 112, 354, 30, 34, '#f0dfc4')}
-  <rect x="756" y="106" width="340" height="340" rx="62" fill="#090907" stroke="#d8b06b" stroke-opacity="0.45" stroke-width="2"/>
-  ${profileImageUrl ? renderShareCardProfileImage(profileImageUrl) : renderShareCardFallbackInitials(initials)}
-  <text x="112" y="500" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="800" fill="#d8b06b">${escapeSvg(tags.length ? tags.join('  ·  ') : 'identity · proof · discovery')}</text>
-  <text x="766" y="492" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#d7c1a2">helixa.xyz/multipass</text>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect width="1200" height="630" fill="url(#glowA)" />
+  <rect width="1200" height="630" fill="url(#glowB)" />
+  <g opacity="0.85">
+      ${shareCardDecorativeTexture()}
+  </g>
+  <rect x="58" y="54" width="1084" height="522" rx="48" fill="url(#panel)" stroke="#262018" stroke-opacity="0.12" filter="url(#shadow)" />
+  <path d="M100 494 C247 436 363 565 520 505 C658 452 690 370 772 378 C874 389 910 514 1085 448" fill="none" stroke="#191b1c" stroke-opacity="0.08" stroke-width="8" stroke-linecap="round" />
+  <g font-family="Inter, Arial, sans-serif" fill="#191b1c">
+    <text x="102" y="132" font-size="29" font-weight="900" letter-spacing="5" fill="#6d5c45">MULTIPASS</text>
+    <text x="102" y="224" font-size="74" font-weight="950">${escapeSvg(title)}</text>
+    <text x="105" y="280" font-size="30" font-weight="750" fill="#5d5548">${escapeSvg(leftHeadline)}</text>
+    ${wrapSvgText(summary, 104, 334, 29, 37, '#3b342b')}
+    <g transform="translate(104 430)">
+      <rect width="214" height="78" rx="24" fill="#191b1c" opacity="0.96" />
+      <text x="26" y="33" font-size="19" font-weight="850" letter-spacing="3" fill="#f2d095">SOURCE</text>
+      <text x="26" y="61" font-size="25" font-weight="950" fill="#fffaf1">${escapeSvg(subject)}</text>
+    </g>
+    <g transform="translate(342 430)">
+      <rect width="286" height="78" rx="24" fill="#fff5e4" stroke="#191b1c" stroke-opacity="0.13" />
+      <text x="26" y="33" font-size="19" font-weight="850" letter-spacing="3" fill="#806d50">STATUS</text>
+      <text x="26" y="61" font-size="25" font-weight="950" fill="#191b1c">${escapeSvg(truncate(status, 18))}</text>
+    </g>
+    <text x="104" y="545" font-size="19" font-weight="800" letter-spacing="2" fill="#8a7860">PUBLIC PROFILE · ${escapeSvg(tagLine)}</text>
+  </g>
+  <g>
+    <rect x="742" y="92" width="376" height="376" rx="88" fill="#fffaf1" stroke="#191b1c" stroke-opacity="0.12" stroke-width="2" />
+    <rect x="754" y="104" width="352" height="352" rx="80" fill="#191b1c" opacity="0.06" />
+    ${profileImageUrl ? renderShareCardProfileImage(profileImageUrl) : renderShareCardFallbackInitials(initials)}
+    <rect x="770" y="120" width="320" height="320" rx="72" fill="none" stroke="#fffaf1" stroke-opacity="0.72" stroke-width="10" />
+    <text x="930" y="510" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900" fill="#5d5548" letter-spacing="3">AGENT CARD</text>
+  </g>
 </svg>`;
+}
+
+function shareCardDecorativeTexture() {
+  const palette = ['#f0b86a', '#a77cff', '#5fc9b8', '#f06f6f', '#f8d38a'];
+  const nodes = [];
+  for (let i = 0; i < 180; i += 1) {
+    const x = (i * 73 + 41) % 1200;
+    const y = (i * 191 + 23) % 630;
+    const radius = 1.4 + (i % 5) * 0.7;
+    const opacity = 0.05 + (i % 7) * 0.01;
+    const fill = palette[i % palette.length];
+    nodes.push(`<circle cx="${x}" cy="${y}" r="${radius.toFixed(1)}" fill="${fill}" opacity="${opacity.toFixed(2)}" />`);
+  }
+  return nodes.join('\n      ');
 }
 
 function renderShareCardProfileImage(profileImageUrl) {
   const escaped = escapeHtml(profileImageUrl);
-  return `<image x="766" y="116" width="320" height="320" href="${escaped}" xlink:href="${escaped}" preserveAspectRatio="xMidYMid slice" clip-path="url(#profileImageClip)"/>`;
+  return `<image x="770" y="120" width="320" height="320" href="${escaped}" xlink:href="${escaped}" preserveAspectRatio="xMidYMid slice" clip-path="url(#visualClip)"/>`;
 }
 
 function renderShareCardFallbackInitials(initials) {
-  return `<rect x="786" y="136" width="280" height="280" rx="50" fill="#211915"/>
-  <text x="926" y="286" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="104" font-weight="900" fill="#d8b06b">${escapeSvg(initials)}</text>`;
+  return `<rect x="770" y="120" width="320" height="320" rx="72" fill="url(#initialGradient)" clip-path="url(#visualClip)" />
+  <text x="930" y="291" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="116" font-weight="900" fill="#fffaf1">${escapeSvg(initials)}</text>`;
 }
 
 async function svgToJpeg(svg) {

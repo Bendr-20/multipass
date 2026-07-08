@@ -918,6 +918,40 @@ test('GET /multipass/share/:id renders dynamic saved-profile preview metadata', 
   assert.doesNotMatch(html, /privateKey|accessToken|apiKey/);
 });
 
+test('GET /multipass/share/:id.jpg uses the light Multipass share-card visual language', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+    avatar_url: RED_AVATAR_DATA_URL,
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/share/ack-19125.jpg'));
+  const bytes = Buffer.from(await response.arrayBuffer());
+
+  assert.equal(response.status, 200);
+  const [panelRed, panelGreen, panelBlue] = sampleJpegPixel(bytes, { x: 100, y: 100 });
+  assert.ok(panelRed > 210 && panelGreen > 190 && panelBlue > 160, `expected light Multipass panel, got rgb(${panelRed}, ${panelGreen}, ${panelBlue})`);
+  const [imageRed, imageGreen, imageBlue] = sampleJpegPixel(bytes, { x: 930, y: 280 });
+  assert.ok(imageRed > 180 && imageGreen < 80 && imageBlue < 80, `expected profile image hero, got rgb(${imageRed}, ${imageGreen}, ${imageBlue})`);
+});
+
 test('GET /multipass/share/:id.jpg fetches and persists HTTPS profile images into the generated card', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   const record = makeSavedRecordWithSourceContext({
