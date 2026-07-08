@@ -387,6 +387,25 @@ function makeSaveApi() {
   });
 }
 
+function makeErc8004SaveApi() {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  return createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+    activationService: async (input) => {
+      assert.equal(input, 'erc8004:8453:19125');
+      return makeSavedRecordWithSourceContext({
+        sourceType: 'erc8004_identity',
+        canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+        tokenId: '19125',
+        slug: 'ack-19125',
+        multipassId: 'mp_erc8004_8453_19125',
+      });
+    },
+  });
+}
+
 const GROUP_OBSERVED_AT = '2026-07-05T06:00:00.000Z';
 
 function groupPayload(overrides = {}) {
@@ -1053,6 +1072,25 @@ test('POST /api/multipass saves idempotent persistent records', async () => {
   assert.equal(second.body.multipass_id, 'mp_helixa_agent_1');
   assert.equal(second.body.slug, 'bendr-2-1');
   assert.equal(second.body.sharePath, '/multipass/bendr-2-1');
+});
+
+test('POST /api/multipass saves Base ERC-8004 source records through the same route', async () => {
+  const api = makeErc8004SaveApi();
+
+  const first = await postJson(api, '/api/multipass', { agent: 'erc8004:8453:19125' });
+  assert.equal(first.response.status, 201);
+  assert.equal(first.body.created, true);
+  assert.equal(first.body.state, 'saved_unclaimed');
+  assert.equal(first.body.multipass_id, 'mp_erc8004_8453_19125');
+  assert.equal(first.body.slug, 'ack-19125');
+  assert.equal(first.body.profile.slug, 'ack-19125');
+  assert.equal(first.body.sharePath, '/multipass/ack-19125');
+
+  const saved = await requestJson(api, '/api/multipass/resolve?source=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.mode, 'activated');
+  assert.equal(saved.body.source_identity.kind, 'erc8004_identity');
+  assert.equal(saved.body.profile.slug, 'ack-19125');
 });
 
 test('POST /api/multipass/groups/preview returns group preview record and stable members', async () => {
