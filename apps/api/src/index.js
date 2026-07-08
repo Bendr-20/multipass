@@ -987,37 +987,124 @@ function renderDynamicShareHtml(profile, sourceStore, baseUrl) {
 }
 
 async function renderShareCardJpeg(profile, sourceStore, baseUrl) {
-  const svg = renderShareCardSvg(profile, sourceStore, baseUrl);
+  const profileImageUrl = await resolveShareCardImageUrl(profile.discovery_profile?.avatar_url);
+  const svg = renderShareCardSvg(profile, sourceStore, baseUrl, { profileImageUrl });
   return svgToJpeg(svg);
 }
 
-function renderShareCardSvg(profile, sourceStore, baseUrl) {
+async function resolveShareCardImageUrl(value) {
+  const safe = safeShareCardImageUrl(value);
+  if (!safe) return null;
+  if (safe.startsWith('data:image/')) return safe;
+  return await fetchShareCardImageDataUri(safe);
+}
+
+async function fetchShareCardImageDataUri(url) {
+  if (isBlockedShareCardImageUrl(url)) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+    if (!response.ok || isBlockedShareCardImageUrl(response.url || url)) return null;
+    const contentType = normalizeShareCardImageContentType(response.headers.get('content-type'), url);
+    if (!contentType) return null;
+    const contentLength = Number(response.headers.get('content-length') ?? 0);
+    if (contentLength > 2_000_000) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 2_000_000) return null;
+    return `data:${contentType};base64,${bytes.toString('base64')}`;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeShareCardImageContentType(value, url) {
+  const contentType = String(value ?? '').split(';')[0].trim().toLowerCase();
+  if (['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) return contentType;
+  const pathname = (() => {
+    try { return new URL(url).pathname.toLowerCase(); } catch { return ''; }
+  })();
+  if (pathname.endsWith('.png')) return 'image/png';
+  if (pathname.endsWith('.jpg') || pathname.endsWith('.jpeg')) return 'image/jpeg';
+  if (pathname.endsWith('.webp')) return 'image/webp';
+  return null;
+}
+
+function isBlockedShareCardImageUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return true;
+    const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (!host || host === 'localhost' || host.endsWith('.localhost')) return true;
+    return isPrivateIpLiteral(host);
+  } catch {
+    return true;
+  }
+}
+
+function isPrivateIpLiteral(host) {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+    const parts = host.split('.').map((part) => Number(part));
+    if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+    const [a, b] = parts;
+    return a === 10
+      || a === 127
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127)
+      || a === 0;
+  }
+  const normalized = host.toLowerCase();
+  return normalized === '::1'
+    || normalized.startsWith('fc')
+    || normalized.startsWith('fd')
+    || normalized.startsWith('fe80:')
+    || normalized.startsWith('::ffff:127.')
+    || normalized.startsWith('::ffff:10.')
+    || normalized.startsWith('::ffff:192.168.');
+}
+
+function renderShareCardSvg(profile, sourceStore, baseUrl, { profileImageUrl = null } = {}) {
   const displayName = profile.display_name ?? profile.slug ?? 'Multipass';
   const title = truncate(displayName, 42);
-  const summary = truncate(profile.discovery_profile?.summary || 'Public Multipass profile for agents and AI-native systems.', 150);
+  const summary = truncate(profile.discovery_profile?.summary || 'Public Multipass profile for agents and AI-native systems.', 115);
   const tags = uniqueStrings(profile.discovery_profile?.tags ?? []).slice(0, 4);
   const status = titleCase(profile.owner_summary?.owner_state ?? 'public profile');
   const subject = titleCase(profile.subject_type ?? 'agent');
   const initials = initialsForShareCard(displayName);
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff8eb"/><stop offset="0.52" stop-color="#f3e4ce"/><stop offset="1" stop-color="#dfd1ff"/></linearGradient>
-    <radialGradient id="glow" cx="0.82" cy="0.14" r="0.75"><stop offset="0" stop-color="#9b7cff" stop-opacity="0.48"/><stop offset="1" stop-color="#9b7cff" stop-opacity="0"/></radialGradient>
-    <filter id="shadow"><feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#2c2419" flood-opacity="0.18"/></filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#090907"/><stop offset="0.58" stop-color="#17110d"/><stop offset="1" stop-color="#312216"/></linearGradient>
+    <radialGradient id="glow" cx="0.84" cy="0.1" r="0.7"><stop offset="0" stop-color="#c99b59" stop-opacity="0.5"/><stop offset="1" stop-color="#c99b59" stop-opacity="0"/></radialGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.35"/></filter>
+    <clipPath id="profileImageClip"><rect x="766" y="116" width="320" height="320" rx="54" ry="54"/></clipPath>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
-  <rect x="70" y="70" width="1060" height="490" rx="52" fill="#fffaf1" opacity="0.92" filter="url(#shadow)"/>
-  <text x="112" y="135" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" fill="#75614a" letter-spacing="5">MULTIPASS</text>
-  <text x="112" y="240" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="900" fill="#181615">${escapeSvg(title)}</text>
-  <text x="112" y="298" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#4b3f32">${escapeSvg(subject)} · ${escapeSvg(status)}</text>
-  ${wrapSvgText(summary, 112, 354, 33, 62, '#332c25')}
-  <rect x="790" y="142" width="250" height="250" rx="62" fill="#171615"/>
-  <text x="915" y="278" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="104" font-weight="900" fill="#fff8eb">${escapeSvg(initials)}</text>
-  <text x="112" y="500" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#75614a">${escapeSvg(tags.length ? tags.join('  ·  ') : 'identity · proof · discovery')}</text>
-  <text x="790" y="454" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#75614a">helixa.xyz/multipass</text>
+  <rect x="70" y="70" width="1060" height="490" rx="52" fill="#14100d" stroke="#d8b06b" stroke-opacity="0.28" filter="url(#shadow)"/>
+  <text x="112" y="135" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="800" fill="#d8b06b" letter-spacing="5">MULTIPASS</text>
+  <text x="112" y="240" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="900" fill="#fff7e8">${escapeSvg(title)}</text>
+  <text x="112" y="298" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="700" fill="#d7c1a2">${escapeSvg(subject)} · ${escapeSvg(status)}</text>
+  ${wrapSvgText(summary, 112, 354, 30, 34, '#f0dfc4')}
+  <rect x="756" y="106" width="340" height="340" rx="62" fill="#090907" stroke="#d8b06b" stroke-opacity="0.45" stroke-width="2"/>
+  ${profileImageUrl ? renderShareCardProfileImage(profileImageUrl) : renderShareCardFallbackInitials(initials)}
+  <text x="112" y="500" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="800" fill="#d8b06b">${escapeSvg(tags.length ? tags.join('  ·  ') : 'identity · proof · discovery')}</text>
+  <text x="766" y="492" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#d7c1a2">helixa.xyz/multipass</text>
 </svg>`;
+}
+
+function renderShareCardProfileImage(profileImageUrl) {
+  const escaped = escapeHtml(profileImageUrl);
+  return `<image x="766" y="116" width="320" height="320" href="${escaped}" xlink:href="${escaped}" preserveAspectRatio="xMidYMid slice" clip-path="url(#profileImageClip)"/>`;
+}
+
+function renderShareCardFallbackInitials(initials) {
+  return `<rect x="786" y="136" width="280" height="280" rx="50" fill="#211915"/>
+  <text x="926" y="286" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="104" font-weight="900" fill="#d8b06b">${escapeSvg(initials)}</text>`;
 }
 
 async function svgToJpeg(svg) {
@@ -1103,6 +1190,13 @@ function safePublicUrl(value) {
   } catch {
     return null;
   }
+}
+
+function safeShareCardImageUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  if (/^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(raw) && raw.length <= 2_000_000) return raw;
+  return safePublicUrl(raw);
 }
 
 function titleCase(value) {

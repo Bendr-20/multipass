@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
@@ -7,6 +8,21 @@ import { MultipassValidationError, assertAgentCard, assertX401Manifest } from '@
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
 import { createSqliteSavedRecords } from '../src/saved-records.js';
+
+const RED_AVATAR_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAIAAAACUFjqAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAEklEQVR4nGP4y8CAB+GTG8HSAD3qYtVdVKzfAAAAAElFTkSuQmCC';
+const RED_AVATAR_DATA_URL = `data:image/png;base64,${RED_AVATAR_PNG_BASE64}`;
+
+function sampleJpegPixel(bytes, { x, y }) {
+  const rgb = execFileSync('ffmpeg', [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-i', 'pipe:0',
+    '-vf', `crop=1:1:${x}:${y},format=rgb24`,
+    '-f', 'rawvideo',
+    'pipe:1',
+  ], { input: bytes });
+  return [...rgb.slice(0, 3)];
+}
 
 const profile = {
   schema_version: '0.1.0',
@@ -902,6 +918,52 @@ test('GET /multipass/share/:id renders dynamic saved-profile preview metadata', 
   assert.doesNotMatch(html, /privateKey|accessToken|apiKey/);
 });
 
+test('GET /multipass/share/:id.jpg fetches and persists HTTPS profile images into the generated card', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+    avatar_url: 'https://example.com/red-profile.png',
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+  const originalFetch = globalThis.fetch;
+  const fetchCalls = [];
+  globalThis.fetch = async (url) => {
+    fetchCalls.push(String(url));
+    return new Response(Buffer.from(RED_AVATAR_PNG_BASE64, 'base64'), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    });
+  };
+
+  try {
+    const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/share/ack-19125.jpg'));
+    const bytes = Buffer.from(await response.arrayBuffer());
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(fetchCalls, ['https://example.com/red-profile.png']);
+    const [red, green, blue] = sampleJpegPixel(bytes, { x: 915, y: 260 });
+    assert.ok(red > 180 && green < 80 && blue < 80, `expected fetched profile image on card, got rgb(${red}, ${green}, ${blue})`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('GET /multipass/share/:id.jpg renders dynamic saved-profile JPEG preview image', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   const record = makeSavedRecordWithSourceContext({
@@ -916,6 +978,7 @@ test('GET /multipass/share/:id.jpg renders dynamic saved-profile JPEG preview im
     ...record.profile.discovery_profile,
     summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
     tags: ['erc-8004', 'reputation', 'trust'],
+    avatar_url: RED_AVATAR_DATA_URL,
   };
   record.agentCard.name = 'ACK';
   savedRecords.saveActivatedRecord(record);
@@ -933,6 +996,9 @@ test('GET /multipass/share/:id.jpg renders dynamic saved-profile JPEG preview im
   assert.equal(bytes[0], 0xff);
   assert.equal(bytes[1], 0xd8);
   assert.ok(bytes.length > 20_000);
+
+  const [red, green, blue] = sampleJpegPixel(bytes, { x: 915, y: 260 });
+  assert.ok(red > 180 && green < 80 && blue < 80, `expected saved profile image on card, got rgb(${red}, ${green}, ${blue})`);
 });
 
 test('GET /api/multipass/:id/hydrated supports saved Base ERC-8004 identity sources', async () => {
