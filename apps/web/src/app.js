@@ -8,7 +8,7 @@ import { getMarketplacePresenceEntries } from './marketplace-presence.js';
 import { getCommunicationChannels, getCommunicationContactPolicy } from './communication-channels.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
-import { bindToolManager, compactBankrToolImportInput, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
+import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
@@ -1493,13 +1493,14 @@ function renderSavedGroupProfileDetailDrawers({ data, state }) {
     'Public visitors can inspect this parent Multipass only. Management requires source-owner proof; viewing cannot expose private credentials or alter live routes.'
   );
   const proofSummary = renderSavedGroupProofSummary(data);
+  const publicGroupFragments = getPublicGroupFragments(data);
 
   return `
     <section class="profile-detail-drawers group-profile-detail-drawers" aria-label="Parent Multipass details">
-      ${renderProfileDrawer('Parent Multipass', `${titleCase(subjectType)} identity and share state`, overview, { open: true })}
-      ${renderProfileDrawer(rosterTitle, 'Resolved public AgentDNA member context', roster, { open: true })}
-      ${renderProfileDrawer('Ownership and management', 'Source-owner management context', management)}
-      ${renderProfileDrawer('Public member proof', 'Visible group evidence without raw fragment IDs', proofSummary)}
+      ${renderProfileDrawer('Parent Multipass', `${titleCase(subjectType)} identity and share state`, overview, { open: true, stat: data.liveProfilePage?.sharePath ? 'Public URL' : 'Profile state' })}
+      ${renderProfileDrawer(rosterTitle, 'Resolved public AgentDNA member context', roster, { open: true, stat: 'Public roster' })}
+      ${renderProfileDrawer('Ownership and management', 'Source-owner management context', management, { stat: 'View only' })}
+      ${renderProfileDrawer('Public member proof', 'Visible group evidence without raw fragment IDs', proofSummary, { stat: formatDrawerCount(publicGroupFragments.length, 'public signal', 'public signals') })}
     </section>
   `;
 }
@@ -1605,13 +1606,14 @@ function formatDisplayLabel(value) {
 }
 
 function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentTrustMap, proofCards, visualIdentity, selectedAgent, state }) {
+  const drawerStats = createProfileDrawerStats({ data, activationState, fragmentTrustMap, proofCards, visualIdentity, state });
   const selectedAgentDetail = selectedAgent?.detailMode === 'swarm'
     ? renderProfileDrawer('Swarm roster', 'Members, policy references, custody, and transfer behavior', [
         renderAgentCardDetail(selectedAgent),
         renderOwnerCustodySnapshot(selectedAgent.ownerSnapshot),
         renderChangeReviewLedger(selectedAgent.changeReviewLedger),
         renderTransferPreview(selectedAgent),
-      ].join(''), { open: true })
+      ].join(''), { open: true, stat: selectedAgent.memberLabel ?? 'Swarm view' })
     : '';
   const shareAndStatus = [
     data.heroNote ? renderProfileInfoPanel('Profile note', data.heroNote) : '',
@@ -1644,25 +1646,56 @@ function renderProfileDetailDrawers({ data, heroCopy, activationState, fragmentT
   return `
     <section class="profile-detail-drawers" aria-label="Multipass profile details">
       ${selectedAgentDetail}
-      ${renderProfileDrawer('Share and status', 'Public URL and display state', shareAndStatus)}
-      ${renderProfileDrawer('Ownership and management', 'Source-owner authority context', claimManagement)}
-      ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance)}
-      ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext)}
-      ${renderProfileDrawer('Communication', 'Public contact and social routes', communication)}
-      ${renderProfileDrawer('Tools and services', 'Registry-backed public capabilities', publicTools)}
-      ${renderProfileDrawer('Public proof fragments', 'Visible profile evidence', renderFragmentTrustMap(fragmentTrustMap))}
-      ${renderProfileDrawer('Proof ledger', 'Expandable API records', renderProofLedger(proofCards, state.expandedCard))}
+      ${renderProfileDrawer('Share and status', 'Public URL and display state', shareAndStatus, { stat: drawerStats.shareAndStatus })}
+      ${renderProfileDrawer('Ownership and management', 'Source-owner authority context', claimManagement, { stat: drawerStats.ownership })}
+      ${renderProfileDrawer('Visual provenance', 'Source and safety notes', provenance, { stat: drawerStats.visualProvenance })}
+      ${renderProfileDrawer('Trust context', 'Routes and marketplace compatibility', trustContext, { stat: drawerStats.trustContext })}
+      ${renderProfileDrawer('Communication', 'Public contact and social routes', communication, { stat: drawerStats.communication })}
+      ${renderProfileDrawer('Tools and services', 'Registry-backed public capabilities', publicTools, { stat: drawerStats.publicTools })}
+      ${renderProfileDrawer('Public proof fragments', 'Visible profile evidence', renderFragmentTrustMap(fragmentTrustMap), { stat: drawerStats.publicProofFragments })}
+      ${renderProfileDrawer('Proof ledger', 'Expandable API records', renderProofLedger(proofCards, state.expandedCard), { stat: drawerStats.proofLedger })}
     </section>
   `;
+}
+
+function createProfileDrawerStats({ data, activationState, fragmentTrustMap, proofCards, visualIdentity, state }) {
+  const publicProofCount = Array.isArray(fragmentTrustMap?.cards)
+    ? fragmentTrustMap.cards.length
+    : countPublicProofSignals(data);
+  const routeCount = getPublicRouteFragments(data).length;
+  const marketplaceCount = getMarketplacePresenceEntries(data).length + (data.marketplaceListing ? 1 : 0);
+  const trustCount = routeCount + marketplaceCount;
+  const communicationCount = getCommunicationChannels(data).length;
+  const toolCount = getPublicTools(data).length;
+
+  return {
+    shareAndStatus: data.liveProfilePage?.sharePath ? 'Public URL' : 'Profile state',
+    ownership: state.claimStatus === 'claimed' || activationState.kind === 'saved' ? 'Manager ready' : 'View only',
+    visualProvenance: visualIdentity?.imageUrl ? 'Visual source' : 'Source notes',
+    trustContext: trustCount ? formatDrawerCount(trustCount, 'trust ref', 'trust refs') : 'Trust notes',
+    communication: communicationCount ? formatDrawerCount(communicationCount, 'contact route', 'contact routes') : 'No contacts',
+    publicTools: toolCount ? formatDrawerCount(toolCount, 'tool', 'tools') : 'No tools',
+    publicProofFragments: formatDrawerCount(publicProofCount, 'public signal', 'public signals'),
+    proofLedger: formatDrawerCount(proofCards.length, 'API record', 'API records'),
+  };
+}
+
+function formatDrawerCount(count, singular, plural) {
+  const value = Number.isFinite(Number(count)) ? Number(count) : 0;
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 function renderProfileDrawer(title, subtitle, html, options = {}) {
   if (!String(html ?? '').trim()) return '';
   const open = options.open ? ' open' : '';
   const subtitleHtml = subtitle ? `<small>${escapeHtml(subtitle)}</small>` : '';
+  const statHtml = options.stat ? `<strong class="profile-detail-drawer-stat">${escapeHtml(options.stat)}</strong>` : '';
   return `
     <details class="profile-detail-drawer"${open}>
-      <summary><span>${escapeHtml(title)}</span>${subtitleHtml}</summary>
+      <summary>
+        <div class="profile-detail-drawer-heading"><span>${escapeHtml(title)}</span>${subtitleHtml}</div>
+        <div class="profile-detail-drawer-affordance">${statHtml}<i class="profile-detail-drawer-chevron" aria-hidden="true">›</i></div>
+      </summary>
       <div class="profile-detail-drawer-body">${html}</div>
     </details>
   `;

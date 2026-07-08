@@ -1632,6 +1632,24 @@ test('resolved live profile renders visual-first drawers without homepage or res
   assert.match(profile.querySelector('.profile-detail-drawers')?.textContent ?? '', /Proof ledger/);
 });
 
+test('profile drawer resting bars show stat chips and click affordance', async () => {
+  const root = await renderResolvedQuigbotProfile();
+  const profile = root.querySelector('.multipass-profile-page');
+  const drawers = [...profile.querySelectorAll('.profile-detail-drawer')];
+
+  assert.ok(drawers.length >= 5);
+  for (const drawer of drawers) {
+    const summary = drawer.querySelector('summary');
+    assert.ok(summary?.querySelector('.profile-detail-drawer-stat'), summary?.textContent ?? 'missing stat');
+    assert.ok(summary?.querySelector('.profile-detail-drawer-chevron'), summary?.textContent ?? 'missing chevron');
+    assert.equal(summary?.querySelector('.profile-detail-drawer-chevron')?.getAttribute('aria-hidden'), 'true');
+  }
+
+  assert.equal(profileDrawerByTitle(profile, 'Share and status')?.querySelector('.profile-detail-drawer-stat')?.textContent, 'Public URL');
+  assert.equal(profileDrawerByTitle(profile, 'Public proof fragments')?.querySelector('.profile-detail-drawer-stat')?.textContent, '2 public signals');
+  assert.equal(profileDrawerByTitle(profile, 'Proof ledger')?.querySelector('.profile-detail-drawer-stat')?.textContent, '7 API records');
+});
+
 test('saved and static profile routes render profile-first visual pages without gallery chrome', async () => {
   const savedRoot = setupDom('https://helixa.xyz/multipass/bendr-2-1?api=https://api.example.test');
   await createApp({ root: savedRoot, fetchImpl: savedProfileFetch }).start();
