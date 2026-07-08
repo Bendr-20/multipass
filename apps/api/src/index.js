@@ -9,6 +9,7 @@ import {
 } from '@helixa/multipass-sdk';
 
 import {
+  ERC8004_SOURCE_TYPE,
   HELIXA_SOURCE_TYPE,
   buildHydratedProfileResponse,
   normalizeMultipassSourceInput,
@@ -27,7 +28,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
-const HELIXA_SAVED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE]);
+const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
 
 export function createMemoryStore(input = {}) {
   const {
@@ -789,7 +790,7 @@ async function handleResolve(url, context) {
         mode: 'saved',
         profile: savedProfile,
         sourceStore: context.savedRecords,
-        sourceIdentity: inferHelixaSourceIdentityFromSaved(savedProfile, context.savedRecords),
+        sourceIdentity: inferSourceIdentityFromSaved(savedProfile, context.savedRecords),
         baseUrl: context.normalizedBaseUrl,
       }), context.savedRecords));
     } catch (error) {
@@ -841,7 +842,7 @@ async function resolveCanonicalSource(sourceRaw, context) {
   }
 
   try {
-    const record = await context.activationService(sourceIdentity.tokenId);
+    const record = await context.activationService(getActivationInputForSource(sourceIdentity));
     return {
       ...buildHydratedProfileResponse({
         mode: 'activation_preview',
@@ -910,7 +911,7 @@ function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
       mode: 'saved',
       profile,
       sourceStore,
-      sourceIdentity: inferHelixaSourceIdentityFromSaved(profile, sourceStore),
+      sourceIdentity: inferSourceIdentityFromSaved(profile, sourceStore),
       baseUrl: normalizedBaseUrl,
     }));
   }
@@ -988,23 +989,27 @@ function createRecordSourceStore(record) {
   });
 }
 
-function inferHelixaSourceIdentityFromSaved(profile, sourceStore) {
+function getActivationInputForSource(sourceIdentity) {
+  return sourceIdentity.sourceType === ERC8004_SOURCE_TYPE ? sourceIdentity.canonicalId : sourceIdentity.tokenId;
+}
+
+function inferSourceIdentityFromSaved(profile, sourceStore) {
   const activation = sourceStore.getSourceContext?.(profile.multipass_id)?.activation;
   const sourceType = String(activation?.sourceType ?? '').trim();
   const canonicalId = String(activation?.canonicalId ?? '').trim();
 
-  if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceType) || !canonicalId) {
-    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+  if (!SUPPORTED_HYDRATED_SOURCE_TYPES.has(sourceType) || !canonicalId) {
+    throw new ApiNotFoundError(`Supported source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
   }
 
   try {
     const sourceIdentity = normalizeMultipassSourceInput(canonicalId);
-    if (!HELIXA_SAVED_SOURCE_TYPES.has(sourceIdentity.sourceType)) {
-      throw new TypeError('Multipass activation source is not a Helixa source.');
+    if (!SUPPORTED_HYDRATED_SOURCE_TYPES.has(sourceIdentity.sourceType)) {
+      throw new TypeError('Multipass activation source is not supported for hydration.');
     }
     return sourceIdentity;
   } catch {
-    throw new ApiNotFoundError(`Helixa source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
+    throw new ApiNotFoundError(`Supported source identity not found for saved Multipass: ${profile.slug ?? profile.multipass_id}`);
   }
 }
 
@@ -1203,6 +1208,13 @@ function createDiscoveryDocument(baseUrl) {
       search: `${baseUrl}/api/search?q={query}`,
       openapi: `${baseUrl}/api/openapi.json`,
     },
+    supported_source_ids: [
+      'helixa-agentdna:8453:{tokenId}',
+      '8453:{tokenId}',
+      '{tokenId}',
+      'erc8004:8453:{tokenId}',
+      'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}',
+    ],
     start_here: {
       resolve: `${baseUrl}/api/resolve?agent={input}`,
       profile: `${baseUrl}/api/multipass/{id}`,
@@ -1265,7 +1277,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}/receipts/{receipt_id}': { get: { summary: 'Fetch one public receipt fragment', parameters: [pathParameter('id'), pathParameter('receipt_id')], responses: { 200: { description: 'Receipt fragment' } } } },
       '/api/multipass/{id}/changes': { get: { summary: 'Fetch public change history for saved records when available', parameters: [pathParameter('id')], responses: { 200: { description: 'Public change log' } } } },
       '/api/resolve': { get: { summary: 'Resolve an input to a saved profile or live activation preview', parameters: [queryParameter('agent')], responses: { 200: { description: 'Resolution result' } } } },
-      '/api/multipass/resolve': { get: { summary: 'Resolve a canonical source identity to a hydrated profile or activation preview', parameters: [queryParameter('source')], responses: { 200: { description: 'Canonical source resolution result' } } } },
+      '/api/multipass/resolve': { get: { summary: 'Resolve a Helixa AgentDNA or Base ERC-8004 source identity to a hydrated profile or activation preview', parameters: [queryParameter('source', 'Source identity. Supports Helixa AgentDNA forms like {tokenId}, 8453:{tokenId}, helixa-agentdna:8453:{tokenId}, and Base ERC-8004 forms like erc8004:8453:{tokenId} or eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}.')], responses: { 200: { description: 'Canonical source resolution result' } } } },
       '/api/search': { get: { summary: 'Conservative exact or prefix search over public profile summaries', parameters: [queryParameter('q')], responses: { 200: { description: 'Search matches' } } } },
     },
     components: {
@@ -1280,8 +1292,14 @@ function pathParameter(name) {
   return { name, in: 'path', required: true, schema: { type: 'string' } };
 }
 
-function queryParameter(name) {
-  return { name, in: 'query', required: true, schema: { type: 'string' } };
+function queryParameter(name, description) {
+  return {
+    name,
+    in: 'query',
+    required: true,
+    schema: { type: 'string' },
+    ...(description ? { description } : {}),
+  };
 }
 
 function createProfileRoutes(baseUrl, identifier) {

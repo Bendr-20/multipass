@@ -1,6 +1,6 @@
 # Multipass Live Status
 
-Last updated: 2026-07-06 UTC
+Last updated: 2026-07-08 UTC
 
 This document is the operator-facing source of truth for what the current Multipass V0 surface does and does not do.
 
@@ -12,7 +12,7 @@ Public web:
 
 - `https://helixa.xyz/multipass/` - product home and Activate flow
 - `https://helixa.xyz/multipass/{slug}` - saved public profile route
-- `https://helixa.xyz/multipass/?agent={input}` - live lookup and activation preview route
+- `https://helixa.xyz/multipass/?agent={input}` - live lookup and activation preview route for supported AgentDNA and Base ERC-8004 source IDs
 
 Public API:
 
@@ -21,7 +21,7 @@ Public API:
 - `GET /api/openapi.json` - public OpenAPI document
 - `GET /api/resolve?agent={input}` - resolve saved records or live activation previews
 - `GET /api/search?q={query}` - conservative public search
-- `POST /api/multipass/activate` - preview a live AgentDNA activation without saving it
+- `POST /api/multipass/activate` - preview a supported live source activation without saving it
 - `POST /api/multipass` - activate and persist a public Multipass record
 - `GET /api/multipass/{id}` - public profile JSON
 - `GET /api/v0/multipass/{id}` - versioned public profile alias
@@ -39,11 +39,11 @@ Public API:
 
 Multipass V0 can:
 
-- Resolve a live Helixa AgentDNA record into an activation preview.
-- Activate a durable public Multipass record from live public AgentDNA data.
+- Resolve a live Helixa AgentDNA record or supported Base ERC-8004 identity into an activation preview.
+- Activate a durable public Multipass record from live public AgentDNA data or Base ERC-8004 registration metadata.
 - Resolve profiles by stable slug, Multipass ID, and supported source identifiers.
 - Return public profile JSON, public fragments, public tool cards, agent cards, standards profiles, x402 metadata, receipt collections, and change logs.
-- Import matching Base ERC-8004 identities as public `standard_ref` fragments.
+- Import Base ERC-8004 identities as public `standard_ref` fragments, either directly from the identity source ID or as matching identities attached to a Helixa AgentDNA source.
 - Render public Communication routes from public social/contact fragments, including email-style inboxes, optional Telegram, X/socials, Wiretap/AIM, and Farcaster when published.
 - Support owner-wallet and review-approved manager claim states for saved records.
 - Let verified managers edit allowlisted public profile fields and manager-created public fragments/routes.
@@ -61,7 +61,7 @@ The live API exposes public profile and discovery metadata by default. It does n
 - Treat Marketplace Connections as official integrations, verified accounts, trust guarantees, payment verification, custody, or executable routes.
 - Mutate runtime routes outside Multipass metadata.
 - Make payments or receipts count as trust.
-- Edit Helixa AgentDNA source records.
+- Edit Helixa AgentDNA source records or ERC-8004 registry records.
 - Change Cred authority or reputation source data.
 
 Manager routes are protected by session cookies and CSRF tokens. Public fragment reads return public fragments only.

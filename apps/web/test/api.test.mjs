@@ -17,6 +17,7 @@ import {
   shouldUseStaticDemo,
   loadStaticMultipassDemo,
 } from '../src/api.js';
+import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
 const subject = { slug: 'bendr-2', receiptId: 'receipt_bendr_lookup' };
 
@@ -59,10 +60,15 @@ test('buildHydratedSavedRoute creates saved hydrated route', () => {
   );
 });
 
-test('normalizeHelixaAgentDnaSource accepts positive Base AgentDNA sources', () => {
+test('normalizeHelixaAgentDnaSource accepts positive Base AgentDNA and ERC-8004 sources', () => {
   assert.equal(normalizeHelixaAgentDnaSource('1'), 'helixa-agentdna:8453:1');
   assert.equal(normalizeHelixaAgentDnaSource('8453:1'), 'helixa-agentdna:8453:1');
   assert.equal(normalizeHelixaAgentDnaSource('helixa-agentdna:8453:1'), 'helixa-agentdna:8453:1');
+  assert.equal(normalizeHelixaAgentDnaSource('erc8004:8453:19125'), 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125');
+  assert.equal(
+    normalizeHelixaAgentDnaSource('eip155:8453:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:19125'),
+    'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+  );
 });
 
 test('normalizeHelixaAgentDnaSource canonicalizes positive leading-zero Base AgentDNA sources', () => {
@@ -78,7 +84,14 @@ test('normalizeHelixaAgentDnaSource rejects zero and unsupported AgentDNA source
   }
 
   assert.equal(normalizeHelixaAgentDnaSource('8454:1'), null);
-  assert.equal(normalizeHelixaAgentDnaSource('erc8004:eip155:8453:0xabc:1'), null);
+  assert.equal(normalizeHelixaAgentDnaSource('erc8004:8454:1'), null);
+  assert.equal(normalizeHelixaAgentDnaSource('eip155:8453:0x0000000000000000000000000000000000000001:1'), null);
+});
+
+test('isSafeMultipassSharePath allows canonical ERC-8004 activation query paths', () => {
+  assert.equal(isSafeMultipassSharePath('/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/?agent=erc8004%3A8453%3A19125'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/?agent=https%3A%2F%2Fevil.example%2F1'), false);
 });
 
 test('getApiBaseFromLocation accepts only safe http URLs and falls back otherwise', () => {
@@ -233,6 +246,41 @@ test('loadCanonicalHelixaMultipass fetches canonical hydrated API with normalize
   assert.deepEqual(calls, ['/multipass-api/api/multipass/resolve?source=helixa-agentdna%3A8453%3A1']);
   assert.equal(data.canonicalHydrated, true);
   assert.equal(data.resolver.tokenId, '1');
+});
+
+test('loadCanonicalHelixaMultipass fetches canonical hydrated API for ERC-8004 source ids', async () => {
+  const calls = [];
+  const canonicalId = 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125';
+  const hydrated = {
+    schema_version: '0.1.0',
+    mode: 'activation_preview',
+    source_identity: { kind: 'erc8004_identity', canonical_id: canonicalId, legacy_canonical_id: 'erc8004:8453:19125', chain_id: 8453, token_id: '19125', contract_address: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432' },
+    profile: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', slug: 'ack-19125', display_name: 'ACK', updated_at: '2026-07-08T00:00:00Z' },
+    fragments: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', fragments: [] },
+    agent_card: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', name: 'ACK', service_endpoints: [] },
+    standards: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', standard_refs: [] },
+    x402: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', endpoints: [] },
+    tools: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', tools: [] },
+    changes: { schema_version: '0.1.0', multipass_id: 'mp_erc8004_8453_19125', entries: [] },
+    activation: { state: 'not_activated', manager_state: 'none' },
+    routes_meta: { public_profile: '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125' },
+  };
+
+  const data = await loadCanonicalHelixaMultipass({
+    apiBase: '/multipass-api',
+    input: 'erc8004:8453:19125',
+    fetchImpl: async (route) => {
+      calls.push(route);
+      return { ok: true, status: 200, text: async () => JSON.stringify(hydrated) };
+    },
+  });
+
+  assert.deepEqual(calls, ['/multipass-api/api/multipass/resolve?source=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125']);
+  assert.equal(data.canonicalHydrated, true);
+  assert.equal(data.sourceLabel, 'ERC-8004 identity source');
+  assert.equal(data.resolver.canonicalId, 'erc8004:8453:19125');
+  assert.equal(data.resolver.sourceCanonicalId, canonicalId);
+  assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
 });
 
 test('loadHydratedMultipassDemo preserves saved-profile activation semantics', async () => {

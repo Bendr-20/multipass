@@ -734,6 +734,13 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.equal(discovery.body.routes.openapi, 'https://multipass.example.test/api/openapi.json');
   assert.equal(discovery.body.routes.resolve, 'https://multipass.example.test/api/resolve?agent={input}');
   assert.equal(discovery.body.routes.search, 'https://multipass.example.test/api/search?q={query}');
+  assert.deepEqual(discovery.body.supported_source_ids, [
+    'helixa-agentdna:8453:{tokenId}',
+    '8453:{tokenId}',
+    '{tokenId}',
+    'erc8004:8453:{tokenId}',
+    'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}',
+  ]);
   assert.equal(discovery.body.routes.versioned_profile, 'https://multipass.example.test/api/v0/multipass/{id}');
   assert.equal(discovery.body.routes.card, 'https://multipass.example.test/api/multipass/{id}/card');
   assert.equal(discovery.body.routes.agent_card, 'https://multipass.example.test/api/multipass/{id}/agent-card');
@@ -759,6 +766,8 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.ok(openapi.body.paths['/api/multipass/{id}/tools']);
   assert.ok(openapi.body.paths['/api/multipass/{id}/changes']);
   assert.ok(openapi.body.paths['/api/resolve']);
+  assert.match(openapi.body.paths['/api/multipass/resolve'].get.summary, /ERC-8004/i);
+  assert.match(openapi.body.paths['/api/multipass/resolve'].get.parameters[0].description, /erc8004:8453/i);
   assert.ok(openapi.body.paths['/api/search']);
 });
 
@@ -825,6 +834,29 @@ test('saved Helixa AgentDNA records backfill public x401 compatibility metadata'
   assert.match(x401.body.boundaries.join(' '), /or imply a commercial relationship/i);
 });
 
+test('GET /api/multipass/:id/hydrated supports saved Base ERC-8004 identity sources', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  }));
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const hydrated = await requestJson(api, '/api/multipass/ack-19125/hydrated');
+  assert.equal(hydrated.response.status, 200);
+  assert.equal(hydrated.body.mode, 'saved');
+  assert.equal(hydrated.body.source_identity.kind, 'erc8004_identity');
+  assert.equal(hydrated.body.source_identity.canonical_id, 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125');
+  assert.equal(hydrated.body.profile.slug, 'ack-19125');
+});
+
 test('GET /api/multipass/:id/hydrated fails closed for fixture-only profiles', async () => {
   const api = makeApi();
 
@@ -837,7 +869,52 @@ test('GET /api/multipass/:id/hydrated fails closed for fixture-only profiles', a
   assert.equal(hydrated.body.error.code, 'not_found');
 });
 
-test('GET /api/multipass/:id/hydrated fails closed when saved source type is not Helixa', async () => {
+test('GET /api/multipass/resolve previews and hydrates Base ERC-8004 identity sources', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const canonicalId = 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125';
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId,
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.agentCard.name = 'ACK';
+  const calls = [];
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+    activationService: async (input) => {
+      calls.push(input);
+      assert.equal(input, canonicalId);
+      return record;
+    },
+  });
+
+  const preview = await requestJson(api, '/api/multipass/resolve?source=erc8004%3A8453%3A19125');
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.mode, 'activation_preview');
+  assert.equal(preview.body.state, 'activated_unsaved');
+  assert.equal(preview.body.source_identity.kind, 'erc8004_identity');
+  assert.equal(preview.body.source_identity.canonical_id, canonicalId);
+  assert.equal(preview.body.source_identity.legacy_canonical_id, 'erc8004:8453:19125');
+  assert.equal(preview.body.source_identity.contract_address, '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432');
+  assert.equal(preview.body.profile.slug, 'ack-19125');
+  assert.equal(preview.body.routes_meta.public_profile, '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
+  assert.deepEqual(calls, [canonicalId]);
+
+  savedRecords.saveActivatedRecord(record);
+  const saved = await requestJson(api, '/api/multipass/resolve?source=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.mode, 'activated');
+  assert.equal(saved.body.state, 'saved_record');
+  assert.equal(saved.body.profile.slug, 'ack-19125');
+  assert.equal(saved.body.source_identity.kind, 'erc8004_identity');
+});
+
+test('GET /api/multipass/:id/hydrated fails closed when saved source type is unsupported', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({ sourceType: 'other_source' }));
   const api = createMultipassApi({

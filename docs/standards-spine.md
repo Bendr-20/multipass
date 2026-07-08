@@ -21,7 +21,7 @@ Multipass stays the product layer. The standards below are reference layers used
 | Standard | Launch role | Initial support | Deferred work |
 | --- | --- | --- | --- |
 | ERC-8217 | Bind a Multipass or linked controller asset to an ERC-8004 identity where available. | Adapter target for control and binding references. | Chain-specific contract reads, owner checks, and revocation handling. |
-| ERC-8004 | Expose public agent identity, registration metadata, reputation references, and validation references. | Primary identity and trust reference target. | Full registry integration, registration file import, and validator indexing. |
+| ERC-8004 | Expose public agent identity, registration metadata, reputation references, and validation references. | Base identity registry source import and primary identity/trust reference target. | Multi-registry coverage, reputation registry import, validation registry import, and validator indexing. |
 | ERC-8126 | Add verification and risk summaries. | Risk and verification summary reference target. | Source scoring, stale state handling, and product risk labels. |
 | ERC-8257 | Expose tool manifests, pricing, access rules, origin/creator binding, and verifiability. | Tool manifest and paid access reference target. | Endpoint attestation, access proofs, and x402 settlement joins. |
 | ERC-8183 | Record jobs, evaluator attestations, and outcome records. | Work and evaluator attestation reference target. | Job lifecycle ingestion, evaluator quality checks, and outcome proof indexing. |

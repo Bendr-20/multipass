@@ -107,7 +107,9 @@ curl -s http://127.0.0.1:8787/api/multipass \
 
 ## ERC-8004 import
 
-Activation checks the canonical Base ERC-8004 Identity Registry for identities already held by the live Helixa agent owner, agent address, or configured platform wallets. Matching identities are imported as public `standard_ref` fragments and reflected in the standards profile.
+Activation supports direct Base ERC-8004 identity sources in addition to Helixa AgentDNA sources. Accepted ERC-8004 forms are `erc8004:8453:{tokenId}`, `eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}`, and `erc8004:eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}`.
+
+For Helixa AgentDNA activation, the importer also checks the canonical Base ERC-8004 Identity Registry for identities already held by the live Helixa agent owner, agent address, or configured platform wallets. Matching identities are imported as public `standard_ref` fragments and reflected in the standards profile.
 
 Custody labels:
 

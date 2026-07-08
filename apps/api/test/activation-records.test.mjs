@@ -311,6 +311,81 @@ test('activateHelixaRecord imports Ethereum Normies ERC-8004 agent identity with
   assertAgentCard(record.agentCard);
 });
 
+test('activateHelixaRecord imports a Base ERC-8004 registration file directly', async () => {
+  const registry = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+  const canonicalId = `eip155:8453:${registry}:19125`;
+  const owner = '0x668aDd9213985E7Fd613Aec87767C892f4b9dF1c';
+  const metadata = {
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: 'ACK',
+    description: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    image: 'https://ack-onchain.dev/icon-512.png',
+    agentType: 'reputation',
+    categories: ['infrastructure,reputation,interoperability,developer-tools'],
+    services: [
+      { name: 'web', endpoint: 'https://ack-onchain.dev' },
+      { name: 'A2A', endpoint: 'https://ack-onchain.dev/.well-known/agent-card.json', version: '0.3.0' },
+      { name: 'MCP', endpoint: 'https://ack-onchain.dev/api/mcp', version: '2025-06-18' },
+      { name: 'OASF', endpoint: 'https://ack-onchain.dev/.well-known/oasf.json', version: '0.8.0' },
+      { name: 'Email', endpoint: 'onchaindevex@gmail.com' },
+      { name: 'wallet', endpoint: owner },
+    ],
+    active: true,
+    x402Support: true,
+    tags: ['reputation', 'kudos', 'erc-8004', 'trust', 'x402'],
+    supportedTrust: ['reputation', 'crypto-economic', 'tee-attestation'],
+  };
+  const tokenURI = `data:application/json;base64,${Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64')}`;
+  const reads = [];
+
+  const record = await activateHelixaRecord('erc8004:8453:19125', {
+    observedAt: '2026-07-08T00:00:00.000Z',
+    readContract: async ({ address, functionName, args }) => {
+      reads.push({ address, functionName, tokenId: args[0].toString() });
+      assert.equal(address, registry);
+      if (functionName === 'ownerOf') return owner;
+      if (functionName === 'tokenURI') return tokenURI;
+      throw new Error(`unexpected read ${functionName}`);
+    },
+    fetchImpl: async () => {
+      throw new Error('data URI metadata should not require HTTP fetch');
+    },
+  });
+
+  assert.deepEqual(reads.map((read) => read.functionName), ['ownerOf', 'tokenURI']);
+  assert.equal(record.source.sourceType, 'erc8004_identity');
+  assert.equal(record.source.canonicalId, canonicalId);
+  assert.equal(record.source.tokenId, '19125');
+  assert.equal(record.profile.display_name, 'ACK');
+  assert.equal(record.profile.slug, 'ack-19125');
+  assert.equal(record.profile.discovery_profile.avatar_url, 'https://ack-onchain.dev/icon-512.png');
+  assert.match(record.profile.discovery_profile.summary, /peer-driven reputation layer/i);
+  assert.equal(record.profile.owner_summary.owner_state, 'unclaimed');
+  assert.equal(record.standardsProfile.primary_refs.erc8004_identity, canonicalId);
+  assert.equal(record.standardsProfile.standard_refs[0].assurance_level, 'onchain_verified');
+  assert.equal(record.agentCard.trust_summary.identity_status, 'verified');
+  assert.ok(record.agentCard.service_endpoints.some((endpoint) => endpoint.endpoint_id === 'mcp' && endpoint.url === 'https://ack-onchain.dev/api/mcp'));
+  assert.ok(record.agentCard.service_endpoints.some((endpoint) => endpoint.endpoint_id === 'a2a'));
+  assert.ok(record.agentCard.message_routes.some((route) => route.channel === 'email' && route.address === 'onchaindevex@gmail.com'));
+  assert.ok(record.agentCard.message_routes.some((route) => route.channel === 'onchain' && route.address === owner));
+
+  const identityFragment = record.fragments.find((fragment) => fragment.proof_reference === canonicalId);
+  const ownerFragment = record.fragments.find((fragment) => fragment.fragment_type === 'wallet');
+  const mcpFragment = record.fragments.find((fragment) => fragment.endpoint_ref?.endpoint_id === 'mcp');
+  assert.equal(identityFragment?.status, 'verified');
+  assert.equal(identityFragment?.assurance_level, 'onchain_verified');
+  assert.match(identityFragment?.public_value ?? '', /ACK ERC-8004 identity/);
+  assert.match(ownerFragment?.public_value ?? '', /onchain owner/i);
+  assert.equal(mcpFragment?.endpoint_ref?.protocol, 'mcp');
+  assert.equal(record.sourceContext.sourceSnapshot.owner, owner);
+  assert.equal(record.sourceContext.sourceSnapshot.sourceType, 'erc8004_identity');
+  assert.deepEqual(record.sourceContext.sourceSnapshot.standards, { erc8004Identity: canonicalId });
+  assert.doesNotMatch(JSON.stringify(record), /privateKey|accessToken|apiKey/);
+  assertMultipassProfile(record.profile);
+  assertStandardsProfile(record.standardsProfile);
+  assertAgentCard(record.agentCard);
+});
+
 test('activateHelixaRecord imports identities returned by an ERC-8004 discovery service', async () => {
   let discoveryInput;
   const record = await activateHelixaRecord('1', {

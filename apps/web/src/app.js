@@ -2115,7 +2115,7 @@ function renderLiveResolver(state, options = {}) {
         </div>
         <label>
           <span>AgentDNA ID, ERC-8004-style ID, token ID, or agent name</span>
-          <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or Quigbot" autocomplete="off" />
+          <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or erc8004:8453:19125" autocomplete="off" />
         </label>
         <div class="live-resolver-actions">
           <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>

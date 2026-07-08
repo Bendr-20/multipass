@@ -2,6 +2,8 @@ import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.j
 
 const HELIXA_CHAIN_ID = 8453;
 export const HELIXA_SOURCE_TYPE = 'helixa_agent';
+export const ERC8004_SOURCE_TYPE = 'erc8004_identity';
+export const ERC8004_BASE_IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 const HYDRATED_PROFILE_MODES = new Set(['activated', 'saved', 'activation_preview']);
 
 export function normalizeMultipassSourceInput(input) {
@@ -11,6 +13,16 @@ export function normalizeMultipassSourceInput(input) {
   const explicit = raw.match(/^helixa-agentdna:(\d+):(\d+)$/);
   const legacy = raw.match(/^(\d+):(\d+)$/);
   const tokenOnly = raw.match(/^\d+$/);
+  const ercShort = raw.match(/^erc8004:(\d+):(\d+)$/i);
+  const ercFull = raw.match(/^erc8004:eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+  const eip155 = raw.match(/^eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+
+  if (ercShort) return createErc8004SourceIdentity(Number(ercShort[1]), ERC8004_BASE_IDENTITY_REGISTRY, ercShort[2]);
+  if (ercFull) return createErc8004SourceIdentity(Number(ercFull[1]), ercFull[2], ercFull[3]);
+  if (eip155) return createErc8004SourceIdentity(Number(eip155[1]), eip155[2], eip155[3]);
+  if (/^erc8004:/i.test(raw)) {
+    throw new TypeError('Use an ERC-8004 source like erc8004:8453:<tokenId> or eip155:8453:<registry>:<tokenId>.');
+  }
 
   let chainId;
   let tokenId;
@@ -23,10 +35,10 @@ export function normalizeMultipassSourceInput(input) {
   } else if (tokenOnly) {
     chainId = HELIXA_CHAIN_ID;
     tokenId = normalizeHelixaTokenId(raw);
-  } else if (/^(erc8004|agent-nft|agent-aura):/.test(raw)) {
-    throw new TypeError('That source identity type is not supported in this implementation slice.');
+  } else if (/^(agent-nft|agent-aura):/i.test(raw)) {
+    throw new TypeError('Use a Helixa AgentDNA token ID or a Base ERC-8004 identity source for this implementation slice.');
   } else {
-    throw new TypeError('Use a Helixa AgentDNA token ID, 8453:<tokenId>, or helixa-agentdna:8453:<tokenId>.');
+    throw new TypeError('Use a Helixa AgentDNA token ID, 8453:<tokenId>, helixa-agentdna:8453:<tokenId>, or eip155:8453:<registry>:<tokenId>.');
   }
 
   if (chainId !== HELIXA_CHAIN_ID) throw new TypeError('This slice supports Base Helixa AgentDNA records only. Use chain 8453.');
@@ -80,14 +92,15 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
     schema_version: schemaVersion,
     mode,
     state: mode === 'activated' || mode === 'saved' ? 'saved_record' : 'activated_unsaved',
-    source_identity: {
+    source_identity: pruneUndefined({
       kind: source.kind,
       canonical_id: source.canonicalId,
       legacy_canonical_id: source.legacyCanonicalId,
       chain_id: source.chainId,
       token_id: source.tokenId,
+      contract_address: source.contractAddress,
       verification_state: mode === 'activation_preview' ? 'imported_unverified' : 'source_verified',
-    },
+    }),
     profile: responseProfile,
     ...(marketplacePresence.length || hasMarketplaceFragments ? { marketplacePresence } : {}),
     fragments: { schema_version: schemaVersion, multipass_id: multipassId, fragments: publicFragments },
@@ -108,10 +121,54 @@ export function buildHydratedProfileResponse({ mode, profile, sourceStore, sourc
       ? createActivationPreviewRoutes(baseUrl, source)
       : createHydratedRoutes(baseUrl, profile.slug),
     routes_meta: {
-      public_profile: mode === 'activation_preview' ? `/multipass/?agent=${encodeURIComponent(source.tokenId)}` : `/multipass/${encodeURIComponent(profile.slug)}`,
-      activate: `/multipass/?agent=${encodeURIComponent(source.tokenId)}`,
+      public_profile: mode === 'activation_preview' ? `/multipass/?agent=${encodeURIComponent(getActivationShareInput(source))}` : `/multipass/${encodeURIComponent(profile.slug)}`,
+      activate: `/multipass/?agent=${encodeURIComponent(getActivationShareInput(source))}`,
     },
   };
+}
+
+function createErc8004SourceIdentity(chainId, registryAddress, tokenIdValue) {
+  const tokenId = normalizeErc8004TokenId(tokenIdValue);
+  if (chainId !== HELIXA_CHAIN_ID) throw new TypeError('This slice supports Base ERC-8004 identities only. Use chain 8453.');
+  const registry = normalizeAddress(registryAddress);
+  if (!registry || !addressesEqual(registry, ERC8004_BASE_IDENTITY_REGISTRY)) {
+    throw new TypeError('This slice supports the Base ERC-8004 Identity Registry only.');
+  }
+
+  return {
+    kind: 'erc8004_identity',
+    sourceType: ERC8004_SOURCE_TYPE,
+    canonicalId: `eip155:${HELIXA_CHAIN_ID}:${ERC8004_BASE_IDENTITY_REGISTRY}:${tokenId}`,
+    legacyCanonicalId: `erc8004:${HELIXA_CHAIN_ID}:${tokenId}`,
+    chainId: HELIXA_CHAIN_ID,
+    tokenId,
+    contractAddress: ERC8004_BASE_IDENTITY_REGISTRY,
+  };
+}
+
+function normalizeErc8004TokenId(tokenId) {
+  const raw = String(tokenId);
+  if (!/^\d+$/.test(raw) || /^0+$/.test(raw)) throw new TypeError('Use a positive ERC-8004 identity token ID.');
+  return raw.replace(/^0+/, '');
+}
+
+function getActivationShareInput(source) {
+  return source.sourceType === ERC8004_SOURCE_TYPE ? source.canonicalId : source.tokenId;
+}
+
+function normalizeAddress(value) {
+  const raw = String(value ?? '').trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(raw) ? raw : null;
+}
+
+function addressesEqual(left, right) {
+  const normalizedLeft = normalizeAddress(left);
+  const normalizedRight = normalizeAddress(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft.toLowerCase() === normalizedRight.toLowerCase());
+}
+
+function pruneUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
 
 function normalizeHelixaTokenId(tokenId) {

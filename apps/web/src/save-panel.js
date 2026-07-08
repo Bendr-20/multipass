@@ -9,13 +9,21 @@ export function isSafeMultipassSharePath(sharePath) {
     if (parsed.origin !== 'https://helixa.xyz') return false;
     if (parsed.pathname === '/multipass/' || parsed.pathname === '/multipass') {
       const agent = parsed.searchParams.get('agent');
-      return agent === null || (/^\d+$/.test(agent) && [...parsed.searchParams.keys()].every((key) => key === 'agent'));
+      return agent === null || (isSafeActivationAgentQuery(agent) && [...parsed.searchParams.keys()].every((key) => key === 'agent'));
     }
     const match = parsed.pathname.match(/^\/multipass\/([a-z0-9][a-z0-9-]{1,80})$/);
     return Boolean(match) && !parsed.search && !parsed.hash;
   } catch {
     return false;
   }
+}
+
+function isSafeActivationAgentQuery(agent) {
+  const raw = String(agent ?? '').trim();
+  if (/^\d+$/.test(raw)) return true;
+  if (/^erc8004:8453:\d+$/i.test(raw)) return true;
+  if (/^eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:\d+$/i.test(raw)) return true;
+  return false;
 }
 
 export function getSafeMultipassSharePath(sharePath) {

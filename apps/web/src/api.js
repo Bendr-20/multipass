@@ -2,6 +2,7 @@ import { isSafeMultipassSharePath } from './save-panel.js';
 import { STATIC_DEMO_DATA } from './static-demo-data.js';
 
 const DEFAULT_API_BASE = '/multipass-api';
+const ERC8004_BASE_IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 
 export function getApiBaseFromLocation(locationUrl) {
   const parsed = parseSafeApiOverride(locationUrl);
@@ -49,6 +50,13 @@ export function buildSavedRoutes(apiBase, slug) {
 
 export function normalizeHelixaAgentDnaSource(input) {
   const raw = String(input ?? '').trim();
+  const ercShort = raw.match(/^erc8004:(\d+):(\d+)$/i);
+  const ercFull = raw.match(/^erc8004:eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+  const eip155 = raw.match(/^eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+  if (ercShort) return normalizeErc8004IdentitySource(Number(ercShort[1]), ERC8004_BASE_IDENTITY_REGISTRY, ercShort[2]);
+  if (ercFull) return normalizeErc8004IdentitySource(Number(ercFull[1]), ercFull[2], ercFull[3]);
+  if (eip155) return normalizeErc8004IdentitySource(Number(eip155[1]), eip155[2], eip155[3]);
+
   const canonical = raw.match(/^helixa-agentdna:8453:(\d+)$/);
   if (canonical) {
     const tokenId = normalizePositiveTokenId(canonical[1]);
@@ -61,6 +69,23 @@ export function normalizeHelixaAgentDnaSource(input) {
   }
   const tokenId = normalizePositiveTokenId(raw);
   return tokenId ? `helixa-agentdna:8453:${tokenId}` : null;
+}
+
+function normalizeErc8004IdentitySource(chainId, registryAddress, tokenIdValue) {
+  const tokenId = normalizePositiveTokenId(tokenIdValue);
+  if (!tokenId || chainId !== 8453 || !addressesEqual(registryAddress, ERC8004_BASE_IDENTITY_REGISTRY)) return null;
+  return `eip155:8453:${ERC8004_BASE_IDENTITY_REGISTRY}:${tokenId}`;
+}
+
+function normalizeAddress(value) {
+  const raw = String(value ?? '').trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(raw) ? raw : null;
+}
+
+function addressesEqual(left, right) {
+  const normalizedLeft = normalizeAddress(left);
+  const normalizedRight = normalizeAddress(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft.toLowerCase() === normalizedRight.toLowerCase());
 }
 
 function normalizePositiveTokenId(tokenId) {
@@ -145,7 +170,7 @@ export function isCanonicalHelixaFallbackError(error) {
 
 export async function loadCanonicalHelixaMultipass({ apiBase = DEFAULT_API_BASE, input, fetchImpl = fetch }) {
   const source = normalizeHelixaAgentDnaSource(input);
-  if (!source) throw new CanonicalHelixaFallbackError('Canonical API supports Helixa token IDs only; falling back to live resolver.');
+  if (!source) throw new CanonicalHelixaFallbackError('Canonical API supports Helixa AgentDNA and Base ERC-8004 source IDs only; falling back to live resolver.');
 
   const route = buildCanonicalResolveRoute(apiBase, source);
   const hydrated = await loadJsonWithStatus(route, fetchImpl);
@@ -275,7 +300,7 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
     routes,
     resolver,
     modeLabel,
-    sourceLabel: 'Helixa AgentDNA source',
+    sourceLabel: formatHydratedSourceLabel(sourceIdentity),
     agentCards: agentCard ? [agentCard] : [],
     liveProfilePage: {
       headline: `${profile.display_name ?? card.name ?? 'Multipass'} Multipass`,
@@ -313,6 +338,11 @@ function normalizeHydratedActivation(activation, mode) {
   return normalized;
 }
 
+function formatHydratedSourceLabel(sourceIdentity) {
+  if (sourceIdentity?.kind === 'erc8004_identity') return 'ERC-8004 identity source';
+  return 'Helixa AgentDNA source';
+}
+
 function formatHydratedModeLabel(mode) {
   if (mode === 'activation_preview') return 'Activation Preview';
   if (mode === 'saved') return 'Activated Multipass';
@@ -320,12 +350,12 @@ function formatHydratedModeLabel(mode) {
 }
 
 function getHydratedSharePath({ mode, routesMeta, profile, tokenId }) {
-  if (mode === 'activation_preview') {
-    return `/multipass/?agent=${encodeURIComponent(tokenId ?? '')}`;
-  }
-
   const publicProfile = routesMeta?.public_profile;
   if (isSafeMultipassSharePath(publicProfile)) return String(publicProfile);
+
+  if (mode === 'activation_preview') {
+    return tokenId ? `/multipass/?agent=${encodeURIComponent(tokenId)}` : '/multipass/';
+  }
 
   const profilePath = profile?.slug ? `/multipass/${encodeURIComponent(profile.slug)}` : null;
   if (isSafeMultipassSharePath(profilePath)) return profilePath;

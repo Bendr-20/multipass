@@ -35,6 +35,30 @@ test('normalizeMultipassSourceInput accepts Helixa AgentDNA shorthand and explic
   });
 });
 
+test('normalizeMultipassSourceInput accepts Base ERC-8004 identity ids', () => {
+  const registry = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+  const canonical = `eip155:8453:${registry}:19125`;
+
+  assert.deepEqual(normalizeMultipassSourceInput('erc8004:8453:19125'), {
+    kind: 'erc8004_identity',
+    sourceType: 'erc8004_identity',
+    canonicalId: canonical,
+    legacyCanonicalId: 'erc8004:8453:19125',
+    chainId: 8453,
+    tokenId: '19125',
+    contractAddress: registry,
+  });
+  assert.deepEqual(normalizeMultipassSourceInput(`eip155:8453:${registry.toLowerCase()}:19125`), {
+    kind: 'erc8004_identity',
+    sourceType: 'erc8004_identity',
+    canonicalId: canonical,
+    legacyCanonicalId: 'erc8004:8453:19125',
+    chainId: 8453,
+    tokenId: '19125',
+    contractAddress: registry,
+  });
+});
+
 test('normalizeMultipassSourceInput rejects unsupported source shapes', () => {
   assert.throws(() => normalizeMultipassSourceInput(''), /source/i);
   assert.throws(() => normalizeMultipassSourceInput('8453:0'), /token/i);
@@ -42,8 +66,9 @@ test('normalizeMultipassSourceInput rejects unsupported source shapes', () => {
   assert.throws(() => normalizeMultipassSourceInput('00'), /positive Helixa AgentDNA token/i);
   assert.throws(() => normalizeMultipassSourceInput('helixa-agentdna:8453:000'), /positive Helixa AgentDNA token/i);
   assert.throws(() => normalizeMultipassSourceInput('1:1'), /Base Helixa/i);
-  assert.throws(() => normalizeMultipassSourceInput('erc8004:eip155:8453:0xabc:1'), /not supported/i);
-  assert.throws(() => normalizeMultipassSourceInput('agent-nft:eip155:8453:0xabc:1'), /not supported/i);
+  assert.throws(() => normalizeMultipassSourceInput('erc8004:1:1'), /Base ERC-8004/i);
+  assert.throws(() => normalizeMultipassSourceInput('eip155:8453:0x0000000000000000000000000000000000000001:1'), /ERC-8004 Identity Registry/i);
+  assert.throws(() => normalizeMultipassSourceInput('agent-nft:eip155:8453:0xabc:1'), /Use a Helixa AgentDNA token ID/i);
 });
 
 function makeSourceStore() {
@@ -120,6 +145,32 @@ test('buildHydratedProfileResponse keeps activation previews on the agent query 
   assert.equal(hydrated.routes.fragments, undefined);
   assert.equal(hydrated.routes.save, 'https://multipass.example.test/api/multipass');
   assert.equal(JSON.stringify(hydrated.routes).includes('/api/multipass/bendr-2-1'), false);
+});
+
+test('buildHydratedProfileResponse keeps ERC-8004 activation previews on the canonical source query path', () => {
+  const profile = {
+    schema_version: '0.1.0',
+    multipass_id: 'mp_erc8004_8453_19125',
+    slug: 'ack-19125',
+    display_name: 'ACK',
+    owner_summary: { owner_state: 'unclaimed', verification_status: 'none' },
+    updated_at: '2026-07-08T00:00:00.000Z',
+  };
+  const sourceIdentity = normalizeMultipassSourceInput('erc8004:8453:19125');
+
+  const hydrated = buildHydratedProfileResponse({
+    mode: 'activation_preview',
+    profile,
+    sourceStore: makeSourceStore(),
+    sourceIdentity,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  assert.equal(hydrated.source_identity.kind, 'erc8004_identity');
+  assert.equal(hydrated.source_identity.contract_address, '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432');
+  assert.equal(hydrated.source_identity.canonical_id, 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125');
+  assert.equal(hydrated.routes_meta.public_profile, '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
+  assert.equal(hydrated.routes.resolve, 'https://multipass.example.test/api/multipass/resolve?source=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
 });
 
 test('buildHydratedProfileResponse rejects invalid modes fail-closed', () => {

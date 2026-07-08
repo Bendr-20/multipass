@@ -294,10 +294,15 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
   };
 }
 
-export async function activateHelixaRecord(input, { fetchImpl = fetch, observedAt, erc8004Discovery = discoverErc8004Identities, discoveryTimeoutMs } = {}) {
+export async function activateHelixaRecord(input, { fetchImpl = fetch, observedAt, erc8004Discovery = discoverErc8004Identities, discoveryTimeoutMs, readContract, publicClient } = {}) {
   const normiesInput = parseNormiesActivationInput(input);
   if (normiesInput) {
     return activateNormiesAgentRecord(normiesInput, { fetchImpl, observedAt });
+  }
+
+  const erc8004Input = parseErc8004ActivationInput(input);
+  if (erc8004Input) {
+    return activateErc8004IdentityRecord(erc8004Input, { fetchImpl, observedAt, readContract, publicClient });
   }
 
   const parsed = parseActivationInput(input);
@@ -383,6 +388,56 @@ function parseNormiesActivationInput(input) {
     return { chainId, tokenContract: NORMIES_ART_CONTRACT, tokenId };
   }
   return null;
+}
+
+function parseErc8004ActivationInput(input) {
+  const raw = String(input ?? '').trim();
+  const short = raw.match(/^erc8004:(\d+):(\d+)$/i);
+  const wrapped = raw.match(/^erc8004:eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+  const eip155 = raw.match(/^eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/i);
+  const match = short ?? wrapped ?? eip155;
+  if (!match) {
+    if (/^erc8004:/i.test(raw) || /^eip155:8453:/i.test(raw)) {
+      throw new TypeError('Use a Base ERC-8004 identity source like erc8004:8453:<tokenId> or eip155:8453:<registry>:<tokenId>.');
+    }
+    return null;
+  }
+
+  const chainId = Number(match[1]);
+  const registryAddress = short ? ERC8004_BASE_IDENTITY_REGISTRY : normalizeAddress(match[2]);
+  const tokenId = short ? match[2] : match[3];
+  if (chainId !== HELIXA_CHAIN_ID) {
+    throw new TypeError('Direct ERC-8004 activation supports Base identities only. Use chain 8453.');
+  }
+  if (!registryAddress || !addressesEqual(registryAddress, ERC8004_BASE_IDENTITY_REGISTRY)) {
+    throw new TypeError('Direct ERC-8004 activation supports the Base ERC-8004 Identity Registry only.');
+  }
+  if (!isPositiveTokenId(tokenId)) {
+    throw new TypeError('Use an ERC-8004 identity token ID greater than zero.');
+  }
+  return {
+    chainId: HELIXA_CHAIN_ID,
+    registryAddress: ERC8004_BASE_IDENTITY_REGISTRY,
+    tokenId,
+    canonicalId: `eip155:${HELIXA_CHAIN_ID}:${ERC8004_BASE_IDENTITY_REGISTRY}:${tokenId}`,
+  };
+}
+
+async function activateErc8004IdentityRecord(input, { fetchImpl, observedAt, readContract, publicClient } = {}) {
+  const client = publicClient ?? (readContract ? null : createPublicClient({
+    chain: base,
+    transport: createBaseRpcTransport(process.env.BASE_RPC_URL),
+  }));
+  const onchain = await readErc8004IdentityToken({
+    tokenId: input.tokenId,
+    registryAddress: input.registryAddress,
+    readContract,
+    publicClient: client,
+  });
+  if (!onchain?.owner) throw new Error('No ERC-8004 identity found for that source ID.');
+
+  const metadata = await readErc8004TokenMetadata(onchain.tokenURI, { fetchImpl });
+  return buildSavedRecordFromErc8004Identity({ input, onchain, metadata }, { observedAt });
 }
 
 function buildSavedRecordFromNormiesAgent({ info, binding, owner }, options = {}) {
@@ -596,6 +651,365 @@ function buildSavedRecordFromNormiesAgent({ info, binding, owner }, options = {}
       created_at: observedAt,
     },
   };
+}
+
+function buildSavedRecordFromErc8004Identity({ input, onchain, metadata }, options = {}) {
+  const tokenId = normalizeTokenId(input?.tokenId);
+  const observedAt = normalizeObservedAt(options.observedAt);
+  const canonicalId = input?.canonicalId ?? `eip155:${HELIXA_CHAIN_ID}:${ERC8004_BASE_IDENTITY_REGISTRY}:${tokenId}`;
+  const owner = normalizeAddress(onchain?.owner);
+  const displayName = normalizeDisplayName(metadata?.name, tokenId);
+  const slug = slugifyDisplayName(displayName, tokenId);
+  const multipassId = `mp_erc8004_${HELIXA_CHAIN_ID}_${tokenId}`;
+  const standardsProfileId = `sp_erc8004_${HELIXA_CHAIN_ID}_${tokenId}`;
+  const metadataUrl = safePublicUrl(onchain?.tokenURI) ?? null;
+  const explorerUrl = `https://basescan.org/token/${ERC8004_BASE_IDENTITY_REGISTRY}?a=${encodeURIComponent(tokenId)}`;
+  const serviceEndpoints = createErc8004MetadataServiceEndpoints(metadata?.services);
+  const messageRoutes = createErc8004MessageRoutes(metadata?.services, owner);
+  const summary = normalizeErc8004Summary(metadata, displayName);
+  const fragments = createErc8004PublicFragments({
+    multipassId,
+    tokenId,
+    canonicalId,
+    displayName,
+    owner,
+    observedAt,
+    explorerUrl,
+    metadataUrl,
+    serviceEndpoints,
+  });
+
+  const profile = assertMultipassProfile({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    subject_type: 'agent',
+    display_name: displayName,
+    slug,
+    status: metadata?.active === false ? 'suspended' : 'active',
+    owner_summary: {
+      owner_state: 'unclaimed',
+      verification_status: 'none',
+      visibility: 'public',
+      summary: 'Read-only ERC-8004 identity imported from public registration metadata. Management is not claimed until a separate verification flow completes.',
+    },
+    custody_epoch: null,
+    public_fragments: fragments.map(({ fragment_id, fragment_type, status, assurance_level, visibility, updated_at }) => ({
+      fragment_id,
+      fragment_type,
+      status,
+      assurance_level,
+      visibility,
+      updated_at,
+    })),
+    cred_summary: {
+      trust_state: 'building',
+      attestation_count: fragments.filter((fragment) => fragment.fragment_type === 'attestation').length,
+      receipt_count: 0,
+      last_updated_at: observedAt,
+      public_note: 'ERC-8004 identity, owner, and registration metadata imported from public source records.',
+    },
+    discovery_profile: {
+      summary,
+      tags: normalizeErc8004Tags(metadata),
+      ...(safePublicUrl(metadata?.image) ? { avatar_url: safePublicUrl(metadata.image) } : {}),
+      visibility: 'public',
+    },
+    standards_profile: {
+      standards_profile_id: standardsProfileId,
+      supported_standard_ids: ['ERC-8004'],
+      last_verified_at: observedAt,
+    },
+    payment_profile: {
+      accepted_assets: [],
+      x402_manifest_url: null,
+      paid_endpoints_enabled: Boolean(metadata?.x402Support),
+    },
+    updated_at: observedAt,
+  });
+
+  const agentCard = assertAgentCard({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    name: displayName,
+    subject_type: 'agent',
+    summary: truncate(summary, 500),
+    boundaries: [
+      'Read-only ERC-8004 source import. Identity ownership does not grant Multipass management without a separate verification flow.',
+    ],
+    capabilities: createErc8004Capabilities(metadata),
+    message_routes: messageRoutes,
+    service_endpoints: serviceEndpoints,
+    x402_manifest_url: null,
+    accepted_assets: [],
+    trust_summary: {
+      identity_status: 'verified',
+      assurance_level: 'onchain_verified',
+      last_updated_at: observedAt,
+    },
+    rate_limits: { requests: 0, window_seconds: 60 },
+    contact_policy: {
+      mode: 'approval_required',
+      requires_owner_approval: true,
+      policy_note: 'Imported ERC-8004 identity records are read-only until the owner completes a Multipass management claim.',
+    },
+    standards_refs: [{ standard_id: 'ERC-8004', support_status: 'active', record_id: canonicalId }],
+  });
+
+  const standardsProfile = assertStandardsProfile({
+    schema_version: SCHEMA_VERSION,
+    standards_profile_id: standardsProfileId,
+    multipass_id: multipassId,
+    primary_refs: { erc8004_identity: canonicalId },
+    standard_refs: [
+      {
+        standard_id: 'ERC-8004',
+        status: 'active',
+        chain_id: HELIXA_CHAIN_ID,
+        contract_address: ERC8004_BASE_IDENTITY_REGISTRY,
+        record_id: canonicalId,
+        adapter_version: '0.1.0',
+        last_verified_at: observedAt,
+        assurance_level: 'onchain_verified',
+      },
+    ],
+    compatibility_summary: {
+      identity_bound: true,
+      owner_verified: false,
+      risk_checked: false,
+      tools_verified: false,
+      work_attested: false,
+      trust_updated: true,
+    },
+    adapter_versions: { 'ERC-8004': '0.1.0' },
+    last_verified_at: observedAt,
+  });
+
+  const x402Manifest = assertX402Manifest({
+    schema_version: SCHEMA_VERSION,
+    multipass_id: multipassId,
+    endpoints: [],
+  });
+
+  return {
+    source: {
+      sourceType: 'erc8004_identity',
+      canonicalId,
+      tokenId,
+    },
+    sourceContext: {
+      activation: {
+        state: 'saved_unclaimed',
+        origin: 'erc8004_identity_registry',
+        originSource: ACTIVATION_ORIGIN_SOURCE,
+        sourceType: 'erc8004_identity',
+        canonicalId,
+        tokenId,
+        savedAt: observedAt,
+      },
+      sourceSnapshot: {
+        sourceType: 'erc8004_identity',
+        canonicalId,
+        chainId: HELIXA_CHAIN_ID,
+        contractAddress: ERC8004_BASE_IDENTITY_REGISTRY,
+        tokenId,
+        owner,
+        ownerAddress: owner,
+        name: displayName,
+        displayName,
+        summary,
+        description: truncate(String(metadata?.description ?? '').trim(), 1000),
+        imageUrl: safePublicUrl(metadata?.image) ?? undefined,
+        metadataUrl,
+        tokenURI: truncate(String(onchain?.tokenURI ?? '').trim(), 500),
+        active: metadata?.active === undefined ? undefined : Boolean(metadata.active),
+        agentType: metadata?.agentType ? truncate(String(metadata.agentType), 120) : undefined,
+        tags: normalizeErc8004Tags(metadata),
+        services: serviceEndpoints.map((endpoint) => ({ endpoint_id: endpoint.endpoint_id, url: endpoint.url, protocol: protocolForEndpoint(endpoint.endpoint_id) })),
+        messageRoutes,
+        standards: { erc8004Identity: canonicalId },
+      },
+    },
+    profile,
+    fragments: fragments.map(assertIdentityFragment),
+    agentCard,
+    standardsProfile,
+    x402Manifest,
+    receipts: [],
+    change: {
+      change_id: `change_erc8004_${safeKey(tokenId)}_initial_save`,
+      message: 'Multipass saved from public ERC-8004 identity source record.',
+      created_at: observedAt,
+    },
+  };
+}
+
+function createErc8004PublicFragments({ multipassId, tokenId, canonicalId, displayName, owner, observedAt, explorerUrl, metadataUrl, serviceEndpoints }) {
+  const fragments = [
+    createFragment({
+      fragment_id: `frag_erc8004_${safeKey(tokenId)}_identity`,
+      multipass_id: multipassId,
+      fragment_type: 'standard_ref',
+      status: 'verified',
+      assurance_level: 'onchain_verified',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'contract_read',
+      source_id: canonicalId,
+      issuer: 'ERC-8004 Identity Registry',
+      observed_at: observedAt,
+      reference_url: explorerUrl,
+      public_value: `${displayName} ERC-8004 identity ${canonicalId}.`,
+      proof_reference: canonicalId,
+    }),
+  ];
+
+  if (owner) {
+    fragments.push(createFragment({
+      fragment_id: `frag_erc8004_${safeKey(tokenId)}_owner`,
+      multipass_id: multipassId,
+      fragment_type: 'wallet',
+      status: 'verified',
+      assurance_level: 'onchain_verified',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'contract_read',
+      source_id: `${canonicalId}:owner`,
+      issuer: 'ERC-8004 Identity Registry',
+      observed_at: observedAt,
+      reference_url: explorerUrl,
+      public_value: `Current onchain owner ${owner} observed for ERC-8004 identity ${canonicalId}. This does not grant Multipass management.`,
+      proof_reference: owner,
+    }));
+  }
+
+  if (metadataUrl) {
+    fragments.push(createFragment({
+      fragment_id: `frag_erc8004_${safeKey(tokenId)}_metadata`,
+      multipass_id: multipassId,
+      fragment_type: 'endpoint',
+      status: 'verified',
+      assurance_level: 'issuer_attested',
+      transfer_policy: 'pause_on_transfer',
+      source_type: 'issuer_attestation',
+      source_id: `${canonicalId}:metadata`,
+      issuer: 'ERC-8004 Registration Metadata',
+      observed_at: observedAt,
+      reference_url: metadataUrl,
+      public_value: 'Public ERC-8004 registration metadata endpoint for this agent identity.',
+      endpoint_ref: { endpoint_id: 'erc8004_metadata', url: metadataUrl, protocol: 'api' },
+    }));
+  }
+
+  for (const endpoint of serviceEndpoints) {
+    fragments.push(createFragment({
+      fragment_id: `frag_erc8004_${safeKey(tokenId)}_service_${safeKey(endpoint.endpoint_id)}`,
+      multipass_id: multipassId,
+      fragment_type: 'endpoint',
+      status: 'verified',
+      assurance_level: 'issuer_attested',
+      transfer_policy: 'pause_on_transfer',
+      source_type: 'issuer_attestation',
+      source_id: `${canonicalId}:${safeKey(endpoint.endpoint_id)}`,
+      issuer: 'ERC-8004 Registration Metadata',
+      observed_at: observedAt,
+      reference_url: endpoint.url,
+      public_value: endpoint.description,
+      endpoint_ref: { endpoint_id: endpoint.endpoint_id, url: endpoint.url, protocol: protocolForEndpoint(endpoint.endpoint_id) },
+    }));
+  }
+
+  return fragments;
+}
+
+function normalizeErc8004Summary(metadata, displayName) {
+  const description = String(metadata?.description ?? '').trim();
+  return truncate(description || `${displayName} imported from a public ERC-8004 identity registration.`, 1000);
+}
+
+function normalizeErc8004Tags(metadata) {
+  return uniqueStrings([
+    'erc-8004',
+    'multipass',
+    metadata?.agentType,
+    ...(Array.isArray(metadata?.tags) ? metadata.tags : []),
+    ...(Array.isArray(metadata?.categories) ? metadata.categories.flatMap((entry) => String(entry ?? '').split(',')) : []),
+    ...(Array.isArray(metadata?.supportedTrust) ? metadata.supportedTrust : []),
+  ]);
+}
+
+function createErc8004Capabilities(metadata) {
+  const capabilities = [];
+  for (const value of normalizeErc8004Tags(metadata).filter((entry) => !['erc-8004', 'multipass'].includes(entry)).slice(0, 6)) {
+    capabilities.push({
+      capability_id: `erc8004_${safeKey(value)}`,
+      label: formatLabel(value),
+      description: `Public ERC-8004 registration tag: ${formatLabel(value)}.`,
+      visibility: 'public',
+    });
+  }
+  return capabilities;
+}
+
+function createErc8004MetadataServiceEndpoints(services) {
+  return normalizeErc8004ServiceEntries(services)
+    .map((service) => {
+      const url = safePublicUrl(service.endpoint);
+      if (!url) return null;
+      const endpointId = safeKey(service.name || protocolForServiceUrl(url) || 'service');
+      return {
+        endpoint_id: endpointId,
+        url,
+        description: `${formatLabel(service.name || endpointId)} endpoint published by ERC-8004 registration metadata.`,
+        visibility: 'public',
+      };
+    })
+    .filter(Boolean);
+}
+
+function createErc8004MessageRoutes(services, owner) {
+  const routes = [];
+  for (const service of normalizeErc8004ServiceEntries(services)) {
+    const endpoint = String(service.endpoint ?? '').trim();
+    if (!endpoint || safePublicUrl(endpoint)) continue;
+    const serviceName = String(service.name ?? '').toLowerCase();
+    if (serviceName.includes('email') || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(endpoint)) {
+      routes.push({ route_id: `route_${safeKey(service.name || 'email')}`, channel: 'email', address: truncate(endpoint, 320), visibility: 'public' });
+    } else if (normalizeAddress(endpoint)) {
+      routes.push({ route_id: `route_${safeKey(service.name || 'wallet')}`, channel: 'onchain', address: normalizeAddress(endpoint), visibility: 'public' });
+    }
+  }
+  if (owner && !routes.some((route) => route.channel === 'onchain' && addressesEqual(route.address, owner))) {
+    routes.push({ route_id: 'route_erc8004_owner', channel: 'onchain', address: owner, visibility: 'public' });
+  }
+  return routes;
+}
+
+function normalizeErc8004ServiceEntries(services) {
+  if (Array.isArray(services)) {
+    return services
+      .filter(isPlainObject)
+      .map((service) => ({
+        name: truncate(String(service.name ?? service.type ?? service.protocol ?? '').trim(), 80),
+        endpoint: truncate(String(service.endpoint ?? service.url ?? service.uri ?? '').trim(), 500),
+      }))
+      .filter((service) => service.name || service.endpoint);
+  }
+  if (isPlainObject(services)) {
+    return Object.entries(services).map(([name, config]) => ({
+      name: truncate(String(name ?? '').trim(), 80),
+      endpoint: truncate(String(config?.endpoint ?? config?.url ?? config?.profileUrl ?? (typeof config === 'string' ? config : '')).trim(), 500),
+    })).filter((service) => service.name || service.endpoint);
+  }
+  return [];
+}
+
+function protocolForServiceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (/mcp/i.test(parsed.pathname)) return 'mcp';
+    if (/agent-card|a2a/i.test(parsed.pathname)) return 'a2a';
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? 'web' : 'api';
+  } catch {
+    return null;
+  }
 }
 
 async function discoverErc8004IdentitiesWithTimeout(agent, { observedAt, erc8004Discovery, timeoutMs }) {
