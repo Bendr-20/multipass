@@ -72,7 +72,11 @@ export async function startServer(options = {}) {
       const request = new Request(new URL(req.url || '/', apiBaseUrl), requestInit);
       const response = await api.handleRequest(request);
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
-      res.end(await response.text());
+      if (requestInit.method.toUpperCase() === 'HEAD') {
+        res.end();
+      } else {
+        res.end(Buffer.from(await response.arrayBuffer()));
+      }
     } catch (error) {
       res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({

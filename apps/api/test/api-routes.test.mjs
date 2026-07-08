@@ -765,6 +765,10 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.equal(discovery.body.routes.agent_card, 'https://multipass.example.test/api/multipass/{id}/agent-card');
   assert.equal(discovery.body.routes.tools, 'https://multipass.example.test/api/multipass/{id}/tools');
   assert.equal(discovery.body.routes.changes, 'https://multipass.example.test/api/multipass/{id}/changes');
+  assert.equal(discovery.body.routes.share, 'https://multipass.example.test/multipass/share/{id}');
+  assert.equal(discovery.body.routes.share_image, 'https://multipass.example.test/multipass/share/{id}.jpg');
+  assert.equal(discovery.body.routes.api_share, 'https://multipass.example.test/api/multipass/{id}/share');
+  assert.equal(discovery.body.routes.api_share_image, 'https://multipass.example.test/api/multipass/{id}/share.jpg');
   assert.equal(discovery.body.start_here.resolve, 'https://multipass.example.test/api/resolve?agent={input}');
   assert.equal(discovery.body.start_here.agent_card, 'https://multipass.example.test/api/multipass/{id}/agent-card');
   assert.equal(discovery.body.example_profile.id, 'bendr-2-1');
@@ -784,6 +788,10 @@ test('serves public Multipass discovery alias and OpenAPI document', async () =>
   assert.match(openapi.body.paths['/api/multipass/{id}/agent-card'].get.description, /machine-readable/i);
   assert.ok(openapi.body.paths['/api/multipass/{id}/tools']);
   assert.ok(openapi.body.paths['/api/multipass/{id}/changes']);
+  assert.match(openapi.body.paths['/multipass/share/{id}'].get.summary, /crawler/i);
+  assert.match(openapi.body.paths['/multipass/share/{id}.jpg'].get.summary, /JPEG/i);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/share']);
+  assert.ok(openapi.body.paths['/api/multipass/{id}/share.jpg']);
   assert.ok(openapi.body.paths['/api/resolve']);
   assert.match(openapi.body.paths['/api/multipass/resolve'].get.summary, /ERC-8004/i);
   assert.match(openapi.body.paths['/api/multipass/resolve'].get.parameters[0].description, /erc8004:8453/i);
@@ -853,15 +861,97 @@ test('saved Helixa AgentDNA records backfill public x401 compatibility metadata'
   assert.match(x401.body.boundaries.join(' '), /or imply a commercial relationship/i);
 });
 
-test('GET /api/multipass/:id/hydrated supports saved Base ERC-8004 identity sources', async () => {
+test('GET /multipass/share/:id renders dynamic saved-profile preview metadata', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
-  savedRecords.saveActivatedRecord(makeSavedRecordWithSourceContext({
+  const record = makeSavedRecordWithSourceContext({
     sourceType: 'erc8004_identity',
     canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
     tokenId: '19125',
     slug: 'ack-19125',
     multipassId: 'mp_erc8004_8453_19125',
-  }));
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/share/ack-19125'));
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+  assert.ok(html.includes('<title>ACK Multipass</title>'));
+  assert.ok(html.includes('<meta property="og:title" content="ACK Multipass" />'));
+  assert.match(html, /<meta property="og:description" content="ACK .*ERC-8004/i);
+  assert.ok(html.includes('<meta property="og:image" content="https://multipass.example.test/multipass/share/ack-19125.jpg" />'));
+  assert.ok(html.includes('<meta property="og:image:type" content="image/jpeg" />'));
+  assert.ok(html.includes('<meta name="twitter:card" content="summary_large_image" />'));
+  assert.ok(html.includes('<meta name="twitter:image" content="https://multipass.example.test/multipass/share/ack-19125.jpg" />'));
+  assert.ok(html.includes('<link rel="canonical" href="https://multipass.example.test/multipass/share/ack-19125" />'));
+  assert.ok(html.includes('<a class="open-profile" href="https://multipass.example.test/multipass/ack-19125">Open Multipass profile</a>'));
+  assert.ok(html.includes("window.location.replace('https://multipass.example.test/multipass/ack-19125')"));
+  assert.doesNotMatch(html, /privateKey|accessToken|apiKey/);
+});
+
+test('GET /multipass/share/:id.jpg renders dynamic saved-profile JPEG preview image', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/share/ack-19125.jpg'));
+  const bytes = Buffer.from(await response.arrayBuffer());
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /image\/jpeg/);
+  assert.equal(bytes[0], 0xff);
+  assert.equal(bytes[1], 0xd8);
+  assert.ok(bytes.length > 20_000);
+});
+
+test('GET /api/multipass/:id/hydrated supports saved Base ERC-8004 identity sources', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
   const api = createMultipassApi({
     store: createFixtureStore(),
     savedRecords,

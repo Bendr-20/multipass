@@ -145,6 +145,42 @@ test('startServer can serve Bendr fixture', async () => {
 });
 
 
+test('startServer preserves binary JPEG bytes for dynamic share cards', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'multipass-server-binary-'));
+  const databasePath = path.join(dir, 'multipass.sqlite');
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    databasePath,
+    activationService: async (input) => {
+      assert.equal(input, '1');
+      return buildSavedRecordFromHelixaAgent({ tokenId: '1', name: 'Bendr 2.0' }, { observedAt: '2026-06-26T20:00:00.000Z' });
+    },
+  });
+
+  try {
+    const save = await fetch(`${server.url}/api/multipass`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: '1' }),
+    });
+    assert.equal(save.status, 201);
+
+    const image = await fetch(`${server.url}/multipass/share/bendr-2-1.jpg`);
+    const bytes = new Uint8Array(await image.arrayBuffer());
+
+    assert.equal(image.status, 200);
+    assert.match(image.headers.get('content-type') ?? '', /image\/jpeg/);
+    assert.equal(bytes[0], 0xff);
+    assert.equal(bytes[1], 0xd8);
+    assert.ok(bytes.length > 20_000);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('startServer posts saved Multipass records through real HTTP server', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'multipass-server-'));
   const databasePath = path.join(dir, 'multipass.sqlite');

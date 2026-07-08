@@ -280,6 +280,7 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
   const routes = { ...(hydrated?.routes ?? {}) };
   if (route && !routes.hydrated) routes.hydrated = route;
   const sharePath = getHydratedSharePath({ mode, routesMeta: hydrated?.routes_meta, profile, tokenId: resolver.tokenId });
+  const sharePreviewPath = getHydratedSharePreviewPath({ mode, profile });
   const agentCard = createSavedAgentCard({ profile, fragments, card, standards });
   if (agentCard && resolver.tokenId) {
     agentCard.tokenId = resolver.tokenId;
@@ -306,6 +307,7 @@ function normalizeHydratedMultipassDemo(hydrated, { route } = {}) {
       headline: `${profile.display_name ?? card.name ?? 'Multipass'} Multipass`,
       headerMeta: createHydratedHeaderMeta({ modeLabel, resolver, profile }),
       sharePath,
+      sharePreviewPath,
     },
     canonicalHydrated: true,
   };
@@ -361,6 +363,12 @@ function getHydratedSharePath({ mode, routesMeta, profile, tokenId }) {
   if (isSafeMultipassSharePath(profilePath)) return profilePath;
 
   return tokenId ? `/multipass/?agent=${encodeURIComponent(tokenId)}` : '/multipass/';
+}
+
+function getHydratedSharePreviewPath({ mode, profile }) {
+  if (mode === 'activation_preview' || !profile?.slug) return null;
+  const previewPath = `/multipass/share/${encodeURIComponent(profile.slug)}`;
+  return isSafeMultipassSharePath(previewPath) ? previewPath : null;
 }
 
 function createHydratedHeaderMeta({ modeLabel, resolver, profile }) {

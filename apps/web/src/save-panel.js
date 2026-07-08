@@ -11,6 +11,9 @@ export function isSafeMultipassSharePath(sharePath) {
       const agent = parsed.searchParams.get('agent');
       return agent === null || (isSafeActivationAgentQuery(agent) && [...parsed.searchParams.keys()].every((key) => key === 'agent'));
     }
+    const shareMatch = parsed.pathname.match(/^\/multipass\/share\/([a-z0-9][a-z0-9-]{1,80})$/);
+    if (shareMatch) return !parsed.search && !parsed.hash;
+
     const match = parsed.pathname.match(/^\/multipass\/([a-z0-9][a-z0-9-]{1,80})$/);
     return Boolean(match) && !parsed.search && !parsed.hash;
   } catch {

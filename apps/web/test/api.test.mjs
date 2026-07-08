@@ -88,9 +88,11 @@ test('normalizeHelixaAgentDnaSource rejects zero and unsupported AgentDNA source
   assert.equal(normalizeHelixaAgentDnaSource('eip155:8453:0x0000000000000000000000000000000000000001:1'), null);
 });
 
-test('isSafeMultipassSharePath allows canonical ERC-8004 activation query paths', () => {
+test('isSafeMultipassSharePath allows canonical ERC-8004 activation query and dynamic share paths', () => {
   assert.equal(isSafeMultipassSharePath('/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125'), true);
   assert.equal(isSafeMultipassSharePath('/multipass/?agent=erc8004%3A8453%3A19125'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/share/ack-19125'), true);
+  assert.equal(isSafeMultipassSharePath('/multipass/share/ack-19125.jpg'), false);
   assert.equal(isSafeMultipassSharePath('/multipass/?agent=https%3A%2F%2Fevil.example%2F1'), false);
 });
 
@@ -281,6 +283,7 @@ test('loadCanonicalHelixaMultipass fetches canonical hydrated API for ERC-8004 s
   assert.equal(data.resolver.canonicalId, 'erc8004:8453:19125');
   assert.equal(data.resolver.sourceCanonicalId, canonicalId);
   assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
+  assert.equal(data.liveProfilePage.sharePreviewPath, null);
 });
 
 test('loadHydratedMultipassDemo preserves saved-profile activation semantics', async () => {
@@ -308,6 +311,7 @@ test('loadHydratedMultipassDemo preserves saved-profile activation semantics', a
   assert.equal(data.modeLabel, 'Activated Multipass');
   assert.equal(data.activation.state, 'saved_record');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/bendr-2-1');
+  assert.equal(data.liveProfilePage.sharePreviewPath, '/multipass/share/bendr-2-1');
 });
 
 test('loadHydratedMultipassDemo keeps activation preview share path on agent query', async () => {

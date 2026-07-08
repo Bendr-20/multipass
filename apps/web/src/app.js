@@ -1461,6 +1461,8 @@ function getProfileAuraTitle(data, selectedAgent) {
 }
 
 function getProfileAuraSharePath(data, selectedAgent) {
+  if (isSafeMultipassSharePath(data.liveProfilePage?.sharePreviewPath)) return data.liveProfilePage.sharePreviewPath;
+
   const candidates = [
     selectedAgent?.tokenId,
     data.resolver?.tokenId,
@@ -2084,7 +2086,7 @@ function renderHeroStat(label, value) {
 }
 
 function renderSharePanel(data, heroCopy) {
-  const shareUrl = getAbsoluteShareUrl(data.liveProfilePage?.sharePath);
+  const shareUrl = getAbsoluteShareUrl(data.liveProfilePage?.sharePreviewPath ?? data.liveProfilePage?.sharePath);
   const title = String(data.liveProfilePage?.headline ?? heroCopy.headline ?? 'Multipass').replace(/[.!?]+$/u, '');
   return `
     <section class="share-panel" aria-label="Share Multipass profile">

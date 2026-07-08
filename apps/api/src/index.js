@@ -1,3 +1,8 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import {
   assertAgentCard,
   assertIdentityFragment,
@@ -206,6 +211,9 @@ export function createMultipassApi({
         if (parts[0] === 'api' && parts[1] === 'search') {
           return handleSearch(url, context);
         }
+
+        const shareResponse = await handleDynamicShareRead(parts, context);
+        if (shareResponse) return shareResponse;
 
         return handlePublicRead(parts, context);
       } catch (error) {
@@ -889,6 +897,237 @@ function handleSearch(url, context) {
   });
 }
 
+async function handleDynamicShareRead(parts, context) {
+  const parsed = parseDynamicShareParts(parts);
+  if (!parsed) return null;
+  const resolved = resolvePublicProfile(parsed.identifier, { store: context.store, savedRecords: context.savedRecords });
+  if (!resolved) return errorResponse(404, 'not_found', `Multipass not found: ${parsed.identifier}`);
+
+  if (parsed.kind === 'jpg') {
+    const jpeg = await renderShareCardJpeg(resolved.profile, resolved.sourceStore, context.normalizedBaseUrl);
+    return binaryResponse(jpeg, 'image/jpeg', {
+      'cache-control': 'public, max-age=300',
+    });
+  }
+
+  return htmlResponse(renderDynamicShareHtml(resolved.profile, resolved.sourceStore, context.normalizedBaseUrl), {
+    'cache-control': 'public, max-age=300',
+  });
+}
+
+function parseDynamicShareParts(parts) {
+  if (parts[0] === 'multipass' && parts[1] === 'share' && parts[2] && parts.length === 3) {
+    return parseShareIdentifier(parts[2]);
+  }
+  if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] && parts[3] === 'share' && parts.length === 4) {
+    return { identifier: parts[2], kind: 'html' };
+  }
+  if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] && parts[3] === 'share.jpg' && parts.length === 4) {
+    return { identifier: parts[2], kind: 'jpg' };
+  }
+  return null;
+}
+
+function parseShareIdentifier(rawPart) {
+  const raw = String(rawPart ?? '').trim();
+  const jpg = raw.match(/^([a-z0-9][a-z0-9-]{1,80})\.jpg$/i);
+  if (jpg) return { identifier: jpg[1], kind: 'jpg' };
+  if (/^[a-z0-9][a-z0-9-]{1,80}$/i.test(raw)) return { identifier: raw, kind: 'html' };
+  return null;
+}
+
+function renderDynamicShareHtml(profile, sourceStore, baseUrl) {
+  const displayName = profile.display_name ?? profile.slug ?? 'Multipass';
+  const title = truncate(`${displayName} Multipass`, 80);
+  const description = truncate(profile.discovery_profile?.summary || `Public Multipass profile for ${displayName}. Identity, proof, custody, Cred, and discovery context for agents and AI-native systems.`, 220);
+  const shareUrl = new URL(`/multipass/share/${encodeURIComponent(profile.slug)}`, baseUrl).toString();
+  const imageUrl = new URL(`/multipass/share/${encodeURIComponent(profile.slug)}.jpg`, baseUrl).toString();
+  const profileUrl = new URL(`/multipass/${encodeURIComponent(profile.slug)}`, baseUrl).toString();
+  const visualSource = safePublicUrl(profile.discovery_profile?.avatar_url);
+  const tags = uniqueStrings(profile.discovery_profile?.tags ?? []).slice(0, 8).join(', ');
+  const agentCard = sourceStore.getAgentCard?.(profile.multipass_id);
+  const cardSummary = agentCard?.summary ? truncate(agentCard.summary, 180) : description;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <meta name="description" content="${escapeHtml(description)}" />
+  <link rel="canonical" href="${escapeHtml(shareUrl)}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+  <meta property="og:title" content="${escapeHtml(title)}" />
+  <meta property="og:description" content="${escapeHtml(description)}" />
+  <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+  <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${escapeHtml(title)}" />
+  <meta name="twitter:description" content="${escapeHtml(description)}" />
+  <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
+  <meta name="twitter:image:alt" content="${escapeHtml(title)} preview" />
+  <meta name="multipass:id" content="${escapeHtml(profile.multipass_id)}" />
+  ${visualSource ? `<meta name="multipass:visual-source" content="${escapeHtml(visualSource)}" />` : ''}
+</head>
+<body>
+  <main>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(cardSummary)}</p>
+    ${tags ? `<p>${escapeHtml(tags)}</p>` : ''}
+    <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)} preview" width="1200" height="630" />
+    <p><a class="open-profile" href="${escapeHtml(profileUrl)}">Open Multipass profile</a></p>
+  </main>
+  <script>if (!/bot|crawl|spider|telegram|twitter|discord|slack|facebook|whatsapp/i.test(navigator.userAgent)) window.location.replace('${escapeJsString(profileUrl)}');</script>
+</body>
+</html>`;
+}
+
+async function renderShareCardJpeg(profile, sourceStore, baseUrl) {
+  const svg = renderShareCardSvg(profile, sourceStore, baseUrl);
+  return svgToJpeg(svg);
+}
+
+function renderShareCardSvg(profile, sourceStore, baseUrl) {
+  const displayName = profile.display_name ?? profile.slug ?? 'Multipass';
+  const title = truncate(displayName, 42);
+  const summary = truncate(profile.discovery_profile?.summary || 'Public Multipass profile for agents and AI-native systems.', 150);
+  const tags = uniqueStrings(profile.discovery_profile?.tags ?? []).slice(0, 4);
+  const status = titleCase(profile.owner_summary?.owner_state ?? 'public profile');
+  const subject = titleCase(profile.subject_type ?? 'agent');
+  const initials = initialsForShareCard(displayName);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff8eb"/><stop offset="0.52" stop-color="#f3e4ce"/><stop offset="1" stop-color="#dfd1ff"/></linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.14" r="0.75"><stop offset="0" stop-color="#9b7cff" stop-opacity="0.48"/><stop offset="1" stop-color="#9b7cff" stop-opacity="0"/></radialGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#2c2419" flood-opacity="0.18"/></filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="70" y="70" width="1060" height="490" rx="52" fill="#fffaf1" opacity="0.92" filter="url(#shadow)"/>
+  <text x="112" y="135" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" fill="#75614a" letter-spacing="5">MULTIPASS</text>
+  <text x="112" y="240" font-family="Inter, Arial, sans-serif" font-size="82" font-weight="900" fill="#181615">${escapeSvg(title)}</text>
+  <text x="112" y="298" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#4b3f32">${escapeSvg(subject)} · ${escapeSvg(status)}</text>
+  ${wrapSvgText(summary, 112, 354, 33, 62, '#332c25')}
+  <rect x="790" y="142" width="250" height="250" rx="62" fill="#171615"/>
+  <text x="915" y="278" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="104" font-weight="900" fill="#fff8eb">${escapeSvg(initials)}</text>
+  <text x="112" y="500" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#75614a">${escapeSvg(tags.length ? tags.join('  ·  ') : 'identity · proof · discovery')}</text>
+  <text x="790" y="454" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800" fill="#75614a">helixa.xyz/multipass</text>
+</svg>`;
+}
+
+async function svgToJpeg(svg) {
+  const dir = await mkdtemp(join(tmpdir(), 'multipass-share-'));
+  const svgPath = join(dir, 'card.svg');
+  const jpgPath = join(dir, 'card.jpg');
+  try {
+    await writeFile(svgPath, svg);
+    await runFfmpeg(['-y', '-hide_banner', '-loglevel', 'error', '-f', 'svg_pipe', '-i', svgPath, '-frames:v', '1', '-q:v', '2', jpgPath]);
+    return await readFile(jpgPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runFfmpeg(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const stderr = [];
+    child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffmpeg failed with code ${code}: ${Buffer.concat(stderr).toString('utf8').trim()}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function initialsForShareCard(value) {
+  const words = String(value ?? '').match(/[A-Za-z0-9]+/g)?.slice(0, 2) ?? [];
+  return words.map((word) => word[0]?.toUpperCase()).join('') || 'MP';
+}
+
+function wrapSvgText(value, x, y, fontSize, maxChars, fill) {
+  const words = String(value ?? '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+    if (lines.length >= 2) break;
+  }
+  if (line && lines.length < 3) lines.push(line);
+  return lines.slice(0, 3).map((entry, index) => `<text x="${x}" y="${y + index * (fontSize + 10)}" font-family="Inter, Arial, sans-serif" font-size="${fontSize}" font-weight="650" fill="${fill}">${escapeSvg(entry)}</text>`).join('\n  ');
+}
+
+function htmlResponse(body, extraHeaders = {}) {
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8', ...extraHeaders },
+  });
+}
+
+function binaryResponse(body, contentType, extraHeaders = {}) {
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': contentType, ...extraHeaders },
+  });
+}
+
+function truncate(value, maxLength) {
+  const raw = String(value ?? '').trim();
+  if (raw.length <= maxLength) return raw;
+  return `${raw.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function uniqueStrings(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value ?? '').trim()).filter(Boolean))];
+}
+
+function safePublicUrl(value) {
+  try {
+    const url = new URL(String(value ?? '').trim());
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function titleCase(value) {
+  return String(value ?? '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeSvg(value) {
+  return escapeHtml(value);
+}
+
+function escapeJsString(value) {
+  return String(value ?? '').replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('</script', '<\\/script');
+}
+
 function handlePublicRead(parts, { store, savedRecords, normalizedBaseUrl }) {
   const readParts = normalizePublicReadParts(parts);
   if (!readParts) {
@@ -1203,6 +1442,10 @@ function createDiscoveryDocument(baseUrl) {
       receipts: `${baseUrl}/api/multipass/{id}/receipts`,
       receipt: `${baseUrl}/api/multipass/{id}/receipts/{receipt_id}`,
       changes: `${baseUrl}/api/multipass/{id}/changes`,
+      share: `${baseUrl}/multipass/share/{id}`,
+      share_image: `${baseUrl}/multipass/share/{id}.jpg`,
+      api_share: `${baseUrl}/api/multipass/{id}/share`,
+      api_share_image: `${baseUrl}/api/multipass/{id}/share.jpg`,
       resolve: `${baseUrl}/api/resolve?agent={input}`,
       canonical_resolve: `${baseUrl}/api/multipass/resolve?source={source}`,
       search: `${baseUrl}/api/search?q={query}`,
@@ -1276,6 +1519,10 @@ function createOpenApiDocument(baseUrl) {
       '/api/multipass/{id}/receipts': { get: { summary: 'Fetch public receipt fragments', parameters: [pathParameter('id')], responses: { 200: { description: 'Receipt fragment collection' } } } },
       '/api/multipass/{id}/receipts/{receipt_id}': { get: { summary: 'Fetch one public receipt fragment', parameters: [pathParameter('id'), pathParameter('receipt_id')], responses: { 200: { description: 'Receipt fragment' } } } },
       '/api/multipass/{id}/changes': { get: { summary: 'Fetch public change history for saved records when available', parameters: [pathParameter('id')], responses: { 200: { description: 'Public change log' } } } },
+      '/multipass/share/{id}': { get: { summary: 'Render crawler-friendly dynamic share metadata for a saved Multipass profile', parameters: [pathParameter('id')], responses: { 200: { description: 'HTML page with Open Graph and Twitter metadata for crawlers' } } } },
+      '/multipass/share/{id}.jpg': { get: { summary: 'Render a dynamic JPEG preview image for a saved Multipass profile', parameters: [pathParameter('id')], responses: { 200: { description: 'JPEG preview image' } } } },
+      '/api/multipass/{id}/share': { get: { summary: 'API alias for crawler-friendly dynamic share metadata', parameters: [pathParameter('id')], responses: { 200: { description: 'HTML page with Open Graph and Twitter metadata for crawlers' } } } },
+      '/api/multipass/{id}/share.jpg': { get: { summary: 'API alias for a dynamic JPEG preview image', parameters: [pathParameter('id')], responses: { 200: { description: 'JPEG preview image' } } } },
       '/api/resolve': { get: { summary: 'Resolve an input to a saved profile or live activation preview', parameters: [queryParameter('agent')], responses: { 200: { description: 'Resolution result' } } } },
       '/api/multipass/resolve': { get: { summary: 'Resolve a Helixa AgentDNA or Base ERC-8004 source identity to a hydrated profile or activation preview', parameters: [queryParameter('source', 'Source identity. Supports Helixa AgentDNA forms like {tokenId}, 8453:{tokenId}, helixa-agentdna:8453:{tokenId}, and Base ERC-8004 forms like erc8004:8453:{tokenId} or eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}.')], responses: { 200: { description: 'Canonical source resolution result' } } } },
       '/api/search': { get: { summary: 'Conservative exact or prefix search over public profile summaries', parameters: [queryParameter('q')], responses: { 200: { description: 'Search matches' } } } },
