@@ -283,7 +283,7 @@ test('loadCanonicalHelixaMultipass fetches canonical hydrated API for ERC-8004 s
   assert.equal(data.resolver.canonicalId, 'erc8004:8453:19125');
   assert.equal(data.resolver.sourceCanonicalId, canonicalId);
   assert.equal(data.liveProfilePage.sharePath, '/multipass/?agent=eip155%3A8453%3A0x8004A169FB4a3325136EB29fA0ceB6D2e539a432%3A19125');
-  assert.equal(data.liveProfilePage.sharePreviewPath, null);
+  assert.equal(data.liveProfilePage.sharePreviewPath, undefined);
 });
 
 test('loadHydratedMultipassDemo preserves saved-profile activation semantics', async () => {
@@ -311,7 +311,7 @@ test('loadHydratedMultipassDemo preserves saved-profile activation semantics', a
   assert.equal(data.modeLabel, 'Activated Multipass');
   assert.equal(data.activation.state, 'saved_record');
   assert.equal(data.liveProfilePage.sharePath, '/multipass/bendr-2-1');
-  assert.equal(data.liveProfilePage.sharePreviewPath, '/multipass/share/bendr-2-1');
+  assert.equal(data.liveProfilePage.sharePreviewPath, undefined);
 });
 
 test('loadHydratedMultipassDemo keeps activation preview share path on agent query', async () => {

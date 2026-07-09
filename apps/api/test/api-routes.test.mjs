@@ -877,6 +877,44 @@ test('saved Helixa AgentDNA records backfill public x401 compatibility metadata'
   assert.match(x401.body.boundaries.join(' '), /or imply a commercial relationship/i);
 });
 
+test('GET /multipass/:id renders profile URL shell with dynamic preview metadata', async () => {
+  const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
+  const record = makeSavedRecordWithSourceContext({
+    sourceType: 'erc8004_identity',
+    canonicalId: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:19125',
+    tokenId: '19125',
+    slug: 'ack-19125',
+    multipassId: 'mp_erc8004_8453_19125',
+  });
+  record.profile.display_name = 'ACK';
+  record.profile.discovery_profile = {
+    ...record.profile.discovery_profile,
+    summary: 'ACK (Agent Consensus Kudos) is a peer-driven reputation layer for AI agents. Built on ERC-8004, ACK surfaces trust through consensus.',
+    tags: ['erc-8004', 'reputation', 'trust'],
+    avatar_url: 'https://ack-onchain.dev/icon-512.png',
+  };
+  record.agentCard.name = 'ACK';
+  savedRecords.saveActivatedRecord(record);
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords,
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/ack-19125'));
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+  assert.ok(html.includes('<title>ACK Multipass</title>'));
+  assert.ok(html.includes('<link rel="canonical" href="https://multipass.example.test/multipass/ack-19125" />'));
+  assert.ok(html.includes('<meta property="og:url" content="https://multipass.example.test/multipass/ack-19125" />'));
+  assert.ok(html.includes('<meta property="og:image" content="https://multipass.example.test/multipass/share/ack-19125.jpg" />'));
+  assert.ok(html.includes('<meta name="twitter:image" content="https://multipass.example.test/multipass/share/ack-19125.jpg" />'));
+  assert.ok(html.includes('<meta name="multipass:visual-source" content="https://ack-onchain.dev/icon-512.png" />'));
+  assert.doesNotMatch(html, /multipass\/share\/ack-19125["']>Open Multipass profile/);
+});
+
 test('GET /multipass/share/:id renders dynamic saved-profile preview metadata', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   const record = makeSavedRecordWithSourceContext({

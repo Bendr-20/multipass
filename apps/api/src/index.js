@@ -212,6 +212,9 @@ export function createMultipassApi({
           return handleSearch(url, context);
         }
 
+        const profileShellResponse = await handleDynamicProfileShellRead(parts, context);
+        if (profileShellResponse) return profileShellResponse;
+
         const shareResponse = await handleDynamicShareRead(parts, context);
         if (shareResponse) return shareResponse;
 
@@ -895,6 +898,88 @@ function handleSearch(url, context) {
     query,
     matches,
   });
+}
+
+async function handleDynamicProfileShellRead(parts, context) {
+  if (parts[0] !== 'multipass' || !parts[1] || parts.length !== 2) return null;
+  const identifier = String(parts[1] ?? '').trim();
+  if (!/^[a-z0-9][a-z0-9-]{1,80}$/i.test(identifier)) return null;
+  const resolved = resolvePublicProfile(identifier, { store: context.store, savedRecords: context.savedRecords });
+  if (!resolved) return null;
+
+  return htmlResponse(await renderDynamicProfileShellHtml(resolved.profile, context.normalizedBaseUrl), {
+    'cache-control': 'public, max-age=300',
+  });
+}
+
+async function renderDynamicProfileShellHtml(profile, baseUrl) {
+  const shell = await loadMultipassWebIndexHtml();
+  const meta = createDynamicProfileMeta(profile, baseUrl);
+  return applyDynamicProfileMeta(shell, meta);
+}
+
+async function loadMultipassWebIndexHtml() {
+  const candidates = [
+    process.env.MULTIPASS_WEB_INDEX_PATH,
+    join(process.cwd(), 'apps/web/dist/index.html'),
+    '/var/www/helixa.xyz/multipass/index.html',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      return await readFile(candidate, 'utf8');
+    } catch {
+      // Try the next candidate. Falling back keeps tests and local API runs functional.
+    }
+  }
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multipass - Portable Agent Identity</title>
+  </head>
+  <body><main id="app"></main><div id="wallet-root"></div></body>
+</html>`;
+}
+
+function createDynamicProfileMeta(profile, baseUrl) {
+  const displayName = profile.display_name ?? profile.slug ?? 'Multipass';
+  const title = truncate(`${displayName} Multipass`, 80);
+  const description = truncate(profile.discovery_profile?.summary || `Public Multipass profile for ${displayName}. Identity, proof, custody, Cred, and discovery context for agents and AI-native systems.`, 220);
+  const profileUrl = new URL(`/multipass/${encodeURIComponent(profile.slug)}`, baseUrl).toString();
+  const imageUrl = new URL(`/multipass/share/${encodeURIComponent(profile.slug)}.jpg`, baseUrl).toString();
+  const visualSource = safePublicUrl(profile.discovery_profile?.avatar_url);
+  return { title, description, profileUrl, imageUrl, visualSource };
+}
+
+function applyDynamicProfileMeta(html, meta) {
+  let next = html;
+  next = upsertHeadTag(next, /<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(meta.title)}</title>`);
+  next = upsertHeadTag(next, /<meta\s+name="description"[^>]*>/i, `<meta name="description" content="${escapeHtml(meta.description)}" />`);
+  next = upsertHeadTag(next, /<link\s+rel="canonical"[^>]*>/i, `<link rel="canonical" href="${escapeHtml(meta.profileUrl)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:type"[^>]*>/i, '<meta property="og:type" content="website" />');
+  next = upsertHeadTag(next, /<meta\s+property="og:url"[^>]*>/i, `<meta property="og:url" content="${escapeHtml(meta.profileUrl)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:title"[^>]*>/i, `<meta property="og:title" content="${escapeHtml(meta.title)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:description"[^>]*>/i, `<meta property="og:description" content="${escapeHtml(meta.description)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${escapeHtml(meta.imageUrl)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:image:secure_url"[^>]*>/i, `<meta property="og:image:secure_url" content="${escapeHtml(meta.imageUrl)}" />`);
+  next = upsertHeadTag(next, /<meta\s+property="og:image:type"[^>]*>/i, '<meta property="og:image:type" content="image/jpeg" />');
+  next = upsertHeadTag(next, /<meta\s+property="og:image:width"[^>]*>/i, '<meta property="og:image:width" content="1200" />');
+  next = upsertHeadTag(next, /<meta\s+property="og:image:height"[^>]*>/i, '<meta property="og:image:height" content="630" />');
+  next = upsertHeadTag(next, /<meta\s+name="twitter:card"[^>]*>/i, '<meta name="twitter:card" content="summary_large_image" />');
+  next = upsertHeadTag(next, /<meta\s+name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`);
+  next = upsertHeadTag(next, /<meta\s+name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`);
+  next = upsertHeadTag(next, /<meta\s+name="twitter:image"[^>]*>/i, `<meta name="twitter:image" content="${escapeHtml(meta.imageUrl)}" />`);
+  next = upsertHeadTag(next, /<meta\s+name="twitter:image:alt"[^>]*>/i, `<meta name="twitter:image:alt" content="${escapeHtml(meta.title)} preview" />`);
+  if (meta.visualSource) {
+    next = upsertHeadTag(next, /<meta\s+name="multipass:visual-source"[^>]*>/i, `<meta name="multipass:visual-source" content="${escapeHtml(meta.visualSource)}" />`);
+  }
+  return next;
+}
+
+function upsertHeadTag(html, pattern, tag) {
+  if (pattern.test(html)) return html.replace(pattern, tag);
+  return html.replace(/<\/head>/i, `    ${tag}\n  </head>`);
 }
 
 async function handleDynamicShareRead(parts, context) {

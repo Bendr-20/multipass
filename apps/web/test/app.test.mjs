@@ -3,15 +3,11 @@ import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
 import { createApp } from '../src/app.js';
-import { GENERATED_SHARE_CARDS } from '../src/generated-share-cards.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
-import { getAgentSharePath } from '../src/share-cards.js';
 
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
 const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
-const QUIGBOT_GENERATED_SHARE_PATH = getAgentSharePath(GENERATED_SHARE_CARDS['81']);
-const ZORI_GENERATED_SHARE_PATH = getAgentSharePath(GENERATED_SHARE_CARDS['32362']);
 
 function sampleData() {
   return {
@@ -1695,7 +1691,7 @@ test('refreshed saved Quigbot profile uses holder-editable avatar image and sour
   assert.match(auraCard.textContent ?? '', /Cred 75/);
   assert.match(auraCard.textContent ?? '', /verified/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
-  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), QUIGBOT_GENERATED_SHARE_PATH);
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/quigbot-81');
 });
 
 test('saved Quigbot profile refresh survives trailing slash route', async () => {
@@ -1708,7 +1704,7 @@ test('saved Quigbot profile refresh survives trailing slash route', async () => 
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
 });
 
-test('saved Normies profile uses its generated preview share route instead of static Base fallback', async () => {
+test('saved Normies profile shares its profile route instead of preview plumbing', async () => {
   const root = setupDom('https://helixa.xyz/multipass/zori-4354?api=https://api.example.test');
   await createApp({ root, fetchImpl: savedZoriProfileFetch }).start();
 
@@ -1716,7 +1712,7 @@ test('saved Normies profile uses its generated preview share route instead of st
   assert.ok(auraCard);
   assert.equal(auraCard.querySelector('h2')?.textContent, 'Zori');
   assert.equal(auraCard.querySelector('img')?.getAttribute('src'), NORMIES_4354_IMAGE);
-  assert.equal(auraCard.querySelector('.aura-share-action')?.getAttribute('data-share-url'), ZORI_GENERATED_SHARE_PATH);
+  assert.equal(auraCard.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/zori-4354');
   assert.doesNotMatch(auraCard.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.aura-provenance-drawer')?.textContent ?? '', /Manager public avatar URL/);
 });
@@ -2941,6 +2937,36 @@ test('agent query auto-resolves live record after static load', async () => {
   assert.match(root.textContent, /live Helixa API/);
 });
 
+test('saved profile share UI exposes the profile URL, not preview plumbing', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/bendr-2-1');
+  const liveData = {
+    ...sampleData(),
+    profile: { ...sampleData().profile, display_name: 'Bendr 2.0', slug: 'bendr-2-1', multipass_id: 'mp_helixa_agent_1' },
+    liveProfilePage: {
+      headline: 'Bendr 2.0 Multipass',
+      headerMeta: 'Saved profile · 8453:1',
+      sharePath: '/multipass/bendr-2-1',
+      sharePreviewPath: '/multipass/share/bendr-2-1',
+    },
+    visualIdentity: {
+      source: 'helixa_aura',
+      label: 'Bendr visual identity',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/1.png',
+      initials: 'B',
+      tone: 'prime',
+      chips: [],
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => liveData }).start();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(root.querySelector('.share-panel .share-url')?.textContent, 'https://helixa.xyz/multipass/bendr-2-1');
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/bendr-2-1');
+  assert.doesNotMatch(root.textContent, /\/multipass\/share\/bendr-2-1/);
+});
+
 test('resolved live agent takes over the page hero and record surface', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=81');
   const liveData = {
@@ -3036,7 +3062,7 @@ test('live profile renders OpenSea-style Agent Aura item panel with provenance d
   assert.equal(auraCard.querySelector('h2')?.textContent, 'Quigbot');
   assert.doesNotMatch(auraCard.textContent, /Helixa Agent Aura/);
   const shareAction = auraCard.querySelector('button.aura-share-action[data-action="share-profile"]');
-  assert.equal(shareAction?.getAttribute('data-share-url'), QUIGBOT_GENERATED_SHARE_PATH);
+  assert.equal(shareAction?.getAttribute('data-share-url'), '/multipass/?agent=81');
   assert.equal(shareAction?.getAttribute('aria-label'), 'Share Quigbot Multipass profile');
   assert.match(drawer?.textContent ?? '', /Agent Aura Provenance/);
   assert.match(drawer?.textContent ?? '', /8453:81/);
@@ -3083,10 +3109,10 @@ test('aura share icon opens native share without navigating to crawler preview p
   await Promise.resolve();
 
   assert.equal(window.location.href, 'https://helixa.xyz/multipass/?agent=81');
-  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: new URL(QUIGBOT_GENERATED_SHARE_PATH, 'https://helixa.xyz').href }]);
+  assert.deepEqual(shares, [{ title: 'Quigbot Multipass', text: 'Quigbot Multipass', url: 'https://helixa.xyz/multipass/?agent=81' }]);
 });
 
-test('resolved numeric profile missing manifest omits aura share action', async () => {
+test('resolved numeric profile still shares the profile URL when preview manifest is missing', async () => {
   const root = setupDom('https://helixa.xyz/multipass/?agent=9999');
   const missingManifestProfile = {
     ...sampleData(),
@@ -3120,7 +3146,7 @@ test('resolved numeric profile missing manifest omits aura share action', async 
   await flushAsyncEvents();
 
   assert.ok(root.querySelector('.aura-card'));
-  assert.equal(root.querySelector('.aura-share-action'), null);
+  assert.equal(root.querySelector('.aura-share-action')?.getAttribute('data-share-url'), '/multipass/?agent=9999');
 });
 
 test('Agent Aura provenance drawer is optional and skips empty rows', async () => {
