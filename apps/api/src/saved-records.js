@@ -17,6 +17,10 @@ import {
   normalizeManagerFragmentPatch,
   summarizePublicFragments,
 } from './fragment-manager.js';
+import {
+  isPublicWebImporterFragment,
+  normalizePublicWebEnrichment,
+} from './public-web-enrichment.js';
 import { refreshToolFragment } from './tool-refresh.js';
 import {
   deriveAgentCardServiceUpdates,
@@ -544,6 +548,53 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       return readToolImportResult(db, profile.multipass_id, fragment.fragment_id);
     },
 
+    applyPublicWebEnrichment(identifier, input = {}, context = {}) {
+      const profile = requireSavedProfile(db, identifier);
+      const now = dateFrom(context.now).toISOString();
+      const bundle = readBundleById(db, profile.multipass_id);
+      if (!bundle) throw new Error('Saved record bundle not found.');
+      const enrichment = normalizePublicWebEnrichment(input, { multipassId: profile.multipass_id, now });
+      const keptFragments = bundle.fragments.filter((fragment) => !isPublicWebImporterFragment(fragment, enrichment.sourceScope));
+      const fragments = [...enrichment.fragments, ...keptFragments].map(assertIdentityFragment);
+      const nextProfile = buildPublicWebEnrichedProfile(bundle.profile, fragments, enrichment, now);
+      const nextAgentCard = buildPublicWebEnrichedAgentCard(bundle.agentCard, enrichment);
+      const nextX402Manifest = deriveX402ManifestFromTools(profile.multipass_id, fragments);
+      const nextSourceContext = buildPublicWebEnrichedSourceContext(bundle.sourceContext, enrichment, now);
+
+      assertMultipassProfile(nextProfile);
+      assertAgentCard(nextAgentCard);
+      assertX402Manifest(nextX402Manifest);
+
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`UPDATE saved_records SET profile_json = ?, fragments_json = ?, agent_card_json = ?, x402_json = ?, source_context_json = ?, updated_at = ? WHERE multipass_id = ?`).run(
+          JSON.stringify(nextProfile),
+          JSON.stringify(fragments),
+          JSON.stringify(nextAgentCard),
+          JSON.stringify(nextX402Manifest),
+          JSON.stringify(nextSourceContext),
+          now,
+          profile.multipass_id,
+        );
+        appendChangeLog(db, profile.multipass_id, `Automated public-web enrichment imported ${enrichment.tools.length} tools and ${enrichment.endpoints.length} source routes. Owner verification remains unclaimed.`, now);
+        appendAuditEvent(db, profile.multipass_id, 'automated_public_web_enrichment', {
+          sourceHost: enrichment.sourceHost,
+          sourceUrls: enrichment.sourceUrls,
+          importedTools: enrichment.tools.length,
+          importedEndpoints: enrichment.endpoints.length,
+        }, now);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+
+      return {
+        profile: readProfile(db, profile.multipass_id),
+        tools: summarizeToolsResponse(profile.multipass_id, readBundleById(db, profile.multipass_id)?.fragments ?? []),
+      };
+    },
+
     async refreshTool(identifier, fragmentId, context = {}) {
       const profile = requireSavedProfile(db, identifier);
       const now = dateFrom(context.now).toISOString();
@@ -649,6 +700,95 @@ export function createSqliteSavedRecords({ databasePath = ':memory:' } = {}) {
       db.close();
     },
   };
+}
+
+function buildPublicWebEnrichedProfile(profile, fragments, enrichment, now) {
+  const discoveryProfile = {
+    ...profile.discovery_profile,
+    summary: enrichment.summary ?? profile.discovery_profile.summary,
+    tags: mergeTags(profile.discovery_profile.tags, enrichment.tags),
+  };
+  if (enrichment.avatarUrl) discoveryProfile.avatar_url = enrichment.avatarUrl;
+
+  return {
+    ...profile,
+    owner_summary: {
+      ...profile.owner_summary,
+      summary: 'Indexed from public AgentDNA plus automated public-web docs. Owner/agent has not claimed management; claim this Multipass to correct, verify, or remove scraped metadata.',
+    },
+    public_fragments: summarizePublicFragments(fragments),
+    discovery_profile: discoveryProfile,
+    payment_profile: {
+      ...profile.payment_profile,
+      paid_endpoints_enabled: profile.payment_profile.paid_endpoints_enabled || enrichment.paymentSignals.mentionsX402,
+    },
+    updated_at: now,
+  };
+}
+
+function buildPublicWebEnrichedAgentCard(agentCard, enrichment) {
+  const sourceEndpointIds = new Set(enrichment.endpoints.map((endpoint) => endpoint.endpointId));
+  const sourceEndpoints = enrichment.endpoints.map((endpoint) => ({
+    endpoint_id: endpoint.endpointId,
+    url: endpoint.url,
+    description: endpoint.description,
+    visibility: 'public',
+  }));
+
+  return {
+    ...agentCard,
+    summary: enrichment.summary ?? agentCard.summary,
+    capabilities: enrichment.capabilities.map((capability) => ({
+      capability_id: capability.capabilityId,
+      label: capability.label,
+      description: capability.description,
+      visibility: 'public',
+    })),
+    service_endpoints: [
+      ...(agentCard.service_endpoints ?? []).filter((endpoint) => !sourceEndpointIds.has(endpoint.endpoint_id)),
+      ...sourceEndpoints,
+    ],
+    boundaries: mergeUniqueStrings(agentCard.boundaries ?? [], [
+      enrichment.ownerWarning,
+      'Public-web tool entries are discovery metadata only; Multipass does not execute scraped tools or verify provider uptime.',
+    ]),
+  };
+}
+
+function buildPublicWebEnrichedSourceContext(sourceContext, enrichment, now) {
+  return {
+    ...sourceContext,
+    sourceSnapshot: {
+      ...(sourceContext.sourceSnapshot ?? {}),
+      publicWebEnrichment: {
+        status: 'automated_public_web_observed',
+        observedAt: now,
+        sourceHost: enrichment.sourceHost,
+        sourceUrls: enrichment.sourceUrls,
+        toolsImported: enrichment.tools.length,
+        endpointsImported: enrichment.endpoints.length,
+        note: 'Owner/agent has not claimed this Multipass. Scraped metadata is public-web observed and may need correction.',
+      },
+    },
+  };
+}
+
+function mergeTags(existing = [], imported = []) {
+  return mergeUniqueStrings(existing, imported).slice(0, 12);
+}
+
+function mergeUniqueStrings(...lists) {
+  const seen = new Set();
+  const result = [];
+  for (const list of lists) {
+    for (const value of list) {
+      const normalized = String(value ?? '').trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
 }
 
 function initialize(db) {

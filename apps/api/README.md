@@ -90,6 +90,31 @@ Useful routes:
 
 Bendr fixture routes use the same pattern with `bendr-2`.
 
+## Public-web enrichment
+
+Saved records can be enriched from public agent docs without claiming owner verification. The importer fetches a seed URL plus common agent-readable docs such as `llms.txt`, `llms-full.txt`, `.well-known/openapi.json`, `.well-known/ai-plugin.json`, `openapi.json`, `strategy-plugin.txt`, and MCP docs. Imported routes and tools are stored as pending `public_web_observed` metadata so owners can claim the Multipass and correct or verify it.
+
+Dry run:
+
+```bash
+node apps/api/scripts/enrich-public-web-docs.js \
+  --database /var/lib/helixa/multipass.sqlite \
+  --identifier velvet-unicorn-1127 \
+  --seed-url https://vu.velvetdao.xyz/landing/
+```
+
+Apply:
+
+```bash
+node apps/api/scripts/enrich-public-web-docs.js \
+  --database /var/lib/helixa/multipass.sqlite \
+  --identifier velvet-unicorn-1127 \
+  --seed-url https://vu.velvetdao.xyz/landing/ \
+  --apply
+```
+
+Use `--docs-json captured-docs.json` to import from a reviewed capture instead of live fetching.
+
 Save a persistent public record after previewing or activating a live source record:
 
 ```bash
