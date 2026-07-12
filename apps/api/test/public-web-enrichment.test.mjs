@@ -163,6 +163,27 @@ test('discoverPublicWebDocuments rejects non-public seed hosts before fetching',
   }
 });
 
+test('discoverPublicWebDocuments preserves public route catalogs embedded in HTML scripts', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    headers: { get: () => 'text/html' },
+    text: async () => `
+      <title>SIBYL x402 Intelligence</title>
+      <meta name="description" content="SIBYL intelligence APIs via x402 micropayments on Base.">
+      <script>
+        var SERVICES = [
+          { id: 'sibyl-score', name: 'SIBYL Score', path: '/api/sibyl-score', desc: 'token intelligence score' }
+        ];
+      </script>
+    `,
+  });
+
+  const documents = await discoverPublicWebDocuments({ seedUrl: 'https://sibylcap.com/x402', fetchImpl });
+
+  assert.match(documents[0].text, /SIBYL intelligence APIs via x402/);
+  assert.match(documents[0].text, /path: '\/api\/sibyl-score'/);
+});
+
 test('buildPublicWebEnrichment extracts docs into clear unverified tools, routes, and capabilities', () => {
   const enrichment = buildPublicWebEnrichment({
     multipassId: 'mp_helixa_agent_1127',
@@ -193,6 +214,56 @@ test('buildPublicWebEnrichment extracts docs into clear unverified tools, routes
   assert.ok(enrichment.endpoints.some((endpoint) => endpoint.protocol === 'mcp'));
   assert.ok(enrichment.capabilities.some((capability) => capability.capabilityId === 'x402_pay_per_call'));
   assert.ok(enrichment.ownerWarning.includes('not owner-verified'));
+});
+
+test('buildPublicWebEnrichment cleans JSON summaries and route query examples', () => {
+  const enrichment = buildPublicWebEnrichment({
+    multipassId: 'mp_helixa_agent_73',
+    displayName: 'mferGPT',
+    seedUrl: 'https://x402.mfergpt.lol/',
+    documents: [{
+      url: 'https://x402.mfergpt.lol/',
+      title: 'mferGPT x402',
+      text: JSON.stringify({
+        name: 'mferGPT',
+        description: 'AI agent, community tool, and web3 developer.',
+        endpoints: {
+          free: { 'GET /health': 'Health check' },
+          paid: { 'GET /lore?q=sartoshi': { description: 'Query lore' } },
+        },
+      }),
+    }],
+    now: NOW,
+  });
+
+  assert.equal(enrichment.summary, 'mferGPT: AI agent, community tool, and web3 developer.');
+  assert.deepEqual(enrichment.tools.map((tool) => tool.toolId), ['x402-health', 'x402-lore']);
+  assert.equal(enrichment.tools[1].endpointUrl, 'https://x402.mfergpt.lol/lore');
+});
+
+test('buildPublicWebEnrichment extracts JS service path catalogs from public pages', () => {
+  const enrichment = buildPublicWebEnrichment({
+    multipassId: 'mp_helixa_agent_1037',
+    displayName: 'SIBYL',
+    seedUrl: 'https://sibylcap.com/x402',
+    documents: [{
+      url: 'https://sibylcap.com/x402',
+      title: 'SIBYL x402 Intelligence',
+      text: `
+        SIBYL x402 Intelligence is a paid API endpoint catalog on Base.
+        var SERVICES = [
+          { id: 'sibyl-score', name: 'SIBYL Score', path: '/api/sibyl-score', desc: 'comprehensive 0-100 token intelligence score.' },
+          { id: 'evaluate', name: 'Full Evaluation', path: '/api/evaluate', desc: 'three-criterion conviction score.' }
+        ];
+      `,
+    }],
+    now: NOW,
+  });
+
+  assert.equal(enrichment.summary, 'SIBYL x402 Intelligence is a paid API endpoint catalog on Base.');
+  assert.deepEqual(enrichment.tools.map((tool) => tool.toolId), ['sibylcap-sibyl-score', 'sibylcap-evaluate']);
+  assert.equal(enrichment.tools[0].endpointUrl, 'https://sibylcap.com/api/sibyl-score');
+  assert.ok(enrichment.capabilities.some((capability) => capability.capabilityId === 'x402_pay_per_call'));
 });
 
 test('CLI applies public-web docs from a captured docs JSON file', async () => {

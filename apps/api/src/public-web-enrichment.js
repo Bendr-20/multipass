@@ -30,7 +30,7 @@ export async function discoverPublicWebDocuments({ seedUrl, fetchImpl = globalTh
     const contentType = String(response.headers?.get?.('content-type') ?? '').toLowerCase();
     if (contentType && !FETCHABLE_CONTENT_TYPES.some((type) => contentType.includes(type))) continue;
     const raw = await response.text();
-    const text = truncate(String(raw ?? ''), maxBytes);
+    const text = String(raw ?? '').slice(0, maxBytes);
     documents.push({
       url,
       title: extractDocumentTitle(text, contentType),
@@ -198,11 +198,11 @@ export function isPublicWebImporterFragment(fragment, sourceScope) {
 function deriveToolsFromDocuments({ documents, sourceHost, prefix }) {
   const byPath = new Map();
   for (const document of documents) {
-    for (const match of document.text.matchAll(HTTP_ROUTE_PATTERN)) {
-      const method = match[1].toUpperCase();
-      const path = cleanRoutePath(match[2]);
+    for (const route of extractDocumentRoutes(document.text)) {
+      const method = route.method;
+      const path = cleanRoutePath(route.path);
       if (!path) continue;
-      const line = extractLineForRoute(document.text, match[0]);
+      const line = route.line ?? extractLineForRoute(document.text, `${method} ${path}`);
       const endpointUrl = new URL(path, `https://${sourceHost}`).toString();
       const current = byPath.get(path) ?? { method, path, endpointUrl, lines: [], manifestUrls: new Set() };
       current.lines.push(line);
@@ -287,19 +287,56 @@ function deriveTags(text) {
 }
 
 function extractSummary(text, displayName) {
+  const jsonSummary = extractJsonSummary(text);
+  if (jsonSummary) return jsonSummary;
+
   const sentences = splitSentences(text);
-  const preferred = sentences.find((sentence) => sentence.toLowerCase().includes(displayName.toLowerCase().split(/\s|-/)[0] ?? ''))
+  const nameToken = displayName.toLowerCase().split(/\s|-/)[0] ?? '';
+  const namePattern = nameToken ? new RegExp(`\\b${escapeRegExp(nameToken)}\\b\\s+(?:is|are)\\b`, 'i') : null;
+  const preferred = (namePattern ? sentences.find((sentence) => namePattern.test(sentence)) : null)
+    ?? sentences.find((sentence) => sentence.toLowerCase().includes(nameToken) && /\bis\b|\bare\b/i.test(sentence))
+    ?? sentences[0]
+    ?? sentences.find((sentence) => sentence.toLowerCase().includes(nameToken))
     ?? sentences.find((sentence) => /\bis\b|\bare\b/i.test(sentence))
     ?? `${displayName} public docs imported by Multipass.`;
   return truncate(preferred, 500);
 }
 
+function extractJsonSummary(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const name = cleanText(parsed.name);
+    const description = cleanText(parsed.description);
+    if (name && description) return truncate(`${name}: ${description}`, 500);
+    if (description) return truncate(description, 500);
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function splitSentences(text) {
-  const cleaned = cleanText(text.replace(/SECURITY NOTICE:[\s\S]*?---/gi, ' '));
+  const markdownCleaned = stripMarkdownBoilerplate(text);
+  const cleaned = cleanText(markdownCleaned);
   return cleaned
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length >= 20 && !/^post\s+\//i.test(sentence) && !/^get\s+\//i.test(sentence));
+    .filter((sentence) => sentence.length >= 20
+      && !/^post\s+\//i.test(sentence)
+      && !/^get\s+\//i.test(sentence)
+      && !/^>/i.test(sentence)
+      && !/\bRaw:\s*https?:\/\//i.test(sentence)
+      && !/\b(?:var|let|const|function|document|window)\b|[{};]/i.test(sentence));
+}
+
+function stripMarkdownBoilerplate(text) {
+  return String(text ?? '')
+    .replace(/SECURITY NOTICE:[\s\S]*?---/gi, ' ')
+    .replace(/^>.*$/gm, ' ')
+    .replace(/^---+$/gm, ' ')
+    .replace(/^#{1,6}\s+.*$/gm, ' ');
 }
 
 function extractAvatarUrl(text) {
@@ -324,8 +361,42 @@ function extractDocumentTitle(text, contentType) {
 }
 
 function normalizeDocumentText(text, contentType) {
-  if (String(contentType ?? '').includes('text/html')) return stripHtml(text);
-  return cleanText(text);
+  if (String(contentType ?? '').includes('text/html')) {
+    return cleanText([
+      extractHtmlMetadataText(text),
+      stripHtml(text),
+      extractScriptRouteText(text),
+    ].filter(Boolean).join('\n'));
+  }
+  return cleanText(stripMarkdownBoilerplate(text));
+}
+
+function extractHtmlMetadataText(html) {
+  const descriptions = [];
+  for (const match of String(html ?? '').matchAll(/<meta\b[^>]*(?:name|property)=["'](?:description|og:description|twitter:description)["'][^>]*content=["']([^"']+)["'][^>]*>/gi)) {
+    descriptions.push(match[1]);
+  }
+  if (descriptions.length > 0) return cleanText(descriptions.join(' '));
+  const titleMatch = String(html ?? '').match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return titleMatch ? cleanText(stripHtml(titleMatch[1])) : '';
+}
+
+function extractScriptRouteText(html) {
+  const lines = [];
+  for (const scriptMatch of String(html ?? '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const script = scriptMatch[1];
+    for (const pathMatch of script.matchAll(/\bpath\s*:\s*['"]([^'"]+)['"]/gi)) {
+      const index = pathMatch.index ?? 0;
+      const snippet = script.slice(Math.max(0, index - 360), Math.min(script.length, index + 520));
+      const fields = [];
+      for (const field of ['id', 'name', 'desc', 'description', 'price', 'path']) {
+        const fieldMatch = snippet.match(new RegExp(`\\b${field}\\s*:\\s*['"]([^'"]+)['"]`, 'i'));
+        if (fieldMatch) fields.push(`${field}: '${fieldMatch[1]}'`);
+      }
+      if (fields.length > 0) lines.push(fields.join(' '));
+    }
+  }
+  return cleanText(lines.join('\n'));
 }
 
 function stripHtml(html) {
@@ -413,7 +484,32 @@ function endpointLabelFromUrl(url) {
 }
 
 function cleanRoutePath(path) {
-  return String(path ?? '').replace(/[).,;]+$/g, '').trim();
+  const cleaned = String(path ?? '').replace(/[).,;]+$/g, '').trim();
+  const parsed = cleaned.split(/[?#]/)[0];
+  return parsed.replace(/[).,;]+$/g, '').trim();
+}
+
+function extractDocumentRoutes(text) {
+  const routes = [];
+  for (const match of String(text ?? '').matchAll(HTTP_ROUTE_PATTERN)) {
+    routes.push({
+      method: match[1].toUpperCase(),
+      path: match[2],
+      line: extractLineForRoute(text, match[0]),
+    });
+  }
+
+  for (const match of String(text ?? '').matchAll(/\bpath\s*:\s*['"]([^'"]+)['"]/gi)) {
+    const path = match[1];
+    if (!path.startsWith('/')) continue;
+    routes.push({
+      method: 'GET',
+      path,
+      line: extractLineForRoute(text, match[0]),
+    });
+  }
+
+  return routes;
 }
 
 function extractLineForRoute(text, routeToken) {
@@ -545,10 +641,24 @@ function normalizeDate(value, field) {
 }
 
 function cleanText(value) {
-  return String(value ?? '')
+  return decodeHtmlEntities(String(value ?? ''))
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value ?? '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)))
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, entity) => ({
+      amp: '&',
+      lt: '<',
+      gt: '>',
+      quot: '"',
+      apos: "'",
+      nbsp: ' ',
+    })[entity] ?? _);
 }
 
 function slugifyId(value) {
@@ -577,4 +687,8 @@ function truncate(value, maxLength) {
   const text = cleanText(value);
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function escapeRegExp(value) {
+  return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
