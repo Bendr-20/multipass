@@ -212,6 +212,9 @@ export function createMultipassApi({
           return handleSearch(url, context);
         }
 
+        const staticShellResponse = await handleStaticMultipassShellRead(parts);
+        if (staticShellResponse) return staticShellResponse;
+
         const profileShellResponse = await handleDynamicProfileShellRead(parts, context);
         if (profileShellResponse) return profileShellResponse;
 
@@ -242,6 +245,13 @@ export function createMultipassApi({
       }
     },
   };
+}
+
+async function handleStaticMultipassShellRead(parts) {
+  if (parts[0] !== 'multipass' || parts[1] !== 'agents' || parts.length !== 2) return null;
+  return htmlResponse(await loadMultipassWebIndexHtml(), {
+    'cache-control': 'public, max-age=300',
+  });
 }
 
 async function handlePostRequest(request, parts, context) {

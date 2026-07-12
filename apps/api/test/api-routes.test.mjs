@@ -915,6 +915,23 @@ test('GET /multipass/:id renders profile URL shell with dynamic preview metadata
   assert.doesNotMatch(html, /multipass\/share\/ack-19125["']>Open Multipass profile/);
 });
 
+test('GET /multipass/agents serves the static agents gallery shell', async () => {
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    savedRecords: createSqliteSavedRecords({ databasePath: ':memory:' }),
+    baseUrl: 'https://multipass.example.test',
+  });
+
+  const response = await api.handleRequest(new Request('https://multipass.example.test/multipass/agents'));
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+  assert.match(html, /<main id="app"><\/main>/);
+  assert.doesNotMatch(html, /Multipass not found/i);
+  assert.doesNotMatch(html, /\/multipass\/share\/agents\.jpg/);
+});
+
 test('GET /multipass/share/:id renders dynamic saved-profile preview metadata', async () => {
   const savedRecords = createSqliteSavedRecords({ databasePath: ':memory:' });
   const record = makeSavedRecordWithSourceContext({

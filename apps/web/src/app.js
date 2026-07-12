@@ -1794,7 +1794,7 @@ function renderProductHome(root, state, handlers = {}) {
 }
 
 function renderPublicAgentsPage(root, state, handlers = {}) {
-  const agentCarousel = createAgentCarousel(state.data);
+  const agentCarousel = createAgentCarousel(createPublicAgentGalleryData(state.data));
   root.innerHTML = `
     <div class="record-shell public-agents-shell">
       ${renderRecordHeader('Public Agent Gallery')}
@@ -1807,6 +1807,13 @@ function renderPublicAgentsPage(root, state, handlers = {}) {
   `;
 
   bindProductHomeEvents(root, handlers, state);
+}
+
+function createPublicAgentGalleryData(data) {
+  const baseCards = Array.isArray(data?.['agentCards']) ? data['agentCards'] : [];
+  const galleryCards = Array.isArray(data?.publicAgentCards) ? data.publicAgentCards : [];
+  if (!galleryCards.length) return data;
+  return { ...data, agentCards: [...baseCards, ...galleryCards] };
 }
 
 function renderGroupActivationSection(groupState = createInitialGroupActivationState()) {

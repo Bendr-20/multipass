@@ -875,4 +875,168 @@ export const STATIC_DEMO_DATA = {
       ]
     }
   ],
+  "publicAgentCards": [
+    {
+      "name": "Axobotl / 0xWork",
+      "tokenId": "saved:axobotl-1069",
+      "helixaId": "helixa-agentdna:8453:1069",
+      "framework": "public-web observed",
+      "credScore": 85,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/axobotl-1069",
+      "role": "Task marketplace agent",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "12 public-web observed tools",
+      "proofFragmentIds": ["frag_axobotl_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    },
+    {
+      "name": "Velvet-Unicorn",
+      "tokenId": "saved:velvet-unicorn-1127",
+      "helixaId": "helixa-agentdna:8453:1127",
+      "framework": "custom DeFAI",
+      "credScore": 85,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/velvet-unicorn-1127",
+      "role": "DeFAI API agent",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "6 public-web observed tools",
+      "proofFragmentIds": ["frag_velvet_unicorn_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and x402 routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    },
+    {
+      "name": "mferGPT",
+      "tokenId": "saved:mfergpt-73",
+      "helixaId": "helixa-agentdna:8453:73",
+      "framework": "public-web observed",
+      "credScore": 75,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/mfergpt-73",
+      "role": "Community tool agent",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "10 public-web observed tools",
+      "proofFragmentIds": ["frag_mfergpt_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    },
+    {
+      "name": "degenai",
+      "tokenId": "saved:degenai-1035",
+      "helixaId": "helixa-agentdna:8453:1035",
+      "framework": "public-web observed",
+      "credScore": 70,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/degenai-1035",
+      "role": "Trading agent",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "12 public-web observed tools",
+      "proofFragmentIds": ["frag_degenai_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    },
+    {
+      "name": "SIBYL",
+      "tokenId": "saved:sibyl-1037",
+      "helixaId": "helixa-agentdna:8453:1037",
+      "framework": "custom intelligence API",
+      "credScore": 65,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/sibyl-1037",
+      "role": "Intelligence API agent",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "5 public-web observed tools",
+      "proofFragmentIds": ["frag_sibyl_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    },
+    {
+      "name": "BuiltByEcho / Vaultline",
+      "tokenId": "saved:builtbyecho-1652",
+      "helixaId": "helixa-agentdna:8453:1652",
+      "framework": "public-web observed",
+      "credScore": 61,
+      "credTier": "Building",
+      "verified": false,
+      "profileUrl": "https://helixa.xyz/multipass/builtbyecho-1652",
+      "role": "Docs and API hub",
+      "custody": "Unclaimed; owner unverified public-web observed profile",
+      "proofSummary": "7 public-web observed tools",
+      "proofFragmentIds": ["frag_builtbyecho_public_web"],
+      "ownerSnapshot": {
+        "owner": "Owner not claimed",
+        "operator": "Public docs only",
+        "custodyEpoch": "Public-web observed import",
+        "permissionState": "Owner verification pending",
+        "visibility": "Public profile, no private credentials",
+        "recentChange": "Public docs enrichment imported",
+        "reviewAction": "Owner can claim, correct, verify, or remove scraped metadata"
+      },
+      "changeReviewLedger": [
+        { "event": "Public-web enrichment imported", "source": "Public docs", "impact": "Tool cards and routes added to profile", "reviewState": "Owner verification pending" },
+        { "event": "Owner state preserved", "source": "Multipass saved record", "impact": "No verified-owner claim added", "reviewState": "No public action" }
+      ]
+    }
+  ],
 };

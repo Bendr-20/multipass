@@ -98,7 +98,7 @@ export function createAgentCarousel(data) {
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
     visual: createProfileCardVisual(card),
-    proofSummary: createProfileProofSummary(card),
+    proofSummary: card.proofSummary ?? createProfileProofSummary(card),
   }));
 
   return {

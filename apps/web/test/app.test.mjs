@@ -1219,12 +1219,25 @@ test('production agents route uses the full static gallery instead of the single
 
   const gallery = root.querySelector('.public-agent-gallery');
   assert.ok(gallery);
-  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 4);
+  assert.equal(gallery.querySelectorAll('.public-agent-card').length, 10);
   assert.match(gallery.textContent, /Bendr 2\.0/);
   assert.match(gallery.textContent, /Quigbot/);
+  assert.match(gallery.textContent, /Axobotl \/ 0xWork/);
+  assert.match(gallery.textContent, /Velvet-Unicorn/);
+  assert.match(gallery.textContent, /mferGPT/);
+  assert.match(gallery.textContent, /degenai/);
+  assert.match(gallery.textContent, /SIBYL/);
+  assert.match(gallery.textContent, /BuiltByEcho \/ Vaultline/);
   assert.match(gallery.textContent, /Helixa Swarm/);
   assert.match(gallery.textContent, /Zori/);
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/axobotl-1069"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/velvet-unicorn-1127"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/mfergpt-73"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/degenai-1035"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/sibyl-1037"]'));
+  assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/builtbyecho-1652"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/zori-4354"]'));
+  assert.match(gallery.textContent, /12 public-web observed tools/);
   assert.match(gallery.textContent, /Ethereum Normies NFT-backed/i);
   assert.match(gallery.textContent, /Multipass management unclaimed/i);
 });
