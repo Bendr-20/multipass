@@ -234,9 +234,10 @@ function getFormValue(formData, key) {
 
 function renderPublicToolCard(tool = {}, options = {}) {
   const title = firstText(tool.name, tool.tool_id, 'Public tool card');
-  const registry = formatToken(tool.registry);
+  const registry = formatRegistryLabel(tool);
   const status = formatToken(tool.status);
   const assurance = formatToken(tool.assurance_level);
+  const description = formatToolDescription(tool, title);
   const endpoint = safeHttpsUrl(tool.endpoint_url);
   const manifest = safeHttpsUrl(tool.manifest_url);
   const verifiability = renderVerifiability(tool.verifiability);
@@ -255,7 +256,7 @@ function renderPublicToolCard(tool = {}, options = {}) {
           ${assurance ? `<span>${escapeHtml(assurance)}</span>` : ''}
         </div>
       </div>
-      ${hasText(tool.description) ? `<p>${escapeHtml(tool.description)}</p>` : ''}
+      ${hasText(description) ? `<p class="public-tool-description">${escapeHtml(description)}</p>` : ''}
       <dl class="tool-card-meta">
         ${renderUrlRow('Endpoint', endpoint, 'No safe public endpoint URL published.')}
         ${manifest ? renderUrlRow('Manifest', manifest) : ''}
@@ -295,12 +296,45 @@ function renderPricing(pricing = {}) {
     parts.push(pricing.amount);
   } else if (hasText(pricing.asset)) {
     parts.push(pricing.asset);
-  } else if (hasText(pricing.model)) {
+  } else if (hasText(pricing.model) && String(pricing.model).trim().toLowerCase() !== 'unknown') {
     parts.push(pricing.model);
   }
   if (hasText(pricing.chain_id)) parts.push(`on chain ${pricing.chain_id}`);
   if (!parts.length) return '';
   return renderMetaRow('Pricing', parts.join(' '));
+}
+
+function formatRegistryLabel(tool = {}) {
+  const registry = String(tool.registry ?? '').trim().toLowerCase();
+  const tier = String(tool.verifiability?.tier ?? '').trim().toLowerCase();
+  if (tier === 'public_web_observed') return 'Public-web observed';
+  if (!registry || registry === 'unknown') return 'Public registry card';
+  return formatToken(registry);
+}
+
+function formatToolDescription(tool = {}, fallbackName = 'Tool') {
+  const description = cleanInlineText(tool.description);
+  if (!description) return '';
+  if (looksLikeStructuredBlob(description)) return `${fallbackName} endpoint observed in public docs.`;
+  return truncateDisplayText(description, 240);
+}
+
+function cleanInlineText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function looksLikeStructuredBlob(value) {
+  const text = cleanInlineText(value);
+  if (!text) return false;
+  if (/^[{[]/.test(text)) return true;
+  const syntaxHits = (text.match(/[{}[\]"]/g) ?? []).length;
+  return syntaxHits >= 10 && /"\w+"\s*:/.test(text);
+}
+
+function truncateDisplayText(value, maxLength) {
+  const text = cleanInlineText(value);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}...`;
 }
 
 function renderSchemaSummary(schemas = {}) {

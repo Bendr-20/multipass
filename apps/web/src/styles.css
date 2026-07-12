@@ -3849,7 +3849,7 @@ h1 {
 
 .public-route-list,
 .public-tool-list {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
 .public-route-card,
@@ -3857,6 +3857,8 @@ h1 {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 0.9rem;
   border: 1px solid var(--soft-line);
   border-radius: 16px;
@@ -3938,6 +3940,17 @@ h1 {
   margin: 0.15rem 0 0;
 }
 
+.public-tool-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .public-tool-status {
   display: flex;
   flex-wrap: wrap;
@@ -3955,7 +3968,7 @@ h1 {
 }
 
 .tool-card-meta {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   margin: 0;
 }
 
@@ -3982,10 +3995,35 @@ h1 {
 .tool-card-meta a {
   font-family: var(--mono, "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace);
   font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .tool-card-meta-row.inert dd {
   color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .public-tools-panel {
+    padding: 0.75rem;
+  }
+
+  .public-tool-list,
+  .tool-card-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .public-tool-card-heading {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .public-tool-status {
+    justify-content: flex-start;
+  }
+
+  .tool-card-meta a {
+    font-size: 0.78rem;
+  }
 }
 
 .public-route-card-heading,

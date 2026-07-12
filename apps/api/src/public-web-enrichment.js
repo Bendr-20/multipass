@@ -568,9 +568,27 @@ function titleFromRoute(path) {
 
 function descriptionFromLines(lines, fallbackName) {
   const cleanLines = lines.map(cleanText).filter(Boolean);
-  if (cleanLines.length === 0) return `${fallbackName} endpoint extracted from public docs.`;
+  const fallback = `${fallbackName} endpoint extracted from public docs.`;
+  if (cleanLines.length === 0) return fallback;
   const withoutRoute = cleanLines[0].replace(/^\s*(GET|POST|PUT|PATCH|DELETE)\s+\S+\s*-?\s*/i, '');
-  return truncate(withoutRoute || `${fallbackName} endpoint extracted from public docs.`, 500);
+  if (looksLikeStructuredRouteBlob(withoutRoute)) return fallback;
+  const fieldDescription = extractInlineDescriptionField(withoutRoute);
+  if (fieldDescription) return truncate(fieldDescription, 500);
+  return truncate(withoutRoute || fallback, 500);
+}
+
+function looksLikeStructuredRouteBlob(value) {
+  const text = cleanText(value);
+  if (!text) return false;
+  if (/^[{[]/.test(text)) return true;
+  const syntaxHits = (text.match(/[{}[\]"]/g) ?? []).length;
+  return syntaxHits >= 10 && /"\w+"\s*:/.test(text);
+}
+
+function extractInlineDescriptionField(value) {
+  const text = cleanText(value);
+  const match = text.match(/\b(?:desc|description)\s*:\s*['"]([^'"]{8,500})['"]/i);
+  return match ? cleanText(match[1]) : null;
 }
 
 function deriveSourcePrefix(sourceHost, displayName) {

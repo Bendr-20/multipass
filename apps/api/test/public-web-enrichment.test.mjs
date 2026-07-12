@@ -239,6 +239,8 @@ test('buildPublicWebEnrichment cleans JSON summaries and route query examples', 
   assert.equal(enrichment.summary, 'mferGPT: AI agent, community tool, and web3 developer.');
   assert.deepEqual(enrichment.tools.map((tool) => tool.toolId), ['x402-health', 'x402-lore']);
   assert.equal(enrichment.tools[1].endpointUrl, 'https://x402.mfergpt.lol/lore');
+  assert.equal(enrichment.tools[1].description, 'Lore endpoint extracted from public docs.');
+  assert.ok(enrichment.tools.every((tool) => !tool.description.includes('{"name"')));
 });
 
 test('buildPublicWebEnrichment extracts JS service path catalogs from public pages', () => {

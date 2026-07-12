@@ -152,6 +152,32 @@ test('renderPublicToolsPanel renders OpenSea-style registry manifest metadata', 
   assert.equal([...card.querySelectorAll('a')].some((link) => link.href === 'https://metadata.example.test/agent-aura/81.json'), true);
 });
 
+test('renderPublicToolsPanel scrubs raw JSON manifest descriptions from public-web imports', () => {
+  const root = setup(renderPublicToolsPanel({
+    tools: {
+      tools: [bankrTool({
+        registry: 'unknown',
+        name: 'Preferences',
+        tool_id: 'api-preferences',
+        description: '{"name":"0xWork","description":"Bidirectional task marketplace on Base.","contracts":{"taskPool":"0xF404aFdbA46e05Af7B395FB45c43e66dB549C6D2"}}',
+        endpoint_url: 'https://api.0xwork.org/notifications/preferences',
+        manifest_url: 'https://api.0xwork.org/manifest.json',
+        pricing: { model: 'unknown', amount: null, asset: null, chain_id: null },
+        verifiability: { tier: 'public_web_observed', summary: 'Automatically extracted from public web documentation.' },
+        status: 'pending',
+        assurance_level: 'self_attested',
+      })],
+    },
+  }));
+  const card = root.querySelector('.public-tool-card');
+
+  assert.ok(card);
+  assert.match(card.textContent, /Public-web observed/);
+  assert.match(card.textContent, /Preferences endpoint observed in public docs/);
+  assert.doesNotMatch(card.textContent, /\{"name"|0xF404aFdbA46e05Af7B395FB45c43e66dB549C6D2|unknown/i);
+  assert.match(card.textContent, /api\.0xwork\.org\/notifications\/preferences/);
+});
+
 test('renderPublicToolsPanel returns an empty string when no public tools are present', () => {
   assert.equal(renderPublicToolsPanel(), '');
   assert.equal(renderPublicToolsPanel({ tools: { tools: [] } }), '');
