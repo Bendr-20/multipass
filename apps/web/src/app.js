@@ -1889,16 +1889,29 @@ function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
   const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
   const actionAttrs = getHomeProfileActionAttrs(card, index);
   const proof = card.proofSummary ?? `${Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds.length : 0} public proof signals`;
-  const intuition = getPublicAgentIntuitionLabel(card.intuition);
+  const cred = card.credLabel ?? (card.credScore === null || card.credScore === undefined ? 'Pending' : `Cred ${card.credScore}`);
+  const intuition = getPublicAgentIntuitionContext(card.intuition);
   return `
     <a class="public-agent-card${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${actionAttrs}${loading ? ' aria-busy="true"' : ''}>
       <strong>${escapeHtml(card.name)}</strong>
-      <span>Cred: ${escapeHtml(card.credLabel ?? (card.credScore === null || card.credScore === undefined ? 'Pending' : `Cred ${card.credScore}`))}</span>
-      ${intuition ? `<span>Intuition: ${escapeHtml(intuition)}</span>` : ''}
+      <div class="public-agent-signals">
+        ${renderPublicAgentSignal('Cred', cred, 'Helixa trust score for this agent profile.')}
+        ${intuition ? renderPublicAgentSignal('Intuition graph', intuition.label, intuition.note) : ''}
+      </div>
       <span>Custody: ${escapeHtml(card.custody ?? card.ownerSnapshot?.permissionState ?? 'Public context only')}</span>
       <span>Proof: ${escapeHtml(proof)}</span>
       <em>${escapeHtml(loading ? `Opening ${card.name}...` : 'Open profile')}</em>
     </a>
+  `;
+}
+
+function renderPublicAgentSignal(label, value, note) {
+  return `
+    <span class="public-agent-signal">
+      <b>${escapeHtml(label)}</b>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(note)}</small>
+    </span>
   `;
 }
 
@@ -1908,6 +1921,30 @@ function getPublicAgentIntuitionLabel(intuition) {
   const canonical = String(intuition.canonicalAgentId ?? '').trim();
   if (label && canonical) return `${label} (${canonical})`;
   return label || null;
+}
+
+function getPublicAgentIntuitionContext(intuition) {
+  const label = getPublicAgentIntuitionLabel(intuition);
+  if (!label) return null;
+  const note = String(intuition?.note ?? '').trim();
+  if (note) return { label, note };
+  const status = String(intuition?.status ?? intuition?.label ?? '').toLowerCase();
+  if (status.includes('published')) {
+    return {
+      label,
+      note: 'ERC-8004 reputation record is published on Intuition.',
+    };
+  }
+  if (status.includes('mapping')) {
+    return {
+      label,
+      note: 'Needs a canonical ERC-8004 token ID before Intuition can verify it.',
+    };
+  }
+  return {
+    label,
+    note: 'Current Intuition ERC-8004 graph status for this Multipass.',
+  };
 }
 
 function getHomeProfileResolveAttrs(agent, index) {
@@ -2414,12 +2451,13 @@ export function retryStateFromError(error, nowMs = Date.now()) {
   return { retryUntil: nowMs + seconds * 1000, retryMessage: `Try again in ${seconds} seconds.` };
 }
 
-function renderField(label, value, className = '') {
+function renderField(label, value, className = '', note = '') {
   const extraClass = className ? ` ${className}` : '';
   return `
     <div class="field">
       <span>${escapeHtml(label)}</span>
       <strong class="mono${extraClass}">${escapeHtml(value)}</strong>
+      ${note ? `<small>${escapeHtml(note)}</small>` : ''}
     </div>
   `;
 }
@@ -2550,6 +2588,7 @@ function renderAgentCarousel(carousel, selectedAgent, selectedIndex) {
 
 function renderAgentCardButton(card, index, selectedIndex) {
   const selected = index === selectedIndex;
+  const intuition = getPublicAgentIntuitionContext(card.intuition);
   return `
     <button class="profile-card card-button${selected ? ' selected' : ''}" data-action="select-agent-card" data-index="${index}" type="button" aria-selected="${selected}">
       <span class="profile-card-visual tone-${escapeAttribute(card.visual?.tone ?? 'neutral')}" aria-label="${escapeAttribute(card.visual?.label ?? `${card.name} visual identity`)}">
@@ -2562,7 +2601,7 @@ function renderAgentCardButton(card, index, selectedIndex) {
         <span>${escapeHtml(card.helixaId)}</span>
         <span>${escapeHtml(card.custody)}</span>
         <span>${escapeHtml(card.proofSummary)}</span>
-        <strong>${escapeHtml(card.credLabel)} · ${escapeHtml(card.verifiedLabel)}</strong>
+        <strong>${escapeHtml(card.credLabel)} · Intuition ${escapeHtml(intuition?.label ?? 'not listed')} · ${escapeHtml(card.verifiedLabel)}</strong>
       </span>
     </button>
   `;
@@ -2570,6 +2609,7 @@ function renderAgentCardButton(card, index, selectedIndex) {
 
 function renderAgentCardDetail(card) {
   if (card.detailMode === 'swarm') return renderSwarmCardDetail(card);
+  const intuition = getPublicAgentIntuitionContext(card.intuition);
 
   return `
     <article class="card-detail">
@@ -2581,8 +2621,8 @@ function renderAgentCardDetail(card) {
       <div class="card-fields">
         ${renderField('Helixa ID', card.helixaId)}
         ${renderField('Framework', card.framework)}
-        ${renderField('Cred', card.credScore === null ? card.credLabel : `${card.credLabel} (${card.credTier})`)}
-        ${renderField('Intuition', getPublicAgentIntuitionLabel(card.intuition) ?? 'Not listed')}
+        ${renderField('Cred', card.credScore === null ? card.credLabel : `${card.credLabel} (${card.credTier})`, '', 'Helixa trust score and tier for this agent profile.')}
+        ${renderField('Intuition graph', intuition?.label ?? 'Not listed', '', intuition?.note ?? 'No Intuition ERC-8004 graph status is attached to this profile yet.')}
         ${renderField('Identity', card.verifiedLabel)}
         ${renderField('Subject', card.subjectLabel)}
         ${renderField('Roster', card.memberLabel)}
@@ -3164,14 +3204,15 @@ function renderFragmentCard(card) {
         <span class="fragment-status status-${escapeHtml(card.status)}">${escapeHtml(card.status)}</span>
       </div>
       <h3>${escapeHtml(card.title)}</h3>
-      <p>${escapeHtml(card.summary)}</p>
+      <p class="fragment-context">${escapeHtml(card.summary)}</p>
+      <p class="fragment-value"><span>Refers to</span>${escapeHtml(card.publicValue)}</p>
       <dl>
-        <div><dt>Assurance</dt><dd>${escapeHtml(card.assuranceLabel)}</dd></div>
-        <div><dt>Visibility</dt><dd>${escapeHtml(card.visibility)}</dd></div>
-        <div><dt>Transfer</dt><dd>${escapeHtml(card.transferPolicyLabel)}</dd></div>
-        <div><dt>Source</dt><dd>${escapeHtml(card.sourceLabel ?? 'Unknown source')}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(card.statusLabel ?? card.status)}</dd><small>${escapeHtml(card.statusExplanation)}</small></div>
+        <div><dt>Assurance</dt><dd>${escapeHtml(card.assuranceLabel)}</dd><small>${escapeHtml(card.assuranceExplanation)}</small></div>
+        <div><dt>Visibility</dt><dd>${escapeHtml(card.visibility)}</dd><small>${escapeHtml(card.visibilityExplanation)}</small></div>
+        <div><dt>Transfer</dt><dd>${escapeHtml(card.transferPolicyLabel)}</dd><small>${escapeHtml(card.transferPolicyExplanation)}</small></div>
+        <div><dt>Source</dt><dd>${escapeHtml(card.sourceLabel ?? 'Unknown source')}</dd><small>The named source that supplied or checked this signal.</small></div>
       </dl>
-      <p class="fragment-value">${escapeHtml(card.publicValue)}</p>
     </article>
   `;
 }

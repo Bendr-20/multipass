@@ -1239,8 +1239,10 @@ test('production agents route uses the full static gallery instead of the single
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/builtbyecho-1652"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/zori-4354"]'));
   assert.match(gallery.textContent, /12 public-web observed tools/);
-  assert.match(gallery.textContent, /Intuition: Published \(8453:18531\)/);
-  assert.match(gallery.textContent, /Intuition: Mapping needed/);
+  assert.match(gallery.textContent, /Intuition graph\s+Published \(8453:18531\)/);
+  assert.match(gallery.textContent, /ERC-8004 reputation record is published on Intuition/);
+  assert.match(gallery.textContent, /Intuition graph\s+Mapping needed/);
+  assert.match(gallery.textContent, /Needs canonical ERC-8004 token ID before Intuition graph publication/);
   assert.match(gallery.textContent, /Ethereum Normies NFT-backed/i);
   assert.match(gallery.textContent, /Multipass management unclaimed/i);
 });
@@ -1511,6 +1513,8 @@ test('initial render shows loading state then product-led Multipass record', asy
   assert.ok(root.querySelector('.card-carousel'));
   assert.equal(root.querySelectorAll('.card-button').length, 3);
   assert.match(root.querySelector('.card-detail').textContent, /Helixa ID/);
+  assert.match(root.querySelector('.card-detail').textContent, /Intuition graph/);
+  assert.match(root.querySelector('.card-detail').textContent, /No Intuition ERC-8004 graph status is attached to this profile yet/);
   assert.ok(root.querySelectorAll('.fragment-card').length >= 6);
   assert.match(root.textContent, /Helixa AgentDNA token #1/);
   assert.match(root.textContent, /Cred score 80/);
@@ -2223,6 +2227,9 @@ test('profile page keeps product education cards and raw fragment ids out of def
   assert.equal(root.querySelector('.clarity-grid'), null);
   assert.match(root.textContent, /Inspect proof/i);
   assert.equal(root.textContent.includes('frag_bendr_'), false);
+  assert.match(root.querySelector('.fragment-map').textContent, /Refers to/);
+  assert.match(root.querySelector('.fragment-map').textContent, /The named source that supplied or checked this signal/);
+  assert.match(root.querySelector('.fragment-map').textContent, /Cred and risk context for this Multipass/);
 
   const carousel = root.querySelector('.card-carousel');
   const proof = root.querySelector('.fragment-map');

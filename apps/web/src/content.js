@@ -146,6 +146,7 @@ function createFragmentCard(fragment) {
   const protocol = fragment.endpoint_ref?.protocol ? `${fragment.endpoint_ref.protocol} ` : '';
   const source = fragment.source?.source_type ? formatEnumLabel(fragment.source.source_type) : 'Unknown source';
   const issuer = fragment.source?.issuer ? ` by ${fragment.source.issuer}` : '';
+  const publicValue = fragment.public_value ?? 'No public value returned.';
 
   return {
     id: fragment.fragment_id,
@@ -153,6 +154,7 @@ function createFragmentCard(fragment) {
     type: fragment.fragment_type,
     typeLabel,
     status: fragment.status,
+    statusLabel: formatEnumLabel(fragment.status),
     statusExplanation: FRAGMENT_LEGENDS.status[fragment.status] ?? 'Status explanation unavailable.',
     assurance: fragment.assurance_level,
     assuranceLabel: formatEnumLabel(fragment.assurance_level),
@@ -163,11 +165,43 @@ function createFragmentCard(fragment) {
     transferPolicyLabel: formatEnumLabel(fragment.transfer_policy),
     transferPolicyExplanation: FRAGMENT_LEGENDS.transferPolicy[fragment.transfer_policy] ?? 'Transfer policy explanation unavailable.',
     sourceLabel: `${source}${issuer}`,
-    summary: fragment.endpoint_ref
-      ? `${typeLabel} for ${protocol}endpoint from ${source}${issuer}.`
-      : `${typeLabel} from ${source}${issuer}.`,
-    publicValue: fragment.public_value ?? 'No public value returned.',
+    summary: createFragmentSummary(fragment, { typeLabel, protocol, source, issuer, publicValue }),
+    publicValue,
   };
+}
+
+function createFragmentSummary(fragment, context) {
+  const { typeLabel, protocol, source, issuer, publicValue } = context;
+  const sourceLabel = `${source}${issuer}`;
+  const defaultSource = fragment.endpoint_ref
+    ? `${typeLabel} for ${protocol}endpoint from ${sourceLabel}.`
+    : `${typeLabel} from ${sourceLabel}.`;
+  const lowerPublicValue = publicValue.toLowerCase();
+
+  if (lowerPublicValue.includes('intuition graph')) {
+    return `Intuition graph status for this Multipass. It checks whether this agent has an ERC-8004 reputation record on Intuition. ${publicValue}`;
+  }
+
+  switch (fragment.fragment_type) {
+    case 'risk_summary':
+      return `Cred and risk context for this Multipass. ${publicValue}`;
+    case 'social':
+      return `Public social or contact route connected to this Multipass. ${publicValue}`;
+    case 'attestation':
+      return `Identity or claim check for this Multipass. ${publicValue}`;
+    case 'endpoint':
+      return `Callable ${protocol || ''}endpoint or service route for this Multipass. ${publicValue}`;
+    case 'standard_ref':
+      return `External standard or reputation reference for this Multipass. ${publicValue}`;
+    case 'custody_record':
+      return `Owner, operator, or roster context for this Multipass. ${publicValue}`;
+    case 'receipt':
+      return `Access or payment receipt connected to this Multipass. ${publicValue}`;
+    case 'verification_result':
+      return `Review outcome or dispute context for this Multipass. ${publicValue}`;
+    default:
+      return publicValue === 'No public value returned.' ? defaultSource : `${defaultSource} ${publicValue}`;
+  }
 }
 
 

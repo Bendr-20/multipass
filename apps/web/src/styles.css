@@ -391,6 +391,39 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.public-agent-signals {
+  display: grid;
+  gap: 8px;
+}
+
+.public-agent-signal {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--soft-line);
+  border-radius: 10px;
+  background: rgba(255, 250, 241, 0.68);
+  padding: 10px;
+}
+
+.public-agent-signal b {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.public-agent-card .public-agent-signal strong {
+  color: var(--ink);
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.public-agent-signal small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .public-agent-card em {
   color: var(--green);
   font-size: 0.78rem;
@@ -870,6 +903,15 @@ h1 {
   color: var(--ink);
   font-size: 16px;
   letter-spacing: -0.02em;
+}
+
+.field small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
 
@@ -1905,6 +1947,10 @@ h1 {
   line-height: 1.5;
 }
 
+.fragment-context {
+  margin-bottom: 12px;
+}
+
 .fragment-card dl {
   margin: 14px 0;
 }
@@ -1929,9 +1975,33 @@ h1 {
   font-weight: 800;
 }
 
+.fragment-card dd + small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .fragment-value,
 .fragment-note {
   margin-bottom: 0;
+}
+
+.fragment-value {
+  border: 1px solid var(--soft-line);
+  background: rgba(255, 250, 241, 0.72);
+  padding: 10px;
+}
+
+.fragment-value span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .fragment-legend {
@@ -3443,7 +3513,8 @@ h1 {
   }
 
   .fragment-value {
-    display: none;
+    display: block;
+    overflow-wrap: anywhere;
   }
 
   .card-carousel {

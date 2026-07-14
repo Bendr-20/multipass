@@ -355,6 +355,9 @@ test('fragment trust map turns raw fragment ids into readable proof cards', () =
   assert.equal(map.title, 'Inspect proof');
   assert.equal(map.cards[0].title, 'Helixa AgentDNA identity');
   assert.equal(map.cards[0].id, 'frag_bendr_helixa_identity');
+  assert.equal(map.cards[0].statusLabel, 'Verified');
+  assert.match(map.cards[0].summary, /Identity or claim check/i);
+  assert.match(map.cards[0].summary, /Helixa AgentDNA token #1/i);
 });
 
 
@@ -426,7 +429,64 @@ test('fragment trust map keeps public fragments separate and explains transfer p
   assert.match(map.cards[0].assuranceLabel, /Platform verified/);
   assert.match(map.cards[0].transferPolicyLabel, /Historical on transfer/);
   assert.match(map.cards[1].summary, /x402 endpoint/i);
+  assert.match(map.cards[1].statusExplanation, /waiting for review/i);
   assert.match(map.emptyPrivateNote, /private and hidden fragments are not rendered/i);
+});
+
+test('fragment trust map leads with concrete evidence before taxonomy metadata', () => {
+  const map = createFragmentTrustMap({
+    fragments: {
+      fragments: [
+        {
+          fragment_id: 'frag_bendr_cred_score',
+          fragment_type: 'risk_summary',
+          status: 'pending',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          public_value: 'Cred score 80, Preferred tier, imported from Helixa API.',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+        },
+        {
+          fragment_id: 'frag_bendr_social_x',
+          fragment_type: 'social',
+          status: 'verified',
+          assurance_level: 'platform_verified',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          public_value: 'X handle @BendrAI_eth imported from Helixa API.',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+        },
+      ],
+    },
+  });
+
+  assert.match(map.cards[0].summary, /Cred and risk context/i);
+  assert.match(map.cards[0].summary, /Cred score 80/i);
+  assert.match(map.cards[1].summary, /Public social or contact route/i);
+  assert.match(map.cards[1].summary, /@BendrAI_eth/i);
+});
+
+test('fragment trust map explains Intuition graph fragments in user-facing language', () => {
+  const map = createFragmentTrustMap({
+    fragments: {
+      fragments: [
+        {
+          fragment_id: 'frag_live_1_intuition',
+          fragment_type: 'risk_summary',
+          status: 'verified',
+          assurance_level: 'issuer_attested',
+          visibility: 'public',
+          transfer_policy: 'reverify_on_transfer',
+          public_value: 'Intuition graph status: Published (8453:18531).',
+          source: { source_type: 'platform_check', issuer: 'Helixa' },
+        },
+      ],
+    },
+  });
+
+  assert.match(map.cards[0].summary, /Intuition graph status for this Multipass/);
+  assert.match(map.cards[0].summary, /ERC-8004 reputation record on Intuition/);
 });
 
 test('summary helpers produce display strings from record-shaped documents', () => {
