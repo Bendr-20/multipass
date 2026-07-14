@@ -97,6 +97,7 @@ export function createAgentCarousel(data) {
     changeReviewLedger: createChangeReviewLedger(card),
     transferPreview: normalizeTransferPreview(card.transferPreview, card),
     proofFragmentIds: Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds : [],
+    intuition: normalizeIntuitionContext(card.intuition),
     visual: createProfileCardVisual(card),
     proofSummary: card.proofSummary ?? createProfileProofSummary(card),
   }));
@@ -106,6 +107,25 @@ export function createAgentCarousel(data) {
     title: 'Example public agent profiles.',
     body: 'Each card gives agents, humans, organizations, swarms, apps, and directories a quick read on identity, framework, profile route, and public proof. Trust state and Cred context stay secondary for verification.',
     cards,
+  };
+}
+
+function normalizeIntuitionContext(intuition) {
+  if (!intuition || typeof intuition !== 'object') return null;
+  const status = String(intuition.status ?? '').trim();
+  const fallbackLabel = status
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+  const label = String(intuition.label ?? fallbackLabel).trim();
+  if (!status && !label) return null;
+  return {
+    status: status || null,
+    label: label || null,
+    canonicalAgentId: intuition.canonicalAgentId ?? null,
+    resolverUrl: intuition.resolverUrl ?? intuition.resolver ?? null,
+    note: intuition.note ?? null,
   };
 }
 

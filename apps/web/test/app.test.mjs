@@ -1201,6 +1201,7 @@ test('dedicated agents route renders public agent gallery cards with safe Multip
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/?agent=81"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/swarm/helixa"]'));
   assert.match(gallery.textContent, /Cred/);
+  assert.match(gallery.textContent, /Intuition/);
   assert.match(gallery.textContent, /Custody/);
   assert.match(gallery.textContent, /Proof/);
   assert.match(gallery.textContent, /Open profile/);
@@ -1238,6 +1239,8 @@ test('production agents route uses the full static gallery instead of the single
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/builtbyecho-1652"]'));
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/zori-4354"]'));
   assert.match(gallery.textContent, /12 public-web observed tools/);
+  assert.match(gallery.textContent, /Intuition: Published \(8453:18531\)/);
+  assert.match(gallery.textContent, /Intuition: Mapping needed/);
   assert.match(gallery.textContent, /Ethereum Normies NFT-backed/i);
   assert.match(gallery.textContent, /Multipass management unclaimed/i);
 });

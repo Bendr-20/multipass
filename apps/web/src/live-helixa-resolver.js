@@ -103,6 +103,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
   const standards = extractStandards(agent);
   const marketplaceListing = createLiveMarketplaceListing(agent, tokenId, fragments, profileUrl);
   const visualIdentity = createAgentAuraVisual(agent, { tokenId, displayName, credTier, profileUrl });
+  const intuition = normalizeLiveIntuition(agent?.intuition);
   const helixaId = `${HELIXA_CHAIN_ID}:${tokenId}`;
 
   const agentCard = {
@@ -115,6 +116,7 @@ export function mapHelixaAgentToMultipassDemo(agent) {
     verified: Boolean(agent?.verified),
     profileUrl,
     proofFragmentIds: fragments.map((fragment) => fragment.fragment_id),
+    intuition,
     ownerSnapshot: createLiveOwnerSnapshot(agent),
     changeReviewLedger: createLiveChangeLedger(agent),
     transferPreview: createLiveTransferPreview(agent),
@@ -342,6 +344,22 @@ function normalizeAuraTone(tier) {
   return String(tier ?? 'pending').toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+function normalizeLiveIntuition(intuition) {
+  if (!intuition || typeof intuition !== 'object') return null;
+  const status = String(intuition.status ?? '').trim();
+  const label = String(intuition.label ?? '').trim();
+  if (!status && !label) return null;
+  return {
+    status: status || null,
+    label: label || null,
+    canonicalAgentId: intuition.canonicalAgentId ?? null,
+    resolverUrl: intuition.resolver ?? intuition.resolverUrl ?? null,
+    note: intuition.status === 'published'
+      ? 'Published Intuition assessment source.'
+      : 'Intuition graph publication pending.',
+  };
+}
+
 function createLiveFragments(agent, tokenId, multipassId, observedAt) {
   const fragments = [];
 
@@ -370,6 +388,22 @@ function createLiveFragments(agent, tokenId, multipassId, observedAt) {
       observed_at: observedAt,
       reference_url: `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`,
       public_value: `Cred score ${agent.credScore}, ${formatCredTier(agent.credScore)} tier, imported from Helixa API.`,
+    }));
+  }
+
+  const intuition = normalizeLiveIntuition(agent?.intuition);
+  if (intuition) {
+    fragments.push(createFragment({
+      fragment_id: `frag_live_${tokenId}_intuition`,
+      multipass_id: multipassId,
+      fragment_type: 'standard_ref',
+      status: intuition.status === 'published' ? 'verified' : 'pending',
+      assurance_level: intuition.status === 'published' ? 'issuer_attested' : 'self_attested',
+      transfer_policy: 'reverify_on_transfer',
+      source_type: 'issuer_attestation',
+      observed_at: observedAt,
+      reference_url: intuition.resolverUrl ?? `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`,
+      public_value: `Intuition graph status: ${intuition.label || intuition.status}${intuition.canonicalAgentId ? ` (${intuition.canonicalAgentId})` : ''}.`,
     }));
   }
 

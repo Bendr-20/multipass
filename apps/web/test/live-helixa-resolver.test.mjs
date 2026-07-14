@@ -215,6 +215,21 @@ test('mapHelixaAgentToMultipassDemo creates public readable fragments without pr
   assert.doesNotMatch(data.receipt.receipt_id, /receipt_bendr_lookup/);
 });
 
+test('mapHelixaAgentToMultipassDemo carries Intuition graph status into Multipass', async () => {
+  const fixture = await bendrFixture();
+  fixture.intuition = {
+    status: 'published',
+    label: 'Published',
+    canonicalAgentId: '8453:18531',
+    resolver: 'https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18531/trust-assessment.json',
+  };
+
+  const data = mapHelixaAgentToMultipassDemo(fixture);
+  assert.equal(data.agentCards[0].intuition.label, 'Published');
+  assert.equal(data.agentCards[0].intuition.canonicalAgentId, '8453:18531');
+  assert.match(data.fragments.fragments.map((fragment) => fragment.public_value).join(' '), /Intuition graph status: Published \(8453:18531\)/);
+});
+
 test('mapHelixaAgentToMultipassDemo handles missing optional public fields', () => {
   const data = mapHelixaAgentToMultipassDemo({ tokenId: '81', name: 'Quigbot', verified: true, credScore: 75, services: {}, socials: {}, operator: null, linkedToken: null, traits: null });
 

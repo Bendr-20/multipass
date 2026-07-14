@@ -741,6 +741,12 @@ export const STATIC_DEMO_DATA = {
         "tone": "preferred"
       },
       "proofFragmentIds": ["frag_bendr_profile", "frag_bendr_endpoint", "frag_bendr_standard_ref", "frag_bendr_receipt_history", "frag_bendr_route_dispute", "frag_bendr_helixa_identity", "frag_bendr_cred_score"],
+      "intuition": {
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "8453:18531",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18531/trust-assessment.json"
+      },
       "ownerSnapshot": {
         "owner": "0x3395...480E0",
         "operator": "Bendr runtime",
@@ -889,6 +895,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "12 public-web observed tools",
       "proofFragmentIds": ["frag_axobotl_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",
@@ -916,6 +927,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "6 public-web observed tools",
       "proofFragmentIds": ["frag_velvet_unicorn_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",
@@ -943,6 +959,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "10 public-web observed tools",
       "proofFragmentIds": ["frag_mfergpt_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",
@@ -970,6 +991,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "12 public-web observed tools",
       "proofFragmentIds": ["frag_degenai_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",
@@ -997,6 +1023,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "5 public-web observed tools",
       "proofFragmentIds": ["frag_sibyl_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",
@@ -1024,6 +1055,11 @@ export const STATIC_DEMO_DATA = {
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "7 public-web observed tools",
       "proofFragmentIds": ["frag_builtbyecho_public_web"],
+      "intuition": {
+        "status": "mapping_required",
+        "label": "Mapping needed",
+        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+      },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
         "operator": "Public docs only",

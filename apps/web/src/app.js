@@ -1874,7 +1874,7 @@ function renderPublicAgentGallery(carousel, state = {}) {
       <div class="public-agent-gallery-copy">
         <p class="card-label">Public agent gallery</p>
         <h2>Pick an agent and open its Multipass.</h2>
-        <p>Each card uses safe Multipass routes with public Cred, custody, and proof context only.</p>
+        <p>Each card uses safe Multipass routes with public Cred, Intuition, custody, and proof context only.</p>
       </div>
       <div class="public-agent-gallery-grid">
         ${cards.map((card, index) => renderPublicAgentGalleryCard(card, index, loadingAgent)).join('')}
@@ -1889,15 +1889,25 @@ function renderPublicAgentGalleryCard(card, index, loadingAgent = null) {
   const loading = Boolean(agent && loadingAgent && String(agent) === String(loadingAgent));
   const actionAttrs = getHomeProfileActionAttrs(card, index);
   const proof = card.proofSummary ?? `${Array.isArray(card.proofFragmentIds) ? card.proofFragmentIds.length : 0} public proof signals`;
+  const intuition = getPublicAgentIntuitionLabel(card.intuition);
   return `
     <a class="public-agent-card${loading ? ' loading' : ''}" href="${escapeAttribute(href)}"${actionAttrs}${loading ? ' aria-busy="true"' : ''}>
       <strong>${escapeHtml(card.name)}</strong>
       <span>Cred: ${escapeHtml(card.credLabel ?? (card.credScore === null || card.credScore === undefined ? 'Pending' : `Cred ${card.credScore}`))}</span>
+      ${intuition ? `<span>Intuition: ${escapeHtml(intuition)}</span>` : ''}
       <span>Custody: ${escapeHtml(card.custody ?? card.ownerSnapshot?.permissionState ?? 'Public context only')}</span>
       <span>Proof: ${escapeHtml(proof)}</span>
       <em>${escapeHtml(loading ? `Opening ${card.name}...` : 'Open profile')}</em>
     </a>
   `;
+}
+
+function getPublicAgentIntuitionLabel(intuition) {
+  if (!intuition || typeof intuition !== 'object') return null;
+  const label = String(intuition.label ?? '').trim();
+  const canonical = String(intuition.canonicalAgentId ?? '').trim();
+  if (label && canonical) return `${label} (${canonical})`;
+  return label || null;
 }
 
 function getHomeProfileResolveAttrs(agent, index) {
@@ -2572,6 +2582,7 @@ function renderAgentCardDetail(card) {
         ${renderField('Helixa ID', card.helixaId)}
         ${renderField('Framework', card.framework)}
         ${renderField('Cred', card.credScore === null ? card.credLabel : `${card.credLabel} (${card.credTier})`)}
+        ${renderField('Intuition', getPublicAgentIntuitionLabel(card.intuition) ?? 'Not listed')}
         ${renderField('Identity', card.verifiedLabel)}
         ${renderField('Subject', card.subjectLabel)}
         ${renderField('Roster', card.memberLabel)}
