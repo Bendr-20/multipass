@@ -1255,6 +1255,15 @@ h1 {
   font-weight: 900;
 }
 
+.aura-trust-note {
+  max-width: 560px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
 .aura-provenance-drawer {
   display: grid;
   grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);

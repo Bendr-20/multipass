@@ -1419,21 +1419,34 @@ function normalizeAgentName(value) {
 
 function createProfileVisualIdentity(data, selectedAgent) {
   const managerAvatarUrl = safeHttpsUrl(data.profile?.discovery_profile?.avatar_url ?? data.profile?.avatar_url);
-  if (!managerAvatarUrl && data.visualIdentity && ['helixa_aura', 'aura'].includes(data.visualIdentity.source)) return data.visualIdentity;
+  const baseVisual = !managerAvatarUrl && data.visualIdentity && ['helixa_aura', 'aura'].includes(data.visualIdentity.source)
+    ? data.visualIdentity
+    : null;
 
   const name = selectedAgent?.name ?? data.profile?.display_name ?? data.liveProfilePage?.headline ?? 'Multipass visual';
   const tokenId = selectedAgent?.tokenId ?? data.resolver?.tokenId ?? data.profile?.token_id;
   const helixaId = selectedAgent?.helixaId ?? data.resolver?.canonicalId ?? data.profile?.multipass_id;
+  const intuition = getPublicAgentIntuitionContext(selectedAgent?.intuition);
+  const trustChips = [
+    helixaId,
+    selectedAgent?.credLabel,
+    intuition ? `Intuition graph: ${intuition.label}` : null,
+    selectedAgent?.verifiedLabel,
+    selectedAgent?.custody,
+  ].filter(hasRenderableValue);
+
+  if (baseVisual) {
+    return {
+      ...baseVisual,
+      chips: mergeChips([...(baseVisual.chips ?? []), ...trustChips]),
+      trustNote: intuition?.note ?? baseVisual.trustNote ?? null,
+    };
+  }
+
   const imageUrl = managerAvatarUrl
     ?? selectedAgent?.visual?.imageUrl
     ?? (/^\d+$/.test(String(tokenId ?? '')) ? `https://api.helixa.xyz/api/v2/aura/${tokenId}.png` : null);
   const visualSourceLabel = managerAvatarUrl ? 'Manager public avatar URL' : (selectedAgent?.visual?.label ?? (tokenId ? `Helixa aura route for token ${tokenId}` : 'Generated fallback initials'));
-  const chips = [
-    helixaId,
-    selectedAgent?.credLabel,
-    selectedAgent?.verifiedLabel,
-    selectedAgent?.custody,
-  ].filter(hasRenderableValue);
 
   return {
     source: 'helixa_aura',
@@ -1441,7 +1454,8 @@ function createProfileVisualIdentity(data, selectedAgent) {
     initials: selectedAgent?.visual?.initials ?? initialsForDisplayName(name),
     tone: selectedAgent?.visual?.tone ?? String(data.profile?.cred_summary?.trust_state ?? 'pending').toLowerCase(),
     imageUrl,
-    chips,
+    chips: trustChips,
+    trustNote: intuition?.note ?? null,
     provenanceDrawer: {
       title: `${name} visual provenance`,
       summary: 'Visual identity is synthesized from public Multipass profile context when no dedicated aura metadata is published.',
@@ -1453,6 +1467,17 @@ function createProfileVisualIdentity(data, selectedAgent) {
       safetyNote: 'Public visual context. Viewing does not grant ownership, custody, approvals, or route authority.',
     },
   };
+}
+
+function mergeChips(chips) {
+  const seen = new Set();
+  return chips.filter((chip) => {
+    if (!hasRenderableValue(chip)) return false;
+    const key = String(chip).trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getProfileAuraTitle(data, selectedAgent) {
@@ -2495,6 +2520,7 @@ function renderAgentAura(visualIdentity, options = {}) {
         <div class="aura-chips" aria-label="Agent Aura traits">
           ${(visualIdentity.chips ?? []).map((chip) => `<span>${escapeHtml(chip)}</span>`).join('')}
         </div>
+        ${hasRenderableValue(visualIdentity.trustNote) ? `<p class="aura-trust-note">${escapeHtml(visualIdentity.trustNote)}</p>` : ''}
       </div>
     </section>
   `;

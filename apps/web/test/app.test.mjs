@@ -1665,6 +1665,37 @@ test('resolved live profile renders visual-first drawers without homepage or res
   assert.match(profile.querySelector('.profile-detail-drawers')?.textContent ?? '', /Proof ledger/);
 });
 
+test('resolved live profile surfaces Intuition status in the visible visual summary', async () => {
+  const root = await renderResolvedQuigbotProfile(quigbotLiveData({
+    visualIdentity: {
+      source: 'helixa_aura',
+      label: 'Helixa Agent Aura',
+      imageUrl: 'https://api.helixa.xyz/api/v2/aura/81.png',
+      initials: 'Q',
+      tone: 'prime',
+      chips: ['Cred 75', 'Prime', 'Verified', 'openclaw'],
+    },
+    agentCards: [
+      {
+        name: 'Quigbot',
+        tokenId: 81,
+        helixaId: '8453:81',
+        framework: 'openclaw',
+        credScore: 75,
+        credTier: 'Prime',
+        verified: true,
+        profileUrl: 'https://helixa.xyz/agent/81',
+        proofFragmentIds: ['frag_quigbot_identity', 'frag_quigbot_cred'],
+        intuition: { status: 'published', label: 'Published', canonicalAgentId: '8453:18531' },
+      },
+    ],
+  }));
+
+  const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
+  assert.match(auraCard?.textContent ?? '', /Intuition graph: Published \(8453:18531\)/);
+  assert.match(auraCard?.textContent ?? '', /ERC-8004 reputation record is published on Intuition/);
+});
+
 test('profile drawer resting bars show stat chips and click affordance', async () => {
   const root = await renderResolvedQuigbotProfile();
   const profile = root.querySelector('.multipass-profile-page');
