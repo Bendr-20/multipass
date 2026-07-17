@@ -745,7 +745,18 @@ export const STATIC_DEMO_DATA = {
         "status": "published",
         "label": "Published",
         "canonicalAgentId": "8453:18531",
-        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18531/trust-assessment.json"
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18531/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreihrvlecsjamsb4rh7rujezugzznqxcdysck2etplwsqzt2iwvryna",
+          "caipUri": "ipfs://bafkreieqqcpmproveaw2i4axkwzccn32godpgrfftbzheffmaiuabdi4eu",
+          "identityAtomId": "0x2895b1f14c87e04c2c57e0a22be202236a3c9f0ca7b6c24fb1b14c2ae96ccf37",
+          "caipAtomId": "0x1b6cd370ff1160a22df2ac94b23804d39c423c6b2657ed77ff9ef36bc777a8a3",
+          "trustAssessmentTripleId": "0x98b4aa7eac2f36bcb0abe3f181ff57af64530ca13113e587a67cb24a4818e7b1",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0x98b4aa7eac2f36bcb0abe3f181ff57af64530ca13113e587a67cb24a4818e7b1"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "0x3395...480E0",
@@ -960,9 +971,21 @@ export const STATIC_DEMO_DATA = {
       "proofSummary": "10 public-web observed tools",
       "proofFragmentIds": ["frag_mfergpt_public_web"],
       "intuition": {
-        "status": "mapping_required",
-        "label": "Mapping needed",
-        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "1:25068",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/1/25068/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreifxtmqba5rn7cazd3xmjoy5hfhqvm4vi37hvzlc2yxynzdicdkgg4",
+          "caipUri": "ipfs://bafkreic7eodm7iixtzv4pey65kckzeukv6nx2r6w4vtxrkvk5ypftk75dm",
+          "identityAtomId": "0x0e3f2e40ed9558d0b0b7c3df5ceddffb0388d2797c781fb852bc5159b01d9e2f",
+          "caipAtomId": "0x6e7be354ef6d770508ea5db10dadfe5b96466a7081d081f99bb2965ac7533ec6",
+          "trustAssessmentTripleId": "0x581fa53e4d0c4479a58dba6f66edb4b40adf22579c680eab287c0d37bf0218af",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0x581fa53e4d0c4479a58dba6f66edb4b40adf22579c680eab287c0d37bf0218af"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
@@ -992,9 +1015,21 @@ export const STATIC_DEMO_DATA = {
       "proofSummary": "12 public-web observed tools",
       "proofFragmentIds": ["frag_degenai_public_web"],
       "intuition": {
-        "status": "mapping_required",
-        "label": "Mapping needed",
-        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "1:23121",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/1/23121/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreige4xfbduowkwh24qphlwl6rkjglhqtrx2krt3mumfpyg2kpuzoay",
+          "caipUri": "ipfs://bafkreihqgxx4dpm3hztg2ypdb2txeqpn3v2uaqfdo4aezpvpiecsflqyzi",
+          "identityAtomId": "0x072005adc81519263d778bab6fc992f77aa990cfa4717047d7a73c10b948d3db",
+          "caipAtomId": "0x2f72896a89ec76e1b17f4be499febe68fe0d411a6d02eb859eb83a7e36b624f7",
+          "trustAssessmentTripleId": "0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
@@ -1024,9 +1059,21 @@ export const STATIC_DEMO_DATA = {
       "proofSummary": "5 public-web observed tools",
       "proofFragmentIds": ["frag_sibyl_public_web"],
       "intuition": {
-        "status": "mapping_required",
-        "label": "Mapping needed",
-        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "8453:20880",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/20880/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreif4r5okwrlkf3qvub5y5txiyhbmnbonrsgp6kf6j5pgkp2nybolbq",
+          "caipUri": "ipfs://bafkreic6buizdsqkacvejkj5e4zivjeds4jryp77wosjk2ptstfgnz7twu",
+          "identityAtomId": "0x983b082001302e295dd39f3b799f04e918b0b1188ad190527f88f4679c164503",
+          "caipAtomId": "0xddec98be7fd21b43da225a69f6f32c8050f7ca5db8620919e5ea62202dd2551c",
+          "trustAssessmentTripleId": "0xf2ad53763b7f9ac8ae63e18a18b0a0c3c831a269fadb23b8b68cead7056f03af",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0xf2ad53763b7f9ac8ae63e18a18b0a0c3c831a269fadb23b8b68cead7056f03af"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "Owner not claimed",

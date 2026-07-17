@@ -473,20 +473,21 @@ test('fragment trust map explains Intuition graph fragments in user-facing langu
       fragments: [
         {
           fragment_id: 'frag_live_1_intuition',
-          fragment_type: 'risk_summary',
+          fragment_type: 'standard_ref',
           status: 'verified',
-          assurance_level: 'issuer_attested',
+          assurance_level: 'onchain_verified',
           visibility: 'public',
           transfer_policy: 'reverify_on_transfer',
-          public_value: 'Intuition graph status: Published (8453:18531).',
-          source: { source_type: 'platform_check', issuer: 'Helixa' },
+          public_value: 'Intuition identity graph published for ERC-8004 agent 8453:18531 with identity atom 0x2895...ccf37 and Helixa Cred assessment claim 0x98b4...e7b1.',
+          source: { source_type: 'issuer_attestation', issuer: 'Intuition' },
+          intuition_ref: { canonical_agent_id: '8453:18531' },
         },
       ],
     },
   });
 
-  assert.match(map.cards[0].summary, /Intuition graph status for this Multipass/);
-  assert.match(map.cards[0].summary, /ERC-8004 reputation record on Intuition/);
+  assert.match(map.cards[0].summary, /Intuition identity graph proof for ERC-8004 agent 8453:18531/);
+  assert.match(map.cards[0].summary, /human-readable identity atom to the CAIP anchor/);
 });
 
 test('summary helpers produce display strings from record-shaped documents', () => {

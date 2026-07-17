@@ -123,8 +123,14 @@ function normalizeIntuitionContext(intuition) {
   return {
     status: status || null,
     label: label || null,
+    provider: intuition.provider ?? null,
     canonicalAgentId: intuition.canonicalAgentId ?? null,
     resolverUrl: intuition.resolverUrl ?? intuition.resolver ?? null,
+    assessmentSourceUri: intuition.assessmentSourceUri ?? null,
+    publishedAt: intuition.publishedAt ?? null,
+    atomTransactionHash: intuition.atomTransactionHash ?? null,
+    tripleTransactionHash: intuition.tripleTransactionHash ?? null,
+    identityLayer: intuition.identityLayer ?? null,
     note: intuition.note ?? null,
   };
 }
@@ -177,6 +183,17 @@ function createFragmentSummary(fragment, context) {
     ? `${typeLabel} for ${protocol}endpoint from ${sourceLabel}.`
     : `${typeLabel} from ${sourceLabel}.`;
   const lowerPublicValue = publicValue.toLowerCase();
+
+  if (fragment.intuition_ref) {
+    const canonical = fragment.intuition_ref.canonical_agent_id
+      ? ` for ERC-8004 agent ${fragment.intuition_ref.canonical_agent_id}`
+      : '';
+    return `Intuition identity graph proof${canonical}. It links the human-readable identity atom to the CAIP anchor, then points the Helixa Cred assessment at that identity. ${publicValue}`;
+  }
+
+  if (lowerPublicValue.includes('intuition identity graph')) {
+    return `Intuition identity graph proof for this Multipass. It links the human-readable identity atom to the CAIP anchor, then points the Helixa Cred assessment at that identity. ${publicValue}`;
+  }
 
   if (lowerPublicValue.includes('intuition graph')) {
     return `Intuition graph status for this Multipass. It checks whether this agent has an ERC-8004 reputation record on Intuition. ${publicValue}`;

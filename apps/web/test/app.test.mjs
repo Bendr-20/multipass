@@ -1240,7 +1240,7 @@ test('production agents route uses the full static gallery instead of the single
   assert.ok(gallery.querySelector('a.public-agent-card[href="/multipass/zori-4354"]'));
   assert.match(gallery.textContent, /12 public-web observed tools/);
   assert.match(gallery.textContent, /Intuition graph\s+Published \(8453:18531\)/);
-  assert.match(gallery.textContent, /ERC-8004 reputation record is published on Intuition/);
+  assert.match(gallery.textContent, /Identity atom, CAIP anchor, and Helixa Cred assessment are published on Intuition/);
   assert.match(gallery.textContent, /Intuition graph\s+Mapping needed/);
   assert.match(gallery.textContent, /Needs canonical ERC-8004 token ID before Intuition graph publication/);
   assert.match(gallery.textContent, /Ethereum Normies NFT-backed/i);
@@ -1693,7 +1693,7 @@ test('resolved live profile surfaces Intuition status in the visible visual summ
 
   const auraCard = root.querySelector('.multipass-profile-page > .aura-card');
   assert.match(auraCard?.textContent ?? '', /Intuition graph: Published \(8453:18531\)/);
-  assert.match(auraCard?.textContent ?? '', /ERC-8004 reputation record is published on Intuition/);
+  assert.match(auraCard?.textContent ?? '', /ERC-8004 identity and reputation record are published on Intuition/);
 });
 
 test('profile drawer resting bars show stat chips and click affordance', async () => {

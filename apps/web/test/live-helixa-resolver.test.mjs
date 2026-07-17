@@ -222,12 +222,29 @@ test('mapHelixaAgentToMultipassDemo carries Intuition graph status into Multipas
     label: 'Published',
     canonicalAgentId: '8453:18531',
     resolver: 'https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18531/trust-assessment.json',
+    assessmentSourceUri: 'ipfs://source',
+    tripleTransactionHash: '0xfec3c2e79ab210fae9a5a4a26a00d08139266c2a99ae25e2cf01732edb26e101',
+    identityLayer: {
+      status: 'published',
+      identityUri: 'ipfs://identity',
+      caipUri: 'ipfs://caip',
+      identityAtomId: '0x2895b1f14c87e04c2c57e0a22be202236a3c9f0ca7b6c24fb1b14c2ae96ccf37',
+      caipAtomId: '0x1b6cd370ff1160a22df2ac94b23804d39c423c6b2657ed77ff9ef36bc777a8a3',
+      trustAssessmentTripleId: '0x98b4aa7eac2f36bcb0abe3f181ff57af64530ca13113e587a67cb24a4818e7b1',
+      portalLinks: {
+        has_trust_assessment: 'https://portal.intuition.systems/explore/triple/0x98b4aa7eac2f36bcb0abe3f181ff57af64530ca13113e587a67cb24a4818e7b1',
+      },
+    },
   };
 
   const data = mapHelixaAgentToMultipassDemo(fixture);
   assert.equal(data.agentCards[0].intuition.label, 'Published');
   assert.equal(data.agentCards[0].intuition.canonicalAgentId, '8453:18531');
-  assert.match(data.fragments.fragments.map((fragment) => fragment.public_value).join(' '), /Intuition graph status: Published \(8453:18531\)/);
+  const intuitionFragment = data.fragments.fragments.find((fragment) => fragment.fragment_id === 'frag_live_1_intuition');
+  assert.equal(intuitionFragment.assurance_level, 'onchain_verified');
+  assert.equal(intuitionFragment.proof_reference, '0x98b4aa7eac2f36bcb0abe3f181ff57af64530ca13113e587a67cb24a4818e7b1');
+  assert.equal(intuitionFragment.intuition_ref.canonical_agent_id, '8453:18531');
+  assert.match(intuitionFragment.public_value, /Intuition identity graph published for ERC-8004 agent 8453:18531/);
 });
 
 test('mapHelixaAgentToMultipassDemo handles missing optional public fields', () => {

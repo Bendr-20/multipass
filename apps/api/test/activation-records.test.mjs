@@ -105,6 +105,63 @@ test('buildSavedRecordFromHelixaAgent imports agent-owned ERC-8004 identities as
   assertAgentCard(record.agentCard);
 });
 
+test('buildSavedRecordFromHelixaAgent imports Intuition-linked mainnet ERC-8004 identity without claiming ownership', () => {
+  const record = buildSavedRecordFromHelixaAgent({
+    tokenId: '1035',
+    name: 'DegenAI',
+    verified: true,
+    credScore: 55,
+    intuition: {
+      status: 'published',
+      label: 'Published',
+      provider: 'helixa-cred',
+      canonicalAgentId: '1:23121',
+      resolver: 'https://api.helixa.xyz/.well-known/intuition/erc8004/agents/1/23121/trust-assessment.json',
+      assessmentSourceUri: 'ipfs://source',
+      publishedAt: '2026-07-17T15:28:37.250Z',
+      tripleTransactionHash: '0xfec3c2e79ab210fae9a5a4a26a00d08139266c2a99ae25e2cf01732edb26e101',
+      identityLayer: {
+        status: 'published',
+        identityUri: 'ipfs://identity',
+        caipUri: 'ipfs://caip',
+        identityAtomId: '0x072005adc81519263d778bab6fc992f77aa990cfa4717047d7a73c10b948d3db',
+        caipAtomId: '0x2f72896a89ec76e1b17f4be499febe68fe0d411a6d02eb859eb83a7e36b624f7',
+        trustAssessmentTripleId: '0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad',
+        portalLinks: {
+          has_trust_assessment: 'https://portal.intuition.systems/explore/triple/0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad',
+        },
+      },
+    },
+  }, { observedAt: '2026-07-17T16:00:00.000Z' });
+
+  const identityId = 'eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:23121';
+  const erc8004Fragment = record.fragments.find((fragment) => fragment.proof_reference === identityId);
+  const intuitionFragment = record.fragments.find((fragment) => fragment.fragment_id === 'frag_helixa_agent_1035_intuition_identity');
+
+  assert.equal(record.standardsProfile.primary_refs.erc8004_identity, identityId);
+  assert.equal(record.standardsProfile.standard_refs[0].chain_id, 1);
+  assert.equal(record.standardsProfile.compatibility_summary.identity_bound, true);
+  assert.equal(record.standardsProfile.compatibility_summary.owner_verified, false);
+  assert.equal(record.agentCard.trust_summary.identity_status, 'verified');
+  assert.deepEqual(record.agentCard.standards_refs, [{
+    standard_id: 'ERC-8004',
+    support_status: 'active',
+    record_id: identityId,
+  }]);
+  assert.equal(record.sourceContext.sourceSnapshot.intuition.identityLayer.trustAssessmentTripleId, '0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad');
+  assert.equal(record.sourceContext.sourceSnapshot.erc8004Identities[0].custody, 'intuition_linked');
+  assert.equal(record.sourceContext.sourceSnapshot.erc8004Identities[0].proofUrl, 'https://portal.intuition.systems/explore/triple/0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad');
+  assert.equal(erc8004Fragment?.status, 'verified');
+  assert.match(erc8004Fragment?.public_value ?? '', /Intuition-linked ERC-8004 identity/);
+  assert.equal(intuitionFragment?.assurance_level, 'onchain_verified');
+  assert.equal(intuitionFragment?.proof_reference, '0x1698c23af66f751c4642a9fdac99eb009ccfaeb16eb1d4f1db958c72832645ad');
+  assert.equal(record.sourceContext.sourceSnapshot.intuition.canonicalAgentId, '1:23121');
+  assert.equal(record.sourceContext.sourceSnapshot.intuition.identityLayer.identityAtomId, '0x072005adc81519263d778bab6fc992f77aa990cfa4717047d7a73c10b948d3db');
+  assert.match(intuitionFragment?.public_value ?? '', /Intuition identity graph published/);
+  assertAgentCard(record.agentCard);
+  assertStandardsProfile(record.standardsProfile);
+});
+
 
 test('string verified values do not create verified attestations', () => {
   const record = buildSavedRecordFromHelixaAgent({ tokenId: '1', name: 'Bendr 2.0', verified: 'false' });

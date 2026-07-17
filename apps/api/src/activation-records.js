@@ -56,6 +56,7 @@ const PUBLIC_SOURCE_FIELDS = new Set([
   'mintedAt',
   'services',
   'socials',
+  'intuition',
 ]);
 
 const SERVICE_PUBLIC_FIELDS = new Set([
@@ -136,9 +137,13 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
   const observedAt = normalizeObservedAt(options.observedAt);
   const sourceSnapshot = sanitizeSourceSnapshot({ ...agent, tokenId });
   const sourceUrl = `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`;
-  const erc8004Identities = normalizeErc8004Identities(options.erc8004Identities, { observedAt });
+  const intuition = normalizeIntuitionContext(sourceSnapshot.intuition);
+  const erc8004Identities = normalizeErc8004Identities([
+    ...(Array.isArray(options.erc8004Identities) ? options.erc8004Identities : []),
+    ...createErc8004IdentitiesFromIntuition(intuition),
+  ]);
   const primaryErc8004Identity = selectPrimaryErc8004Identity(erc8004Identities);
-  const fragments = createPublicFragments({ tokenId, canonicalId, multipassId, displayName, observedAt, sourceSnapshot, sourceUrl, erc8004Identities });
+  const fragments = createPublicFragments({ tokenId, canonicalId, multipassId, displayName, observedAt, sourceSnapshot, sourceUrl, erc8004Identities, intuition });
   const standardsProfileId = `sp_helixa_agent_${tokenId}`;
   const credScore = Number(sourceSnapshot.credScore);
   const hasCredScore = Number.isFinite(credScore);
@@ -245,7 +250,7 @@ export function buildSavedRecordFromHelixaAgent(agent, options = {}) {
       risk_checked: false,
       tools_verified: false,
       work_attested: false,
-      trust_updated: Boolean(primaryErc8004Identity),
+      trust_updated: Boolean(primaryErc8004Identity || intuition?.status === 'published'),
     },
     adapter_versions: { 'ERC-8004': '0.1.0' },
     last_verified_at: primaryErc8004Identity ? observedAt : null,
@@ -1136,6 +1141,12 @@ export function sanitizeSourceSnapshot(agent) {
       continue;
     }
 
+    if (field === 'intuition') {
+      const intuition = normalizeIntuitionContext(value);
+      if (intuition) snapshot.intuition = intuition;
+      continue;
+    }
+
     const sanitized = sanitizePrimitive(value);
     if (sanitized !== undefined) {
       snapshot[field] = sanitized;
@@ -1333,11 +1344,125 @@ function normalizeErc8004Identities(value) {
       name: truncate(String(item.name ?? '').trim(), 120),
       match: truncate(String(item.match ?? '').trim(), 120),
       tokenURI: truncate(String(item.tokenURI ?? '').trim(), 500),
-      explorerUrl: safePublicUrl(item.explorerUrl) ?? `https://basescan.org/token/${registryAddress}?a=${encodeURIComponent(tokenId)}`,
+      explorerUrl: safePublicUrl(item.explorerUrl) ?? erc8004ExplorerUrl(chainId, registryAddress, tokenId),
+      ...(item.sourceType ? { sourceType: normalizeIdentitySourceType(item.sourceType) } : {}),
+      ...(String(item.issuer ?? '').trim() ? { issuer: truncate(String(item.issuer).trim(), 120) } : {}),
+      ...(safePublicUrl(item.proofUrl) ? { proofUrl: safePublicUrl(item.proofUrl) } : {}),
+      ...(String(item.trustAssessmentTripleId ?? '').trim() ? { trustAssessmentTripleId: truncate(String(item.trustAssessmentTripleId).trim(), 120) } : {}),
     });
   }
 
   return identities.sort((left, right) => erc8004CustodyRank(left.custody) - erc8004CustodyRank(right.custody));
+}
+
+function normalizeIntuitionContext(intuition) {
+  if (!isPlainObject(intuition)) return null;
+  const status = truncate(String(intuition.status ?? '').trim(), 80);
+  const label = truncate(String(intuition.label ?? '').trim(), 80);
+  const canonicalAgentId = truncate(String(intuition.canonicalAgentId ?? '').trim(), 120);
+  const identityLayer = normalizeIntuitionIdentityLayer(intuition.identityLayer);
+  if (!status && !label && !canonicalAgentId && !identityLayer) return null;
+  return {
+    status: status || null,
+    label: label || null,
+    provider: truncate(String(intuition.provider ?? '').trim(), 120) || null,
+    canonicalAgentId: canonicalAgentId || null,
+    resolverUrl: safePublicUrl(intuition.resolverUrl ?? intuition.resolver) ?? null,
+    assessmentSourceUri: sanitizeIpfsUri(intuition.assessmentSourceUri),
+    publishedAt: truncate(String(intuition.publishedAt ?? identityLayer?.publishedAt ?? '').trim(), 80) || null,
+    atomTransactionHash: truncate(String(intuition.atomTransactionHash ?? identityLayer?.atomTransactionHash ?? '').trim(), 120) || null,
+    tripleTransactionHash: truncate(String(intuition.tripleTransactionHash ?? identityLayer?.tripleTransactionHash ?? '').trim(), 120) || null,
+    identityLayer,
+  };
+}
+
+function normalizeIntuitionIdentityLayer(identityLayer) {
+  if (!isPlainObject(identityLayer)) return null;
+  const triples = Array.isArray(identityLayer.triples)
+    ? identityLayer.triples.map(normalizeIntuitionTriple).filter(Boolean)
+    : [];
+  const portalLinks = normalizeIntuitionPortalLinks(identityLayer.portalLinks);
+  const trustAssessmentTripleId = truncate(String(
+    identityLayer.trustAssessmentTripleId
+    ?? triples.find((triple) => normalizeLabel(triple.predicate) === 'has trust assessment')?.tripleId
+    ?? '',
+  ).trim(), 120);
+  const normalized = {
+    status: truncate(String(identityLayer.status ?? '').trim(), 80) || null,
+    publishedAt: truncate(String(identityLayer.publishedAt ?? '').trim(), 80) || null,
+    identityUri: sanitizeIpfsUri(identityLayer.identityUri),
+    caipUri: sanitizeIpfsUri(identityLayer.caipUri),
+    identityAtomId: truncate(String(identityLayer.identityAtomId ?? '').trim(), 120) || null,
+    caipAtomId: truncate(String(identityLayer.caipAtomId ?? '').trim(), 120) || null,
+    providerAtomId: truncate(String(identityLayer.providerAtomId ?? '').trim(), 120) || null,
+    assessmentSourceAtomId: truncate(String(identityLayer.assessmentSourceAtomId ?? '').trim(), 120) || null,
+    trustAssessmentTripleId: trustAssessmentTripleId || null,
+    atomTransactionHash: truncate(String(identityLayer.atomTransactionHash ?? '').trim(), 120) || null,
+    tripleTransactionHash: truncate(String(identityLayer.tripleTransactionHash ?? '').trim(), 120) || null,
+    portalLinks,
+    triples,
+  };
+  if (!normalized.status && !normalized.identityAtomId && !normalized.identityUri && !normalized.trustAssessmentTripleId) return null;
+  return normalized;
+}
+
+function normalizeIntuitionTriple(triple) {
+  if (!isPlainObject(triple)) return null;
+  const predicate = truncate(String(triple.predicate ?? '').trim(), 120);
+  const tripleId = truncate(String(triple.tripleId ?? '').trim(), 120);
+  if (!predicate || !tripleId) return null;
+  return {
+    predicate,
+    termId: truncate(String(triple.termId ?? '').trim(), 120) || null,
+    tripleId,
+    portalUrl: safePublicUrl(triple.portalUrl) ?? intuitionPortalTripleUrl(tripleId),
+  };
+}
+
+function normalizeIntuitionPortalLinks(links) {
+  if (!isPlainObject(links)) return {};
+  const normalized = {};
+  for (const [key, value] of Object.entries(links)) {
+    const safe = safePublicUrl(value);
+    if (!safe) continue;
+    normalized[safeKey(key)] = safe;
+  }
+  return normalized;
+}
+
+function createErc8004IdentitiesFromIntuition(intuition) {
+  if (!intuition || intuition.status !== 'published') return [];
+  const match = String(intuition.canonicalAgentId ?? '').match(/^(\d+):([1-9]\d*)$/);
+  if (!match) return [];
+  const chainId = Number(match[1]);
+  const tokenId = match[2];
+  return [{
+    chainId,
+    registryAddress: ERC8004_BASE_IDENTITY_REGISTRY,
+    tokenId,
+    custody: 'intuition_linked',
+    name: '',
+    match: 'intuition_identity_graph',
+    tokenURI: intuition.identityLayer?.identityUri ?? '',
+    sourceType: 'issuer_attestation',
+    issuer: 'Intuition',
+    proofUrl: getIntuitionTrustAssessmentUrl(intuition),
+    trustAssessmentTripleId: intuition.identityLayer?.trustAssessmentTripleId ?? '',
+  }];
+}
+
+function getIntuitionTrustAssessmentUrl(intuition) {
+  return safePublicUrl(intuition?.identityLayer?.portalLinks?.has_trust_assessment)
+    ?? safePublicUrl(intuition?.identityLayer?.portalLinks?.hasTrustAssessment)
+    ?? intuition?.identityLayer?.triples?.find((triple) => normalizeLabel(triple.predicate) === 'has trust assessment')?.portalUrl
+    ?? safePublicUrl(intuition?.identityLayer?.portalLinks?.triple_transaction)
+    ?? safePublicUrl(intuition?.resolverUrl)
+    ?? null;
+}
+
+function erc8004ExplorerUrl(chainId, registryAddress, tokenId) {
+  const host = chainId === ETHEREUM_CHAIN_ID ? 'https://etherscan.io' : 'https://basescan.org';
+  return `${host}/token/${registryAddress}?a=${encodeURIComponent(tokenId)}`;
 }
 
 function selectPrimaryErc8004Identity(identities) {
@@ -1354,17 +1479,19 @@ function publicErc8004IdentitySnapshot(identity) {
     custody: identity.custody,
     name: identity.name,
     match: identity.match,
+    ...(identity.proofUrl ? { proofUrl: identity.proofUrl } : {}),
+    ...(identity.trustAssessmentTripleId ? { trustAssessmentTripleId: identity.trustAssessmentTripleId } : {}),
   };
 }
 
 function normalizeErc8004Custody(value) {
   const normalized = String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  if (['agent_owned', 'owner_owned', 'platform_held_mirror', 'candidate_match'].includes(normalized)) return normalized;
+  if (['agent_owned', 'owner_owned', 'platform_held_mirror', 'intuition_linked', 'candidate_match'].includes(normalized)) return normalized;
   return 'candidate_match';
 }
 
 function erc8004CustodyRank(custody) {
-  return { agent_owned: 0, owner_owned: 1, platform_held_mirror: 2, candidate_match: 3 }[custody] ?? 4;
+  return { agent_owned: 0, owner_owned: 1, platform_held_mirror: 2, intuition_linked: 3, candidate_match: 4 }[custody] ?? 5;
 }
 
 function formatErc8004Custody(custody) {
@@ -1372,8 +1499,15 @@ function formatErc8004Custody(custody) {
     agent_owned: 'Agent-owned ERC-8004 identity',
     owner_owned: 'Owner-owned ERC-8004 identity',
     platform_held_mirror: 'Platform-held ERC-8004 mirror',
+    intuition_linked: 'Intuition-linked ERC-8004 identity',
     candidate_match: 'Candidate ERC-8004 identity match',
   }[custody] ?? 'Candidate ERC-8004 identity match';
+}
+
+function normalizeIdentitySourceType(value) {
+  const normalized = String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (['contract_read', 'issuer_attestation', 'registry_import', 'platform_check'].includes(normalized)) return normalized;
+  return 'contract_read';
 }
 
 function normalizeAddress(value) {
@@ -1507,7 +1641,7 @@ function sanitizeNormiesTraits(value) {
   return Object.keys(sanitized).length ? sanitized : undefined;
 }
 
-function createPublicFragments({ tokenId, canonicalId, multipassId, displayName, observedAt, sourceSnapshot, sourceUrl, erc8004Identities = [] }) {
+function createPublicFragments({ tokenId, canonicalId, multipassId, displayName, observedAt, sourceSnapshot, sourceUrl, erc8004Identities = [], intuition = null }) {
   const sourceVerified = sourceSnapshot.verified === true;
   const fragments = [createFragment({
     fragment_id: `frag_helixa_agent_${safeKey(tokenId)}_source`,
@@ -1562,6 +1696,11 @@ function createPublicFragments({ tokenId, canonicalId, multipassId, displayName,
     fragments.push(createErc8004IdentityFragment({ tokenId, multipassId, observedAt, identity }));
   }
 
+  if (intuition) {
+    const intuitionFragment = createIntuitionIdentityFragment({ tokenId, multipassId, observedAt, intuition });
+    if (intuitionFragment) fragments.push(intuitionFragment);
+  }
+
   for (const [network, handle] of Object.entries(sourceSnapshot.socials ?? {})) {
     if (!handle) continue;
     fragments.push(createFragment({
@@ -1603,6 +1742,7 @@ function createPublicFragments({ tokenId, canonicalId, multipassId, displayName,
 
 function createErc8004IdentityFragment({ tokenId, multipassId, observedAt, identity }) {
   const custodyLabel = formatErc8004Custody(identity.custody);
+  const referenceUrl = identity.proofUrl || identity.explorerUrl;
   return createFragment({
     fragment_id: `frag_helixa_agent_${safeKey(tokenId)}_erc8004_${safeKey(identity.chainId)}_${safeKey(identity.tokenId)}`,
     multipass_id: multipassId,
@@ -1610,13 +1750,41 @@ function createErc8004IdentityFragment({ tokenId, multipassId, observedAt, ident
     status: identity.custody === 'candidate_match' ? 'pending' : 'verified',
     assurance_level: identity.custody === 'candidate_match' ? 'issuer_attested' : 'onchain_verified',
     transfer_policy: identity.custody === 'platform_held_mirror' ? 'pause_on_transfer' : 'reverify_on_transfer',
-    source_type: 'contract_read',
+    source_type: identity.sourceType ?? 'contract_read',
     source_id: identity.canonicalId,
-    issuer: 'ERC-8004 Identity Registry',
+    issuer: identity.issuer || 'ERC-8004 Identity Registry',
     observed_at: observedAt,
-    reference_url: identity.explorerUrl,
+    reference_url: referenceUrl,
     public_value: `${custodyLabel} ${identity.canonicalId}${identity.name ? ` (${identity.name})` : ''}.`,
     proof_reference: identity.canonicalId,
+  });
+}
+
+function createIntuitionIdentityFragment({ tokenId, multipassId, observedAt, intuition }) {
+  if (!intuition.status && !intuition.canonicalAgentId) return null;
+  const referenceUrl = getIntuitionTrustAssessmentUrl(intuition) ?? `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`;
+  const published = intuition.status === 'published';
+  const canonical = intuition.canonicalAgentId ? `ERC-8004 agent ${intuition.canonicalAgentId}` : 'this ERC-8004 agent';
+  const identityAtom = shortHash(intuition.identityLayer?.identityAtomId);
+  const trustTriple = shortHash(intuition.identityLayer?.trustAssessmentTripleId);
+  const atomText = identityAtom ? ` with identity atom ${identityAtom}` : '';
+  const tripleText = trustTriple ? ` and Helixa Cred assessment claim ${trustTriple}` : '';
+  return createFragment({
+    fragment_id: `frag_helixa_agent_${safeKey(tokenId)}_intuition_identity`,
+    multipass_id: multipassId,
+    fragment_type: 'standard_ref',
+    status: published ? 'verified' : 'pending',
+    assurance_level: intuition.identityLayer?.status === 'published' ? 'onchain_verified' : 'issuer_attested',
+    transfer_policy: 'reverify_on_transfer',
+    source_type: intuition.identityLayer?.status === 'published' ? 'issuer_attestation' : 'platform_check',
+    source_id: intuition.identityLayer?.trustAssessmentTripleId ?? `intuition:${intuition.canonicalAgentId ?? tokenId}`,
+    issuer: intuition.identityLayer?.status === 'published' ? 'Intuition' : 'Helixa',
+    observed_at: observedAt,
+    reference_url: referenceUrl,
+    public_value: published
+      ? `Intuition identity graph published for ${canonical}${atomText}${tripleText}.`
+      : `Intuition graph status: ${intuition.label || intuition.status}${intuition.canonicalAgentId ? ` (${intuition.canonicalAgentId})` : ''}.`,
+    proof_reference: intuition.identityLayer?.trustAssessmentTripleId ?? referenceUrl,
   });
 }
 
@@ -1723,6 +1891,18 @@ function safePublicUrl(value) {
   }
 }
 
+function sanitizeIpfsUri(value) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return null;
+  if (/^ipfs:\/\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=-]+$/.test(trimmed)) return truncate(trimmed, 500);
+  return safePublicUrl(trimmed);
+}
+
+function intuitionPortalTripleUrl(tripleId) {
+  const id = truncate(String(tripleId ?? '').trim(), 120);
+  return id ? `https://portal.intuition.systems/explore/triple/${encodeURIComponent(id)}` : null;
+}
+
 function sanitizePrimitive(value) {
   if (value === null) return null;
   if (['string', 'number', 'boolean'].includes(typeof value)) return value;
@@ -1792,6 +1972,16 @@ function protocolForEndpoint(endpointId) {
 
 function safeKey(value) {
   return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+}
+
+function normalizeLabel(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function shortHash(hash) {
+  const value = String(hash ?? '').trim();
+  if (!/^0x[a-fA-F0-9]{8,}$/.test(value)) return null;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
 function formatLabel(value) {

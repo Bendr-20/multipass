@@ -349,15 +349,127 @@ function normalizeLiveIntuition(intuition) {
   const status = String(intuition.status ?? '').trim();
   const label = String(intuition.label ?? '').trim();
   if (!status && !label) return null;
+  const identityLayer = normalizeLiveIntuitionIdentityLayer(intuition.identityLayer);
+  const canonicalAgentId = intuition.canonicalAgentId ?? null;
   return {
     status: status || null,
     label: label || null,
-    canonicalAgentId: intuition.canonicalAgentId ?? null,
+    provider: intuition.provider ?? null,
+    canonicalAgentId,
     resolverUrl: intuition.resolver ?? intuition.resolverUrl ?? null,
-    note: intuition.status === 'published'
-      ? 'Published Intuition assessment source.'
+    assessmentSourceUri: intuition.assessmentSourceUri ?? null,
+    publishedAt: intuition.publishedAt ?? identityLayer?.publishedAt ?? null,
+    atomTransactionHash: intuition.atomTransactionHash ?? identityLayer?.atomTransactionHash ?? null,
+    tripleTransactionHash: intuition.tripleTransactionHash ?? identityLayer?.tripleTransactionHash ?? null,
+    identityLayer,
+    note: status === 'published'
+      ? identityLayer
+        ? 'Identity atom, CAIP anchor, and Helixa Cred assessment are published on Intuition.'
+        : 'Helixa Cred assessment source is published on Intuition.'
       : 'Intuition graph publication pending.',
   };
+}
+
+function normalizeLiveIntuitionIdentityLayer(identityLayer) {
+  if (!identityLayer || typeof identityLayer !== 'object') return null;
+  const status = String(identityLayer.status ?? '').trim();
+  const triples = Array.isArray(identityLayer.triples)
+    ? identityLayer.triples.map(normalizeLiveIntuitionTriple).filter(Boolean)
+    : [];
+  const portalLinks = normalizeLiveIntuitionPortalLinks(identityLayer.portalLinks);
+  const trustAssessmentTripleId = String(
+    identityLayer.trustAssessmentTripleId
+    ?? triples.find((triple) => normalizeLookup(triple.predicate) === 'has trust assessment')?.tripleId
+    ?? '',
+  ).trim();
+  if (!status && !identityLayer.identityAtomId && !identityLayer.identityUri && !trustAssessmentTripleId) return null;
+
+  return {
+    status: status || null,
+    publishedAt: identityLayer.publishedAt ?? null,
+    identityUri: identityLayer.identityUri ?? null,
+    caipUri: identityLayer.caipUri ?? null,
+    identityAtomId: identityLayer.identityAtomId ?? null,
+    caipAtomId: identityLayer.caipAtomId ?? null,
+    providerAtomId: identityLayer.providerAtomId ?? null,
+    assessmentSourceAtomId: identityLayer.assessmentSourceAtomId ?? null,
+    trustAssessmentTripleId: trustAssessmentTripleId || null,
+    atomTransactionHash: identityLayer.atomTransactionHash ?? null,
+    tripleTransactionHash: identityLayer.tripleTransactionHash ?? null,
+    portalLinks,
+    triples,
+  };
+}
+
+function normalizeLiveIntuitionTriple(triple) {
+  if (!triple || typeof triple !== 'object') return null;
+  const predicate = String(triple.predicate ?? '').trim();
+  const tripleId = String(triple.tripleId ?? '').trim();
+  if (!predicate || !tripleId) return null;
+  return {
+    predicate,
+    termId: triple.termId ?? null,
+    tripleId,
+    portalUrl: safePublicUrl(triple.portalUrl) ?? intuitionPortalTripleUrl(tripleId),
+  };
+}
+
+function normalizeLiveIntuitionPortalLinks(links) {
+  if (!links || typeof links !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(links)
+      .map(([key, value]) => [key, safePublicUrl(value)])
+      .filter(([, value]) => value),
+  );
+}
+
+function createLiveIntuitionRef(intuition) {
+  if (!intuition) return null;
+  return {
+    status: intuition.status,
+    provider: intuition.provider,
+    canonical_agent_id: intuition.canonicalAgentId,
+    resolver_url: intuition.resolverUrl,
+    assessment_source_uri: intuition.assessmentSourceUri,
+    published_at: intuition.publishedAt,
+    atom_transaction_hash: intuition.atomTransactionHash,
+    triple_transaction_hash: intuition.tripleTransactionHash,
+    identity_uri: intuition.identityLayer?.identityUri ?? null,
+    caip_uri: intuition.identityLayer?.caipUri ?? null,
+    identity_atom_id: intuition.identityLayer?.identityAtomId ?? null,
+    caip_atom_id: intuition.identityLayer?.caipAtomId ?? null,
+    provider_atom_id: intuition.identityLayer?.providerAtomId ?? null,
+    assessment_source_atom_id: intuition.identityLayer?.assessmentSourceAtomId ?? null,
+    trust_assessment_triple_id: intuition.identityLayer?.trustAssessmentTripleId ?? null,
+    portal_links: intuition.identityLayer?.portalLinks ?? {},
+  };
+}
+
+function createLiveIntuitionPublicValue(intuition) {
+  const canonical = intuition?.canonicalAgentId ? `ERC-8004 agent ${intuition.canonicalAgentId}` : 'this ERC-8004 agent';
+  const identityAtom = shortHash(intuition?.identityLayer?.identityAtomId);
+  const trustTriple = shortHash(intuition?.identityLayer?.trustAssessmentTripleId);
+  if (intuition?.identityLayer?.status === 'published') {
+    const atomText = identityAtom ? ` with identity atom ${identityAtom}` : '';
+    const tripleText = trustTriple ? ` and Helixa Cred assessment claim ${trustTriple}` : '';
+    return `Intuition identity graph published for ${canonical}${atomText}${tripleText}.`;
+  }
+  return `Intuition graph status: ${intuition?.label || intuition?.status}${intuition?.canonicalAgentId ? ` (${intuition.canonicalAgentId})` : ''}.`;
+}
+
+function getLiveIntuitionReferenceUrl(intuition, tokenId) {
+  return intuition?.identityLayer?.portalLinks?.has_trust_assessment
+    ?? intuition?.identityLayer?.portalLinks?.hasTrustAssessment
+    ?? intuition?.identityLayer?.triples?.find((triple) => normalizeLookup(triple.predicate) === 'has trust assessment')?.portalUrl
+    ?? intuition?.identityLayer?.portalLinks?.tripleTransaction
+    ?? intuition?.resolverUrl
+    ?? `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`;
+}
+
+function getLiveIntuitionProofReference(intuition, referenceUrl) {
+  return intuition?.identityLayer?.trustAssessmentTripleId
+    ?? intuition?.identityLayer?.portalLinks?.has_trust_assessment
+    ?? referenceUrl;
 }
 
 function createLiveFragments(agent, tokenId, multipassId, observedAt) {
@@ -393,17 +505,26 @@ function createLiveFragments(agent, tokenId, multipassId, observedAt) {
 
   const intuition = normalizeLiveIntuition(agent?.intuition);
   if (intuition) {
+    const referenceUrl = getLiveIntuitionReferenceUrl(intuition, tokenId);
     fragments.push(createFragment({
       fragment_id: `frag_live_${tokenId}_intuition`,
       multipass_id: multipassId,
       fragment_type: 'standard_ref',
       status: intuition.status === 'published' ? 'verified' : 'pending',
-      assurance_level: intuition.status === 'published' ? 'issuer_attested' : 'self_attested',
+      assurance_level: intuition.identityLayer?.status === 'published'
+        ? 'onchain_verified'
+        : intuition.status === 'published'
+          ? 'issuer_attested'
+          : 'self_attested',
       transfer_policy: 'reverify_on_transfer',
-      source_type: 'issuer_attestation',
+      source_type: intuition.identityLayer?.status === 'published' ? 'contract_read' : 'issuer_attestation',
       observed_at: observedAt,
-      reference_url: intuition.resolverUrl ?? `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}`,
-      public_value: `Intuition graph status: ${intuition.label || intuition.status}${intuition.canonicalAgentId ? ` (${intuition.canonicalAgentId})` : ''}.`,
+      reference_url: referenceUrl,
+      public_value: createLiveIntuitionPublicValue(intuition),
+      issuer: intuition.identityLayer?.status === 'published' ? 'Intuition' : 'Helixa',
+      source_id: intuition.identityLayer?.trustAssessmentTripleId ?? `intuition:${intuition.canonicalAgentId ?? tokenId}`,
+      proof_reference: getLiveIntuitionProofReference(intuition, referenceUrl),
+      intuition_ref: createLiveIntuitionRef(intuition),
     }));
   }
 
@@ -459,7 +580,7 @@ function createLiveFragments(agent, tokenId, multipassId, observedAt) {
   return fragments;
 }
 
-function createFragment({ fragment_id, multipass_id, fragment_type, status, assurance_level, transfer_policy, source_type, observed_at, reference_url, public_value, endpoint_ref = undefined }) {
+function createFragment({ fragment_id, multipass_id, fragment_type, status, assurance_level, transfer_policy, source_type, observed_at, reference_url, public_value, endpoint_ref = undefined, issuer = 'Helixa', source_id = fragment_id, proof_reference = reference_url, intuition_ref = undefined }) {
   return {
     schema_version: '0.1.0',
     fragment_id,
@@ -469,13 +590,14 @@ function createFragment({ fragment_id, multipass_id, fragment_type, status, assu
     assurance_level,
     visibility: 'public',
     transfer_policy,
-    source: { source_type, source_id: fragment_id, issuer: 'Helixa', observed_at, reference_url },
+    source: { source_type, source_id, issuer, observed_at, reference_url },
     public_value,
-    proof_reference: reference_url,
+    proof_reference,
     created_at: observed_at,
     updated_at: observed_at,
     ...(status === 'verified' ? { verified_at: observed_at } : {}),
     ...(endpoint_ref ? { endpoint_ref } : {}),
+    ...(intuition_ref ? { intuition_ref } : {}),
   };
 }
 
@@ -658,6 +780,11 @@ function safePublicUrl(value) {
   }
 }
 
+function intuitionPortalTripleUrl(tripleId) {
+  const id = String(tripleId ?? '').trim();
+  return id ? `https://portal.intuition.systems/explore/triple/${encodeURIComponent(id)}` : null;
+}
+
 function socialUrl(network, value) {
   const handle = String(value).trim();
   if (!handle) return null;
@@ -726,6 +853,12 @@ function hasNumericCred(score) {
 function shortAddress(address) {
   const value = String(address ?? '');
   if (!/^0x[a-fA-F0-9]{40}$/.test(value)) return null;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function shortHash(hash) {
+  const value = String(hash ?? '').trim();
+  if (!/^0x[a-fA-F0-9]{8,}$/.test(value)) return null;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 

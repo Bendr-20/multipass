@@ -1953,11 +1953,17 @@ function getPublicAgentIntuitionContext(intuition) {
   if (!label) return null;
   const note = String(intuition?.note ?? '').trim();
   if (note) return { label, note };
+  if (intuition?.identityLayer?.status === 'published' || intuition?.identityLayer?.trustAssessmentTripleId) {
+    return {
+      label,
+      note: 'Identity atom, CAIP anchor, and Helixa Cred assessment are published on Intuition.',
+    };
+  }
   const status = String(intuition?.status ?? intuition?.label ?? '').toLowerCase();
   if (status.includes('published')) {
     return {
       label,
-      note: 'ERC-8004 reputation record is published on Intuition.',
+      note: 'ERC-8004 identity and reputation record are published on Intuition.',
     };
   }
   if (status.includes('mapping')) {
