@@ -340,8 +340,21 @@ function stripMarkdownBoilerplate(text) {
 }
 
 function extractAvatarUrl(text) {
-  const match = text.match(/https:\/\/[^\s)'"<>]+\.(?:png|jpg|jpeg|webp|gif|svg)/i);
-  return match ? normalizeHttpsUrl(match[0], 'avatarUrl') : null;
+  const matches = text.match(/https:\/\/[^\s)'"<>]+\.(?:png|jpg|jpeg|webp|gif|svg)/gi) ?? [];
+  for (const match of matches) {
+    const url = normalizeHttpsUrl(match, 'avatarUrl');
+    if (!isPlaceholderImageUrl(url)) return url;
+  }
+  return null;
+}
+
+function isPlaceholderImageUrl(value) {
+  try {
+    const host = new URL(String(value)).hostname.toLowerCase();
+    return host === 'example.com' || host === 'example.org' || host === 'example.net' || host.endsWith('.example.test');
+  } catch {
+    return true;
+  }
 }
 
 function collectDocumentCandidateUrls(seedUrl) {

@@ -969,6 +969,11 @@ export const STATIC_DEMO_DATA = {
       "role": "Community tool agent",
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "10 public-web observed tools",
+      "visual": {
+        "imageUrl": "ipfs://QmVWZLP5az4M3weSKsmz4yoRvsYuu2p32FUUrKts8r68Tn",
+        "label": "mferGPT ERC-8004 profile image",
+        "tone": "building"
+      },
       "proofFragmentIds": ["frag_mfergpt_public_web"],
       "intuition": {
         "status": "published",

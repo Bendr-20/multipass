@@ -716,7 +716,7 @@ function buildSavedRecordFromErc8004Identity({ input, onchain, metadata }, optio
     discovery_profile: {
       summary,
       tags: normalizeErc8004Tags(metadata),
-      ...(safePublicUrl(metadata?.image) ? { avatar_url: safePublicUrl(metadata.image) } : {}),
+      ...(safePublicImageUrl(metadata?.image) ? { avatar_url: safePublicImageUrl(metadata.image) } : {}),
       visibility: 'public',
     },
     standards_profile: {
@@ -823,7 +823,7 @@ function buildSavedRecordFromErc8004Identity({ input, onchain, metadata }, optio
         displayName,
         summary,
         description: truncate(String(metadata?.description ?? '').trim(), 1000),
-        imageUrl: safePublicUrl(metadata?.image) ?? undefined,
+        imageUrl: safePublicImageUrl(metadata?.image) ?? undefined,
         metadataUrl,
         tokenURI: truncate(String(onchain?.tokenURI ?? '').trim(), 500),
         active: metadata?.active === undefined ? undefined : Boolean(metadata.active),
@@ -1889,6 +1889,20 @@ function safePublicUrl(value) {
   } catch {
     return null;
   }
+}
+
+function safePublicImageUrl(value) {
+  const ipfsGatewayUrl = ipfsImageGatewayUrl(value);
+  if (ipfsGatewayUrl) return ipfsGatewayUrl;
+  return safePublicUrl(value);
+}
+
+function ipfsImageGatewayUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw.toLowerCase().startsWith('ipfs://')) return null;
+  const path = raw.slice('ipfs://'.length).replace(/^ipfs\//i, '');
+  if (!path || !/^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/.test(path)) return null;
+  return `https://ipfs.io/ipfs/${path}`;
 }
 
 function sanitizeIpfsUri(value) {

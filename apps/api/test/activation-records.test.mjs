@@ -473,6 +473,38 @@ test('activateHelixaRecord imports identities returned by an ERC-8004 discovery 
   assert.ok(record.fragments.some((fragment) => fragment.public_value?.includes('Agent-owned ERC-8004 identity')));
 });
 
+test('activateHelixaRecord converts IPFS registration images to gateway URLs for display', async () => {
+  const registry = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+  const canonicalId = `eip155:8453:${registry}:25068`;
+  const owner = '0x39225d40C7a7157A838ecCdB05D09208d47Fd523';
+  const metadata = {
+    name: 'mferGPT',
+    description: 'AI agent, community tool, and web3 developer for the mfers ecosystem.',
+    image: 'ipfs://QmVWZLP5az4M3weSKsmz4yoRvsYuu2p32FUUrKts8r68Tn',
+    services: [{ name: 'web', endpoint: 'https://x402.mfergpt.lol' }],
+  };
+  const tokenURI = `data:application/json;base64,${Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64')}`;
+
+  const record = await activateHelixaRecord('erc8004:8453:25068', {
+    observedAt: '2026-07-17T17:20:00.000Z',
+    readContract: async ({ address, functionName, args }) => {
+      assert.equal(address, registry);
+      assert.equal(args[0].toString(), '25068');
+      if (functionName === 'ownerOf') return owner;
+      if (functionName === 'tokenURI') return tokenURI;
+      throw new Error(`unexpected read ${functionName}`);
+    },
+    fetchImpl: async () => {
+      throw new Error('data URI metadata should not require HTTP fetch');
+    },
+  });
+
+  const gatewayUrl = 'https://ipfs.io/ipfs/QmVWZLP5az4M3weSKsmz4yoRvsYuu2p32FUUrKts8r68Tn';
+  assert.equal(record.source.canonicalId, canonicalId);
+  assert.equal(record.profile.discovery_profile.avatar_url, gatewayUrl);
+  assert.equal(record.sourceContext.sourceSnapshot.imageUrl, gatewayUrl);
+});
+
 test('buildSavedRecordFromHelixaAgent keeps platform-held ERC-8004 mirrors distinct from agent-owned identities', () => {
   const record = buildSavedRecordFromHelixaAgent({
     tokenId: '81',

@@ -112,6 +112,27 @@ test('agent carousel maps real Helixa card data for display', () => {
   assert.match(carousel.cards[0].proofSummary, /Proof pending|proof signals/);
 });
 
+test('agent carousel renders IPFS profile images through an HTTPS gateway', () => {
+  const carousel = createAgentCarousel({
+    agentCards: [
+      {
+        name: 'mferGPT',
+        tokenId: 'saved:mfergpt-73',
+        helixaId: 'eip155:1:25068',
+        framework: 'openclaw',
+        credScore: 75,
+        credTier: 'Building',
+        verified: false,
+        visual: { imageUrl: 'ipfs://QmVWZLP5az4M3weSKsmz4yoRvsYuu2p32FUUrKts8r68Tn' },
+      },
+    ],
+    profile: { display_name: 'Fallback', slug: 'fallback', cred_summary: { trust_state: 'none' } },
+    card: { trust_summary: { identity_status: 'pending' } },
+  });
+
+  assert.equal(carousel.cards[0].visual.imageUrl, 'https://ipfs.io/ipfs/QmVWZLP5az4M3weSKsmz4yoRvsYuu2p32FUUrKts8r68Tn');
+});
+
 
 
 test('agent carousel includes collection swarm cards with roster and custody context', () => {

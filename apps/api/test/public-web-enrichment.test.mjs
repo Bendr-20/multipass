@@ -243,6 +243,22 @@ test('buildPublicWebEnrichment cleans JSON summaries and route query examples', 
   assert.ok(enrichment.tools.every((tool) => !tool.description.includes('{"name"')));
 });
 
+test('buildPublicWebEnrichment ignores placeholder example.com profile images', () => {
+  const enrichment = buildPublicWebEnrichment({
+    multipassId: 'mp_helixa_agent_73',
+    displayName: 'mferGPT',
+    seedUrl: 'https://x402.mfergpt.lol/',
+    documents: [{
+      url: 'https://x402.mfergpt.lol/',
+      title: 'mferGPT x402',
+      text: 'Profile image: https://example.com/pfp.png. Real docs describe x402 endpoints.',
+    }],
+    now: NOW,
+  });
+
+  assert.equal(enrichment.avatarUrl, null);
+});
+
 test('buildPublicWebEnrichment extracts JS service path catalogs from public pages', () => {
   const enrichment = buildPublicWebEnrichment({
     multipassId: 'mp_helixa_agent_1037',

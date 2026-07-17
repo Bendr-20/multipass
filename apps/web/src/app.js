@@ -2496,6 +2496,8 @@ function renderField(label, value, className = '', note = '') {
 
 
 function safeHttpsUrl(value) {
+  const ipfsGatewayUrl = ipfsImageGatewayUrl(value);
+  if (ipfsGatewayUrl) return ipfsGatewayUrl;
   if (!value) return null;
   try {
     const parsed = new URL(String(value));
@@ -2503,6 +2505,14 @@ function safeHttpsUrl(value) {
   } catch {
     return null;
   }
+}
+
+function ipfsImageGatewayUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw.toLowerCase().startsWith('ipfs://')) return null;
+  const path = raw.slice('ipfs://'.length).replace(/^ipfs\//i, '');
+  if (!path || !/^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/.test(path)) return null;
+  return `https://ipfs.io/ipfs/${path}`;
 }
 
 function renderAgentAura(visualIdentity, options = {}) {
