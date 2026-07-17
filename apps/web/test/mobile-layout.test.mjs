@@ -10,8 +10,12 @@ test('mobile layout does not squeeze fragment cards into narrow desktop columns'
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
   assert.equal(css.includes('grid-template-columns: repeat(5, minmax(0, 1fr));'), false);
-  assert.match(css, /\.fragment-cards\s*{[^}]*minmax\(280px, 1fr\)/s);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-cards\s*{[\s\S]*grid-template-columns: 1fr;/);
+  assert.match(css, /\.fragment-cards\s*{[^}]*minmax\(min\(280px, 100%\), 1fr\)/s);
+  assert.match(css, /\.fragment-card\s*{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /\.fragment-card p\s*{[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /\.fragment-card dd\s*{[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /\.fragment-card dd \+ small\s*{[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-cards\s*{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-value\s*{[\s\S]*display:\s*block;/);
   assert.doesNotMatch(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-value\s*{[\s\S]*display:\s*none;/);
   assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);/);

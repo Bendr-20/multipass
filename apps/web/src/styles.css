@@ -1906,14 +1906,17 @@ h1 {
 
 .fragment-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 12px;
 }
 
 .fragment-card {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   background: var(--paper);
   padding: 16px;
+  overflow-wrap: anywhere;
 }
 
 .fragment-card-top {
@@ -1954,6 +1957,7 @@ h1 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .fragment-context {
@@ -1982,6 +1986,7 @@ h1 {
   color: var(--ink);
   font-size: 13px;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .fragment-card dd + small {
@@ -1990,6 +1995,7 @@ h1 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .fragment-value,
@@ -3514,11 +3520,11 @@ h1 {
   }
 
   .fragment-cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .fragment-card h3 {
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
   }
 
   .fragment-value {
