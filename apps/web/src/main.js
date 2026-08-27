@@ -5,7 +5,7 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { base } from 'viem/chains';
 
 import { createApp } from './app.js';
-import { createPrivyWalletClient, PrivyWalletBridge } from './privy-wallet-client.js';
+import { createPrivyWalletClient, PRIVY_CONNECT_WALLET_LIST, PrivyWalletBridge } from './privy-wallet-client.js';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
 const appRoot = document.querySelector('#app');
@@ -28,6 +28,7 @@ if (walletRoot && PRIVY_APP_ID) {
             theme: 'dark',
             accentColor: '#6eecd8',
             logo: 'https://helixa.xyz/helixa-logo.jpg',
+            walletList: PRIVY_CONNECT_WALLET_LIST,
             walletChainType: 'ethereum-only',
           },
           embeddedWallets: {

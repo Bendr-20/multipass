@@ -19,6 +19,7 @@ import {
   buildHydratedProfileResponse,
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
+import { AllowlistInputError } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
@@ -34,6 +35,15 @@ const JSON_HEADERS = {
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
 const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
+const LOOPERS_ALLOWLIST_RATE_LIMIT = {
+  limit: 5,
+  windowMs: 60_000,
+};
+const LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT = {
+  limit: 25,
+  windowMs: 60_000,
+};
+const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 export function createMemoryStore(input = {}) {
   const {
@@ -151,6 +161,10 @@ export function createMultipassApi({
   signatureVerifier = verifyEthereumPersonalSignature,
   cookieSecure,
   fetchImpl = fetch,
+  loopersAllowlist,
+  loopersAllowlistRateLimit,
+  loopersAllowlistSubnetRateLimit,
+  loopersTurnstileSecretKey,
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
@@ -168,6 +182,10 @@ export function createMultipassApi({
     cookieSecure: cookieSecure ?? inferSecureCookie(allowedOrigins, normalizedBaseUrl),
     cookieName: MANAGER_COOKIE_NAME,
     fetchImpl,
+    loopersAllowlist,
+    loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
+    loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
+    loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
   };
 
   return {
@@ -178,6 +196,9 @@ export function createMultipassApi({
         const method = request.method.toUpperCase();
 
         if (method === 'POST') {
+          if (parts[0] === 'api' && parts[1] === 'loopers') {
+            return await handleLooperPost(request, parts, context);
+          }
           if (parts[0] === 'api' && parts[1] === 'admin') {
             return await handleAdminPost(request, parts, context);
           }
@@ -202,6 +223,10 @@ export function createMultipassApi({
 
         if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'resolve') {
           return await handleCanonicalResolve(url, context);
+        }
+
+        if (parts[0] === 'api' && parts[1] === 'loopers') {
+          return await handleLooperRead(url, parts, context);
         }
 
         if (parts[0] === 'api' && parts[1] === 'resolve') {
@@ -237,6 +262,9 @@ export function createMultipassApi({
         }
         if (error instanceof GroupActivationError) {
           return errorResponse(error.status ?? 400, error.code, error.message, error.details ?? {});
+        }
+        if (error instanceof AllowlistInputError) {
+          return errorResponse(400, error.code, error.message);
         }
         if (error instanceof TypeError) {
           return errorResponse(400, 'invalid_request', error.message);
@@ -310,6 +338,78 @@ async function handlePostRequest(request, parts, context) {
 
   if (parts[2] && parts[3] === 'session' && parts[4] === 'logout' && parts.length === 5) {
     return handleSessionLogout(request, parts[2], context);
+  }
+
+  return errorResponse(404, 'not_found', 'Route not found.');
+}
+
+async function handleLooperPost(request, parts, context) {
+  if (parts[2] === 'allowlist' && parts[3] === 'register' && parts.length === 4) {
+    if (!context.loopersAllowlist) {
+      return errorResponse(503, 'not_configured', 'Looper allowlist registration is not configured.');
+    }
+    const clientIp = getClientRateLimitKey(request);
+    const rateLimit = context.loopersAllowlistRateLimiter.check(clientIp);
+    if (!rateLimit.allowed) {
+      return jsonResponse({
+        schema_version: '0.1.0',
+        error: {
+          code: 'rate_limited',
+          message: 'Too many allowlist registration attempts. Try again shortly.',
+        },
+      }, 429, { 'retry-after': String(rateLimit.retryAfterSeconds) });
+    }
+    const subnetRateLimit = context.loopersAllowlistSubnetRateLimiter.check(getClientSubnetRateLimitKey(clientIp));
+    if (!subnetRateLimit.allowed) {
+      return jsonResponse({
+        schema_version: '0.1.0',
+        error: {
+          code: 'rate_limited',
+          message: 'Too many allowlist registration attempts from this network. Try again shortly.',
+        },
+      }, 429, { 'retry-after': String(subnetRateLimit.retryAfterSeconds) });
+    }
+    const body = await readJsonBody(request);
+    if (hasLooperAllowlistBotTrap(body)) {
+      return errorResponse(400, 'bot_detected', 'Allowlist registration rejected.');
+    }
+    const turnstile = await verifyLooperAllowlistTurnstile(body, request, context);
+    if (!turnstile.ok) {
+      return errorResponse(403, 'verification_required', turnstile.message);
+    }
+    const result = await context.loopersAllowlist.register({
+      address: body.address,
+      source: normalizeLooperAllowlistSource(body.source ?? 'launch-page'),
+    });
+    const total = await context.loopersAllowlist.count();
+    return jsonResponse({
+      schema_version: '0.1.0',
+      collection: 'multipass-loopers',
+      registered: true,
+      created: result.created,
+      address: result.entry.address,
+      entry: result.entry,
+      total_registered: total,
+    }, result.created ? 201 : 200);
+  }
+
+  return errorResponse(404, 'not_found', 'Route not found.');
+}
+
+async function handleLooperRead(url, parts, context) {
+  if (parts[2] === 'allowlist' && parts[3] === 'status' && parts.length === 4) {
+    if (!context.loopersAllowlist) {
+      return errorResponse(503, 'not_configured', 'Looper allowlist registration is not configured.');
+    }
+    const address = url.searchParams.get('address');
+    const status = await context.loopersAllowlist.status(address);
+    const total = await context.loopersAllowlist.count();
+    return jsonResponse({
+      schema_version: '0.1.0',
+      collection: 'multipass-loopers',
+      ...status,
+      total_registered: total,
+    });
   }
 
   return errorResponse(404, 'not_found', 'Route not found.');
@@ -1648,6 +1748,109 @@ function jsonOrNotFound(value, message) {
     return errorResponse(404, 'not_found', message);
   }
   return jsonResponse(value);
+}
+
+function createFixedWindowRateLimiter({ limit, windowMs, now = () => Date.now() } = {}) {
+  const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : LOOPERS_ALLOWLIST_RATE_LIMIT.limit;
+  const normalizedWindowMs = Number.isInteger(windowMs) && windowMs > 0 ? windowMs : LOOPERS_ALLOWLIST_RATE_LIMIT.windowMs;
+  const buckets = new Map();
+
+  return {
+    check(key) {
+      const bucketKey = String(key || 'unknown');
+      const currentTime = now();
+      const existing = buckets.get(bucketKey);
+      if (!existing || currentTime >= existing.resetAt) {
+        buckets.set(bucketKey, { count: 1, resetAt: currentTime + normalizedWindowMs });
+        return { allowed: true, retryAfterSeconds: 0 };
+      }
+      if (existing.count >= normalizedLimit) {
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - currentTime) / 1000)),
+        };
+      }
+      existing.count += 1;
+      return { allowed: true, retryAfterSeconds: 0 };
+    },
+  };
+}
+
+function getClientRateLimitKey(request) {
+  return (request.headers.get('cf-connecting-ip')
+    || request.headers.get('x-real-ip')
+    || firstForwardedFor(request.headers.get('x-forwarded-for'))
+    || 'direct').trim();
+}
+
+function getClientSubnetRateLimitKey(clientIp) {
+  const value = String(clientIp ?? '').trim();
+  const ipv4 = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/);
+  if (ipv4 && ipv4.slice(1).every((part) => Number(part) >= 0 && Number(part) <= 255)) {
+    return `${ipv4[1]}.${ipv4[2]}.${ipv4[3]}.0/24`;
+  }
+  const ipv6 = value.toLowerCase().split(':').filter(Boolean);
+  if (value.includes(':') && ipv6.length >= 4) {
+    return `${ipv6.slice(0, 4).join(':')}::/64`;
+  }
+  return value || 'direct';
+}
+
+function firstForwardedFor(value) {
+  return String(value ?? '').split(',')[0]?.trim() || null;
+}
+
+function hasLooperAllowlistBotTrap(body = {}) {
+  return [
+    body.website,
+    body.url,
+    body.company,
+    body.looper_allowlist_contact,
+  ].some((value) => String(value ?? '').trim());
+}
+
+function normalizeLooperAllowlistSource(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9:_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || 'launch-page';
+}
+
+async function verifyLooperAllowlistTurnstile(body, request, context) {
+  if (!context.loopersTurnstileSecretKey) return { ok: true };
+  const token = String(
+    body.turnstileToken
+    ?? body.turnstile_token
+    ?? body['cf-turnstile-response']
+    ?? '',
+  ).trim();
+  if (!token) {
+    return { ok: false, message: 'Human verification is required for public allowlist registration.' };
+  }
+
+  const form = new URLSearchParams({
+    secret: context.loopersTurnstileSecretKey,
+    response: token,
+  });
+  const remoteIp = getClientRateLimitKey(request);
+  if (remoteIp && remoteIp !== 'direct') form.set('remoteip', remoteIp);
+
+  let result;
+  try {
+    const response = await context.fetchImpl(TURNSTILE_VERIFY_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form,
+    });
+    result = await response.json();
+  } catch {
+    return { ok: false, message: 'Human verification could not be checked. Try again shortly.' };
+  }
+  if (result?.success === true) return { ok: true };
+  return { ok: false, message: 'Human verification failed. Try again.' };
 }
 
 function jsonResponse(body, status = 200, extraHeaders = {}) {

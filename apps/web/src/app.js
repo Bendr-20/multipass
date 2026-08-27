@@ -9,15 +9,17 @@ import { getCommunicationChannels, getCommunicationContactPolicy } from './commu
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
-import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage } from './wallet-client.js';
+import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage, shortenAddress } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
 import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createGroupActivationPayload, normalizeGroupMemberInput, renderGroupActivationError, renderGroupActivationPanel, renderGroupActivationPreview, renderGroupActivationSuccess } from './group-activation.js';
+import { getLooperAllowlistSourceFromLocation, isLooperAllowlistEnsName, normalizeLooperAllowlistAddress, registerLooperAllowlistAddress, resolveEnsAddressOnBase, resolveLooperAllowlistAddressInput } from './looper-allowlist.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
 const PUBLIC_AGENTS_PATH = '/multipass/agents';
+const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
@@ -27,7 +29,7 @@ const SITE_MENU_LINKS = [
   { label: 'Docs / API', href: 'https://api.helixa.xyz/' },
 ];
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -68,6 +70,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     groupActivation: createInitialGroupActivationState(),
     groupActivationExpanded: false,
     groupActivationRequestId: 0,
+    looperAllowlist: createInitialLooperAllowlistState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -425,6 +428,91 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       groupActivationRequestId: state.groupActivationRequestId + 1,
     };
     render(root, state, handlers);
+  }
+
+  async function registerLooperAllowlist(event) {
+    event?.preventDefault?.();
+    const form = event?.currentTarget;
+    const rawAddress = form?.querySelector('[name="looper_allowlist_address"]')?.value ?? state.looperAllowlist?.input ?? '';
+    const botTrap = form?.querySelector('[name="looper_allowlist_contact"]')?.value ?? '';
+    const turnstileToken = form?.querySelector('[name="cf-turnstile-response"]')?.value ?? '';
+    const resolvingEns = isLooperAllowlistEnsName(rawAddress);
+    state = { ...state, looperAllowlist: { status: resolvingEns ? 'resolving_ens' : 'registering', input: rawAddress, result: null, error: null } };
+    render(root, state, handlers);
+
+    let normalized;
+    try {
+      normalized = await resolveLooperAllowlistAddressInput(rawAddress, { resolveEnsAddress: ensResolver });
+    } catch (error) {
+      state = { ...state, looperAllowlist: { status: 'error', input: rawAddress, result: null, error: error.message } };
+      render(root, state, handlers);
+      return;
+    }
+
+    await registerResolvedLooperAllowlistAddress(normalized, { botTrap, turnstileToken });
+  }
+
+  async function registerResolvedLooperAllowlistAddress(normalized, options = {}) {
+    state = { ...state, looperAllowlist: { status: 'registering', input: normalized, result: null, error: null } };
+    render(root, state, handlers);
+
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const source = getLooperAllowlistSourceFromLocation(window.location.href);
+      const result = await registerLooperAllowlistAddress({
+        address: normalized,
+        apiBase,
+        source,
+        fetchImpl,
+        botTrap: options.botTrap ?? '',
+        turnstileToken: options.turnstileToken ?? '',
+      });
+      state = { ...state, looperAllowlist: { status: result.created ? 'registered' : 'existing', input: result.address ?? normalized, result, error: null } };
+      render(root, state, handlers);
+    } catch (error) {
+      state = { ...state, looperAllowlist: { status: 'error', input: normalized, result: null, error: error.message } };
+      render(root, state, handlers);
+    }
+  }
+
+  async function connectLooperAllowlistWallet() {
+    const currentAllowlist = state.looperAllowlist ?? createInitialLooperAllowlistState();
+    state = {
+      ...state,
+      looperAllowlist: { ...currentAllowlist, status: 'connecting_wallet', error: null },
+      walletSnapshot: activeWalletClient.getSnapshot(),
+    };
+    render(root, state, handlers);
+
+    try {
+      let walletSnapshot = activeWalletClient.getSnapshot();
+      if (walletSnapshot.configured === false) throw new Error('Wallet connection is not configured for this build. Enter your Base address manually.');
+      if (!walletSnapshot.connected) {
+        await activeWalletClient.connect();
+        walletSnapshot = activeWalletClient.getSnapshot();
+      }
+      if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet or enter your Base address manually.');
+
+      const normalized = normalizeLooperAllowlistAddress(walletSnapshot.address);
+      state = {
+        ...state,
+        walletSnapshot,
+        looperAllowlist: { status: 'registering', input: normalized, result: null, error: null },
+      };
+      render(root, state, handlers);
+      await registerResolvedLooperAllowlistAddress(normalized);
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperAllowlist: {
+          ...currentAllowlist,
+          status: 'error',
+          error: getLooperAllowlistWalletErrorMessage(error),
+        },
+      };
+      render(root, state, handlers);
+    }
   }
 
   async function claimWithWallet() {
@@ -832,7 +920,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -893,6 +981,7 @@ function getInitialResolverInput() {
 function getInitialPageKind() {
   if (typeof window === 'undefined') return 'profile';
   const locationUrl = new URL(window.location.href);
+  if (isLooperAllowlistRoute(locationUrl)) return 'looper_allowlist';
   if (isStaticSwarmProfileRoute(locationUrl)) return 'profile';
   if (isPublicAgentsRoute(locationUrl)) return 'agents';
   if (getSavedSlugFromLocation(locationUrl)) return 'profile';
@@ -902,6 +991,10 @@ function getInitialPageKind() {
 
 function isPublicAgentsRoute(locationUrl) {
   return locationUrl.pathname === PUBLIC_AGENTS_PATH || locationUrl.pathname === `${PUBLIC_AGENTS_PATH}/`;
+}
+
+function isLooperAllowlistRoute(locationUrl) {
+  return LOOPER_ALLOWLIST_PATHS.has(locationUrl.pathname);
 }
 
 function isStaticSwarmProfileRoute(locationUrl) {
@@ -946,6 +1039,7 @@ function defaultLoadDemo({ fetchImpl } = {}) {
   const locationUrl = new URL(window.location.href);
   const apiBase = getApiBaseFromLocation(locationUrl);
   const savedSlug = getSavedSlugFromLocation(locationUrl);
+  if (isLooperAllowlistRoute(locationUrl)) return loadStaticMultipassDemo();
   if (isStaticSwarmProfileRoute(locationUrl)) return loadStaticSwarmProfileDemo();
   if (isPublicAgentsRoute(locationUrl)) return loadStaticMultipassDemo();
   if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
@@ -990,6 +1084,10 @@ const defaultClaimApi = {
 
 function createInitialGroupActivationState() {
   return { status: 'idle', input: {}, preview: null, result: null, error: null };
+}
+
+function createInitialLooperAllowlistState() {
+  return { status: 'idle', input: '', result: null, error: null };
 }
 
 function readGroupActivationPayload(root, groupState = {}) {
@@ -1168,6 +1266,7 @@ function renderSiteMenu() {
 }
 
 function render(root, state, handlers = {}) {
+  updateDocumentMetadataForPage(state);
   const { data } = state;
   if (state.pageKind === 'product_home') {
     renderProductHome(root, state, handlers);
@@ -1176,6 +1275,11 @@ function render(root, state, handlers = {}) {
 
   if (state.pageKind === 'agents') {
     renderPublicAgentsPage(root, state, handlers);
+    return;
+  }
+
+  if (state.pageKind === 'looper_allowlist') {
+    renderLooperAllowlistPage(root, state, handlers);
     return;
   }
 
@@ -1190,6 +1294,33 @@ function render(root, state, handlers = {}) {
   }
 
   renderLegacyProfileShell(root, state, handlers);
+}
+
+function updateDocumentMetadataForPage(state) {
+  if (typeof document === 'undefined') return;
+  if (state.pageKind !== 'looper_allowlist') return;
+
+  document.title = 'Loopers';
+  setDocumentMeta('name', 'description', 'something new is coming...');
+  setDocumentMeta('property', 'og:url', 'https://helixa.xyz/allowlist?x=20260826c');
+  setDocumentMeta('property', 'og:title', 'Loopers');
+  setDocumentMeta('property', 'og:description', 'something new is coming...');
+  setDocumentMeta('name', 'twitter:title', 'Loopers');
+  setDocumentMeta('name', 'twitter:description', 'something new is coming...');
+}
+
+function setDocumentMeta(attributeName, attributeValue, content) {
+  const safeAttributeValue = String(attributeValue).replace(/["\\]/g, '\\$&');
+  const selector = attributeName === 'property'
+    ? `meta[property="${safeAttributeValue}"]`
+    : `meta[name="${safeAttributeValue}"]`;
+  let meta = document.querySelector(selector);
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute(attributeName, attributeValue);
+    document.head.append(meta);
+  }
+  meta.setAttribute('content', content);
 }
 
 function isResolvedProfileView(state) {
@@ -1818,6 +1949,84 @@ function renderProductHome(root, state, handlers = {}) {
   bindProductHomeEvents(root, handlers, state);
 }
 
+function renderLooperAllowlistPage(root, state, handlers = {}) {
+  root.innerHTML = `
+    <div class="record-shell looper-allowlist-shell">
+      <section class="looper-allowlist-hero" aria-label="Loopers allowlist">
+        ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
+      </section>
+    </div>
+  `;
+
+  bindProductHomeEvents(root, handlers, state);
+}
+
+function renderLooperAllowlistPanel(allowlist = createInitialLooperAllowlistState(), options = {}) {
+  const input = String(allowlist.input ?? '');
+  const registering = allowlist.status === 'registering';
+  const resolvingEns = allowlist.status === 'resolving_ens';
+  const connectingWallet = allowlist.status === 'connecting_wallet';
+  const walletSnapshot = options.walletSnapshot ?? {};
+  const walletUnconfigured = walletSnapshot.configured === false;
+  const headingTag = options.standalone ? 'h1' : 'h2';
+  return `
+    <section class="looper-allowlist-panel" aria-label="Loopers allowlist">
+      <div class="looper-allowlist-copy">
+        <${headingTag} class="looper-allowlist-logo-heading"><span class="looper-allowlist-heading-text">Loopers</span><img class="looper-allowlist-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="" aria-hidden="true" /></${headingTag}>
+        <p>something new is coming...</p>
+      </div>
+      <form class="looper-allowlist-form" data-action="register-looper-allowlist">
+        <label>
+          <span>Add your base address or base name</span>
+          <input name="looper_allowlist_address" inputmode="text" autocomplete="off" placeholder="0x... or name.base.eth" value="${escapeAttribute(input)}" ${registering || resolvingEns ? 'disabled' : ''} />
+        </label>
+        <label class="looper-allowlist-trap" aria-hidden="true" tabindex="-1">
+          <span>Contact</span>
+          <input name="looper_allowlist_contact" autocomplete="off" tabindex="-1" />
+        </label>
+        <div class="looper-allowlist-actions">
+          <button type="button" class="looper-allowlist-connect-button" data-action="connect-looper-wallet" ${registering || resolvingEns || connectingWallet || walletUnconfigured ? 'disabled' : ''}>${escapeHtml(getLooperAllowlistConnectLabel(walletSnapshot, connectingWallet, walletUnconfigured))}</button>
+          <button type="submit" ${registering || resolvingEns ? 'disabled' : ''}>${resolvingEns ? 'Resolving name...' : registering ? 'Registering...' : 'Register address'}</button>
+        </div>
+      </form>
+      <div class="looper-allowlist-helper">
+        <p>Connect your wallet to register it automatically, or manually add a Base address/Base name.</p>
+        <p>Registration does not guarantee mint access, timing, price, allocation, or final supply.</p>
+        <p>Verified wallets may receive priority when the mint phase opens.</p>
+      </div>
+      ${renderLooperAllowlistStatus(allowlist)}
+    </section>
+  `;
+}
+
+function getLooperAllowlistConnectLabel(walletSnapshot = {}, connectingWallet = false, walletUnconfigured = false) {
+  if (connectingWallet) return 'Connecting...';
+  if (walletUnconfigured) return 'Wallet unavailable';
+  if (walletSnapshot.connected && walletSnapshot.address) return `Connected ${walletSnapshot.label ?? shortenAddress(walletSnapshot.address)}`;
+  if (walletSnapshot.ready === false) return 'Loading wallet...';
+  return 'Connect wallet';
+}
+
+function getLooperAllowlistWalletErrorMessage(error) {
+  const message = getWalletErrorMessage(error);
+  return message
+    .replace(/Wallet signature cancelled\./i, 'Wallet connection cancelled.')
+    .replace(/ to sign the owner claim/gi, '');
+}
+
+function renderLooperAllowlistStatus(allowlist = createInitialLooperAllowlistState()) {
+  if (allowlist.status === 'registered') {
+    return `<p class="looper-allowlist-status success" role="status">${escapeHtml(allowlist.result?.address ?? allowlist.input)} is registered for the Looper allowlist.</p>`;
+  }
+  if (allowlist.status === 'existing') {
+    return `<p class="looper-allowlist-status success" role="status">${escapeHtml(allowlist.result?.address ?? allowlist.input)} was already registered.</p>`;
+  }
+  if (allowlist.status === 'error') {
+    return `<p class="looper-allowlist-status error" role="alert">${escapeHtml(allowlist.error ?? 'Allowlist registration failed.')}</p>`;
+  }
+  return '';
+}
+
 function renderPublicAgentsPage(root, state, handlers = {}) {
   const agentCarousel = createAgentCarousel(createPublicAgentGalleryData(state.data));
   root.innerHTML = `
@@ -2030,6 +2239,8 @@ function getHomepageMultipassProfileHref(card, index = 0) {
 
 function bindProductHomeEvents(root, handlers, state) {
   bindSiteMenu(root);
+  root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
+  root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
   root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.currentTarget;

@@ -39,6 +39,10 @@ logs/
 *.gif
 *.webp
 !apps/web/public/helixa-logo.png
+!apps/web/public/loopers-logo.png
+!apps/web/public/loopers-allowlist-preview.png
+!apps/web/public/loopers-allowlist-preview-20260826c.jpg
+!apps/web/public/og-bendr-profile-capture.png
 !apps/web/public/og-preview.png
 !apps/web/public/share/*.png
 !apps/web/public/share/*.jpg

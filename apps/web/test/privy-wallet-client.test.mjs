@@ -5,6 +5,9 @@ import {
   createPrivyConnectAction,
   createPrivyConnectionError,
   createPrivyWalletClient,
+  getAddressFromPrivyConnectResult,
+  PRIVY_CONNECT_WALLET_LIST,
+  selectConnectedWalletAddress,
   selectEvmWallet,
 } from '../src/privy-wallet-client.js';
 
@@ -33,6 +36,27 @@ test('selectEvmWallet prefers the most recently connected EVM wallet', () => {
   assert.equal(selectEvmWallet([latest, missingTimestamp, earlier]), latest);
 });
 
+test('selectConnectedWalletAddress accepts address-only smart wallet accounts', () => {
+  const smartWallet = { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', connectedAt: 400 };
+
+  assert.equal(selectConnectedWalletAddress([smartWallet]), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+});
+
+test('selectConnectedWalletAddress falls back to Privy linked wallet accounts', () => {
+  assert.equal(selectConnectedWalletAddress([], {
+    linkedAccounts: [
+      { type: 'email', address: 'not-a-wallet' },
+      { type: 'wallet', address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+    ],
+  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+});
+
+test('getAddressFromPrivyConnectResult extracts smart wallet addresses from modal results', () => {
+  assert.equal(getAddressFromPrivyConnectResult({
+    wallet: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+});
+
 test('createPrivyWalletClient publishes snapshot updates to subscribers and labels addresses', () => {
   const client = createPrivyWalletClient();
   const snapshots = [];
@@ -58,6 +82,19 @@ test('createPrivyWalletClient publishes snapshot updates to subscribers and labe
   });
 });
 
+test('createPrivyWalletClient starts configured while Privy is still loading', () => {
+  const client = createPrivyWalletClient();
+
+  assert.deepEqual(client.getSnapshot(), {
+    ready: false,
+    configured: true,
+    connected: false,
+    address: null,
+    label: null,
+    connectLabel: 'Loading wallet options...',
+  });
+});
+
 test('createPrivyWalletClient delegates connect and signMessage actions', async () => {
   const calls = [];
   const client = createPrivyWalletClient();
@@ -72,6 +109,19 @@ test('createPrivyWalletClient delegates connect and signMessage actions', async 
   await client.connect();
   assert.deepEqual(await client.signMessage('hello'), { wallet: '0xwallet', signature: '0xsig' });
   assert.deepEqual(calls, [['connect'], ['signMessage', 'hello']]);
+});
+
+test('Privy connect wallet list includes Base, Coinbase, and fallback wallet options', () => {
+  assert.deepEqual(PRIVY_CONNECT_WALLET_LIST, [
+    'base_account',
+    'coinbase_wallet',
+    'metamask',
+    'rainbow',
+    'wallet_connect',
+    'wallet_connect_qr',
+  ]);
+  assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('base_account'), true);
+  assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('coinbase_wallet'), true);
 });
 
 test('createPrivyConnectAction opens Privy with Multipass prompt and explicit timeout', async () => {
@@ -91,10 +141,26 @@ test('createPrivyConnectAction opens Privy with Multipass prompt and explicit ti
   assert.deepEqual(calls, [
     ['connectWallet', {
       walletChainType: 'ethereum-only',
-      description: 'Connect the wallet that manages this Multipass public profile.',
+      walletList: PRIVY_CONNECT_WALLET_LIST,
+      description: 'Connect your wallet to Multipass.',
     }],
-    ['waitForConnection', { timeoutMs: 15000 }],
+    ['waitForConnection', { timeoutMs: 45000 }],
   ]);
+});
+
+test('createPrivyConnectAction accepts address returned directly from smart wallet modal', async () => {
+  const client = createPrivyWalletClient();
+  const action = createPrivyConnectAction({
+    configured: true,
+    connectWallet: () => ({
+      wallet: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+    }),
+    client,
+  });
+
+  assert.equal(await action(), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.equal(client.getSnapshot().connected, true);
+  assert.equal(client.getSnapshot().address, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
 });
 
 test('createPrivyConnectAction propagates modal rejection without waiting for wallet state', async () => {
@@ -119,10 +185,11 @@ test('createPrivyConnectAction propagates modal rejection without waiting for wa
   await assert.rejects(action(), modalError);
   assert.deepEqual(calls, [[
     'connectWallet',
-    {
-      walletChainType: 'ethereum-only',
-      description: 'Connect the wallet that manages this Multipass public profile.',
-    },
+      {
+        walletChainType: 'ethereum-only',
+        walletList: PRIVY_CONNECT_WALLET_LIST,
+        description: 'Connect your wallet to Multipass.',
+      },
   ]]);
 });
 

@@ -730,6 +730,215 @@ test('homepage moves activation below the what-it-does panel', async () => {
   assert.equal(heroCard.querySelector('.product-hero-main')?.nextElementSibling, root.querySelector('.profile-visual-strip'));
 });
 
+test('homepage does not render Looper allowlist registration panel', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.looper-allowlist-panel'), null);
+  assert.doesNotMatch(root.textContent, /Register address/);
+});
+
+test('standalone allowlist route renders stealth Looper registration panel', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const panel = root.querySelector('.looper-allowlist-panel');
+  assert.ok(panel);
+  assert.equal(root.querySelector('h1')?.textContent, 'Loopers');
+  assert.equal(panel.querySelector('.card-label'), null);
+  assert.match(panel.textContent, /something new is coming/i);
+  assert.doesNotMatch(panel.textContent, /quiet 777-piece signal/i);
+  assert.doesNotMatch(panel.textContent, /Multipass Loopers/i);
+  assert.doesNotMatch(panel.textContent, /contract, art generation, metadata, and marketplace prep/i);
+  assert.equal(document.title, 'Loopers');
+  assert.equal(document.querySelector('meta[name="description"]')?.getAttribute('content'), 'something new is coming...');
+  assert.equal(document.querySelector('meta[property="og:title"]')?.getAttribute('content'), 'Loopers');
+  assert.equal(document.querySelector('meta[name="twitter:title"]')?.getAttribute('content'), 'Loopers');
+  assert.equal(panel.querySelector('label span')?.textContent, 'Add your base address or base name');
+  assert.equal(panel.querySelector('input[name="looper_allowlist_address"]')?.getAttribute('placeholder'), '0x... or name.base.eth');
+  assert.match(panel.textContent, /Connect your wallet to register it automatically, or manually add a Base address\/Base name/i);
+  assert.doesNotMatch(panel.textContent, /POST \/multipass-api\/api\/loopers\/allowlist\/register/i);
+  assert.equal(panel.querySelector('[data-action="connect-looper-wallet"]')?.textContent, 'Connect wallet');
+  assert.equal(panel.querySelector('button[type="submit"]')?.textContent, 'Register address');
+});
+
+test('multipass allowlist alias renders the standalone Looper registration panel', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/allowlist');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.looper-allowlist-panel h1')?.textContent, 'Loopers');
+  assert.equal(root.querySelector('.live-resolver'), null);
+});
+
+test('standalone Looper allowlist registers an address', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const calls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ registered: true, created: true, address, total_registered: 1 }), { status: 201 });
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="register-looper-allowlist"]');
+  form.querySelector('[name="looper_allowlist_address"]').value = address.toLowerCase();
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://helixa.xyz/multipass-api/api/loopers/allowlist/register');
+  assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
+
+test('standalone Looper allowlist resolves Base name before registering', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x2211d1D0020DAEA8039E46Cf1367962070d77DA9';
+  const calls = [];
+  const ensCalls = [];
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    ensResolver: async (name) => {
+      ensCalls.push(name);
+      return address;
+    },
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ registered: true, created: true, address, total_registered: 1 }), { status: 201 });
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="register-looper-allowlist"]');
+  form.querySelector('[name="looper_allowlist_address"]').value = 'Jesse.base.eth';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  assert.deepEqual(ensCalls, ['jesse.base.eth']);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { address, source: 'launch-page', looper_allowlist_contact: '' });
+  assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
+
+test('standalone Looper allowlist reports unresolved Base name without API call', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist');
+  let calls = 0;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    ensResolver: async () => null,
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="register-looper-allowlist"]');
+  form.querySelector('[name="looper_allowlist_address"]').value = 'missing.base.eth';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.equal(calls, 0);
+  assert.match(root.querySelector('.looper-allowlist-status.error')?.textContent ?? '', /does not resolve/i);
+});
+
+test('standalone Looper allowlist reports invalid address without API call', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist');
+  let calls = 0;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="register-looper-allowlist"]');
+  form.querySelector('[name="looper_allowlist_address"]').value = 'bad_name';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.equal(calls, 0);
+  assert.match(root.querySelector('.looper-allowlist-status.error')?.textContent ?? '', /valid Base address or Base name/i);
+});
+
+test('standalone Looper allowlist connect wallet fills and registers the address', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const calls = [];
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    connect: async () => {
+      walletClient.setSnapshot({
+        connected: true,
+        address,
+        label: '0x27E3...91Ea',
+      });
+    },
+  });
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ registered: true, created: true, address, total_registered: 1 }), { status: 201 });
+    },
+  }).start();
+  root.querySelector('[data-action="connect-looper-wallet"]').click();
+  await flushAsyncEvents(30);
+
+  assert.equal(root.querySelector('[name="looper_allowlist_address"]')?.value, address);
+  assert.equal(root.querySelector('[data-action="connect-looper-wallet"]')?.textContent, 'Connected 0x27E3...91Ea');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://helixa.xyz/multipass-api/api/loopers/allowlist/register');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { address, source: 'launch-page', looper_allowlist_contact: '' });
+  assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
+
+test('standalone Looper allowlist connect wallet can register while Privy readiness is still settling', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const calls = [];
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    snapshot: {
+      ready: false,
+      configured: true,
+      connected: false,
+      address: null,
+      connectLabel: 'Loading wallet options...',
+    },
+    connect: async () => {
+      walletClient.setSnapshot({
+        ready: true,
+        configured: true,
+        connected: true,
+        address,
+      });
+    },
+  });
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ registered: true, created: true, address, total_registered: 1 }), { status: 201 });
+    },
+  }).start();
+  root.querySelector('[data-action="connect-looper-wallet"]').click();
+  await flushAsyncEvents(30);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { address, source: 'launch-page', looper_allowlist_contact: '' });
+  assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
 
 test('group activation stays hidden behind the Activate Swarm button on the homepage', async () => {
   const root = setupDom('https://helixa.xyz/multipass/');
@@ -1630,6 +1839,7 @@ test('static initial state presents Multipass product home instead of Bendr prof
   const activation = root.querySelector('.live-resolver');
   const groupActivation = root.querySelector('.group-activation-section');
   assert.equal(groupActivation, null);
+  assert.equal(root.querySelector('.looper-allowlist-panel'), null);
   assert.equal(proofPanel?.previousElementSibling, hero);
   assert.equal(proofPanel?.nextElementSibling, activation);
   assert.equal(activation?.previousElementSibling, proofPanel);

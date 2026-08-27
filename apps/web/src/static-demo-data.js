@@ -898,18 +898,30 @@ export const STATIC_DEMO_DATA = {
       "tokenId": "saved:axobotl-1069",
       "helixaId": "helixa-agentdna:8453:1069",
       "framework": "public-web observed",
-      "credScore": 85,
-      "credTier": "Building",
+      "credScore": 61,
+      "credTier": "Qualified",
       "verified": false,
       "profileUrl": "https://helixa.xyz/multipass/axobotl-1069",
       "role": "Task marketplace agent",
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "12 public-web observed tools",
-      "proofFragmentIds": ["frag_axobotl_public_web"],
+      "proofFragmentIds": ["frag_axobotl_public_web", "frag_helixa_agent_1069_intuition_identity"],
       "intuition": {
-        "status": "mapping_required",
-        "label": "Mapping needed",
-        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "8453:18840",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/18840/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreiftis7gntdzzdeys4go3g3ivm2vcxbjl7o3ldnqyrtkaoexm4gcpy",
+          "caipUri": "ipfs://bafkreigt3zstk2itoi2rhfilucsnohlvmbv5376lxz5lne4h6jximjhrbe",
+          "identityAtomId": "0x5dafc147e9c73b822d0fbf743e81d83717ce649952126ed4bac19eb88ceb355e",
+          "caipAtomId": "0x7630ad26d59ab161a048eec67f919b53c5b6cf002398b9fcf85611ef664b9b47",
+          "trustAssessmentTripleId": "0xd3fd8db7acced2f6c2ecc12d2267453a992e3ebb582edda01016de19218cac7d",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0xd3fd8db7acced2f6c2ecc12d2267453a992e3ebb582edda01016de19218cac7d"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "Owner not claimed",
@@ -930,18 +942,30 @@ export const STATIC_DEMO_DATA = {
       "tokenId": "saved:velvet-unicorn-1127",
       "helixaId": "helixa-agentdna:8453:1127",
       "framework": "custom DeFAI",
-      "credScore": 85,
-      "credTier": "Building",
+      "credScore": 66,
+      "credTier": "Qualified",
       "verified": false,
       "profileUrl": "https://helixa.xyz/multipass/velvet-unicorn-1127",
       "role": "DeFAI API agent",
       "custody": "Unclaimed; owner unverified public-web observed profile",
       "proofSummary": "6 public-web observed tools",
-      "proofFragmentIds": ["frag_velvet_unicorn_public_web"],
+      "proofFragmentIds": ["frag_velvet_unicorn_public_web", "frag_helixa_agent_1127_intuition_identity"],
       "intuition": {
-        "status": "mapping_required",
-        "label": "Mapping needed",
-        "note": "Needs canonical ERC-8004 token ID before Intuition graph publication."
+        "status": "published",
+        "label": "Published",
+        "canonicalAgentId": "8453:38213",
+        "resolverUrl": "https://api.helixa.xyz/.well-known/intuition/erc8004/agents/8453/38213/trust-assessment.json",
+        "identityLayer": {
+          "status": "published",
+          "identityUri": "ipfs://bafkreigi5timxkzb5yu5tmaz7exmuoscaw7cy3tejcu3hr5egyfmz7jhze",
+          "caipUri": "ipfs://bafkreicptkovk2mktw7x2w77ut5hyuoz5ail6dzxymjvs7od2biwjwe664",
+          "identityAtomId": "0xeec3a58b82e4aa6c6e331bad2951639add4cb803f2606016b9d3b36f3368e9c7",
+          "caipAtomId": "0xbd232a9a6053ba5f53dfb9369cc9dccd3e0fabdc04326b4e68314f8dc7af8314",
+          "trustAssessmentTripleId": "0xc048a2c0362f4c7ec60ab5c9a1cd1808aa5f33498ba923535bf2cdb2fbde39f8",
+          "portalLinks": {
+            "has_trust_assessment": "https://portal.intuition.systems/explore/triple/0xc048a2c0362f4c7ec60ab5c9a1cd1808aa5f33498ba923535bf2cdb2fbde39f8"
+          }
+        }
       },
       "ownerSnapshot": {
         "owner": "Owner not claimed",

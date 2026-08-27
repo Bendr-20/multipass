@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "vite build",
+    "build": "vite build && node scripts/write-allowlist-entry.mjs",
+    "generate:allowlist-preview": "node scripts/render-allowlist-preview.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "node --test test/*.test.mjs"
   },

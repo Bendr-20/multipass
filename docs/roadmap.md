@@ -72,6 +72,8 @@ Deferred: zero-knowledge circuits, privacy-preserving ranking, external issuer n
 
 Build NFT and marketplace compatibility using ERC-721T metadata, controller asset references, ownership labels, marketplace display fields, and transfer-aware trust summaries.
 
+For Multipass Loopers, keep public allowlist collection server-side until mint planning is ready. The default mint path should snapshot the final checksum-normalized address list, generate a Merkle tree, publish the Merkle root in the mint contract, and have the mint site supply per-wallet proofs. If the team wants to keep adding addresses after mint opens, use scheduled Merkle-root batch updates or explicitly choose a backend signature system instead.
+
 Deferred: marketplace launch, royalty policy, collection analytics, and automated listing controls.
 
 ## Phase 12: Runtime handoff

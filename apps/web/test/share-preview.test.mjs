@@ -12,9 +12,14 @@ import { STATIC_DEMO_DATA } from '../src/static-demo-data.js';
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const indexPath = join(webRoot, 'index.html');
+const ogSvgPath = join(webRoot, 'public', 'og-preview.svg');
 const ogImagePath = join(webRoot, 'public', 'og-preview.png');
+const looperAllowlistPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview.png');
+const looperAllowlistXPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview-20260826c.jpg');
+const ogSourceCapturePath = join(webRoot, 'public', 'og-bendr-profile-capture.png');
 const shareRoot = join(webRoot, 'public', 'share');
 const STALE_QUIGBOT_AURA_SHARE_JPEG_SHA256 = '038840a1d3474d9c9f5079fe6218634f2cfc111d30d679fd55709a7a8c655262';
+const LOOPERS_ALLOWLIST_ALT_1_SHA256 = '6a5a849d591225ced6a78981e0e16e736ea1e57b971aa71306936064d399e9f4';
 
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -44,24 +49,51 @@ function numericStaticAgentCards() {
   return STATIC_DEMO_DATA.agentCards.filter((card) => /^\d+$/.test(String(card.tokenId ?? '')));
 }
 
-test('index contains Multipass portable agent identity share metadata', async () => {
+test('index contains Multipass agent trust profile share metadata', async () => {
   const html = await readFile(indexPath, 'utf8');
 
-  assert.match(html, /<title>Multipass - Portable Agent Identity<\/title>/);
-  assert.match(html, /<meta name="description" content="Identity, proof, custody, Cred, and discovery context for agents and AI-native systems\." \/>/);
-  assert.match(html, /<meta property="og:title" content="Multipass - Portable Agent Identity" \/>/);
-  assert.match(html, /<meta property="og:description" content="Identity, proof, custody, Cred, and discovery context for agents and AI-native systems\." \/>/);
-  assert.match(html, /<meta property="og:image" content="https:\/\/helixa\.xyz\/multipass\/og-preview\.png" \/>/);
+  assert.match(html, /<title>Multipass - Agent Trust Profiles<\/title>/);
+  assert.match(html, /<meta name="description" content="Onchain identity, Cred Scores, proof, and discovery routes for AI agents on Base\." \/>/);
+  assert.match(html, /<meta property="og:title" content="Multipass - Agent Trust Profiles" \/>/);
+  assert.match(html, /<meta property="og:description" content="Onchain identity, Cred Scores, proof, and discovery routes for AI agents on Base\." \/>/);
+  assert.match(html, /<meta property="og:image" content="https:\/\/helixa\.xyz\/multipass\/og-preview\.png\?v=20260730d" \/>/);
   assert.match(html, /<meta property="og:image:type" content="image\/png" \/>/);
   assert.match(html, /<meta property="og:image:width" content="1200" \/>/);
   assert.match(html, /<meta property="og:image:height" content="630" \/>/);
   assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/);
-  assert.match(html, /<meta name="twitter:title" content="Multipass - Portable Agent Identity" \/>/);
-  assert.match(html, /<meta name="twitter:image" content="https:\/\/helixa\.xyz\/multipass\/og-preview\.png" \/>/);
+  assert.match(html, /<meta name="twitter:title" content="Multipass - Agent Trust Profiles" \/>/);
+  assert.match(html, /<meta name="twitter:image" content="https:\/\/helixa\.xyz\/multipass\/og-preview\.png\?v=20260730d" \/>/);
 });
 
-test('share preview image exists as a static public asset', () => {
+test('share preview image exists as a 1200x630 static PNG asset with Bendr source capture retained', () => {
   assert.equal(existsSync(ogImagePath), true);
+  assert.deepEqual(imageSizeFromFile(ogImagePath), { width: 1200, height: 630, type: 'png' });
+  assert.equal(existsSync(ogSourceCapturePath), true);
+  assert.deepEqual(imageSizeFromFile(ogSourceCapturePath), { width: 1200, height: 630, type: 'png' });
+});
+
+test('Loopers allowlist preview image exists as a 1200x630 static PNG asset', () => {
+  assert.equal(existsSync(looperAllowlistPreviewPath), true);
+  assert.deepEqual(imageSizeFromFile(looperAllowlistPreviewPath), { width: 1200, height: 630, type: 'png' });
+  assert.equal(sha256File(looperAllowlistPreviewPath), LOOPERS_ALLOWLIST_ALT_1_SHA256);
+  assert.ok(statSync(looperAllowlistPreviewPath).size > 20_000);
+});
+
+test('Loopers allowlist X preview image exists as a 1200x630 static JPEG asset', () => {
+  assert.equal(existsSync(looperAllowlistXPreviewPath), true);
+  assert.deepEqual(imageSizeFromFile(looperAllowlistXPreviewPath), { width: 1200, height: 630, type: 'jpeg' });
+  assert.ok(statSync(looperAllowlistXPreviewPath).size > 20_000);
+});
+
+test('share preview SVG frames the actual Bendr Multipass capture without Intuition tag copy', async () => {
+  const svg = await readFile(ogSvgPath, 'utf8');
+
+  assert.match(svg, /Agent Trust Profile Example/);
+  assert.match(svg, /generic Multipass credential frame with the live Bendr 2\.0 profile clipped inside/);
+  assert.match(svg, /LIVE EXAMPLE \/ BENDR 2\.0 \/ 8453:1/);
+  assert.match(svg, /Cred 65/);
+  assert.match(svg, /og-bendr-profile-capture\.png/);
+  assert.doesNotMatch(svg, /Intuition/i);
 });
 
 test('agent share routes expose per-agent X-compatible JPEG social preview metadata', async () => {

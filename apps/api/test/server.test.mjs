@@ -18,6 +18,8 @@ test('parseServerOptions returns safe defaults', () => {
     adminSecret: null,
     cookieSecure: null,
     publicBaseUrl: null,
+    loopersAllowlistPath: null,
+    loopersTurnstileSecretKey: null,
   });
 });
 
@@ -37,6 +39,8 @@ test('CLI flags override environment values', () => {
       adminSecret: null,
       cookieSecure: null,
       publicBaseUrl: null,
+      loopersAllowlistPath: null,
+      loopersTurnstileSecretKey: null,
     },
   );
 });
@@ -56,6 +60,8 @@ test('parseServerOptions accepts claim management security env', () => {
     adminSecret: 'secret',
     cookieSecure: true,
     publicBaseUrl: 'https://helixa.xyz',
+    loopersAllowlistPath: null,
+    loopersTurnstileSecretKey: null,
   });
 });
 
@@ -67,6 +73,15 @@ test('parseServerOptions rejects invalid ports', () => {
 test('parseServerOptions accepts database path from env or CLI', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_DB_PATH: '/tmp/multipass.sqlite' }).databasePath, '/tmp/multipass.sqlite');
   assert.equal(parseServerOptions(['--database', '/tmp/cli.sqlite'], {}).databasePath, '/tmp/cli.sqlite');
+});
+
+test('parseServerOptions accepts Looper allowlist path from env or CLI', () => {
+  assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PATH: '/tmp/loopers.json' }).loopersAllowlistPath, '/tmp/loopers.json');
+  assert.equal(parseServerOptions(['--loopers-allowlist', '/tmp/cli-loopers.json'], {}).loopersAllowlistPath, '/tmp/cli-loopers.json');
+});
+
+test('parseServerOptions accepts Looper Turnstile secret from env', () => {
+  assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY: 'secret' }).loopersTurnstileSecretKey, 'secret');
 });
 
 test('startServer can advertise a public base URL while listening locally', async () => {
@@ -99,6 +114,176 @@ test('startServer serves discovery and profile routes on an ephemeral port', asy
     assert.equal(profile.status, 200);
     const profileBody = await profile.json();
     assert.equal(profileBody.multipass_id, 'mp_demo_agent');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer registers and checks Looper allowlist addresses', async () => {
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0 });
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+
+  try {
+    const register = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: address.toLowerCase(), source: 'test' }),
+    });
+    assert.equal(register.status, 201);
+    const registered = await register.json();
+    assert.equal(registered.registered, true);
+    assert.equal(registered.created, true);
+    assert.equal(registered.address, address);
+    assert.equal(registered.total_registered, 1);
+
+    const duplicate = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address, source: 'duplicate' }),
+    });
+    assert.equal(duplicate.status, 200);
+    assert.equal((await duplicate.json()).created, false);
+
+    const status = await fetch(`${server.url}/api/loopers/allowlist/status?address=${address}`);
+    assert.equal(status.status, 200);
+    const statusBody = await status.json();
+    assert.equal(statusBody.registered, true);
+    assert.equal(statusBody.entry.source, 'test');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rejects invalid Looper allowlist addresses', async () => {
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0 });
+
+  try {
+    const register = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: 'not-an-address' }),
+    });
+    assert.equal(register.status, 400);
+    assert.equal((await register.json()).error.code, 'invalid_address');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rate limits repeated Looper allowlist registration attempts by client', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistRateLimit: { limit: 1, windowMs: 60_000, now: () => 1_000 },
+  });
+
+  try {
+    const first = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
+    });
+    assert.equal(first.status, 201);
+
+    const limited = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({ address: '0x0000000000000000000000000000000000000001', source: 'test' }),
+    });
+    assert.equal(limited.status, 429);
+    assert.equal(limited.headers.get('retry-after'), '60');
+    assert.equal((await limited.json()).error.code, 'rate_limited');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rate limits Looper allowlist bursts by client subnet', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistRateLimit: { limit: 10, windowMs: 60_000, now: () => 1_000 },
+    loopersAllowlistSubnetRateLimit: { limit: 1, windowMs: 60_000, now: () => 1_000 },
+  });
+
+  try {
+    const first = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
+    });
+    assert.equal(first.status, 201);
+
+    const limited = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.99' },
+      body: JSON.stringify({ address: '0x0000000000000000000000000000000000000001', source: 'test' }),
+    });
+    assert.equal(limited.status, 429);
+    assert.equal((await limited.json()).error.message, 'Too many allowlist registration attempts from this network. Try again shortly.');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rejects Looper allowlist honeypot submissions', async () => {
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0 });
+
+  try {
+    const register = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+        website: 'https://bot.example',
+      }),
+    });
+    assert.equal(register.status, 400);
+    assert.equal((await register.json()).error.code, 'bot_detected');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer requires and verifies Turnstile when configured', async () => {
+  const turnstileCalls = [];
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersTurnstileSecretKey: 'secret',
+    fetchImpl: async (url, options) => {
+      turnstileCalls.push({ url, options });
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    },
+  });
+
+  try {
+    const missing = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' }),
+    });
+    assert.equal(missing.status, 403);
+    assert.equal((await missing.json()).error.code, 'verification_required');
+
+    const register = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.42' },
+      body: JSON.stringify({
+        address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+        turnstileToken: 'token',
+      }),
+    });
+    assert.equal(register.status, 201);
+    assert.equal(turnstileCalls.length, 1);
+    assert.equal(turnstileCalls[0].url, 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    const form = new URLSearchParams(turnstileCalls[0].options.body);
+    assert.equal(form.get('secret'), 'secret');
+    assert.equal(form.get('response'), 'token');
+    assert.equal(form.get('remoteip'), '203.0.113.42');
   } finally {
     await server.close();
   }

@@ -2,6 +2,7 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { activateHelixaRecord } from './activation-records.js';
+import { createJsonAllowlistStore, createMemoryAllowlistStore } from './allowlist-store.js';
 import { loadFixtureStore } from './fixtures.js';
 import { createMultipassApi } from './index.js';
 import { createSqliteSavedRecords } from './saved-records.js';
@@ -20,6 +21,8 @@ export function parseServerOptions(argv = [], env = process.env) {
     adminSecret: env.MULTIPASS_ADMIN_SECRET || null,
     cookieSecure: parseOptionalBoolean(env.MULTIPASS_COOKIE_SECURE, 'MULTIPASS_COOKIE_SECURE'),
     publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
+    loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
+    loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -34,6 +37,8 @@ export function parseServerOptions(argv = [], env = process.env) {
       options.databasePath = argv[++index];
     } else if (arg === '--public-base-url') {
       options.publicBaseUrl = normalizeOptionalBaseUrl(argv[++index], '--public-base-url');
+    } else if (arg === '--loopers-allowlist') {
+      options.loopersAllowlistPath = argv[++index];
     }
   }
 
@@ -50,11 +55,20 @@ export async function startServer(options = {}) {
     adminSecret: options.adminSecret ?? null,
     cookieSecure: options.cookieSecure ?? null,
     publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
+    loopersAllowlistPath: options.loopersAllowlistPath ?? null,
+    loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
+    loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
+    loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
+    fetchImpl: options.fetchImpl,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
   const ownsSavedRecords = Boolean(parsed.databasePath && !options.savedRecords);
   const savedRecords = options.savedRecords ?? (parsed.databasePath ? createSqliteSavedRecords({ databasePath: parsed.databasePath }) : null);
   const activationService = options.activationService ?? activateHelixaRecord;
+  const loopersAllowlist = options.loopersAllowlist
+    ?? (parsed.loopersAllowlistPath
+      ? await createJsonAllowlistStore({ filePath: parsed.loopersAllowlistPath })
+      : createMemoryAllowlistStore());
   let api;
   let listeningUrl;
   let apiBaseUrl;
@@ -106,6 +120,11 @@ export async function startServer(options = {}) {
     allowedOrigins: parsed.allowedOrigins,
     adminSecret: parsed.adminSecret,
     cookieSecure: parsed.cookieSecure,
+    loopersAllowlist,
+    loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
+    loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
+    loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
+    fetchImpl: parsed.fetchImpl,
   });
 
   return {
@@ -115,6 +134,7 @@ export async function startServer(options = {}) {
     url: listeningUrl,
     publicBaseUrl: apiBaseUrl,
     databasePath: parsed.databasePath,
+    loopersAllowlistPath: parsed.loopersAllowlistPath,
     server: nodeServer,
     close: () => new Promise((resolve, reject) => {
       nodeServer.close((error) => {

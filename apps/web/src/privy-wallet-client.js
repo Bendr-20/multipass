@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { useConnectWallet, usePrivy, useWallets } from '@privy-io/react-auth';
+import { getAddress, isAddress } from 'viem';
 
 import { defaultWalletSnapshot, requestPersonalSign, shortenAddress } from './wallet-client.js';
 
@@ -7,7 +8,15 @@ const LOADING_WALLET_MESSAGE = 'Wallet options are still loading.';
 const WALLET_NOT_CONFIGURED_MESSAGE = 'Wallet login is not configured for this build.';
 const CONNECT_EVM_WALLET_MESSAGE = 'Connect an Ethereum wallet to sign the owner claim.';
 const WALLET_CANNOT_SIGN_MESSAGE = 'Connected wallet cannot sign messages.';
-const PRIVY_CONNECT_DESCRIPTION = 'Connect the wallet that manages this Multipass public profile.';
+const PRIVY_CONNECT_DESCRIPTION = 'Connect your wallet to Multipass.';
+export const PRIVY_CONNECT_WALLET_LIST = [
+  'base_account',
+  'coinbase_wallet',
+  'metamask',
+  'rainbow',
+  'wallet_connect',
+  'wallet_connect_qr',
+];
 
 function connectedAtValue(wallet) {
   const value = Number(wallet?.connectedAt);
@@ -27,6 +36,30 @@ function loadingAction() {
 
 function isPromiseLike(value) {
   return Boolean(value && typeof value.then === 'function');
+}
+
+function normalizeAddressOrNull(value) {
+  const address = String(value ?? '').trim();
+  return isAddress(address) ? getAddress(address) : null;
+}
+
+function getWalletAddress(wallet) {
+  return normalizeAddressOrNull(wallet?.address ?? wallet?.walletAddress);
+}
+
+export function getAddressFromPrivyConnectResult(result) {
+  if (Array.isArray(result)) {
+    for (const item of result) {
+      const address = getAddressFromPrivyConnectResult(item);
+      if (address) return address;
+    }
+    return null;
+  }
+
+  return getWalletAddress(result)
+    ?? getWalletAddress(result?.wallet)
+    ?? getWalletAddress(result?.account)
+    ?? getWalletAddress(result?.user?.wallet);
 }
 
 export function createPrivyConnectionError(error) {
@@ -53,6 +86,28 @@ export function selectEvmWallet(wallets = []) {
   return selected;
 }
 
+export function selectConnectedWalletAddress(wallets = [], user = null) {
+  const signableWallet = selectEvmWallet(wallets);
+  const signableAddress = getWalletAddress(signableWallet);
+  if (signableAddress) return signableAddress;
+
+  let selectedWallet = null;
+  for (const wallet of wallets) {
+    if (!getWalletAddress(wallet)) continue;
+    if (!selectedWallet || connectedAtValue(wallet) > connectedAtValue(selectedWallet)) selectedWallet = wallet;
+  }
+  const selectedAddress = getWalletAddress(selectedWallet);
+  if (selectedAddress) return selectedAddress;
+
+  const linkedAccounts = [user?.wallet, ...(Array.isArray(user?.linkedAccounts) ? user.linkedAccounts : [])];
+  for (const account of linkedAccounts) {
+    const address = getWalletAddress(account);
+    if (address) return address;
+  }
+
+  return null;
+}
+
 export function createPrivyConnectAction({ client, configured, connectWallet }) {
   return async () => {
     if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
@@ -60,17 +115,27 @@ export function createPrivyConnectAction({ client, configured, connectWallet }) 
     client.clearConnectionError?.();
     const modalResult = connectWallet({
       walletChainType: 'ethereum-only',
+      walletList: PRIVY_CONNECT_WALLET_LIST,
       description: PRIVY_CONNECT_DESCRIPTION,
     });
-    if (isPromiseLike(modalResult)) await modalResult;
-    return client.waitForConnection({ timeoutMs: 15000 });
+    const result = isPromiseLike(modalResult) ? await modalResult : modalResult;
+    const resultAddress = getAddressFromPrivyConnectResult(result);
+    if (resultAddress) {
+      client.setSnapshot?.({
+        ready: true,
+        configured: true,
+        connected: true,
+        address: resultAddress,
+      });
+      return resultAddress;
+    }
+    return client.waitForConnection({ timeoutMs: 45000 });
   };
 }
 
 export function createPrivyWalletClient() {
   let snapshot = defaultWalletSnapshot({
     ready: false,
-    configured: false,
     connectLabel: 'Loading wallet options...',
   });
   let actions = {
@@ -189,16 +254,17 @@ export function PrivyWalletBridge({ client, configured }) {
     onError: handleConnectError,
   });
   const activeWallet = selectEvmWallet(wallets);
+  const connectedAddress = selectConnectedWalletAddress(wallets, privy?.user);
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {
     client.setSnapshot({
-      ready: Boolean(configured && privy?.ready && walletsReady),
+      ready: Boolean(configured && privy?.ready && (walletsReady || connectedAddress)),
       configured: Boolean(configured),
-      connected: Boolean(activeWallet?.address),
-      address: activeWallet?.address ?? null,
+      connected: Boolean(connectedAddress),
+      address: connectedAddress,
     });
-  }, [client, configured, privy?.ready, walletsReady, activeWallet?.address]);
+  }, [client, configured, privy?.ready, walletsReady, connectedAddress]);
 
   useEffect(() => {
     client.setActions({

@@ -22,6 +22,8 @@
     "fixtures"
   ],
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "loopers:allowlist:backup": "node scripts/backup-loopers-allowlist.js",
+    "loopers:allowlist:export": "node scripts/export-loopers-allowlist.js"
   }
 }

@@ -1,6 +1,6 @@
 # Multipass Live Status
 
-Last updated: 2026-07-08 UTC
+Last updated: 2026-08-23 UTC
 
 This document is the operator-facing source of truth for what the current Multipass V0 surface does and does not do.
 
@@ -11,6 +11,7 @@ Language frame: Multipass is a public agent profile. Cred, proof fragments, x402
 Public web:
 
 - `https://helixa.xyz/multipass/` - product home and Activate flow
+- `https://helixa.xyz/allowlist` - stealth Loopers wallet allowlist registration
 - `https://helixa.xyz/multipass/{slug}` - saved public profile route
 - `https://helixa.xyz/multipass/?agent={input}` - live lookup and activation preview route for supported AgentDNA and Base ERC-8004 source IDs
 
@@ -81,6 +82,7 @@ Use `/.well-known/helixa-multipass.json` only as a legacy Helixa discovery alias
 The current V0 does not include:
 
 - Multipass-native contracts.
+- Live Multipass Loopers public wallet collection.
 - Full custody transfer execution.
 - Private or gated field marketplace.
 - Automated runtime handoff.

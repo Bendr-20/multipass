@@ -8,6 +8,7 @@ Use this checklist after API, web, proxy, or deployment changes.
 - Public host is `https://helixa.xyz`.
 - Local API default is `http://127.0.0.1:8787`.
 - Use a known saved profile such as `bendr-2-1` for live checks.
+- Multipass Loopers allowlist persistence is configured with `MULTIPASS_LOOPERS_ALLOWLIST_PATH`.
 
 ## Local verification
 
@@ -27,6 +28,21 @@ Build the production web bundle:
 
 ```bash
 MULTIPASS_BASE=/multipass/ pnpm web:build
+```
+
+Run a local Looper allowlist smoke with persistent JSON:
+
+```bash
+tmp_allowlist="$(mktemp /tmp/multipass-loopers-allowlist.XXXXXX.json)"
+PORT=8790 MULTIPASS_LOOPERS_ALLOWLIST_PATH="$tmp_allowlist" pnpm --filter @helixa/multipass-api start -- --fixture generic &
+api_pid=$!
+sleep 2
+curl -fsS -X POST http://127.0.0.1:8790/api/loopers/allowlist/register \
+  -H 'content-type: application/json' \
+  -d '{"address":"0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea","source":"local-smoke"}'
+curl -fsS 'http://127.0.0.1:8790/api/loopers/allowlist/status?address=0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea'
+cat "$tmp_allowlist"
+kill "$api_pid"
 ```
 
 ## Live API smoke
@@ -72,6 +88,15 @@ for label, path, keys in checks:
 PY
 ```
 
+Run a live Looper allowlist route smoke only after intentionally deploying/restarting the API with `MULTIPASS_LOOPERS_ALLOWLIST_PATH` set. The public web app posts through the `/multipass-api` proxy:
+
+```bash
+curl -fsS -X POST https://helixa.xyz/multipass-api/api/loopers/allowlist/register \
+  -H 'content-type: application/json' \
+  -d '{"address":"0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea","source":"live-smoke"}'
+curl -fsS 'https://helixa.xyz/multipass-api/api/loopers/allowlist/status?address=0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea'
+```
+
 ## Live web smoke
 
 Run:
@@ -82,6 +107,7 @@ import urllib.request
 
 checks = [
     ('home', 'https://helixa.xyz/multipass/'),
+    ('loopers allowlist', 'https://helixa.xyz/allowlist'),
     ('saved profile', 'https://helixa.xyz/multipass/bendr-2-1'),
     ('agent lookup', 'https://helixa.xyz/multipass/?agent=81'),
 ]
