@@ -2,7 +2,7 @@
 
 This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
 
-Last updated: 2026-08-27 18:20 UTC.
+Last updated: 2026-08-27 18:25 UTC.
 
 ## Current Snapshot
 
@@ -42,14 +42,16 @@ What changed after later decisions:
 - No ERC-721C in v1.
 - Reveal is placeholder during allowlist, then owner-controlled reveal at public mint.
 - Sibyl activation demo is a parallel track, not a dependency of the mint contract.
+- Activated Looper cards should show live agent status from real systems: activation state, ERC-6551 wallet value, and Cred oracle/API score.
 
 Immediate launch path:
 
 1. Stage Base Sepolia rehearsal inputs.
 2. Run Base Sepolia deploy and verification.
 3. Build mint page against the verified rehearsal contract.
-4. Build metadata validator and reveal rehearsal.
-5. Build Sibyl activation demo without blocking the mint contract.
+4. Add oracle-backed agent status display to the Looper card/dashboard.
+5. Build metadata validator and reveal rehearsal.
+6. Build Sibyl activation demo without blocking the mint contract.
 
 ## Needed From Quigley Or Team
 
@@ -58,6 +60,7 @@ Immediate launch path:
 - Base Sepolia RPC and funded deployer key available in the deployment environment.
 - Placeholder metadata URI for rehearsal.
 - Test allowlist addresses for the rehearsal Merkle snapshot.
+- Cred oracle/API endpoint, score payload shape, and verification/signature model for Looper agents.
 - Sibyl API credentials or confirmed integration path.
 
 ## Track A: Loopers Launch Core
@@ -106,13 +109,20 @@ Next tasks:
 - Read sale state, prices, counts, wallet mint counts, reveal state, and remaining supply from contract.
 - Use `getLooperAllowlistProof()` from wallet address lookup.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
+- Render the clean static Looper image with a live app overlay for activated agent status: activation state, agent/profile name, ERC-6551 token-bound account, wallet value, Cred score/tier, and last scored timestamp.
+- Keep marketplace `image` canonical and static; use app overlay and/or `animation_url` for live status so changing Cred/wallet data does not mutate final art.
+- Read Cred from the Cred oracle/API only. Do not display user-provided or frontend-invented scores.
+- Verify Cred response authenticity with the agreed oracle signature/proof before treating a score as trusted.
 - Add tests for not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, and wallet cap reached.
+- Add tests for status overlay states: unactivated, activated with pending Cred, activated with verified Cred, stale Cred timestamp, missing wallet value, and invalid Cred proof.
 
 Blocked by:
 
 - Contract ABI/address from Base Sepolia rehearsal.
 - Base Sepolia rehearsal proof snapshot path.
 - Final mint page deployment target.
+- Cred oracle/API endpoint and signed response contract.
+- Wallet value source for ERC-6551 token-bound accounts.
 
 ### 3. Allowlist And Merkle
 
@@ -153,6 +163,8 @@ Next tasks:
 
 - Create placeholder metadata bundle and upload to Arweave.
 - Build local validator for final token JSON, images, Codex files, attributes, Looper agent fields, and naming rules.
+- Add `animation_url`/agent-dashboard metadata rules if live Looper cards are linked from token metadata.
+- Add ERC-8048/721T Cred discovery metadata, likely `endpoint[cred]`, so agents can find the canonical Cred source.
 - Validate no final JSON exposes private file paths or placeholder values.
 - Upload final images, final token JSON, and Agent Codex JSON to Arweave only after validation passes.
 - Rehearse placeholder-to-final reveal on Base Sepolia.
@@ -163,8 +175,37 @@ Blocked by:
 - Rehearsal placeholder asset/URI.
 - Final art and metadata export.
 - Final Agent Codex JSON shape.
+- Final agent dashboard/`animation_url` route decision.
+- Canonical Cred endpoint key and payload shape.
 
-## Track B: Sibyl Activation Demo
+## Track B: Cred Oracle And Agent Status Layer
+
+Status: concept approved by Quigley; implementation not built.
+
+Launch rule:
+
+- The permanent marketplace `image` remains the clean Looper art.
+- Live status belongs in Multipass app overlays and optional `animation_url` agent cards.
+- Cred scores must come from the real Cred oracle/API, with verification, not from static metadata or frontend text.
+
+Next tasks:
+
+- Define the Cred oracle/API lookup key for Loopers: ERC-6551 account address, AgentDNA/activation ID, token contract plus token ID, or a stable combination.
+- Define the signed Cred response schema: score, tier, components, timestamp, freshness window, subject, issuer, signature/proof, and source URL.
+- Build a small API/client adapter that reads token-bound account value and Cred score for a Looper.
+- Render a compact HUD on the Looper card for `Active Agent`, Cred score/tier, wallet value, token-bound account, and last scored timestamp.
+- Render untrusted/stale states clearly: `Cred pending`, `Score stale`, or `Proof invalid`.
+- Add `endpoint[cred]` to ERC-8048/721T metadata once the canonical endpoint is known.
+- Consider `animation_url` for the richer live agent card with score breakdown/history, wallet holdings, attestations, Sibyl memory/activity, and agent endpoints.
+
+Blocked by:
+
+- Canonical Cred oracle/API endpoint for Loopers.
+- Signed response/proof format.
+- Final subject identity mapping between Looper token, ERC-6551 account, activation profile, and Cred score.
+- Wallet value provider for Base token-bound accounts.
+
+## Track C: Sibyl Activation Demo
 
 Status: demo spec exists, implementation not built.
 
@@ -177,6 +218,7 @@ Next tasks:
 - Choose demo fixture, likely `Looper #1234` unless Quigley wants a named sample.
 - Build a demo Looper profile inside Multipass.
 - Add Activate flow with free first agent/profile name.
+- Connect activated profile status to the live Looper card so activation state and Cred status can be shown together.
 - Add Sibyl memory save, recall, and search path.
 - Add fresh-session recall demo script.
 - Keep public Looper history token-scoped and private memory wallet-scoped.
@@ -192,6 +234,7 @@ Blocked by:
 1. Finish contract deployment tooling and Base Sepolia deploy config.
 2. Freeze a small test Merkle allowlist and wire proof serving.
 3. Build mint page against Base Sepolia contract.
-4. Build metadata validator and placeholder/final reveal rehearsal.
-5. Build Sibyl demo in parallel once integration access is ready.
-6. Only after rehearsal passes, set mainnet prices, treasury, final Merkle root, and deployment checklist.
+4. Build Cred oracle/API-backed agent status overlay for activated Loopers.
+5. Build metadata validator and placeholder/final reveal rehearsal.
+6. Build Sibyl demo in parallel once integration access is ready.
+7. Only after rehearsal passes, set mainnet prices, treasury, final Merkle root, and deployment checklist.
