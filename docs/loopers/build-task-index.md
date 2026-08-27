@@ -9,6 +9,7 @@ Last updated: 2026-08-27 20:03 UTC.
 - Collection name is `Loopers`.
 - Multipass is the dashboard, activation, and access layer around Loopers.
 - Public pre-reveal surfaces must not show real approved Looper art, trait layers, or layer composites.
+- Final collection art comes from the existing approved HashLips/layer-composite pipeline; do not reinvent the art direction, regenerate substitutes, or use ad hoc image generation for final collection assets.
 - The allowlist page is registration only: logo, short copy, wallet/address form, and registration status.
 - The Aug 23 `Multipass Loopers Seven Day Launch Implementation Plan` is historical reference only.
 
@@ -47,6 +48,7 @@ Fresh verification:
 - Target pricing: about $20 public, about $10 allowlist; exact wei values set near launch.
 - Reveal: placeholder during allowlist, final reveal at public mint open.
 - Metadata storage: Arweave.
+- Art pipeline: existing approved HashLips/layer-composite outputs, then validated metadata/images uploaded to Arweave.
 - Royalties: ERC-2981 at 5%, capped at 5%.
 - ERC-721C: not in v1.
 - ERC-6551: launch scope, rehearse before mainnet.
@@ -163,6 +165,8 @@ Next tasks:
 
 Rules:
 
+- Use the existing approved HashLips/layer-composite art output as the source of truth for final collection images.
+- Do not reinvent the collection art, regenerate replacement Loopers, or use image generation as a shortcut for final assets.
 - Final art and metadata stay private until reveal QA.
 - No public branded OpenSea test collection.
 - Arweave uploads are immutable, so validation happens first.

@@ -7,6 +7,13 @@
 - Final upload target: Arweave.
 - Arweave is immutable, so validate before upload.
 
+## Art Source
+
+- Final collection images come from the existing approved HashLips/layer-composite pipeline.
+- Do not reinvent the art direction, regenerate substitute Loopers, or use ad hoc image generation for final collection assets.
+- HashLips output and matching metadata are the source of truth for token images and traits.
+- Arweave receives the validated final images, token JSON, and Agent Codex JSON after reveal QA passes.
+
 ## Token JSON Shape
 
 Each token JSON should include normal NFT marketplace fields:
@@ -55,6 +62,7 @@ Run validation for:
 - expected token count
 - JSON parse
 - required fields
+- image and trait mapping matches the approved HashLips output
 - image URI presence
 - `codex_uri` presence
 - duplicate token names
@@ -87,4 +95,3 @@ Rehearsal should:
 - verify Basescan reads
 
 Skip OpenSea unless a marketplace-specific issue needs diagnosis.
-
