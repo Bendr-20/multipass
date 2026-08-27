@@ -15,7 +15,6 @@ import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createGroupActivationPayload, normalizeGroupMemberInput, renderGroupActivationError, renderGroupActivationPanel, renderGroupActivationPreview, renderGroupActivationSuccess } from './group-activation.js';
 import { getLooperAllowlistSourceFromLocation, isLooperAllowlistEnsName, normalizeLooperAllowlistAddress, registerLooperAllowlistAddress, resolveEnsAddressOnBase, resolveLooperAllowlistAddressInput } from './looper-allowlist.js';
-import { getInitialLooperStatusHudVisible, getPublicAssetPath, renderLooperStatusCard, SAMPLE_LOOPER_STATUS_CARD, setLooperStatusHudVisible } from './looper-status-card.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
@@ -72,7 +71,6 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     groupActivationExpanded: false,
     groupActivationRequestId: 0,
     looperAllowlist: createInitialLooperAllowlistState(),
-    looperStatusHudVisible: getInitialLooperStatusHudVisible(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -922,14 +920,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  function toggleLooperStatusHud() {
-    const looperStatusHudVisible = !state.looperStatusHudVisible;
-    setLooperStatusHudVisible(looperStatusHudVisible);
-    state = { ...state, looperStatusHudVisible };
-    render(root, state, handlers);
-  }
-
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, toggleLooperStatusHud, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1962,10 +1953,7 @@ function renderLooperAllowlistPage(root, state, handlers = {}) {
   root.innerHTML = `
     <div class="record-shell looper-allowlist-shell">
       <section class="looper-allowlist-hero" aria-label="Loopers allowlist">
-        <div class="looper-allowlist-stage">
-          ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
-          ${renderLooperStatusCard(SAMPLE_LOOPER_STATUS_CARD, { hudVisible: state.looperStatusHudVisible })}
-        </div>
+        ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
       </section>
     </div>
   `;
@@ -1984,7 +1972,7 @@ function renderLooperAllowlistPanel(allowlist = createInitialLooperAllowlistStat
   return `
     <section class="looper-allowlist-panel" aria-label="Loopers allowlist">
       <div class="looper-allowlist-copy">
-        <${headingTag} class="looper-allowlist-logo-heading"><span class="looper-allowlist-heading-text">Loopers</span><img class="looper-allowlist-logo" src="${escapeAttribute(getPublicAssetPath('loopers-logo.png'))}" width="2002" height="480" alt="" aria-hidden="true" /></${headingTag}>
+        <${headingTag} class="looper-allowlist-logo-heading"><span class="looper-allowlist-heading-text">Loopers</span><img class="looper-allowlist-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="" aria-hidden="true" /></${headingTag}>
         <p>something new is coming...</p>
       </div>
       <form class="looper-allowlist-form" data-action="register-looper-allowlist">
@@ -2253,7 +2241,6 @@ function bindProductHomeEvents(root, handlers, state) {
   bindSiteMenu(root);
   root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
-  root.querySelector('[data-action="toggle-looper-status-hud"]')?.addEventListener('click', () => handlers.toggleLooperStatusHud?.());
   root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.currentTarget;
