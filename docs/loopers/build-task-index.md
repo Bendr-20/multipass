@@ -2,7 +2,7 @@
 
 This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
 
-Last updated: 2026-08-27 18:25 UTC.
+Last updated: 2026-08-27 18:28 UTC.
 
 ## Current Snapshot
 
@@ -43,6 +43,7 @@ What changed after later decisions:
 - Reveal is placeholder during allowlist, then owner-controlled reveal at public mint.
 - Sibyl activation demo is a parallel track, not a dependency of the mint contract.
 - Activated Looper cards should show live agent status from real systems: activation state, ERC-6551 wallet value, and Cred oracle/API score.
+- Holders/viewers must be able to toggle the live status HUD off when they want to see the clean Looper art.
 
 Immediate launch path:
 
@@ -110,11 +111,13 @@ Next tasks:
 - Use `getLooperAllowlistProof()` from wallet address lookup.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
 - Render the clean static Looper image with a live app overlay for activated agent status: activation state, agent/profile name, ERC-6551 token-bound account, wallet value, Cred score/tier, and last scored timestamp.
+- Add a clear `show status` / `hide status` control on Looper cards so holders can switch between the live agent HUD and clean art view.
+- Remember the status visibility preference locally in the app without changing token metadata or ownership state.
 - Keep marketplace `image` canonical and static; use app overlay and/or `animation_url` for live status so changing Cred/wallet data does not mutate final art.
 - Read Cred from the Cred oracle/API only. Do not display user-provided or frontend-invented scores.
 - Verify Cred response authenticity with the agreed oracle signature/proof before treating a score as trusted.
 - Add tests for not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, and wallet cap reached.
-- Add tests for status overlay states: unactivated, activated with pending Cred, activated with verified Cred, stale Cred timestamp, missing wallet value, and invalid Cred proof.
+- Add tests for status overlay states: unactivated, activated with pending Cred, activated with verified Cred, stale Cred timestamp, missing wallet value, invalid Cred proof, HUD hidden, and HUD restored.
 
 Blocked by:
 
@@ -186,6 +189,7 @@ Launch rule:
 
 - The permanent marketplace `image` remains the clean Looper art.
 - Live status belongs in Multipass app overlays and optional `animation_url` agent cards.
+- The live HUD is optional in the UI; holders/viewers can hide it to inspect the art without status labels.
 - Cred scores must come from the real Cred oracle/API, with verification, not from static metadata or frontend text.
 
 Next tasks:
@@ -194,6 +198,7 @@ Next tasks:
 - Define the signed Cred response schema: score, tier, components, timestamp, freshness window, subject, issuer, signature/proof, and source URL.
 - Build a small API/client adapter that reads token-bound account value and Cred score for a Looper.
 - Render a compact HUD on the Looper card for `Active Agent`, Cred score/tier, wallet value, token-bound account, and last scored timestamp.
+- Add a persistent local display toggle for clean art vs live status HUD.
 - Render untrusted/stale states clearly: `Cred pending`, `Score stale`, or `Proof invalid`.
 - Add `endpoint[cred]` to ERC-8048/721T metadata once the canonical endpoint is known.
 - Consider `animation_url` for the richer live agent card with score breakdown/history, wallet holdings, attestations, Sibyl memory/activity, and agent endpoints.
