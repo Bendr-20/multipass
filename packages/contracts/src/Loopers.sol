@@ -9,8 +9,17 @@ import {ERC2981} from "@openzeppelin/contracts/token/common/ERC2981.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
+interface IERC6551Registry {
+    function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId) external view returns (address);
+}
+
 contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
     using Strings for uint256;
+
+    bytes4 private constant ERC8048_METADATA_INTERFACE_ID = 0xdf670be1;
+    string private constant BASE_CHAIN_IDENTIFIER = "0x000100000202210500";
+    string private constant ERC721T_BASE_ADDRESS_KEY = "address[0x000100000202210500]";
+    string private constant ERC721T_BASE_ACCOUNT_KEY = "account[0x000100000202210500][0]";
 
     enum SaleState {
         NotStarted,
@@ -47,9 +56,16 @@ contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
     string private _placeholderTokenURI;
     string private _finalBaseURI;
 
+    address public erc6551Registry;
+    address public erc6551Implementation;
+    bytes32 public erc6551Salt;
+
+    mapping(uint256 => mapping(string => bytes)) private _metadata;
+
     error AllowlistInactive();
     error AlreadyRevealed();
     error BadTreasury();
+    error BadERC6551Config();
     error InsufficientPayment();
     error InvalidConfig();
     error InvalidProof();
@@ -70,6 +86,8 @@ contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
     event Revealed(string finalBaseURI, uint256 revealOffset);
     event PublicSupplyClosed(uint256 finalPublicMinted, uint256 totalSupply);
     event Withdrawn(address indexed treasury, uint256 amount);
+    event ERC6551ConfigUpdated(address indexed registry, address indexed implementation, bytes32 salt);
+    event MetadataSet(uint256 indexed tokenId, string indexed indexedKey, string key, bytes value);
 
     constructor(
         address initialOwner,
@@ -129,6 +147,20 @@ contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
     function setRoyaltyReceiver(address receiver) external onlyOwner {
         if (receiver == address(0)) revert BadTreasury();
         _setDefaultRoyalty(receiver, uint96(MAX_ROYALTY_BPS));
+    }
+
+    function setERC6551Config(address registry, address implementation, bytes32 salt) external onlyOwner {
+        if (registry == address(0) || implementation == address(0)) revert BadERC6551Config();
+        erc6551Registry = registry;
+        erc6551Implementation = implementation;
+        erc6551Salt = salt;
+        emit ERC6551ConfigUpdated(registry, implementation, salt);
+    }
+
+    function setMetadata(uint256 tokenId, string calldata key, bytes calldata value) external onlyOwner {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+        _metadata[tokenId][key] = value;
+        emit MetadataSet(tokenId, key, key, value);
     }
 
     function allowlistMint(uint256 quantity, bytes32[] calldata proof) external payable whenNotPaused nonReentrant {
@@ -222,6 +254,36 @@ contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
         return totalSupply();
     }
 
+    function metadata(uint256 tokenId, string calldata key) external view returns (bytes memory) {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+
+        bytes32 keyHash = keccak256(bytes(key));
+        if (keyHash == keccak256(bytes(ERC721T_BASE_ADDRESS_KEY))) {
+            return abi.encodePacked(ownerOf(tokenId));
+        }
+        if (keyHash == keccak256(bytes(ERC721T_BASE_ACCOUNT_KEY))) {
+            address account = tokenBoundAccount(tokenId);
+            return account == address(0) ? bytes("") : abi.encodePacked(account);
+        }
+        return _metadata[tokenId][key];
+    }
+
+    function tokenBoundAccount(uint256 tokenId) public view returns (address) {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+        if (erc6551Registry == address(0) || erc6551Implementation == address(0)) return address(0);
+        return IERC6551Registry(erc6551Registry).account(
+            erc6551Implementation,
+            erc6551Salt,
+            block.chainid,
+            address(this),
+            tokenId
+        );
+    }
+
+    function baseChainIdentifier() external pure returns (string memory) {
+        return BASE_CHAIN_IDENTIFIER;
+    }
+
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
         if (!revealed) return _placeholderTokenURI;
@@ -231,7 +293,7 @@ contract Loopers is ERC721A, Ownable, Pausable, ReentrancyGuard, ERC2981 {
     }
 
     function supportsInterface(bytes4 interfaceId) public view override(ERC721A, ERC2981) returns (bool) {
-        return ERC721A.supportsInterface(interfaceId) || ERC2981.supportsInterface(interfaceId);
+        return interfaceId == ERC8048_METADATA_INTERFACE_ID || ERC721A.supportsInterface(interfaceId) || ERC2981.supportsInterface(interfaceId);
     }
 
     function _startTokenId() internal pure override returns (uint256) {

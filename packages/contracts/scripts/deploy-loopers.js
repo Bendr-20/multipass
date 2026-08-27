@@ -29,7 +29,8 @@ if (Number(network.chainId) !== Number(config.chain_id)) {
 }
 
 const wallet = new ethers.Wallet(privateKey, provider);
-const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
+const signer = new ethers.NonceManager(wallet);
+const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, signer);
 const contract = await factory.deploy(config.owner, config.treasury, config.placeholder_token_uri);
 const deployTx = contract.deploymentTransaction();
 await contract.waitForDeployment();
@@ -51,6 +52,7 @@ const deployment = {
   ],
   transactions: {
     deploy: deployTx?.hash ?? null,
+    set_erc6551_config: null,
     configure_sale: null,
   },
 };
@@ -59,12 +61,18 @@ if (args.configureSale) {
   if (wallet.address.toLowerCase() !== config.owner.toLowerCase()) {
     throw new Error('--configure-sale requires the deployer key to match config.owner');
   }
+  if (config.erc6551?.registry || config.erc6551?.implementation) {
+    const erc6551 = normalizeERC6551Config(config.erc6551);
+    const tx = await contract.setERC6551Config(erc6551.registry, erc6551.implementation, erc6551.salt);
+    await tx.wait();
+    deployment.transactions.set_erc6551_config = tx.hash;
+  }
   const sale = normalizeSaleConfig(config.sale);
   const tx = await contract.setSaleConfig(
     sale.allowlistStart,
     sale.allowlistPriceWei,
     sale.publicPriceWei,
-    sale.merkleRoot,
+    sale.merkleRoot
   );
   await tx.wait();
   deployment.transactions.configure_sale = tx.hash;
@@ -79,6 +87,7 @@ console.log(JSON.stringify({
   chain_id: deployment.chain_id,
   address: deployment.address,
   deploy_tx: deployment.transactions.deploy,
+  set_erc6551_config_tx: deployment.transactions.set_erc6551_config,
   configure_sale_tx: deployment.transactions.configure_sale,
   deployment: outputPath,
 }, null, 2));
@@ -127,7 +136,16 @@ function validateConfig(config, { requireSale = false } = {}) {
   if (!config.placeholder_token_uri || typeof config.placeholder_token_uri !== 'string') {
     throw new Error('Config placeholder_token_uri is required');
   }
+  if (config.erc6551?.registry || config.erc6551?.implementation) normalizeERC6551Config(config.erc6551);
   if (requireSale) normalizeSaleConfig(config.sale);
+}
+
+function normalizeERC6551Config(erc6551 = {}) {
+  if (!ethers.isAddress(erc6551.registry)) throw new Error('erc6551.registry must be an EVM address');
+  if (!ethers.isAddress(erc6551.implementation)) throw new Error('erc6551.implementation must be an EVM address');
+  const salt = erc6551.salt ?? ethers.ZeroHash;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(String(salt))) throw new Error('erc6551.salt must be a bytes32 hex string');
+  return { registry: erc6551.registry, implementation: erc6551.implementation, salt };
 }
 
 function normalizeSaleConfig(sale = {}) {

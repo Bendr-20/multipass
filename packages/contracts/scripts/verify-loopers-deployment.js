@@ -34,6 +34,8 @@ await check('TEAM_RESERVE', contract.TEAM_RESERVE(), 337n);
 await check('ALLOWLIST_WALLET_LIMIT', contract.ALLOWLIST_WALLET_LIMIT(), 3n);
 await check('PUBLIC_WALLET_LIMIT', contract.PUBLIC_WALLET_LIMIT(), 10n);
 await check('MAX_ROYALTY_BPS', contract.MAX_ROYALTY_BPS(), 500n);
+await check('supports ERC-8048', contract.supportsInterface('0xdf670be1'), true);
+await check('Base ERC-7930 chain identifier', contract.baseChainIdentifier(), '0x000100000202210500');
 
 const royalty = await contract.royaltyInfo(1, ethers.parseEther('1'));
 assertAddressEqual(royalty[0], config.treasury, 'royalty receiver');
@@ -52,6 +54,13 @@ if (config.sale?.allowlist_start && onchainAllowlistStart !== 0n) {
   await check('merkleRoot', contract.merkleRoot(), expected.merkleRoot);
 } else if (config.sale?.allowlist_start) {
   checks.push('sale config not set');
+}
+
+if (config.erc6551?.registry || config.erc6551?.implementation) {
+  const erc6551 = normalizeERC6551Config(config.erc6551);
+  await check('erc6551Registry', contract.erc6551Registry(), erc6551.registry);
+  await check('erc6551Implementation', contract.erc6551Implementation(), erc6551.implementation);
+  await check('erc6551Salt', contract.erc6551Salt(), erc6551.salt);
 }
 
 console.log(JSON.stringify({
@@ -114,6 +123,14 @@ function assertAddressEqual(actual, expected, label) {
 
 function assertEqual(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label} mismatch: expected ${expected}, got ${actual}`);
+}
+
+function normalizeERC6551Config(erc6551 = {}) {
+  if (!ethers.isAddress(erc6551.registry)) throw new Error('erc6551.registry must be an EVM address');
+  if (!ethers.isAddress(erc6551.implementation)) throw new Error('erc6551.implementation must be an EVM address');
+  const salt = erc6551.salt ?? ethers.ZeroHash;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(String(salt))) throw new Error('erc6551.salt must be a bytes32 hex string');
+  return { registry: erc6551.registry, implementation: erc6551.implementation, salt };
 }
 
 function normalizeSaleConfig(sale = {}) {

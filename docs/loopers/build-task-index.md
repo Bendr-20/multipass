@@ -2,7 +2,7 @@
 
 This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
 
-Last updated: 2026-08-27 18:05 UTC.
+Last updated: 2026-08-27 18:20 UTC.
 
 ## Current Snapshot
 
@@ -15,7 +15,9 @@ Shipped on `main`:
 
 Fresh verification:
 
-- `pnpm test` passed 584/584 after the proof API and web helper changes.
+- `pnpm test` passed 586/586 after the ERC-8048/721T and ERC-6551 contract changes.
+- `pnpm --filter @helixa/loopers-contracts compile` passed.
+- Local Ganache deploy/verify smoke passed with ERC-6551 config and ERC-8048 checks.
 - Focused API proof tests passed 24/24.
 - Focused web Looper allowlist/proof tests passed 15/15.
 - CLI snapshot export smoke passed.
@@ -62,7 +64,7 @@ Immediate launch path:
 
 ### 1. Contract
 
-Status: draft exists; deployment tooling exists; Base Sepolia rehearsal not started.
+Status: draft exists; deployment tooling exists; ERC-8048/721T metadata and ERC-6551 launch resolution are implemented; Base Sepolia rehearsal not started.
 
 Source:
 
@@ -74,7 +76,6 @@ Source:
 
 Next tasks:
 
-- Scope ERC-6551 launch implementation: standard registry/account path, metadata `account[...]` representation, and UI display expectations.
 - Copy `base-sepolia.example.json` to `base-sepolia.local.json` with rehearsal values.
 - Generate a small rehearsal Merkle snapshot with `export-loopers-allowlist.js`.
 - Deploy to Base Sepolia with `deploy-loopers.js`.
@@ -88,7 +89,7 @@ Blocked by:
 - Base Sepolia RPC and funded deployer key in env.
 - Rehearsal placeholder URI.
 - Rehearsal Merkle root.
-- ERC-6551 registry/account implementation choice.
+- ERC-6551 registry and account implementation addresses for Base Sepolia/mainnet.
 
 ### 2. Mint Site
 

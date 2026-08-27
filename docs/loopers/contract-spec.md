@@ -20,6 +20,8 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 - Main NFT contract should not be upgradeable by default.
 - Use standard marketplace-compatible ERC-721 behavior.
 - Use ERC-2981 royalties.
+- Implement ERC-8048 onchain metadata with ERC-721T reserved keys.
+- Include ERC-6551 token-bound account resolution in the launch rehearsal path.
 - Do not use ERC-721C or forced marketplace enforcement in v1.
 - Do not put Sibyl, Evolution, autonomous spend, tool wallets, or activation memory into the mint contract.
 
@@ -66,6 +68,17 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 - Contract stores only the Merkle root.
 - Avoid root changes after allowlist starts unless genuinely broken.
 
+## Agent Metadata And ERC-6551
+
+- Implement ERC-8048 `metadata(uint256 tokenId, string key) returns (bytes)` and report interface ID `0xdf670be1`.
+- Use ERC-721T as the agent metadata profile, not a separate NFT standard.
+- Reserved keys use canonical lowercase endpoint names such as `context`, `endpoint[mcp]`, `endpoint[a2a]`, `endpoint[web]`, and `endpoint[x402]`.
+- Base uses ERC-7930 chain identifier `0x000100000202210500`.
+- `address[0x000100000202210500]` resolves to the current token owner as a 20-byte address component.
+- `account[0x000100000202210500][0]` resolves to the configured ERC-6551 token-bound account as a 20-byte address component.
+- The owner can configure the ERC-6551 registry, implementation, and salt for launch.
+- Token-bound account resolution must be rehearsed on Base Sepolia before mainnet.
+
 ## Owner/Admin Controls
 
 Owner can:
@@ -75,6 +88,8 @@ Owner can:
 - Update prices before mint starts.
 - Update treasury/royalty receiver if needed.
 - Reserve mint up to the 337 cap.
+- Configure ERC-6551 registry/account implementation.
+- Set ERC-8048/721T metadata values for minted tokens.
 - Reveal once by setting final base URI and reveal offset.
 - Withdraw ETH.
 
@@ -152,4 +167,3 @@ No mainnet mint until:
 - Fresh Base treasury/admin wallet address is verified twice.
 - Final Merkle file is frozen and backed up.
 - Pause, reveal, and withdraw are tested from the actual admin wallet on rehearsal.
-

@@ -5,11 +5,16 @@
   "owner": "0x000000000000000000000000000000000000dEaD",
   "treasury": "0x000000000000000000000000000000000000dEaD",
   "placeholder_token_uri": "ar://placeholder-loopers-mainnet/metadata.json",
+  "erc6551": {
+    "registry": "0x000000000000000000000000000000000000dEaD",
+    "implementation": "0x000000000000000000000000000000000000dEaD",
+    "salt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
   "sale": {
     "allowlist_start": null,
     "allowlist_price_wei": null,
     "public_price_wei": null,
     "merkle_root": null
   },
-  "notes": "Copy to base-mainnet.local.json only after treasury/admin wallet, exact ETH prices, placeholder Arweave URI, and final Merkle root are verified."
+  "notes": "Copy to base-mainnet.local.json only after treasury/admin wallet, exact ETH prices, placeholder Arweave URI, ERC-6551 registry/implementation, and final Merkle root are verified."
 }

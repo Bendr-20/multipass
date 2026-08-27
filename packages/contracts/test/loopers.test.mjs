@@ -90,6 +90,63 @@ test('reveal uses placeholder before public phase and shifted final metadata aft
   assert.equal(await contract.tokenURI(1), 'ar://final/5912.json');
 });
 
+test('ERC-8048 metadata and ERC-721T reserved keys expose agent records', async () => {
+  const fixture = await deployFixture();
+  const { contract, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice, bob] = signers;
+
+  assert.equal(await contract.supportsInterface('0xdf670be1'), true);
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(1, merkle.proof(alice.address), { value: allowlistPrice });
+
+  await assert.rejects(contract.connect(alice).setMetadata(1, 'context', ethers.toUtf8Bytes('bad write')));
+  await contract.setMetadata(1, 'context', ethers.toUtf8Bytes('Looper context v1'));
+  await contract.setMetadata(1, 'endpoint[web]', ethers.toUtf8Bytes('https://helixa.xyz/multipass/loopers/1'));
+
+  assert.equal(ethers.toUtf8String(await contract.metadata(1, 'context')), 'Looper context v1');
+  assert.equal(ethers.toUtf8String(await contract.metadata(1, 'endpoint[web]')), 'https://helixa.xyz/multipass/loopers/1');
+  assert.equal(
+    await contract.metadata(1, 'address[0x000100000202210500]'),
+    ethers.solidityPacked(['address'], [alice.address]),
+  );
+
+  await contract.connect(alice).transferFrom(alice.address, bob.address, 1);
+  assert.equal(
+    await contract.metadata(1, 'address[0x000100000202210500]'),
+    ethers.solidityPacked(['address'], [bob.address]),
+  );
+});
+
+test('ERC-6551 token-bound account config resolves launch account metadata', async () => {
+  const fixture = await deployFixture();
+  const { compiled, contract, owner, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice] = signers;
+
+  const registryFactory = new ethers.ContractFactory(compiled.mockRegistry.abi, compiled.mockRegistry.bytecode, owner);
+  const registry = await registryFactory.deploy();
+  await registry.waitForDeployment();
+
+  const implementation = signers[5].address;
+  const salt = ethers.id('loopers-tba-v1');
+  await contract.setERC6551Config(await registry.getAddress(), implementation, salt);
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(1, merkle.proof(alice.address), { value: allowlistPrice });
+
+  const expected = await registry.account(implementation, salt, 1337, await contract.getAddress(), 1);
+  assert.equal(await contract.tokenBoundAccount(1), expected);
+  assert.equal(
+    await contract.metadata(1, 'account[0x000100000202210500][0]'),
+    ethers.solidityPacked(['address'], [expected]),
+  );
+
+  await assert.rejects(contract.connect(alice).setERC6551Config(await registry.getAddress(), implementation, salt));
+  await assert.rejects(contract.setERC6551Config(ethers.ZeroAddress, implementation, salt));
+});
+
 test('owner-only controls, royalty cap, withdraw, and public close behave as launch gates expect', async () => {
   const fixture = await deployFixture();
   const { contract, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
@@ -140,6 +197,7 @@ async function deployFixture() {
   const merkle = buildMerkle([signers[1].address, signers[4].address]);
 
   return {
+    compiled,
     contract,
     owner,
     signers,
@@ -179,6 +237,18 @@ function compileContract() {
     language: 'Solidity',
     sources: {
       'src/Loopers.sol': { content: readFileSync(sourcePath, 'utf8') },
+      'test/MockERC6551Registry.sol': {
+        content: `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract MockERC6551Registry {
+    function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId) external pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encode(implementation, salt, chainId, tokenContract, tokenId)))));
+    }
+}
+`,
+      },
     },
     settings: {
       optimizer: { enabled: true, runs: 200 },
@@ -196,9 +266,14 @@ function compileContract() {
     throw new Error(errors.map((error) => error.formattedMessage).join('\n'));
   }
   const contract = output.contracts['src/Loopers.sol'].Loopers;
+  const mockRegistry = output.contracts['test/MockERC6551Registry.sol'].MockERC6551Registry;
   return {
     abi: contract.abi,
     bytecode: `0x${contract.evm.bytecode.object}`,
+    mockRegistry: {
+      abi: mockRegistry.abi,
+      bytecode: `0x${mockRegistry.evm.bytecode.object}`,
+    },
   };
 }
 
