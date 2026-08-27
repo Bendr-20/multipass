@@ -20,6 +20,27 @@ Fresh verification:
 - Focused web Looper allowlist/proof tests passed 15/15.
 - CLI snapshot export smoke passed.
 
+## Prior Plan Status
+
+The Aug 23 `Multipass Loopers Seven Day Launch Implementation Plan` is historical reference, not the active source of truth.
+
+What carried forward:
+
+- One collection with one launch surface.
+- Allowlist capture before mint.
+- Base mainnet with Base Sepolia rehearsal.
+- Metadata, marketplace, mint UI, and activation handled around the core NFT.
+
+What changed after later decisions:
+
+- Collection name is `Loopers`, not `Multipass Loopers`.
+- Max supply is 7,777 with 337 team reserve, not a fixed 777 collection.
+- Mint is ETH-only in v1; x402 agent minting is deferred.
+- ERC-6551/token-bound accounts are not launch-critical.
+- No ERC-721C in v1.
+- Reveal is placeholder during allowlist, then owner-controlled reveal at public mint.
+- Sibyl activation demo is a parallel track, not a dependency of the mint contract.
+
 Immediate launch path:
 
 1. Stage Base Sepolia rehearsal inputs.
