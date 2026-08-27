@@ -1,10 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import { encodePacked, getAddress, isAddress, keccak256 } from 'viem';
+import { encodeAbiParameters, getAddress, isAddress, keccak256 } from 'viem';
 
 const SNAPSHOT_SCHEMA_VERSION = '0.1.0';
-const LEAF_ENCODING = 'keccak256(abi.encodePacked(address))';
+const LEAF_ENCODING = 'keccak256(bytes.concat(keccak256(abi.encode(address))))';
 
 export async function readAllowlistFile(filePath) {
   if (!filePath) throw new TypeError('readAllowlistFile requires filePath');
@@ -44,7 +44,8 @@ export async function writeAllowlistSnapshot(snapshot, outputPath) {
 
 export function hashAllowlistAddress(address) {
   if (!isAddress(address)) throw new TypeError(`Invalid allowlist address: ${address}`);
-  return keccak256(encodePacked(['address'], [getAddress(address)]));
+  const inner = keccak256(encodeAbiParameters([{ type: 'address' }], [getAddress(address)]));
+  return keccak256(inner);
 }
 
 export function verifyAllowlistProof(address, proof = [], root) {

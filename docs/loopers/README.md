@@ -5,6 +5,7 @@ Loopers is the NFT collection. Multipass is the dashboard, activation, and acces
 This folder turns the locked Telegram planning decisions into build artifacts:
 
 - [Contract Spec](./contract-spec.md)
+- [Deployment Verification](./deployment-verification.md)
 - [Mint Site Requirements](./mint-site-requirements.md)
 - [Metadata And Reveal Checklist](./metadata-reveal-checklist.md)
 - [Sibyl Activation Demo](./sibyl-activation-demo.md)
@@ -14,6 +15,8 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 
 - Contract draft: `packages/contracts/src/Loopers.sol`
 - Contract tests: `packages/contracts/test/loopers.test.mjs`
+- Contract deployment tooling: `packages/contracts/scripts/`
+- Deployment config examples: `packages/contracts/config/`
 - Allowlist registration/API code: `apps/web/src/looper-allowlist.js`, `apps/api/src/allowlist-store.js`, `apps/api/src/allowlist-snapshot.js`
 - Mint page implementation: not built yet
 - Metadata validator/reveal tooling: not built yet

@@ -10,6 +10,7 @@ node_modules/
 *.p12
 *.pfx
 *.wallet
+packages/contracts/config/*.local.json
 
 # local/generated
 .DS_Store

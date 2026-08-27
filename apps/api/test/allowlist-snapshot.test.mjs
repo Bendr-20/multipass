@@ -22,6 +22,7 @@ test('createAllowlistSnapshot exports ordered addresses with a verifiable Merkle
   assert.equal(snapshot.entries[0].position, 1);
   assert.equal(snapshot.entries[0].address, ADDRESS_A);
   assert.equal(snapshot.entries[0].source, 'x:loopers');
+  assert.equal(snapshot.merkle.leaf_encoding, 'keccak256(bytes.concat(keccak256(abi.encode(address))))');
   assert.match(snapshot.merkle.root, /^0x[0-9a-f]{64}$/);
   assert.equal(verifyAllowlistProof(snapshot.entries[0].address, snapshot.entries[0].proof, snapshot.merkle.root), true);
   assert.equal(verifyAllowlistProof(snapshot.entries[1].address, snapshot.entries[1].proof, snapshot.merkle.root), true);

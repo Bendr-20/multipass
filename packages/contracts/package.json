@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "compile": "node scripts/compile-loopers.js",
+    "deploy": "node scripts/deploy-loopers.js",
+    "verify:deployment": "node scripts/verify-loopers-deployment.js",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

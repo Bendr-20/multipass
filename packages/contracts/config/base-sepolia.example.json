@@ -1,0 +1,15 @@
+{
+  "network": "base-sepolia",
+  "chain_id": 84532,
+  "rpc_url": null,
+  "owner": "0x000000000000000000000000000000000000dEaD",
+  "treasury": "0x000000000000000000000000000000000000dEaD",
+  "placeholder_token_uri": "ar://placeholder-loopers-sepolia/metadata.json",
+  "sale": {
+    "allowlist_start": "2026-09-01T17:00:00Z",
+    "allowlist_price_wei": "2500000000000000",
+    "public_price_wei": "5000000000000000",
+    "merkle_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "notes": "Copy to base-sepolia.local.json and replace owner, treasury, RPC, placeholder URI, prices, start time, and Merkle root before rehearsal."
+}

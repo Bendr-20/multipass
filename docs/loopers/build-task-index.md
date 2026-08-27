@@ -6,19 +6,22 @@ This is the implementation queue. The decisions are locked; this file is for bui
 
 ### 1. Contract
 
-Status: draft exists.
+Status: draft exists; deployment tooling exists.
 
 Source:
 
 - `packages/contracts/src/Loopers.sol`
 - `packages/contracts/test/loopers.test.mjs`
+- `packages/contracts/scripts/`
+- `packages/contracts/config/`
+- `docs/loopers/deployment-verification.md`
 
 Next tasks:
 
-- Add deployment scripts for Base Sepolia and Base mainnet.
-- Add a config file for owner, treasury, placeholder URI, prices, and Merkle root.
-- Add Merkle generation/verification tooling from the frozen final allowlist.
-- Add deployment verification notes for Basescan reads, royalty info, sale times, and treasury.
+- Copy `base-sepolia.example.json` to `base-sepolia.local.json` with rehearsal values.
+- Generate a small rehearsal Merkle snapshot with `export-loopers-allowlist.js`.
+- Deploy to Base Sepolia with `deploy-loopers.js`.
+- Verify deployed reads with `verify-loopers-deployment.js` and Basescan.
 - Run the full contract test suite before every deployment.
 
 Blocked by:
@@ -52,7 +55,7 @@ Blocked by:
 
 ### 3. Allowlist And Merkle
 
-Status: raw signup exists; final eligibility pipeline not built.
+Status: raw signup exists; Merkle snapshot/proof generation exists; final eligibility pipeline not frozen.
 
 Source:
 
@@ -127,4 +130,3 @@ Blocked by:
 4. Build metadata validator and placeholder/final reveal rehearsal.
 5. Build Sibyl demo in parallel once integration access is ready.
 6. Only after rehearsal passes, set mainnet prices, treasury, final Merkle root, and deployment checklist.
-

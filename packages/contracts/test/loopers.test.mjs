@@ -9,6 +9,8 @@ import { ethers } from 'ethers';
 import ganache from 'ganache';
 import solc from 'solc';
 
+import { createAllowlistSnapshot } from '../../../apps/api/src/allowlist-snapshot.js';
+
 const require = createRequire(import.meta.url);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SALE_START_OFFSET = 3600n;
@@ -209,46 +211,16 @@ function resolveImport(importPath) {
 }
 
 function buildMerkle(addresses) {
-  const leaves = addresses.map((address) => leaf(address)).sort(compareBytes);
-  let levels = [leaves];
-  while (levels.at(-1).length > 1) {
-    const current = levels.at(-1);
-    const next = [];
-    for (let i = 0; i < current.length; i += 2) {
-      next.push(i + 1 < current.length ? hashPair(current[i], current[i + 1]) : current[i]);
-    }
-    levels.push(next);
-  }
+  const snapshot = createAllowlistSnapshot({
+    entries: addresses.map((address) => ({ address, source: 'contract-test' })),
+  }, { generatedAt: '2026-08-27T00:00:00.000Z' });
 
   return {
-    root: levels.at(-1)[0],
+    root: snapshot.merkle.root,
     proof(address) {
-      let node = leaf(address);
-      let index = leaves.findIndex((item) => item === node);
-      assert.notEqual(index, -1, 'address not in merkle tree');
-      const proof = [];
-
-      for (let level = 0; level < levels.length - 1; level += 1) {
-        const current = levels[level];
-        const pairIndex = index ^ 1;
-        if (pairIndex < current.length) proof.push(current[pairIndex]);
-        index = Math.floor(index / 2);
-        node = levels[level + 1][index];
-      }
-      return proof;
+      const entry = snapshot.entries.find((item) => item.address.toLowerCase() === address.toLowerCase());
+      assert.ok(entry, 'address not in merkle tree');
+      return entry.proof;
     },
   };
-}
-
-function leaf(address) {
-  const inner = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(['address'], [address]));
-  return ethers.keccak256(ethers.concat([inner]));
-}
-
-function hashPair(a, b) {
-  return ethers.keccak256(compareBytes(a, b) <= 0 ? ethers.concat([a, b]) : ethers.concat([b, a]));
-}
-
-function compareBytes(a, b) {
-  return Buffer.compare(Buffer.from(a.slice(2), 'hex'), Buffer.from(b.slice(2), 'hex'));
 }
