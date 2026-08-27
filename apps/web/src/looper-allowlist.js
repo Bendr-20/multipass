@@ -97,6 +97,12 @@ export async function getLooperAllowlistStatus({ address, apiBase = '/multipass-
   return parseAllowlistResponse(response, 'status');
 }
 
+export async function getLooperAllowlistProof({ address, apiBase = '/multipass-api', fetchImpl = fetch } = {}) {
+  const normalized = normalizeLooperAllowlistAddress(address);
+  const response = await fetchImpl(`${stripTrailingSlash(apiBase)}/api/loopers/allowlist/proof?address=${encodeURIComponent(normalized)}`);
+  return parseAllowlistResponse(response, 'proof');
+}
+
 export function getLooperAllowlistSourceFromLocation(locationUrl) {
   let url;
   try {

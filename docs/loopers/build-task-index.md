@@ -33,18 +33,18 @@ Blocked by:
 
 ### 2. Mint Site
 
-Status: requirements exist, page implementation not built.
+Status: requirements exist; proof client helper exists; page implementation not built.
 
 Source:
 
 - `docs/loopers/mint-site-requirements.md`
-- current allowlist helper: `apps/web/src/looper-allowlist.js`
+- current allowlist/proof helper: `apps/web/src/looper-allowlist.js`
 
 Next tasks:
 
 - Build one mint page for allowlist and public phases.
 - Read sale state, prices, counts, wallet mint counts, reveal state, and remaining supply from contract.
-- Connect `GET /api/loopers/allowlist/proof?address=...` to wallet address lookup.
+- Use `getLooperAllowlistProof()` from wallet address lookup.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
 - Add tests for not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, and wallet cap reached.
 

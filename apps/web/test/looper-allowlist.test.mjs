@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getLooperAllowlistSourceFromLocation, getLooperAllowlistStatus, isLooperAllowlistEnsName, normalizeLooperAllowlistAddress, normalizeLooperAllowlistEnsNameInput, registerLooperAllowlistAddress, resolveEnsAddressOnBase, resolveLooperAllowlistAddressInput } from '../src/looper-allowlist.js';
+import { getLooperAllowlistProof, getLooperAllowlistSourceFromLocation, getLooperAllowlistStatus, isLooperAllowlistEnsName, normalizeLooperAllowlistAddress, normalizeLooperAllowlistEnsNameInput, registerLooperAllowlistAddress, resolveEnsAddressOnBase, resolveLooperAllowlistAddressInput } from '../src/looper-allowlist.js';
 
 const ADDRESS = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 
@@ -124,6 +124,27 @@ test('getLooperAllowlistStatus fetches status for normalized address', async () 
   assert.equal(result.registered, true);
 });
 
+test('getLooperAllowlistProof fetches a frozen mint proof for normalized address', async () => {
+  const result = await getLooperAllowlistProof({
+    address: ADDRESS.toLowerCase(),
+    apiBase: '/multipass-api/',
+    fetchImpl: async (url) => {
+      assert.equal(url, `/multipass-api/api/loopers/allowlist/proof?address=${encodeURIComponent(ADDRESS)}`);
+      return new Response(JSON.stringify({
+        collection: 'loopers',
+        address: ADDRESS,
+        eligible: true,
+        proof: ['0x1234'],
+        merkle_root: '0xabcd',
+      }), { status: 200 });
+    },
+  });
+
+  assert.equal(result.collection, 'loopers');
+  assert.equal(result.eligible, true);
+  assert.deepEqual(result.proof, ['0x1234']);
+});
+
 test('registerLooperAllowlistAddress surfaces API errors', async () => {
   await assert.rejects(
     registerLooperAllowlistAddress({
@@ -131,5 +152,15 @@ test('registerLooperAllowlistAddress surfaces API errors', async () => {
       fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'Closed.' } }), { status: 403 }),
     }),
     /Closed/,
+  );
+});
+
+test('getLooperAllowlistProof surfaces API errors', async () => {
+  await assert.rejects(
+    getLooperAllowlistProof({
+      address: ADDRESS,
+      fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'Proof snapshot not ready.' } }), { status: 503 }),
+    }),
+    /Proof snapshot not ready/,
   );
 });
