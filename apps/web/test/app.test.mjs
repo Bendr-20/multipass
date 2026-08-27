@@ -760,6 +760,11 @@ test('standalone allowlist route renders stealth Looper registration panel', asy
   assert.doesNotMatch(panel.textContent, /POST \/multipass-api\/api\/loopers\/allowlist\/register/i);
   assert.equal(panel.querySelector('[data-action="connect-looper-wallet"]')?.textContent, 'Connect wallet');
   assert.equal(panel.querySelector('button[type="submit"]')?.textContent, 'Register address');
+  assert.equal(panel.querySelector('.looper-allowlist-logo')?.getAttribute('src'), '/loopers-logo.png');
+  assert.equal(root.querySelector('.looper-status-art')?.getAttribute('src'), '/loopers/approved-only-agent-14.png');
+  assert.match(root.querySelector('.looper-status-card')?.textContent ?? '', /Active Agent/);
+  assert.match(root.querySelector('.looper-status-card')?.textContent ?? '', /Cred\s*Pending/);
+  assert.equal(root.querySelector('[data-action="toggle-looper-status-hud"]')?.textContent.trim(), 'Hide status');
 });
 
 test('multipass allowlist alias renders the standalone Looper registration panel', async () => {
@@ -768,6 +773,32 @@ test('multipass allowlist alias renders the standalone Looper registration panel
 
   assert.equal(root.querySelector('.looper-allowlist-panel h1')?.textContent, 'Loopers');
   assert.equal(root.querySelector('.live-resolver'), null);
+});
+
+test('standalone Looper allowlist toggles live HUD without removing clean art', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  const toggle = root.querySelector('[data-action="toggle-looper-status-hud"]');
+  assert.ok(toggle);
+  assert.ok(root.querySelector('.looper-status-hud'));
+  assert.ok(root.querySelector('.looper-status-art'));
+
+  toggle.click();
+  await flushAsyncEvents();
+
+  assert.ok(root.querySelector('.looper-status-art'));
+  assert.equal(root.querySelector('.looper-status-hud'), null);
+  assert.equal(root.querySelector('.looper-status-card')?.dataset.hud, 'hidden');
+  assert.equal(root.querySelector('[data-action="toggle-looper-status-hud"]')?.textContent.trim(), 'Show status');
+  assert.equal(window.localStorage.getItem('multipass.loopers.statusHud'), 'hidden');
+
+  root.querySelector('[data-action="toggle-looper-status-hud"]').click();
+  await flushAsyncEvents();
+
+  assert.ok(root.querySelector('.looper-status-hud'));
+  assert.equal(root.querySelector('.looper-status-card')?.dataset.hud, 'visible');
+  assert.equal(window.localStorage.getItem('multipass.loopers.statusHud'), 'visible');
 });
 
 test('standalone Looper allowlist registers an address', async () => {

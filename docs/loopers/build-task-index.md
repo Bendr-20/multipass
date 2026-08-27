@@ -2,7 +2,7 @@
 
 This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
 
-Last updated: 2026-08-27 18:28 UTC.
+Last updated: 2026-08-27 19:22 UTC.
 
 ## Current Snapshot
 
@@ -12,6 +12,7 @@ Shipped on `main`:
 - `7de28c0` - Loopers deployment tooling.
 - `b15d09b` - Loopers allowlist proof API.
 - `84bc479` - Loopers proof lookup helper.
+- Looper status HUD renderer with approved layer-composite art and a local clean-art toggle.
 
 Fresh verification:
 
@@ -20,6 +21,9 @@ Fresh verification:
 - Local Ganache deploy/verify smoke passed with ERC-6551 config and ERC-8048 checks.
 - Focused API proof tests passed 24/24.
 - Focused web Looper allowlist/proof tests passed 15/15.
+- Focused web Looper HUD/app tests passed 155/155.
+- Full `pnpm test` passed 592/592 after the Looper HUD slice.
+- Local Chromium screenshot smoke passed on desktop and mobile: HUD visible, HUD hidden toggle works, clean art remains visible.
 - CLI snapshot export smoke passed.
 
 ## Prior Plan Status
@@ -97,12 +101,13 @@ Blocked by:
 
 ### 2. Mint Site
 
-Status: requirements exist; proof client helper exists; page implementation not built.
+Status: requirements exist; proof client helper exists; first status-card renderer exists on the allowlist page using approved Looper art plus a separate HTML/CSS HUD. Full mint transaction UI is not built.
 
 Source:
 
 - `docs/loopers/mint-site-requirements.md`
 - current allowlist/proof helper: `apps/web/src/looper-allowlist.js`
+- current status card renderer: `apps/web/src/looper-status-card.js`
 
 Next tasks:
 
@@ -183,7 +188,7 @@ Blocked by:
 
 ## Track B: Cred Oracle And Agent Status Layer
 
-Status: concept approved by Quigley; implementation not built.
+Status: concept approved by Quigley; first app renderer/toggle exists with pending Cred state until the real oracle/API response contract is wired.
 
 Launch rule:
 
@@ -197,8 +202,9 @@ Next tasks:
 - Define the Cred oracle/API lookup key for Loopers: ERC-6551 account address, AgentDNA/activation ID, token contract plus token ID, or a stable combination.
 - Define the signed Cred response schema: score, tier, components, timestamp, freshness window, subject, issuer, signature/proof, and source URL.
 - Build a small API/client adapter that reads token-bound account value and Cred score for a Looper.
-- Render a compact HUD on the Looper card for `Active Agent`, Cred score/tier, wallet value, token-bound account, and last scored timestamp.
-- Add a persistent local display toggle for clean art vs live status HUD.
+- Replace the pending/demo HUD data with verified oracle/API responses only.
+- Render a compact HUD on the Looper card for `Active Agent`, Cred score/tier, wallet value, token-bound account, proof status, and last scored timestamp.
+- Expand the persistent local display toggle from the allowlist preview into all Looper card/profile surfaces.
 - Render untrusted/stale states clearly: `Cred pending`, `Score stale`, or `Proof invalid`.
 - Add `endpoint[cred]` to ERC-8048/721T metadata once the canonical endpoint is known.
 - Consider `animation_url` for the richer live agent card with score breakdown/history, wallet holdings, attestations, Sibyl memory/activity, and agent endpoints.
