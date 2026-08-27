@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
+import { createAllowlistSnapshot, getAllowlistProof, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
 
 const ADDRESS_A = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const ADDRESS_B = '0x0000000000000000000000000000000000000001';
@@ -26,6 +26,17 @@ test('createAllowlistSnapshot exports ordered addresses with a verifiable Merkle
   assert.match(snapshot.merkle.root, /^0x[0-9a-f]{64}$/);
   assert.equal(verifyAllowlistProof(snapshot.entries[0].address, snapshot.entries[0].proof, snapshot.merkle.root), true);
   assert.equal(verifyAllowlistProof(snapshot.entries[1].address, snapshot.entries[1].proof, snapshot.merkle.root), true);
+
+  const proof = getAllowlistProof(snapshot, ADDRESS_A.toLowerCase());
+  assert.equal(proof.address, ADDRESS_A);
+  assert.equal(proof.eligible, true);
+  assert.equal(proof.merkle_root, snapshot.merkle.root);
+  assert.deepEqual(proof.proof, snapshot.entries[0].proof);
+
+  const ineligible = getAllowlistProof(snapshot, '0x0000000000000000000000000000000000000002');
+  assert.equal(ineligible.eligible, false);
+  assert.deepEqual(ineligible.proof, []);
+  assert.match(ineligible.leaf, /^0x[0-9a-f]{64}$/);
 });
 
 test('createAllowlistSnapshot handles an empty allowlist', () => {

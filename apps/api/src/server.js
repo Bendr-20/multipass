@@ -2,6 +2,7 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { activateHelixaRecord } from './activation-records.js';
+import { readAllowlistFile } from './allowlist-snapshot.js';
 import { createJsonAllowlistStore, createMemoryAllowlistStore } from './allowlist-store.js';
 import { loadFixtureStore } from './fixtures.js';
 import { createMultipassApi } from './index.js';
@@ -22,6 +23,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     cookieSecure: parseOptionalBoolean(env.MULTIPASS_COOKIE_SECURE, 'MULTIPASS_COOKIE_SECURE'),
     publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
     loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
+    loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
   };
 
@@ -39,6 +41,8 @@ export function parseServerOptions(argv = [], env = process.env) {
       options.publicBaseUrl = normalizeOptionalBaseUrl(argv[++index], '--public-base-url');
     } else if (arg === '--loopers-allowlist') {
       options.loopersAllowlistPath = argv[++index];
+    } else if (arg === '--loopers-allowlist-snapshot') {
+      options.loopersAllowlistSnapshotPath = argv[++index];
     }
   }
 
@@ -56,6 +60,7 @@ export async function startServer(options = {}) {
     cookieSecure: options.cookieSecure ?? null,
     publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
     loopersAllowlistPath: options.loopersAllowlistPath ?? null,
+    loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
     loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
@@ -69,6 +74,10 @@ export async function startServer(options = {}) {
     ?? (parsed.loopersAllowlistPath
       ? await createJsonAllowlistStore({ filePath: parsed.loopersAllowlistPath })
       : createMemoryAllowlistStore());
+  const loopersAllowlistSnapshot = options.loopersAllowlistSnapshot
+    ?? (parsed.loopersAllowlistSnapshotPath
+      ? await readAllowlistFile(parsed.loopersAllowlistSnapshotPath)
+      : null);
   let api;
   let listeningUrl;
   let apiBaseUrl;
@@ -121,6 +130,7 @@ export async function startServer(options = {}) {
     adminSecret: parsed.adminSecret,
     cookieSecure: parsed.cookieSecure,
     loopersAllowlist,
+    loopersAllowlistSnapshot,
     loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
@@ -135,6 +145,7 @@ export async function startServer(options = {}) {
     publicBaseUrl: apiBaseUrl,
     databasePath: parsed.databasePath,
     loopersAllowlistPath: parsed.loopersAllowlistPath,
+    loopersAllowlistSnapshotPath: parsed.loopersAllowlistSnapshotPath,
     server: nodeServer,
     close: () => new Promise((resolve, reject) => {
       nodeServer.close((error) => {

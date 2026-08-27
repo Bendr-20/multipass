@@ -49,6 +49,12 @@ export interface MultipassApiOptions {
   adminSecret?: string | null;
   signatureVerifier?: SignatureVerifier;
   cookieSecure?: boolean;
+  fetchImpl?: typeof fetch;
+  loopersAllowlist?: unknown;
+  loopersAllowlistSnapshot?: unknown;
+  loopersAllowlistRateLimit?: unknown;
+  loopersAllowlistSubnetRateLimit?: unknown;
+  loopersTurnstileSecretKey?: string | null;
 }
 
 export interface MultipassApi {

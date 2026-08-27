@@ -19,10 +19,11 @@ Activation and saved records:
 - `POST /api/multipass/activate` preview a live AgentDNA activation without saving it
 - `POST /api/multipass` activate and persist a public Multipass record
 
-Multipass Loopers launch intake:
+Loopers launch intake:
 
-- `POST /api/loopers/allowlist/register` register one wallet address for the Multipass Loopers allowlist
+- `POST /api/loopers/allowlist/register` register one wallet address for the Loopers allowlist
 - `GET /api/loopers/allowlist/status?address={address}` check whether one wallet address is registered
+- `GET /api/loopers/allowlist/proof?address={address}` fetch a frozen mint proof from the final Merkle snapshot
 
 Public profile reads:
 
@@ -74,13 +75,19 @@ Enable persistent saved records with SQLite:
 MULTIPASS_DB_PATH=/tmp/multipass.sqlite pnpm api:bendr
 ```
 
-Enable persistent Multipass Loopers allowlist registrations with JSON:
+Enable persistent Loopers allowlist registrations with JSON:
 
 ```bash
 MULTIPASS_LOOPERS_ALLOWLIST_PATH=/tmp/multipass-loopers-allowlist.json pnpm api:bendr
 ```
 
-You can also pass `--database /tmp/multipass.sqlite`, `--loopers-allowlist /tmp/multipass-loopers-allowlist.json`, and `--public-base-url https://helixa.xyz` to the server CLI.
+Serve a frozen Loopers mint proof snapshot:
+
+```bash
+MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH=/tmp/loopers-allowlist-snapshot.json pnpm api:bendr
+```
+
+You can also pass `--database /tmp/multipass.sqlite`, `--loopers-allowlist /tmp/multipass-loopers-allowlist.json`, `--loopers-allowlist-snapshot /tmp/loopers-allowlist-snapshot.json`, and `--public-base-url https://helixa.xyz` to the server CLI.
 
 Useful routes:
 
@@ -100,10 +107,11 @@ Useful routes:
 - `GET /api/multipass/demo-agent/changes`
 - `POST /api/loopers/allowlist/register`
 - `GET /api/loopers/allowlist/status?address=0x...`
+- `GET /api/loopers/allowlist/proof?address=0x...`
 
 Bendr fixture routes use the same pattern with `bendr-2`.
 
-## Multipass Loopers allowlist
+## Loopers allowlist
 
 The Looper allowlist stores checksum-normalized Ethereum addresses, a registration timestamp, and a bounded source label. Duplicate registrations are idempotent: the first source and timestamp are preserved and later duplicate submissions return `created: false`.
 
@@ -115,7 +123,13 @@ MULTIPASS_LOOPERS_ALLOWLIST_PATH=/var/lib/helixa/multipass-loopers-allowlist.jso
 
 The live `multipass-api.service` reads `/etc/default/multipass-api`, so this value can be staged there before restart. The service user must be able to write the containing directory.
 
-Mint handoff: this JSON allowlist is the collection/admin source, not the final onchain gate. Before a Looper mint, snapshot the normalized addresses, generate a Merkle tree, set the Merkle root in the mint contract, and have the mint site provide each wallet's proof. If registrations remain open after mint starts, update the Merkle root in batches or explicitly switch to a backend signature gate.
+Mint handoff: this JSON allowlist is the collection/admin source, not the final onchain gate. Before a Looper mint, snapshot the normalized addresses, generate a Merkle tree, set the Merkle root in the mint contract, and serve the frozen proof snapshot separately:
+
+```bash
+MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH=/var/lib/helixa/loopers-allowlist-snapshot.json
+```
+
+The mint page should call `GET /api/loopers/allowlist/proof?address=0x...`. Eligible wallets receive the proof array and Merkle root; ineligible wallets receive `eligible: false` with an empty proof. This route must point at the frozen final snapshot, not the live registration JSON.
 
 Operational scripts:
 

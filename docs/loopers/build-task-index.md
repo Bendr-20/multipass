@@ -44,18 +44,18 @@ Next tasks:
 
 - Build one mint page for allowlist and public phases.
 - Read sale state, prices, counts, wallet mint counts, reveal state, and remaining supply from contract.
-- Connect final allowlist proof API to wallet address lookup.
+- Connect `GET /api/loopers/allowlist/proof?address=...` to wallet address lookup.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
 - Add tests for not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, and wallet cap reached.
 
 Blocked by:
 
 - Contract ABI/address from Base Sepolia rehearsal.
-- Final proof API shape.
+- Base Sepolia rehearsal proof snapshot path.
 
 ### 3. Allowlist And Merkle
 
-Status: raw signup exists; Merkle snapshot/proof generation exists; final eligibility pipeline not frozen.
+Status: raw signup exists; Merkle snapshot/proof generation and proof API exist; final eligibility pipeline not frozen.
 
 Source:
 
@@ -71,7 +71,7 @@ Next tasks:
 - Freeze final allowlist file separately from public signup data.
 - Generate Merkle tree and per-wallet proofs.
 - Back up final allowlist, Merkle root, and proof bundle.
-- Serve proofs to the mint page/API.
+- Point `MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH` at the frozen proof bundle.
 
 Blocked by:
 

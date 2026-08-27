@@ -19,7 +19,8 @@ import {
   buildHydratedProfileResponse,
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
-import { AllowlistInputError } from './allowlist-store.js';
+import { getAllowlistProof } from './allowlist-snapshot.js';
+import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
@@ -162,6 +163,7 @@ export function createMultipassApi({
   cookieSecure,
   fetchImpl = fetch,
   loopersAllowlist,
+  loopersAllowlistSnapshot,
   loopersAllowlistRateLimit,
   loopersAllowlistSubnetRateLimit,
   loopersTurnstileSecretKey,
@@ -183,6 +185,7 @@ export function createMultipassApi({
     cookieName: MANAGER_COOKIE_NAME,
     fetchImpl,
     loopersAllowlist,
+    loopersAllowlistSnapshot,
     loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
@@ -384,7 +387,7 @@ async function handleLooperPost(request, parts, context) {
     const total = await context.loopersAllowlist.count();
     return jsonResponse({
       schema_version: '0.1.0',
-      collection: 'multipass-loopers',
+      collection: 'loopers',
       registered: true,
       created: result.created,
       address: result.entry.address,
@@ -406,9 +409,37 @@ async function handleLooperRead(url, parts, context) {
     const total = await context.loopersAllowlist.count();
     return jsonResponse({
       schema_version: '0.1.0',
-      collection: 'multipass-loopers',
+      collection: 'loopers',
       ...status,
       total_registered: total,
+    });
+  }
+
+  if (parts[2] === 'allowlist' && parts[3] === 'proof' && parts.length === 4) {
+    if (!context.loopersAllowlistSnapshot) {
+      return errorResponse(503, 'not_configured', 'Looper allowlist proof snapshot is not configured.');
+    }
+    let address;
+    try {
+      address = normalizeAllowlistAddress(url.searchParams.get('address'));
+    } catch {
+      return errorResponse(400, 'invalid_address', 'Provide a valid Ethereum address.');
+    }
+    const proof = getAllowlistProof(context.loopersAllowlistSnapshot, address);
+    return jsonResponse({
+      schema_version: '0.1.0',
+      collection: 'loopers',
+      address: proof.address,
+      eligible: proof.eligible,
+      proof: proof.proof,
+      merkle_root: proof.merkle_root,
+      leaf: proof.leaf,
+      leaf_encoding: proof.leaf_encoding,
+      snapshot: {
+        generated_at: proof.generated_at,
+        count: proof.count,
+        position: proof.position,
+      },
     });
   }
 
@@ -1979,6 +2010,7 @@ function createOpenApiDocument(baseUrl) {
       '/api/resolve': { get: { summary: 'Resolve an input to a saved profile or live activation preview', parameters: [queryParameter('agent')], responses: { 200: { description: 'Resolution result' } } } },
       '/api/multipass/resolve': { get: { summary: 'Resolve a Helixa AgentDNA or Base ERC-8004 source identity to a hydrated profile or activation preview', parameters: [queryParameter('source', 'Source identity. Supports Helixa AgentDNA forms like {tokenId}, 8453:{tokenId}, helixa-agentdna:8453:{tokenId}, and Base ERC-8004 forms like erc8004:8453:{tokenId} or eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:{tokenId}.')], responses: { 200: { description: 'Canonical source resolution result' } } } },
       '/api/search': { get: { summary: 'Conservative exact or prefix search over public profile summaries', parameters: [queryParameter('q')], responses: { 200: { description: 'Search matches' } } } },
+      '/api/loopers/allowlist/proof': { get: { summary: 'Fetch a frozen Loopers allowlist Merkle proof for one wallet address', parameters: [queryParameter('address')], responses: { 200: { description: 'Loopers allowlist proof response' } } } },
     },
     components: {
       schemas: {

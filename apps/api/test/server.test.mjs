@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
+import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
 
 import { parseServerOptions, startServer } from '../src/server.js';
 
@@ -19,6 +20,7 @@ test('parseServerOptions returns safe defaults', () => {
     cookieSecure: null,
     publicBaseUrl: null,
     loopersAllowlistPath: null,
+    loopersAllowlistSnapshotPath: null,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -40,6 +42,7 @@ test('CLI flags override environment values', () => {
       cookieSecure: null,
       publicBaseUrl: null,
       loopersAllowlistPath: null,
+      loopersAllowlistSnapshotPath: null,
       loopersTurnstileSecretKey: null,
     },
   );
@@ -61,6 +64,7 @@ test('parseServerOptions accepts claim management security env', () => {
     cookieSecure: true,
     publicBaseUrl: 'https://helixa.xyz',
     loopersAllowlistPath: null,
+    loopersAllowlistSnapshotPath: null,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -78,6 +82,11 @@ test('parseServerOptions accepts database path from env or CLI', () => {
 test('parseServerOptions accepts Looper allowlist path from env or CLI', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PATH: '/tmp/loopers.json' }).loopersAllowlistPath, '/tmp/loopers.json');
   assert.equal(parseServerOptions(['--loopers-allowlist', '/tmp/cli-loopers.json'], {}).loopersAllowlistPath, '/tmp/cli-loopers.json');
+});
+
+test('parseServerOptions accepts Looper allowlist snapshot path from env or CLI', () => {
+  assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH: '/tmp/loopers-snapshot.json' }).loopersAllowlistSnapshotPath, '/tmp/loopers-snapshot.json');
+  assert.equal(parseServerOptions(['--loopers-allowlist-snapshot', '/tmp/cli-loopers-snapshot.json'], {}).loopersAllowlistSnapshotPath, '/tmp/cli-loopers-snapshot.json');
 });
 
 test('parseServerOptions accepts Looper Turnstile secret from env', () => {
@@ -131,6 +140,7 @@ test('startServer registers and checks Looper allowlist addresses', async () => 
     });
     assert.equal(register.status, 201);
     const registered = await register.json();
+    assert.equal(registered.collection, 'loopers');
     assert.equal(registered.registered, true);
     assert.equal(registered.created, true);
     assert.equal(registered.address, address);
@@ -147,8 +157,76 @@ test('startServer registers and checks Looper allowlist addresses', async () => 
     const status = await fetch(`${server.url}/api/loopers/allowlist/status?address=${address}`);
     assert.equal(status.status, 200);
     const statusBody = await status.json();
+    assert.equal(statusBody.collection, 'loopers');
     assert.equal(statusBody.registered, true);
     assert.equal(statusBody.entry.source, 'test');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer serves frozen Looper allowlist proofs separately from registration status', async () => {
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const ineligibleAddress = '0x0000000000000000000000000000000000000002';
+  const snapshot = createAllowlistSnapshot({
+    entries: [
+      { address, registered_at: '2026-08-27T17:00:00.000Z', source: 'test-freeze' },
+      { address: '0x0000000000000000000000000000000000000001', source: 'test-freeze' },
+    ],
+  }, { generatedAt: '2026-08-27T17:01:00.000Z' });
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistSnapshot: snapshot,
+  });
+
+  try {
+    const proofResponse = await fetch(`${server.url}/api/loopers/allowlist/proof?address=${address.toLowerCase()}`);
+    assert.equal(proofResponse.status, 200);
+    const proofBody = await proofResponse.json();
+    assert.equal(proofBody.collection, 'loopers');
+    assert.equal(proofBody.address, address);
+    assert.equal(proofBody.eligible, true);
+    assert.equal(proofBody.merkle_root, snapshot.merkle.root);
+    assert.equal(proofBody.leaf_encoding, snapshot.merkle.leaf_encoding);
+    assert.equal(proofBody.snapshot.generated_at, '2026-08-27T17:01:00.000Z');
+    assert.equal(proofBody.snapshot.count, 2);
+    assert.equal(verifyAllowlistProof(proofBody.address, proofBody.proof, proofBody.merkle_root), true);
+
+    const ineligibleResponse = await fetch(`${server.url}/api/loopers/allowlist/proof?address=${ineligibleAddress}`);
+    assert.equal(ineligibleResponse.status, 200);
+    const ineligibleBody = await ineligibleResponse.json();
+    assert.equal(ineligibleBody.address, ineligibleAddress);
+    assert.equal(ineligibleBody.eligible, false);
+    assert.deepEqual(ineligibleBody.proof, []);
+    assert.equal(ineligibleBody.merkle_root, snapshot.merkle.root);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rejects invalid Looper proof addresses and reports missing snapshot config', async () => {
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0 });
+
+  try {
+    const missing = await fetch(`${server.url}/api/loopers/allowlist/proof?address=0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea`);
+    assert.equal(missing.status, 503);
+    assert.equal((await missing.json()).error.code, 'not_configured');
+
+    const snapshotServer = await startServer({
+      fixture: 'generic',
+      host: '127.0.0.1',
+      port: 0,
+      loopersAllowlistSnapshot: createAllowlistSnapshot({ entries: [] }),
+    });
+    try {
+      const invalid = await fetch(`${snapshotServer.url}/api/loopers/allowlist/proof?address=not-an-address`);
+      assert.equal(invalid.status, 400);
+      assert.equal((await invalid.json()).error.code, 'invalid_address');
+    } finally {
+      await snapshotServer.close();
+    }
   } finally {
     await server.close();
   }

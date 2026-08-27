@@ -57,6 +57,26 @@ export function verifyAllowlistProof(address, proof = [], root) {
   return computed.toLowerCase() === String(root).toLowerCase();
 }
 
+export function getAllowlistProof(snapshot = {}, address) {
+  if (!snapshot?.merkle || !Array.isArray(snapshot.entries)) {
+    throw new TypeError('getAllowlistProof requires an allowlist snapshot');
+  }
+  const normalized = normalizeAllowlistAddressForSnapshot(address);
+  const entry = snapshot.entries.find((item) => String(item.address ?? '').toLowerCase() === normalized.toLowerCase()) ?? null;
+  return {
+    schema_version: snapshot.schema_version ?? SNAPSHOT_SCHEMA_VERSION,
+    generated_at: snapshot.generated_at ?? null,
+    count: Number(snapshot.count ?? snapshot.entries.length),
+    address: normalized,
+    eligible: Boolean(entry),
+    merkle_root: snapshot.merkle.root ?? null,
+    leaf_encoding: snapshot.merkle.leaf_encoding ?? LEAF_ENCODING,
+    proof: entry?.proof ?? [],
+    leaf: entry?.leaf ?? hashAllowlistAddress(normalized),
+    position: entry?.position ?? null,
+  };
+}
+
 function normalizeEntries(entries) {
   const seen = new Set();
   const normalized = [];
@@ -73,6 +93,11 @@ function normalizeEntries(entries) {
     });
   }
   return normalized;
+}
+
+function normalizeAllowlistAddressForSnapshot(address) {
+  if (!isAddress(address)) throw new TypeError(`Invalid allowlist address: ${address}`);
+  return getAddress(address);
 }
 
 function sanitizeSource(source) {
