@@ -4,6 +4,28 @@
 
 One mint page should handle allowlist and public mint clearly. The page should display contract-backed facts and avoid frontend-only guesses.
 
+## Public Allowlist Page
+
+The current allowlist page is intentionally minimal and separate from the later mint transaction page.
+
+It should show only:
+
+- Loopers logo or generic brand asset
+- short registration copy
+- wallet/address form
+- registration status
+
+It must not show:
+
+- approved Looper art
+- trait layers
+- layer composites
+- sample Looper cards
+- live status panels
+- generated Looper-like placeholders
+
+No real approved Looper image should be public before reveal unless Quigley explicitly approves that exact asset for public use.
+
 ## Page States
 
 Before wallet connect:
@@ -69,6 +91,8 @@ Allowlist registration must not require signing-wallet/provider semantics just t
 - Multipass is the dashboard/access layer, not the collection name.
 - Minted count must be accurate if displayed.
 - Do not make the counter the emotional center unless momentum is strong.
+- Do not show final Looper art before reveal.
+- Do not use pre-reveal art previews as decoration on the allowlist page.
 
 ## Error Handling
 
@@ -90,4 +114,3 @@ Handle these states with plain copy:
 Contract is truth. UI is display.
 
 The mint page should read contract sale state, prices, wallet counts, reveal state, total minted, and supply information from the contract or a verified index/API mirror of the contract.
-

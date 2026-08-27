@@ -1,74 +1,100 @@
 # Loopers Build Task Index
 
-This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
+This is the active implementation board for Loopers. It supersedes older launch plans and is for execution, not reopening locked decisions.
 
-Last updated: 2026-08-27 18:28 UTC.
+Last updated: 2026-08-27 20:03 UTC.
 
-## Current Snapshot
+## Ground Rules
 
-Shipped on `main`:
+- Collection name is `Loopers`.
+- Multipass is the dashboard, activation, and access layer around Loopers.
+- Public pre-reveal surfaces must not show real approved Looper art, trait layers, or layer composites.
+- The allowlist page is registration only: logo, short copy, wallet/address form, and registration status.
+- The Aug 23 `Multipass Loopers Seven Day Launch Implementation Plan` is historical reference only.
 
-- `141fb29` - Loopers allowlist and contract foundation.
-- `7de28c0` - Loopers deployment tooling.
-- `b15d09b` - Loopers allowlist proof API.
-- `84bc479` - Loopers proof lookup helper.
+## Current Status
+
+Done on `main`:
+
+- Contract foundation: ERC-721A, ERC-2981, supply, reserve, allowlist/public mint caps, pause, withdraw, reveal offset.
+- ERC-8048/ERC-721T metadata support with reserved agent keys.
+- ERC-6551 token-bound account resolution support.
+- Allowlist registration, snapshot export, Merkle proof generation, and proof API.
+- Web helper for `GET /api/loopers/allowlist/proof?address=...`.
+- Deployment/verification scripts and Base Sepolia/mainnet example configs.
+- Public allowlist page live with no on-page Looper preview.
+- Reverted the Looper status/art card in `7356294` because it leaked approved art before reveal.
 
 Fresh verification:
 
-- `pnpm test` passed 586/586 after the ERC-8048/721T and ERC-6551 contract changes.
-- `pnpm --filter @helixa/loopers-contracts compile` passed.
+- `pnpm test` passed 586/586.
+- `pnpm web:build` passed.
+- Focused web allowlist/share tests passed 173/173.
 - Local Ganache deploy/verify smoke passed with ERC-6551 config and ERC-8048 checks.
-- Focused API proof tests passed 24/24.
-- Focused web Looper allowlist/proof tests passed 15/15.
-- CLI snapshot export smoke passed.
+- Live deployed JS has no `approved-only-agent-14`, `looper-status`, or `loopers/approved` references.
 
-## Prior Plan Status
+## Locked Launch Decisions
 
-The Aug 23 `Multipass Loopers Seven Day Launch Implementation Plan` is historical reference, not the active source of truth.
+- Chain: Base mainnet.
+- Rehearsal: Base Sepolia first.
+- Max supply: 7,777.
+- Team reserve: 337, inside the 7,777 cap.
+- Mint window: 7 days, 7 hours, 7 minutes, 7 seconds.
+- Allowlist phase: first 24 hours.
+- Allowlist limit: 3 mints per wallet.
+- Public limit: 10 mints per wallet.
+- Payment: ETH on Base.
+- Target pricing: about $20 public, about $10 allowlist; exact wei values set near launch.
+- Reveal: placeholder during allowlist, final reveal at public mint open.
+- Metadata storage: Arweave.
+- Royalties: ERC-2981 at 5%, capped at 5%.
+- ERC-721C: not in v1.
+- ERC-6551: launch scope, rehearse before mainnet.
+- Sibyl: parallel activation demo, not a mint-contract dependency.
 
-What carried forward:
+## Immediate Next Move
 
-- One collection with one launch surface.
-- Allowlist capture before mint.
-- Base mainnet with Base Sepolia rehearsal.
-- Metadata, marketplace, mint UI, and activation handled around the core NFT.
+Set up the Base Sepolia rehearsal inputs and run the rehearsal deployment. Do not build a larger mint UI or activation/status panel until the rehearsal contract path is proven.
 
-What changed after later decisions:
+Needed from Quigley/team:
 
-- Collection name is `Loopers`, not `Multipass Loopers`.
-- Max supply is 7,777 with 337 team reserve, not a fixed 777 collection.
-- Mint is ETH-only in v1; x402 agent minting is deferred.
-- ERC-6551/token-bound accounts were explicitly requested for launch in the Aug 23 plan and need a scoped implementation/rehearsal decision.
-- No ERC-721C in v1.
-- Reveal is placeholder during allowlist, then owner-controlled reveal at public mint.
-- Sibyl activation demo is a parallel track, not a dependency of the mint contract.
-- Activated Looper cards should show live agent status from real systems: activation state, ERC-6551 wallet value, and Cred oracle/API score.
-- Holders/viewers must be able to toggle the live status HUD off when they want to see the clean Looper art.
-
-Immediate launch path:
-
-1. Stage Base Sepolia rehearsal inputs.
-2. Run Base Sepolia deploy and verification.
-3. Build mint page against the verified rehearsal contract.
-4. Add oracle-backed agent status display to the Looper card/dashboard.
-5. Build metadata validator and reveal rehearsal.
-6. Build Sibyl activation demo without blocking the mint contract.
-
-## Needed From Quigley Or Team
-
-- Fresh Base owner/admin wallet address for rehearsal and later mainnet.
+- Fresh Base owner/admin wallet address.
 - Treasury/royalty receiver address, likely the same fresh Base wallet.
-- Base Sepolia RPC and funded deployer key available in the deployment environment.
+- Base Sepolia RPC URL.
+- Funded deployer key available in the deployment environment.
 - Placeholder metadata URI for rehearsal.
 - Test allowlist addresses for the rehearsal Merkle snapshot.
-- Cred oracle/API endpoint, score payload shape, and verification/signature model for Looper agents.
-- Sibyl API credentials or confirmed integration path.
+- ERC-6551 registry and account implementation addresses for Base Sepolia/mainnet, or confirmation to use the canonical known deployment if available.
 
-## Track A: Loopers Launch Core
+## Workstreams
 
-### 1. Contract
+### 1. Public Allowlist Page
 
-Status: draft exists; deployment tooling exists; ERC-8048/721T metadata and ERC-6551 launch resolution are implemented; Base Sepolia rehearsal not started.
+Status: live and intentionally minimal.
+
+Source:
+
+- `apps/web/src/app.js`
+- `apps/web/src/looper-allowlist.js`
+- `apps/web/scripts/write-allowlist-entry.mjs`
+- `apps/web/public/loopers-logo.png`
+- `apps/web/public/loopers-allowlist-preview-20260826c.jpg`
+
+Rules:
+
+- Keep it as registration only.
+- Do not add Looper art, cards, sample tokens, status panels, trait previews, or generated Looper-like placeholders.
+- Social preview can use generic/logo-only assets, not approved Looper art.
+
+Next tasks:
+
+- Keep monitoring registration health.
+- Enable Turnstile only if bot pressure needs it.
+- Avoid changing the page unless registration breaks or copy needs a small correction.
+
+### 2. Contract And Base Sepolia Rehearsal
+
+Status: contract/tooling built locally; Base Sepolia rehearsal not started.
 
 Source:
 
@@ -80,83 +106,48 @@ Source:
 
 Next tasks:
 
-- Copy `base-sepolia.example.json` to `base-sepolia.local.json` with rehearsal values.
-- Generate a small rehearsal Merkle snapshot with `export-loopers-allowlist.js`.
-- Deploy to Base Sepolia with `deploy-loopers.js`.
-- Verify deployed reads with `verify-loopers-deployment.js` and Basescan.
-- Run the full contract test suite before every deployment.
+- Copy `packages/contracts/config/base-sepolia.example.json` to `base-sepolia.local.json`.
+- Fill owner, treasury, prices, placeholder URI, sale timing, Merkle root, ERC-6551 registry, implementation, and salt.
+- Generate a tiny rehearsal Merkle snapshot with `apps/api/scripts/export-loopers-allowlist.js`.
+- Deploy to Base Sepolia with `packages/contracts/scripts/deploy-loopers.js`.
+- Run `packages/contracts/scripts/verify-loopers-deployment.js`.
+- Record contract address, deployment tx, config, and verification output.
 
 Blocked by:
 
-- Fresh Base owner/admin address.
-- Fresh treasury/royalty receiver address.
-- Base Sepolia RPC and funded deployer key in env.
-- Rehearsal placeholder URI.
-- Rehearsal Merkle root.
-- ERC-6551 registry and account implementation addresses for Base Sepolia/mainnet.
+- Rehearsal inputs listed in `Immediate Next Move`.
 
-### 2. Mint Site
+### 3. Mint Page
 
-Status: requirements exist; proof client helper exists; page implementation not built.
+Status: requirements exist; full mint transaction page not built.
 
 Source:
 
 - `docs/loopers/mint-site-requirements.md`
-- current allowlist/proof helper: `apps/web/src/looper-allowlist.js`
+- `apps/web/src/looper-allowlist.js`
+
+Build after:
+
+- Base Sepolia rehearsal contract address and ABI are verified.
+- Rehearsal proof API path is confirmed.
 
 Next tasks:
 
-- Build one mint page for allowlist and public phases.
-- Read sale state, prices, counts, wallet mint counts, reveal state, and remaining supply from contract.
-- Use `getLooperAllowlistProof()` from wallet address lookup.
+- Build a contract-backed mint page for allowlist and public phases.
+- Show phase, price, max per wallet, countdown, exact ETH needed, eligibility, remaining wallet mint count, and chain status.
+- Use `getLooperAllowlistProof()` for allowlist mint proofs.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
-- Render the clean static Looper image with a live app overlay for activated agent status: activation state, agent/profile name, ERC-6551 token-bound account, wallet value, Cred score/tier, and last scored timestamp.
-- Add a clear `show status` / `hide status` control on Looper cards so holders can switch between the live agent HUD and clean art view.
-- Remember the status visibility preference locally in the app without changing token metadata or ownership state.
-- Keep marketplace `image` canonical and static; use app overlay and/or `animation_url` for live status so changing Cred/wallet data does not mutate final art.
-- Read Cred from the Cred oracle/API only. Do not display user-provided or frontend-invented scores.
-- Verify Cred response authenticity with the agreed oracle signature/proof before treating a score as trusted.
-- Add tests for not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, and wallet cap reached.
-- Add tests for status overlay states: unactivated, activated with pending Cred, activated with verified Cred, stale Cred timestamp, missing wallet value, invalid Cred proof, HUD hidden, and HUD restored.
+- Test sale not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, wallet cap reached, and proof unavailable.
 
-Blocked by:
+Rules:
 
-- Contract ABI/address from Base Sepolia rehearsal.
-- Base Sepolia rehearsal proof snapshot path.
-- Final mint page deployment target.
-- Cred oracle/API endpoint and signed response contract.
-- Wallet value source for ERC-6551 token-bound accounts.
-
-### 3. Allowlist And Merkle
-
-Status: raw signup exists; Merkle snapshot/proof generation and proof API exist; final eligibility pipeline not frozen.
-
-Source:
-
-- `apps/api/src/allowlist-store.js`
-- `apps/api/src/allowlist-snapshot.js`
-- `apps/api/scripts/export-loopers-allowlist.js`
-- `apps/api/scripts/backup-loopers-allowlist.js`
-
-Next tasks:
-
-- Create a tiny rehearsal allowlist snapshot for Base Sepolia.
-- Export raw signup snapshot.
-- Clean duplicates and obvious bad entries only.
-- Freeze final allowlist file separately from public signup data.
-- Generate Merkle tree and per-wallet proofs.
-- Back up final allowlist, Merkle root, and proof bundle.
-- Point `MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH` at the frozen proof bundle.
-
-Blocked by:
-
-- Rehearsal wallet list.
-- Final cleanup pass.
-- Decision that allowlist has frozen.
+- Do not use frontend guesses where contract reads are available.
+- Do not make minted count the emotional center during allowlist.
+- Do not show final Looper art before reveal.
 
 ### 4. Metadata And Reveal
 
-Status: checklist exists, tooling not built.
+Status: checklist exists; validator/tooling not built.
 
 Source:
 
@@ -164,55 +155,43 @@ Source:
 
 Next tasks:
 
-- Create placeholder metadata bundle and upload to Arweave.
-- Build local validator for final token JSON, images, Codex files, attributes, Looper agent fields, and naming rules.
-- Add `animation_url`/agent-dashboard metadata rules if live Looper cards are linked from token metadata.
-- Add ERC-8048/721T Cred discovery metadata, likely `endpoint[cred]`, so agents can find the canonical Cred source.
-- Validate no final JSON exposes private file paths or placeholder values.
-- Upload final images, final token JSON, and Agent Codex JSON to Arweave only after validation passes.
+- Create rehearsal placeholder metadata and upload/check it.
+- Build a local metadata validator for final token JSON, images, Agent Codex files, attributes, naming, Looper agent fields, duplicates, missing files, private paths, and placeholder leakage.
 - Rehearse placeholder-to-final reveal on Base Sepolia.
-- Record reveal offset, final base URI, and post-reveal `tokenURI` samples.
+- Record reveal offset, final base URI, and sample `tokenURI` outputs.
+- Upload final art/metadata to Arweave only after validation passes.
 
-Blocked by:
+Rules:
 
-- Rehearsal placeholder asset/URI.
-- Final art and metadata export.
-- Final Agent Codex JSON shape.
-- Final agent dashboard/`animation_url` route decision.
-- Canonical Cred endpoint key and payload shape.
+- Final art and metadata stay private until reveal QA.
+- No public branded OpenSea test collection.
+- Arweave uploads are immutable, so validation happens first.
 
-## Track B: Cred Oracle And Agent Status Layer
+### 5. Cred/Activation Status Layer
 
-Status: concept approved by Quigley; implementation not built.
+Status: concept approved; not launch-blocking for the mint contract; implementation not built.
 
-Launch rule:
+Source:
 
-- The permanent marketplace `image` remains the clean Looper art.
-- Live status belongs in Multipass app overlays and optional `animation_url` agent cards.
-- The live HUD is optional in the UI; holders/viewers can hide it to inspect the art without status labels.
-- Cred scores must come from the real Cred oracle/API, with verification, not from static metadata or frontend text.
+- `docs/loopers/mint-site-requirements.md`
+- future Multipass activation/profile code
 
 Next tasks:
 
-- Define the Cred oracle/API lookup key for Loopers: ERC-6551 account address, AgentDNA/activation ID, token contract plus token ID, or a stable combination.
-- Define the signed Cred response schema: score, tier, components, timestamp, freshness window, subject, issuer, signature/proof, and source URL.
-- Build a small API/client adapter that reads token-bound account value and Cred score for a Looper.
-- Render a compact HUD on the Looper card for `Active Agent`, Cred score/tier, wallet value, token-bound account, and last scored timestamp.
-- Add a persistent local display toggle for clean art vs live status HUD.
-- Render untrusted/stale states clearly: `Cred pending`, `Score stale`, or `Proof invalid`.
-- Add `endpoint[cred]` to ERC-8048/721T metadata once the canonical endpoint is known.
-- Consider `animation_url` for the richer live agent card with score breakdown/history, wallet holdings, attestations, Sibyl memory/activity, and agent endpoints.
+- Define the canonical Looper identity key for Cred: token contract plus token ID, ERC-6551 account, activation profile ID, or a stable combination.
+- Define the signed Cred response schema.
+- Build an adapter that reads token-bound account value and verified Cred score.
+- Render status only on post-mint holder/dashboard/profile surfaces, not the pre-reveal allowlist page.
 
-Blocked by:
+Rules:
 
-- Canonical Cred oracle/API endpoint for Loopers.
-- Signed response/proof format.
-- Final subject identity mapping between Looper token, ERC-6551 account, activation profile, and Cred score.
-- Wallet value provider for Base token-bound accounts.
+- Cred scores must come from the real Cred oracle/API with verification.
+- Static metadata and frontend text must not invent scores.
+- Any live status display belongs in Multipass post-mint UI or optional `animation_url`, not the public allowlist page.
 
-## Track C: Sibyl Activation Demo
+### 6. Sibyl Activation Demo
 
-Status: demo spec exists, implementation not built.
+Status: demo spec exists; implementation not built.
 
 Source:
 
@@ -220,26 +199,38 @@ Source:
 
 Next tasks:
 
-- Choose demo fixture, likely `Looper #1234` unless Quigley wants a named sample.
-- Build a demo Looper profile inside Multipass.
-- Add Activate flow with free first agent/profile name.
-- Connect activated profile status to the live Looper card so activation state and Cred status can be shown together.
-- Add Sibyl memory save, recall, and search path.
-- Add fresh-session recall demo script.
-- Keep public Looper history token-scoped and private memory wallet-scoped.
-- Write README and demo capture checklist for hackathon submission.
+- Confirm Sibyl API/integration path.
+- Choose a non-leaking demo fixture.
+- Build activate + name flow.
+- Add Sibyl memory save, recall, and search.
+- Capture a fresh-session recall demo.
+- Keep public Looper history token-scoped and private operator memory wallet-scoped.
 
-Blocked by:
+Rules:
 
-- Sibyl API credentials or integration path.
-- Choice of demo Looper/profile fixture.
+- Sibyl demo can run in parallel.
+- Sibyl must not bloat the mint contract or block Base Sepolia mint rehearsal.
 
 ## Build Order
 
-1. Finish contract deployment tooling and Base Sepolia deploy config.
-2. Freeze a small test Merkle allowlist and wire proof serving.
-3. Build mint page against Base Sepolia contract.
-4. Build Cred oracle/API-backed agent status overlay for activated Loopers.
-5. Build metadata validator and placeholder/final reveal rehearsal.
-6. Build Sibyl demo in parallel once integration access is ready.
-7. Only after rehearsal passes, set mainnet prices, treasury, final Merkle root, and deployment checklist.
+1. Gather rehearsal inputs.
+2. Run Base Sepolia contract deployment and verification.
+3. Create rehearsal allowlist snapshot and proof serving.
+4. Build mint page against the verified rehearsal contract.
+5. Build metadata validator and reveal rehearsal.
+6. Prepare final allowlist and mainnet deployment checklist.
+7. Build Cred/activation status layer after the mint path is stable.
+8. Build Sibyl demo in parallel once integration access is ready.
+
+## Mainnet Gate
+
+No mainnet deploy until:
+
+- Base Sepolia rehearsal passes end-to-end.
+- Fresh owner/admin address is verified twice.
+- Treasury/royalty receiver is verified twice.
+- Exact ETH prices are set.
+- Placeholder metadata URI is live and checked.
+- Final allowlist Merkle root is frozen and backed up.
+- Final art/metadata validator passes before Arweave upload.
+- Mint page handles all required wallet, phase, proof, price, and failure states.
