@@ -2,11 +2,46 @@
 
 This is the implementation queue. The decisions are locked; this file is for build execution, not reopening launch planning.
 
+Last updated: 2026-08-27 18:05 UTC.
+
+## Current Snapshot
+
+Shipped on `main`:
+
+- `141fb29` - Loopers allowlist and contract foundation.
+- `7de28c0` - Loopers deployment tooling.
+- `b15d09b` - Loopers allowlist proof API.
+- `84bc479` - Loopers proof lookup helper.
+
+Fresh verification:
+
+- `pnpm test` passed 584/584 after the proof API and web helper changes.
+- Focused API proof tests passed 24/24.
+- Focused web Looper allowlist/proof tests passed 15/15.
+- CLI snapshot export smoke passed.
+
+Immediate launch path:
+
+1. Stage Base Sepolia rehearsal inputs.
+2. Run Base Sepolia deploy and verification.
+3. Build mint page against the verified rehearsal contract.
+4. Build metadata validator and reveal rehearsal.
+5. Build Sibyl activation demo without blocking the mint contract.
+
+## Needed From Quigley Or Team
+
+- Fresh Base owner/admin wallet address for rehearsal and later mainnet.
+- Treasury/royalty receiver address, likely the same fresh Base wallet.
+- Base Sepolia RPC and funded deployer key available in the deployment environment.
+- Placeholder metadata URI for rehearsal.
+- Test allowlist addresses for the rehearsal Merkle snapshot.
+- Sibyl API credentials or confirmed integration path.
+
 ## Track A: Loopers Launch Core
 
 ### 1. Contract
 
-Status: draft exists; deployment tooling exists.
+Status: draft exists; deployment tooling exists; Base Sepolia rehearsal not started.
 
 Source:
 
@@ -26,10 +61,11 @@ Next tasks:
 
 Blocked by:
 
-- Fresh Base treasury/admin address.
-- Exact launch-time ETH prices.
-- Final Merkle root.
-- Placeholder Arweave URI.
+- Fresh Base owner/admin address.
+- Fresh treasury/royalty receiver address.
+- Base Sepolia RPC and funded deployer key in env.
+- Rehearsal placeholder URI.
+- Rehearsal Merkle root.
 
 ### 2. Mint Site
 
@@ -52,6 +88,7 @@ Blocked by:
 
 - Contract ABI/address from Base Sepolia rehearsal.
 - Base Sepolia rehearsal proof snapshot path.
+- Final mint page deployment target.
 
 ### 3. Allowlist And Merkle
 
@@ -66,6 +103,7 @@ Source:
 
 Next tasks:
 
+- Create a tiny rehearsal allowlist snapshot for Base Sepolia.
 - Export raw signup snapshot.
 - Clean duplicates and obvious bad entries only.
 - Freeze final allowlist file separately from public signup data.
@@ -75,6 +113,7 @@ Next tasks:
 
 Blocked by:
 
+- Rehearsal wallet list.
 - Final cleanup pass.
 - Decision that allowlist has frozen.
 
@@ -97,6 +136,7 @@ Next tasks:
 
 Blocked by:
 
+- Rehearsal placeholder asset/URI.
 - Final art and metadata export.
 - Final Agent Codex JSON shape.
 
@@ -110,6 +150,7 @@ Source:
 
 Next tasks:
 
+- Choose demo fixture, likely `Looper #1234` unless Quigley wants a named sample.
 - Build a demo Looper profile inside Multipass.
 - Add Activate flow with free first agent/profile name.
 - Add Sibyl memory save, recall, and search path.
