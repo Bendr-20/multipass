@@ -36,7 +36,7 @@ What changed after later decisions:
 - Collection name is `Loopers`, not `Multipass Loopers`.
 - Max supply is 7,777 with 337 team reserve, not a fixed 777 collection.
 - Mint is ETH-only in v1; x402 agent minting is deferred.
-- ERC-6551/token-bound accounts are not launch-critical.
+- ERC-6551/token-bound accounts were explicitly requested for launch in the Aug 23 plan and need a scoped implementation/rehearsal decision.
 - No ERC-721C in v1.
 - Reveal is placeholder during allowlist, then owner-controlled reveal at public mint.
 - Sibyl activation demo is a parallel track, not a dependency of the mint contract.
@@ -74,6 +74,7 @@ Source:
 
 Next tasks:
 
+- Scope ERC-6551 launch implementation: standard registry/account path, metadata `account[...]` representation, and UI display expectations.
 - Copy `base-sepolia.example.json` to `base-sepolia.local.json` with rehearsal values.
 - Generate a small rehearsal Merkle snapshot with `export-loopers-allowlist.js`.
 - Deploy to Base Sepolia with `deploy-loopers.js`.
@@ -87,6 +88,7 @@ Blocked by:
 - Base Sepolia RPC and funded deployer key in env.
 - Rehearsal placeholder URI.
 - Rehearsal Merkle root.
+- ERC-6551 registry/account implementation choice.
 
 ### 2. Mint Site
 
