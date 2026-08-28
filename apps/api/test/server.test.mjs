@@ -25,6 +25,7 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistRateLimit: undefined,
     loopersAllowlistSubnetRateLimit: undefined,
+    loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -51,6 +52,7 @@ test('CLI flags override environment values', () => {
       loopersAllowlistRequireBrowserOrigin: false,
       loopersAllowlistRateLimit: undefined,
       loopersAllowlistSubnetRateLimit: undefined,
+      loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
     },
   );
@@ -77,6 +79,7 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistRateLimit: undefined,
     loopersAllowlistSubnetRateLimit: undefined,
+    loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -113,10 +116,13 @@ test('parseServerOptions accepts Looper allowlist slow-mode env', () => {
     MULTIPASS_LOOPERS_ALLOWLIST_RATE_WINDOW_SECONDS: '600',
     MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT: '4',
     MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_WINDOW_SECONDS: '600',
+    MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT: '12',
+    MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_WINDOW_SECONDS: '3600',
   });
   assert.equal(options.loopersAllowlistRequireBrowserOrigin, true);
   assert.deepEqual(options.loopersAllowlistRateLimit, { limit: 1, windowMs: 600_000 });
   assert.deepEqual(options.loopersAllowlistSubnetRateLimit, { limit: 4, windowMs: 600_000 });
+  assert.deepEqual(options.loopersAllowlistGlobalRateLimit, { limit: 12, windowMs: 3_600_000 });
 });
 
 test('parseServerOptions accepts Looper Turnstile secret from env', () => {
@@ -388,6 +394,41 @@ test('startServer rate limits Looper allowlist bursts by client subnet', async (
     });
     assert.equal(limited.status, 429);
     assert.equal((await limited.json()).error.message, 'Too many allowlist registration attempts from this network. Try again shortly.');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer rate limits Looper allowlist registration globally', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistRateLimit: { limit: 10, windowMs: 60_000, now: () => 1_000 },
+    loopersAllowlistSubnetRateLimit: { limit: 10, windowMs: 60_000, now: () => 1_000 },
+    loopersAllowlistGlobalRateLimit: { limit: 2, windowMs: 60_000, now: () => 1_000 },
+  });
+
+  try {
+    for (const [index, address] of [
+      '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+      '0x0000000000000000000000000000000000000001',
+    ].entries()) {
+      const allowed = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.${index}.10` },
+        body: JSON.stringify({ address, source: 'test' }),
+      });
+      assert.equal(allowed.status, 201);
+    }
+
+    const limited = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.3.10' },
+      body: JSON.stringify({ address: '0x0000000000000000000000000000000000000002', source: 'test' }),
+    });
+    assert.equal(limited.status, 429);
+    assert.equal((await limited.json()).error.message, 'Loopers allowlist registration is in slow mode. Try again shortly.');
   } finally {
     await server.close();
   }

@@ -44,6 +44,10 @@ const LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT = {
   limit: 4,
   windowMs: 600_000,
 };
+const LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT = {
+  limit: 30,
+  windowMs: 3_600_000,
+};
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 export function createMemoryStore(input = {}) {
@@ -166,6 +170,7 @@ export function createMultipassApi({
   loopersAllowlistSnapshot,
   loopersAllowlistRateLimit,
   loopersAllowlistSubnetRateLimit,
+  loopersAllowlistGlobalRateLimit,
   loopersAllowlistRegistrationPaused = false,
   loopersAllowlistRequireBrowserOrigin = false,
   loopersTurnstileSecretKey,
@@ -192,6 +197,7 @@ export function createMultipassApi({
     loopersAllowlistRequireBrowserOrigin: Boolean(loopersAllowlistRequireBrowserOrigin),
     loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
+    loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
   };
 
@@ -381,6 +387,16 @@ async function handleLooperPost(request, parts, context) {
           message: 'Too many allowlist registration attempts from this network. Try again shortly.',
         },
       }, 429, { 'retry-after': String(subnetRateLimit.retryAfterSeconds) });
+    }
+    const globalRateLimit = context.loopersAllowlistGlobalRateLimiter.check('global');
+    if (!globalRateLimit.allowed) {
+      return jsonResponse({
+        schema_version: '0.1.0',
+        error: {
+          code: 'rate_limited',
+          message: 'Loopers allowlist registration is in slow mode. Try again shortly.',
+        },
+      }, 429, { 'retry-after': String(globalRateLimit.retryAfterSeconds) });
     }
     const body = await readJsonBody(request);
     if (hasLooperAllowlistBotTrap(body)) {

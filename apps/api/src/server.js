@@ -34,6 +34,10 @@ export function parseServerOptions(argv = [], env = process.env) {
       limit: env.MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT,
       windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_WINDOW_SECONDS,
     }, 'MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE'),
+    loopersAllowlistGlobalRateLimit: parseRateLimitConfig({
+      limit: env.MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT,
+      windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_WINDOW_SECONDS,
+    }, 'MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE'),
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
   };
 
@@ -75,6 +79,7 @@ export async function startServer(options = {}) {
     loopersAllowlistRequireBrowserOrigin: Boolean(options.loopersAllowlistRequireBrowserOrigin),
     loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
+    loopersAllowlistGlobalRateLimit: options.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
     fetchImpl: options.fetchImpl,
   };
@@ -147,6 +152,7 @@ export async function startServer(options = {}) {
     loopersAllowlistRequireBrowserOrigin: parsed.loopersAllowlistRequireBrowserOrigin,
     loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
+    loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
     fetchImpl: parsed.fetchImpl,
   });
