@@ -24,6 +24,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
     loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
     loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
+    loopersAllowlistRegistrationPaused: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_PAUSED, 'MULTIPASS_LOOPERS_ALLOWLIST_PAUSED') ?? false,
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
   };
 
@@ -61,6 +62,7 @@ export async function startServer(options = {}) {
     publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
     loopersAllowlistPath: options.loopersAllowlistPath ?? null,
     loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
+    loopersAllowlistRegistrationPaused: Boolean(options.loopersAllowlistRegistrationPaused),
     loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
@@ -131,6 +133,7 @@ export async function startServer(options = {}) {
     cookieSecure: parsed.cookieSecure,
     loopersAllowlist,
     loopersAllowlistSnapshot,
+    loopersAllowlistRegistrationPaused: parsed.loopersAllowlistRegistrationPaused,
     loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,

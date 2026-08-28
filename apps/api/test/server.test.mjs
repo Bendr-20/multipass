@@ -21,6 +21,7 @@ test('parseServerOptions returns safe defaults', () => {
     publicBaseUrl: null,
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    loopersAllowlistRegistrationPaused: false,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -43,6 +44,7 @@ test('CLI flags override environment values', () => {
       publicBaseUrl: null,
       loopersAllowlistPath: null,
       loopersAllowlistSnapshotPath: null,
+      loopersAllowlistRegistrationPaused: false,
       loopersTurnstileSecretKey: null,
     },
   );
@@ -65,6 +67,7 @@ test('parseServerOptions accepts claim management security env', () => {
     publicBaseUrl: 'https://helixa.xyz',
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    loopersAllowlistRegistrationPaused: false,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -87,6 +90,11 @@ test('parseServerOptions accepts Looper allowlist path from env or CLI', () => {
 test('parseServerOptions accepts Looper allowlist snapshot path from env or CLI', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH: '/tmp/loopers-snapshot.json' }).loopersAllowlistSnapshotPath, '/tmp/loopers-snapshot.json');
   assert.equal(parseServerOptions(['--loopers-allowlist-snapshot', '/tmp/cli-loopers-snapshot.json'], {}).loopersAllowlistSnapshotPath, '/tmp/cli-loopers-snapshot.json');
+});
+
+test('parseServerOptions accepts Looper allowlist pause flag from env', () => {
+  assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PAUSED: '1' }).loopersAllowlistRegistrationPaused, true);
+  assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PAUSED: '0' }).loopersAllowlistRegistrationPaused, false);
 });
 
 test('parseServerOptions accepts Looper Turnstile secret from env', () => {
@@ -144,7 +152,7 @@ test('startServer registers and checks Looper allowlist addresses', async () => 
     assert.equal(registered.registered, true);
     assert.equal(registered.created, true);
     assert.equal(registered.address, address);
-    assert.equal(registered.total_registered, 1);
+    assert.equal(registered.total_registered, undefined);
 
     const duplicate = await fetch(`${server.url}/api/loopers/allowlist/register`, {
       method: 'POST',
@@ -160,6 +168,28 @@ test('startServer registers and checks Looper allowlist addresses', async () => 
     assert.equal(statusBody.collection, 'loopers');
     assert.equal(statusBody.registered, true);
     assert.equal(statusBody.entry.source, 'test');
+    assert.equal(statusBody.total_registered, undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer can pause Looper allowlist registration intake', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistRegistrationPaused: true,
+  });
+
+  try {
+    const register = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
+    });
+    assert.equal(register.status, 503);
+    assert.equal((await register.json()).error.code, 'registration_paused');
   } finally {
     await server.close();
   }

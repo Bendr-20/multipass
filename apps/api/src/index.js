@@ -37,11 +37,11 @@ const JSON_HEADERS = {
 const MANAGER_COOKIE_NAME = 'multipass_manager';
 const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
 const LOOPERS_ALLOWLIST_RATE_LIMIT = {
-  limit: 5,
+  limit: 2,
   windowMs: 60_000,
 };
 const LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT = {
-  limit: 25,
+  limit: 6,
   windowMs: 60_000,
 };
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
@@ -166,6 +166,7 @@ export function createMultipassApi({
   loopersAllowlistSnapshot,
   loopersAllowlistRateLimit,
   loopersAllowlistSubnetRateLimit,
+  loopersAllowlistRegistrationPaused = false,
   loopersTurnstileSecretKey,
 } = {}) {
   if (!store) {
@@ -186,6 +187,7 @@ export function createMultipassApi({
     fetchImpl,
     loopersAllowlist,
     loopersAllowlistSnapshot,
+    loopersAllowlistRegistrationPaused: Boolean(loopersAllowlistRegistrationPaused),
     loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
@@ -351,6 +353,9 @@ async function handleLooperPost(request, parts, context) {
     if (!context.loopersAllowlist) {
       return errorResponse(503, 'not_configured', 'Looper allowlist registration is not configured.');
     }
+    if (context.loopersAllowlistRegistrationPaused) {
+      return errorResponse(503, 'registration_paused', 'Loopers allowlist registration is temporarily paused.');
+    }
     const clientIp = getClientRateLimitKey(request);
     const rateLimit = context.loopersAllowlistRateLimiter.check(clientIp);
     if (!rateLimit.allowed) {
@@ -384,7 +389,6 @@ async function handleLooperPost(request, parts, context) {
       address: body.address,
       source: normalizeLooperAllowlistSource(body.source ?? 'launch-page'),
     });
-    const total = await context.loopersAllowlist.count();
     return jsonResponse({
       schema_version: '0.1.0',
       collection: 'loopers',
@@ -392,7 +396,6 @@ async function handleLooperPost(request, parts, context) {
       created: result.created,
       address: result.entry.address,
       entry: result.entry,
-      total_registered: total,
     }, result.created ? 201 : 200);
   }
 
@@ -406,12 +409,10 @@ async function handleLooperRead(url, parts, context) {
     }
     const address = url.searchParams.get('address');
     const status = await context.loopersAllowlist.status(address);
-    const total = await context.loopersAllowlist.count();
     return jsonResponse({
       schema_version: '0.1.0',
       collection: 'loopers',
       ...status,
-      total_registered: total,
     });
   }
 
