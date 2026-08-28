@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { getAddress, isAddress } from 'viem';
@@ -63,11 +63,13 @@ export async function createJsonAllowlistStore({ filePath, now = () => new Date(
 
   async function persist() {
     await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify({
+    const temporaryPath = `${filePath}.${process.pid}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify({
       schema_version: SCHEMA_VERSION,
       generated_at: now().toISOString(),
       entries: memory.list(),
     }, null, 2)}\n`);
+    await rename(temporaryPath, filePath);
   }
 
   return {
