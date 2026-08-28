@@ -292,6 +292,8 @@ button:focus-visible {
 }
 
 .looper-allowlist-hero {
+  display: grid;
+  gap: 18px;
   width: min(960px, 100%);
 }
 
@@ -457,6 +459,161 @@ button:focus-visible {
 
 .looper-allowlist-status.error {
   color: #9c3328;
+}
+
+.looper-mint-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 14px;
+  margin: 0 auto;
+  padding: clamp(18px, 2.6vw, 24px);
+  border: 1px solid var(--ink);
+  background: rgba(255, 250, 241, 0.94);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+
+.looper-mint-heading,
+.looper-mint-wallet,
+.looper-mint-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.looper-mint-heading h2,
+.looper-mint-heading p,
+.looper-mint-status,
+.looper-mint-note {
+  margin: 0;
+}
+
+.looper-mint-heading h2 {
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+  line-height: 1;
+}
+
+.looper-mint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--ink);
+  background: var(--paper-soft);
+}
+
+.looper-mint-fact {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.looper-mint-fact:nth-child(3n) {
+  border-right: 0;
+}
+
+.looper-mint-fact:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.looper-mint-fact span,
+.looper-mint-wallet span,
+.looper-mint-form span,
+.looper-mint-cost span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.looper-mint-fact strong,
+.looper-mint-wallet strong,
+.looper-mint-cost strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.looper-mint-wallet {
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.looper-mint-wallet > div,
+.looper-mint-cost {
+  display: grid;
+  gap: 4px;
+}
+
+.looper-mint-form {
+  grid-template-columns: minmax(92px, 130px) minmax(130px, 1fr) minmax(150px, 210px);
+}
+
+.looper-mint-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.looper-mint-form input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--ink);
+  background: var(--paper-soft);
+  color: var(--ink);
+  font: inherit;
+  padding: 0 12px;
+}
+
+.looper-mint-panel button {
+  min-height: 42px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.looper-mint-refresh-button,
+.looper-mint-wallet button {
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+}
+
+.looper-mint-panel button:disabled,
+.looper-mint-form input:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.looper-mint-note,
+.looper-mint-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.looper-mint-note.success,
+.looper-mint-status.success {
+  color: var(--green);
+}
+
+.looper-mint-note.error,
+.looper-mint-status.error {
+  color: #9c3328;
+}
+
+.looper-mint-status a {
+  color: inherit;
+  font-weight: 950;
 }
 
 @keyframes looper-static-jump {
@@ -2993,8 +3150,31 @@ h1 {
   }
 
   .looper-allowlist-panel,
-  .looper-allowlist-form {
+  .looper-allowlist-form,
+  .looper-mint-heading,
+  .looper-mint-wallet,
+  .looper-mint-form {
     grid-template-columns: 1fr;
+  }
+
+  .looper-mint-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .looper-mint-fact:nth-child(3n) {
+    border-right: 1px solid var(--ink);
+  }
+
+  .looper-mint-fact:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .looper-mint-fact:nth-last-child(-n + 3) {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .looper-mint-fact:nth-last-child(-n + 2) {
+    border-bottom: 0;
   }
 
   .product-home-shell .multipass-system-panel .system-panel-copy {
@@ -3634,6 +3814,11 @@ h1 {
 
   .looper-allowlist-panel {
     margin: 22px 0 0;
+    padding: 16px;
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+
+  .looper-mint-panel {
     padding: 16px;
     box-shadow: 5px 5px 0 var(--ink);
   }

@@ -524,7 +524,7 @@ async function savedQuigbotFetch(url) {
   throw new Error(`Unexpected URL ${url}`);
 }
 
-function createWalletClientFixture({ snapshot, connect, signMessage } = {}) {
+function createWalletClientFixture({ snapshot, connect, signMessage, request } = {}) {
   let currentSnapshot = {
     ready: true,
     configured: true,
@@ -551,6 +551,33 @@ function createWalletClientFixture({ snapshot, connect, signMessage } = {}) {
       if (signMessage) return signMessage(message);
       return { wallet: currentSnapshot.address, signature: '0xsig' };
     },
+    async request(payload) {
+      return request?.(payload);
+    },
+  };
+}
+
+function sampleLooperMintState({ address, saleState = 'allowlist', proof = { status: 'loaded', eligible: true, proof: ['0x1234'] }, allowlistMintedByWallet = 1n, mintedByWallet = 1n, remainingPublicSupply = 7439n } = {}) {
+  return {
+    enabled: true,
+    config: { mode: 'rehearsal', label: 'Base Sepolia rehearsal' },
+    address,
+    name: 'Loopers',
+    symbol: 'LOOPER',
+    saleState,
+    allowlistStart: 1787931008n,
+    publicStart: 1788017408n,
+    saleEnd: 1788561435n,
+    allowlistPriceWei: 1_000_000_000_000n,
+    publicPriceWei: 2_000_000_000_000n,
+    merkleRoot: '0x7708767dfca7691ceba909e8c050828f998a9c0bd69642d96e61dcd5efb0163c',
+    totalMinted: 1n,
+    remainingPublicSupply,
+    allowlistMintedByWallet,
+    mintedByWallet,
+    allowlistRemainingForWallet: 3n - allowlistMintedByWallet,
+    publicRemainingForWallet: 10n - mintedByWallet,
+    proof,
   };
 }
 
@@ -938,6 +965,169 @@ test('standalone Looper allowlist connect wallet can register while Privy readin
   assert.equal(calls.length, 1);
   assert.deepEqual(JSON.parse(calls[0].options.body), { address, source: 'launch-page', looper_allowlist_contact: '' });
   assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
+
+test('standalone Looper allowlist keeps mint panel hidden without contract config', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.looper-mint-panel'), null);
+  assert.doesNotMatch(root.textContent, /Rehearsal mint/i);
+});
+
+test('standalone Looper allowlist renders rehearsal mint state from contract client', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const loadCalls = [];
+  const looperMintClient = {
+    loadState: async (input) => {
+      loadCalls.push(input);
+      return sampleLooperMintState({ address });
+    },
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  assert.ok(panel);
+  assert.match(panel.textContent, /Rehearsal mint/);
+  assert.match(panel.textContent, /Allowlist/);
+  assert.match(panel.textContent, /Allowlist eligible/);
+  assert.match(panel.textContent, /Remaining discounted mints: 2/);
+  assert.match(panel.textContent, /0.000001 ETH/);
+  assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.textContent, 'Mint allowlist');
+  assert.equal(loadCalls.length, 1);
+  assert.equal(loadCalls[0].config.mode, 'rehearsal');
+  assert.equal(loadCalls[0].address, address);
+  assert.equal(loadCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
+});
+
+test('standalone Looper allowlist can still register while rehearsal mint panel is enabled', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const calls = [];
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState(),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    looperMintClient,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ registered: true, created: true, address, total_registered: 1 }), { status: 201 });
+    },
+  }).start();
+  await flushAsyncEvents(30);
+
+  const form = root.querySelector('[data-action="register-looper-allowlist"]');
+  form.querySelector('[name="looper_allowlist_address"]').value = address.toLowerCase();
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://helixa.xyz/multipass-api/api/loopers/allowlist/register');
+  assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
+});
+
+test('standalone Looper mint panel sends ineligible allowlist wallets to public countdown', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState({ address, proof: { status: 'loaded', eligible: false, proof: [] } }),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  assert.match(panel.textContent, /not on the current allowlist snapshot/i);
+  assert.match(panel.textContent, /Public mint opens/i);
+  assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.disabled, true);
+  assert.equal(panel.querySelector('.looper-mint-note.error')?.textContent ?? '', '');
+});
+
+test('standalone Looper mint panel disables impossible wallet-cap quantities', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState({ address, allowlistMintedByWallet: 3n }),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  assert.match(panel.textContent, /Wallet allowlist mint cap reached/i);
+  assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.disabled, true);
+});
+
+test('standalone Looper mint form submits quantity through contract client', async () => {
+  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const mintCalls = [];
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState({ address }),
+    mint: async (input) => {
+      mintCalls.push(input);
+      return { hash: '0xabc123', status: 'success', blockNumber: '123', quantity: input.quantity };
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const form = root.querySelector('[data-action="mint-loopers"]');
+  form.querySelector('[name="looper_mint_quantity"]').value = '2';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(40);
+
+  assert.equal(mintCalls.length, 1);
+  assert.equal(mintCalls[0].quantity, 2);
+  assert.equal(mintCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
+  assert.equal(mintCalls[0].walletClient, walletClient);
 });
 
 test('group activation stays hidden behind the Activate Swarm button on the homepage', async () => {

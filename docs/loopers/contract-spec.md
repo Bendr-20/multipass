@@ -103,7 +103,8 @@ Owner must not be able to:
 
 ## Treasury/Admin Wallet
 
-- Quigley will create and initially handle a fresh Base wallet.
+- Fresh Base owner/admin wallet provided by Quigley: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
+- Use the same wallet for primary proceeds and ERC-2981 royalty receiver unless Quigley changes it before deployment.
 - Do not use a daily personal wallet or Bankr ops wallet.
 - Exact wallet address must be verified before deployment for:
   - contract owner/admin

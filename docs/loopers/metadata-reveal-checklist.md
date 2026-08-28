@@ -39,6 +39,34 @@ Each token JSON should also include key Looper agent fields:
 
 `codex_uri` points to a richer Agent Codex JSON for long lore, scoring vector, class reasoning, activation prompt, first missions, and future Evolution hooks.
 
+## Compiler Path
+
+Use `packages/loopers-metadata/` after HashLips generation:
+
+1. Run HashLips against the approved export to produce `build/images` and `build/json`.
+2. Feed HashLips `build/json`, the approved export manifest, the trait personality matrix, and the agent class model into `pnpm loopers:metadata`.
+3. Write final marketplace token JSON under `metadata/` and richer Agent Codex JSON under `codex/`.
+4. Upload only the validated final images, token JSON, and Agent Codex JSON to Arweave.
+
+The compiler uses the HashLips export manifest to canonicalize display names that HashLips sanitizes for filenames, such as `Right Facing Trucker Cap` back to `Right-Facing Trucker Cap` and numbered overlay filenames back to clean overlay names.
+
+Example:
+
+```sh
+pnpm loopers:metadata -- \
+  --hashlips-json-dir /private/hashlips/build/json \
+  --hashlips-images-dir /private/hashlips/build/images \
+  --export-manifest-path /private/hashlips-engine-export-v01-manifest.json \
+  --personality-matrix-path /private/trait-personality-matrix.json \
+  --class-model-path /private/agent-class-model.json \
+  --output-dir /private/final-loopers-metadata \
+  --image-base-uri ar://FINAL_IMAGE_BUNDLE \
+  --codex-base-uri ar://FINAL_METADATA_BUNDLE/codex \
+  --expected-count 7777
+```
+
+The compiler fails final mode unless every non-`None` approved trait has class affinities. Use `--allow-incomplete-class-affinities` only for local draft QA.
+
 ## Naming
 
 - Collection: `Loopers`
@@ -62,6 +90,7 @@ Run validation for:
 - expected token count
 - JSON parse
 - required fields
+- complete class affinities for every non-`None` approved trait
 - image and trait mapping matches the approved HashLips output
 - image URI presence
 - `codex_uri` presence

@@ -141,6 +141,7 @@ export function createPrivyWalletClient() {
   let actions = {
     connect: loadingAction,
     signMessage: loadingAction,
+    request: loadingAction,
   };
   const subscribers = new Set();
   let connectionError = null;
@@ -232,6 +233,7 @@ export function createPrivyWalletClient() {
     subscribe,
     connect: (...args) => actions.connect(...args),
     signMessage: (...args) => actions.signMessage(...args),
+    request: (...args) => actions.request(...args),
     setSnapshot,
     setActions,
     clearConnectionError,
@@ -276,6 +278,13 @@ export function PrivyWalletBridge({ client, configured }) {
         if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
         const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
+      },
+      request: async (payload) => {
+        const wallet = selectEvmWallet(wallets);
+        if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
+        const provider = await wallet.getEthereumProvider();
+        if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
+        return provider.request(payload);
       },
     });
   }, [client, configured, connectWallet, wallets]);

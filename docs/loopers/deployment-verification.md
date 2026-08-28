@@ -6,8 +6,8 @@ This is the deployment runbook for Base Sepolia rehearsal and Base mainnet. Do n
 
 Required before any deployment:
 
-- Fresh owner/admin wallet address.
-- Fresh treasury and royalty receiver address.
+- Fresh owner/admin wallet address: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
+- Fresh treasury and royalty receiver address: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
 - Placeholder metadata URI.
 - Allowlist price in wei.
 - Public price in wei.

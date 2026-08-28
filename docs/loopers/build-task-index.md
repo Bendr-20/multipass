@@ -2,7 +2,7 @@
 
 This is the active implementation board for Loopers. It supersedes older launch plans and is for execution, not reopening locked decisions.
 
-Last updated: 2026-08-27 20:03 UTC.
+Last updated: 2026-08-28 18:00 UTC.
 
 ## Ground Rules
 
@@ -28,10 +28,10 @@ Done on `main`:
 
 Fresh verification:
 
-- `pnpm test` passed 586/586.
+- `pnpm test` passed 612/612.
 - `pnpm web:build` passed.
-- Focused web allowlist/share tests passed 173/173.
-- Local Ganache deploy/verify smoke passed with ERC-6551 config and ERC-8048 checks.
+- Focused web allowlist/mint tests passed 371/371.
+- Base Sepolia deployment verification passed for fresh rehearsal contract `0x0a1C0bEd3E25E94046cB5e546164412dB20d4f2b`.
 - Live deployed JS has no `approved-only-agent-14`, `looper-status`, or `loopers/approved` references.
 
 ## Locked Launch Decisions
@@ -48,7 +48,7 @@ Fresh verification:
 - Target pricing: about $20 public, about $10 allowlist; exact wei values set near launch.
 - Reveal: placeholder during allowlist, final reveal at public mint open.
 - Metadata storage: Arweave.
-- Art pipeline: existing approved HashLips/layer-composite outputs, then validated metadata/images uploaded to Arweave.
+- Art pipeline: existing approved HashLips/layer-composite outputs, then `packages/loopers-metadata/` compiler/validator output uploaded to Arweave.
 - Royalties: ERC-2981 at 5%, capped at 5%.
 - ERC-721C: not in v1.
 - ERC-6551: launch scope, rehearse before mainnet.
@@ -56,17 +56,13 @@ Fresh verification:
 
 ## Immediate Next Move
 
-Set up the Base Sepolia rehearsal inputs and run the rehearsal deployment. Do not build a larger mint UI or activation/status panel until the rehearsal contract path is proven.
+Exercise the hidden Base Sepolia mint lane with an eligible allowlisted wallet. Do not expose mint controls on normal `/allowlist` until mainnet launch settings are verified.
 
 Needed from Quigley/team:
 
-- Fresh Base owner/admin wallet address.
-- Treasury/royalty receiver address, likely the same fresh Base wallet.
-- Base Sepolia RPC URL.
-- Funded deployer key available in the deployment environment.
-- Placeholder metadata URI for rehearsal.
-- Test allowlist addresses for the rehearsal Merkle snapshot.
-- ERC-6551 registry and account implementation addresses for Base Sepolia/mainnet, or confirmation to use the canonical known deployment if available.
+- Fresh Base owner/admin wallet address: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
+- Treasury/royalty receiver address: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
+- Eligible allowlisted wallet connected in browser for one end-to-end Sepolia mint.
 
 ## Workstreams
 
@@ -96,7 +92,7 @@ Next tasks:
 
 ### 2. Contract And Base Sepolia Rehearsal
 
-Status: contract/tooling built locally; Base Sepolia rehearsal not started.
+Status: fresh Base Sepolia rehearsal contract deployed and configured with the frozen live allowlist Merkle root.
 
 Source:
 
@@ -106,27 +102,29 @@ Source:
 - `packages/contracts/config/`
 - `docs/loopers/deployment-verification.md`
 
+Current rehearsal:
+
+- Contract: `0x0a1C0bEd3E25E94046cB5e546164412dB20d4f2b`.
+- Deployer/temporary Sepolia owner: `0x339559A2d1CD15059365FC7bD36b3047BbA480E0`.
+- Merkle root: `0x7708767dfca7691ceba909e8c050828f998a9c0bd69642d96e61dcd5efb0163c`.
+- Deploy tx: `0x9cb346a7777dae5ad4fa504419e4e057cdda8237a84fc16c317f907eb0685a24`.
+- ERC-6551 config tx: `0x4a81755ffa71515ae27a00fc9631c411ebbcb42575765181ebc0ca184684d1e4`.
+- Sale config tx: `0xe00377155284b29b9f0ac3f3defe0814ce1e48acb314985a0589abe943c352d0`.
+
 Next tasks:
 
-- Copy `packages/contracts/config/base-sepolia.example.json` to `base-sepolia.local.json`.
-- Fill owner, treasury, prices, placeholder URI, sale timing, Merkle root, ERC-6551 registry, implementation, and salt.
-- Generate a tiny rehearsal Merkle snapshot with `apps/api/scripts/export-loopers-allowlist.js`.
-- Deploy to Base Sepolia with `packages/contracts/scripts/deploy-loopers.js`.
-- Run `packages/contracts/scripts/verify-loopers-deployment.js`.
-- Record contract address, deployment tx, config, and verification output.
-
-Blocked by:
-
-- Rehearsal inputs listed in `Immediate Next Move`.
+- Exercise the hidden Sepolia mint lane in a browser with an eligible funded wallet.
+- Verify placeholder `tokenURI`, ERC-721T owner bytes, token-bound account resolution, and withdraw after a successful mint.
 
 ### 3. Mint Page
 
-Status: requirements exist; full mint transaction page not built.
+Status: hidden Base Sepolia rehearsal mint lane exists behind `?mint=sepolia`; keep the public `/allowlist` registration page mint-free until mainnet launch settings are verified.
 
 Source:
 
 - `docs/loopers/mint-site-requirements.md`
 - `apps/web/src/looper-allowlist.js`
+- `apps/web/src/looper-mint.js`
 
 Build after:
 
@@ -135,30 +133,34 @@ Build after:
 
 Next tasks:
 
-- Build a contract-backed mint page for allowlist and public phases.
-- Show phase, price, max per wallet, countdown, exact ETH needed, eligibility, remaining wallet mint count, and chain status.
-- Use `getLooperAllowlistProof()` for allowlist mint proofs.
+- Exercise the hidden Sepolia mint lane in a browser with an eligible funded test wallet.
+- Keep regular `/allowlist` registration smoke checks in every build/deploy pass.
+- Swap to mainnet config only after final treasury/admin address verification and launch settings review.
 - Support EOA, injected wallets, Coinbase Wallet, Coinbase smart wallets, and Privy address-only smart wallet state.
-- Test sale not started, allowlist eligible, allowlist ineligible, public, sold out, ended, wrong chain, rejected transaction, insufficient ETH, wallet cap reached, and proof unavailable.
+- Add full browser coverage for wrong chain, rejected transaction, insufficient ETH, sold out, ended, and proof unavailable states.
 
 Rules:
 
 - Do not use frontend guesses where contract reads are available.
+- The normal `/allowlist` route stays registration-only unless a deliberate mint query/config is present.
 - Do not make minted count the emotional center during allowlist.
 - Do not show final Looper art before reveal.
 
 ### 4. Metadata And Reveal
 
-Status: checklist exists; validator/tooling not built.
+Status: compiler/validator package exists; final 7,777 generation and full class-affinity map are not complete.
 
 Source:
 
 - `docs/loopers/metadata-reveal-checklist.md`
+- `packages/loopers-metadata/`
 
 Next tasks:
 
 - Create rehearsal placeholder metadata and upload/check it.
-- Build a local metadata validator for final token JSON, images, Agent Codex files, attributes, naming, Looper agent fields, duplicates, missing files, private paths, and placeholder leakage.
+- Complete `agent-class-model.json` class affinities for every non-`None` approved trait.
+- Run HashLips final generation from the approved export.
+- Run `pnpm loopers:metadata` against HashLips `build/json` and `build/images`.
 - Rehearse placeholder-to-final reveal on Base Sepolia.
 - Record reveal offset, final base URI, and sample `tokenURI` outputs.
 - Upload final art/metadata to Arweave only after validation passes.

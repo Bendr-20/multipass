@@ -15,6 +15,7 @@ import { GENERATED_SHARE_CARDS } from './generated-share-cards.js';
 import { getAgentShareCard, getAgentSharePath } from './share-cards.js';
 import { createGroupActivationPayload, normalizeGroupMemberInput, renderGroupActivationError, renderGroupActivationPanel, renderGroupActivationPreview, renderGroupActivationSuccess } from './group-activation.js';
 import { getLooperAllowlistSourceFromLocation, isLooperAllowlistEnsName, normalizeLooperAllowlistAddress, registerLooperAllowlistAddress, resolveEnsAddressOnBase, resolveLooperAllowlistAddressInput } from './looper-allowlist.js';
+import { formatEthFromWei, formatMintTimestamp, formatSaleState, getLooperMintConfigFromLocation, getMintPhasePrice, loadLooperMintContractState, mintLoopers, normalizeMintQuantity } from './looper-mint.js';
 import { createAgentCarousel, createClaritySections, createFragmentTrustMap, createProofCards, createStoryCards, DEMO_SUBJECT, HERO_COPY, V01_COPY } from './content.js';
 
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
@@ -29,7 +30,7 @@ const SITE_MENU_LINKS = [
   { label: 'Docs / API', href: 'https://api.helixa.xyz/' },
 ];
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -71,6 +72,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     groupActivationExpanded: false,
     groupActivationRequestId: 0,
     looperAllowlist: createInitialLooperAllowlistState(),
+    looperMint: createInitialLooperMintState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -90,6 +92,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         resolveLiveAgent(resolverInput);
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
+      } else if (state.pageKind === 'looper_allowlist' && state.looperMint.enabled) {
+        refreshLooperMint({ silent: true });
       }
     } catch (error) {
       renderError(root, error);
@@ -515,6 +519,140 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  async function connectLooperMintWallet() {
+    const currentMint = state.looperMint ?? createInitialLooperMintState();
+    state = {
+      ...state,
+      looperMint: { ...currentMint, status: 'connecting_wallet', error: null },
+      walletSnapshot: activeWalletClient.getSnapshot(),
+    };
+    render(root, state, handlers);
+
+    try {
+      let walletSnapshot = activeWalletClient.getSnapshot();
+      if (walletSnapshot.configured === false) throw new Error('Wallet connection is not configured for this build.');
+      if (walletSnapshot.ready === false) throw new Error('Wallet options are still loading.');
+      if (!walletSnapshot.connected) {
+        await activeWalletClient.connect();
+        walletSnapshot = activeWalletClient.getSnapshot();
+      }
+      if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to mint.');
+      state = { ...state, walletSnapshot, looperMint: { ...state.looperMint, status: 'wallet_connected', error: null } };
+      render(root, state, handlers);
+      await refreshLooperMint({ silent: true });
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: { ...currentMint, status: 'error', error: getWalletErrorMessage(error) },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function refreshLooperMint(options = {}) {
+    const currentMint = state.looperMint ?? createInitialLooperMintState();
+    if (!currentMint.enabled) return;
+    const walletSnapshot = activeWalletClient.getSnapshot();
+    state = {
+      ...state,
+      walletSnapshot,
+      looperMint: {
+        ...currentMint,
+        status: options.silent && currentMint.contractState ? currentMint.status : 'loading',
+        error: null,
+      },
+    };
+    render(root, state, handlers);
+
+    try {
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const contractState = await looperMintClient.loadState({
+        config: currentMint.config,
+        address: walletSnapshot.address,
+        apiBase,
+        fetchImpl,
+      });
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: {
+          ...state.looperMint,
+          status: 'loaded',
+          contractState,
+          error: null,
+        },
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: {
+          ...currentMint,
+          status: 'error',
+          error: error.message,
+        },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function submitLooperMint(event) {
+    event?.preventDefault?.();
+    const currentMint = state.looperMint ?? createInitialLooperMintState();
+    if (!currentMint.enabled) return;
+    const form = event?.currentTarget;
+    const rawQuantity = form?.querySelector('[name="looper_mint_quantity"]')?.value ?? currentMint.quantity;
+    let quantity;
+    try {
+      quantity = normalizeMintQuantity(rawQuantity);
+    } catch (error) {
+      state = { ...state, looperMint: { ...currentMint, status: 'error', error: error.message } };
+      render(root, state, handlers);
+      return;
+    }
+
+    state = {
+      ...state,
+      walletSnapshot: activeWalletClient.getSnapshot(),
+      looperMint: { ...currentMint, quantity, status: 'minting', error: null, tx: null },
+    };
+    render(root, state, handlers);
+
+    try {
+      let walletSnapshot = activeWalletClient.getSnapshot();
+      if (walletSnapshot.configured === false) throw new Error('Wallet connection is not configured for this build.');
+      if (!walletSnapshot.connected) {
+        await activeWalletClient.connect();
+        walletSnapshot = activeWalletClient.getSnapshot();
+      }
+      if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to mint.');
+      const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+      const tx = await looperMintClient.mint({
+        config: currentMint.config,
+        walletClient: activeWalletClient,
+        quantity,
+        apiBase,
+        fetchImpl,
+      });
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: { ...state.looperMint, quantity, status: 'minted', tx, error: null },
+      };
+      render(root, state, handlers);
+      await refreshLooperMint({ silent: true });
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: { ...state.looperMint, quantity, status: 'error', error: getWalletErrorMessage(error) },
+      };
+      render(root, state, handlers);
+    }
+  }
+
   async function claimWithWallet() {
     const id = getManageIdentifier(state);
     if (!id) return;
@@ -920,7 +1058,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1089,6 +1227,24 @@ function createInitialGroupActivationState() {
 function createInitialLooperAllowlistState() {
   return { status: 'idle', input: '', result: null, error: null };
 }
+
+function createInitialLooperMintState() {
+  const config = typeof window === 'undefined' ? { enabled: false } : getLooperMintConfigFromLocation(new URL(window.location.href));
+  return {
+    enabled: Boolean(config.enabled),
+    config,
+    status: config.enabled ? 'idle' : 'disabled',
+    quantity: 1,
+    contractState: null,
+    tx: null,
+    error: null,
+  };
+}
+
+const defaultLooperMintClient = {
+  loadState: loadLooperMintContractState,
+  mint: mintLoopers,
+};
 
 function readGroupActivationPayload(root, groupState = {}) {
   const form = root?.querySelector?.('[data-role="group-activation-form"]');
@@ -1954,6 +2110,7 @@ function renderLooperAllowlistPage(root, state, handlers = {}) {
     <div class="record-shell looper-allowlist-shell">
       <section class="looper-allowlist-hero" aria-label="Loopers allowlist">
         ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
+        ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
       </section>
     </div>
   `;
@@ -2025,6 +2182,142 @@ function renderLooperAllowlistStatus(allowlist = createInitialLooperAllowlistSta
     return `<p class="looper-allowlist-status error" role="alert">${escapeHtml(allowlist.error ?? 'Allowlist registration failed.')}</p>`;
   }
   return '';
+}
+
+function renderLooperMintPanel(mint = createInitialLooperMintState(), options = {}) {
+  if (!mint.enabled) return '';
+  const walletSnapshot = options.walletSnapshot ?? {};
+  const config = mint.config ?? {};
+  const contractState = mint.contractState ?? null;
+  const quantity = Number.isInteger(mint.quantity) ? mint.quantity : 1;
+  const loading = mint.status === 'loading';
+  const connecting = mint.status === 'connecting_wallet';
+  const minting = mint.status === 'minting';
+  const walletUnconfigured = walletSnapshot.configured === false;
+  const connected = Boolean(walletSnapshot.connected && walletSnapshot.address);
+  const phase = contractState?.saleState ?? 'unknown';
+  const activePrice = getMintPhasePrice(contractState ?? {});
+  const totalPrice = BigInt(activePrice ?? 0) * BigInt(quantity);
+  const mintAvailability = getLooperMintAvailability(contractState, quantity, connected);
+  const canMint = mintAvailability.canMint && !minting && !loading;
+  const quantityMax = getLooperMintQuantityMax(contractState);
+  const explorerUrl = mint.tx?.hash && config.explorerBaseUrl ? `${config.explorerBaseUrl}/tx/${mint.tx.hash}` : null;
+
+  return `
+    <section class="looper-mint-panel" aria-label="Loopers mint">
+      <div class="looper-mint-heading">
+        <div>
+          <p class="card-label">${escapeHtml(config.label ?? 'Loopers mint')}</p>
+          <h2>${escapeHtml(config.mode === 'rehearsal' ? 'Rehearsal mint' : 'Mint Loopers')}</h2>
+        </div>
+        <button type="button" class="looper-mint-refresh-button" data-action="refresh-looper-mint" ${loading || minting ? 'disabled' : ''}>${loading ? 'Refreshing...' : 'Refresh'}</button>
+      </div>
+      <div class="looper-mint-grid">
+        ${renderLooperMintFact('Contract', config.contractAddress ? shortenAddress(config.contractAddress) : 'Not configured')}
+        ${renderLooperMintFact('Phase', contractState ? formatSaleState(phase) : loading ? 'Loading' : 'Not loaded')}
+        ${renderLooperMintFact('Allowlist', contractState ? formatMintTimestamp(contractState.allowlistStart) : 'Not loaded')}
+        ${renderLooperMintFact('Public', contractState ? formatMintTimestamp(contractState.publicStart) : 'Not loaded')}
+        ${renderLooperMintFact('Remaining', contractState ? contractState.remainingPublicSupply.toString() : 'Not loaded')}
+        ${renderLooperMintFact('Minted', contractState ? contractState.totalMinted.toString() : 'Not loaded')}
+      </div>
+      <div class="looper-mint-wallet">
+        <div>
+          <span>Wallet</span>
+          <strong>${connected ? escapeHtml(walletSnapshot.label ?? shortenAddress(walletSnapshot.address)) : 'Not connected'}</strong>
+        </div>
+        <button type="button" data-action="connect-looper-mint-wallet" ${connecting || minting || walletUnconfigured ? 'disabled' : ''}>${connecting ? 'Connecting...' : connected ? 'Reconnect' : 'Connect wallet'}</button>
+      </div>
+      ${renderLooperMintEligibility(contractState, walletSnapshot)}
+      <form class="looper-mint-form" data-action="mint-loopers">
+        <label>
+          <span>Quantity</span>
+          <input name="looper_mint_quantity" type="number" inputmode="numeric" min="1" max="${escapeAttribute(quantityMax)}" step="1" value="${escapeAttribute(quantity)}" ${minting ? 'disabled' : ''} />
+        </label>
+        <div class="looper-mint-cost">
+          <span>Estimated cost</span>
+          <strong>${escapeHtml(formatEthFromWei(totalPrice))}</strong>
+        </div>
+        <button type="submit" ${canMint ? '' : 'disabled'}>${minting ? 'Minting...' : getLooperMintSubmitLabel(contractState, connected)}</button>
+      </form>
+      ${!canMint && mintAvailability.reason ? `<p class="looper-mint-note">${escapeHtml(mintAvailability.reason)}</p>` : ''}
+      ${renderLooperMintStatus(mint, explorerUrl)}
+    </section>
+  `;
+}
+
+function renderLooperMintFact(label, value) {
+  return `
+    <div class="looper-mint-fact">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderLooperMintEligibility(contractState, walletSnapshot = {}) {
+  if (!contractState) return '<p class="looper-mint-note">Contract state loads from the configured chain before minting.</p>';
+  if (!walletSnapshot.connected || !walletSnapshot.address) return '<p class="looper-mint-note">Connect a wallet to check allowlist eligibility and wallet limits.</p>';
+  if (contractState.saleState === 'allowlist') {
+    const proof = contractState.proof ?? {};
+    if (proof.status === 'error') return `<p class="looper-mint-note error">${escapeHtml(proof.error ?? 'Allowlist proof is unavailable.')}</p>`;
+    if (!proof.eligible) return `<p class="looper-mint-note">This wallet is not on the current allowlist snapshot. Public mint opens ${escapeHtml(formatMintTimestamp(contractState.publicStart))}.</p>`;
+    return `<p class="looper-mint-note success">Allowlist eligible. Remaining discounted mints: ${escapeHtml(contractState.allowlistRemainingForWallet?.toString() ?? '0')}.</p>`;
+  }
+  if (contractState.saleState === 'public') {
+    return `<p class="looper-mint-note success">Public mint active. Remaining wallet mints: ${escapeHtml(contractState.publicRemainingForWallet?.toString() ?? '0')}.</p>`;
+  }
+  return `<p class="looper-mint-note">Mint is ${escapeHtml(formatSaleState(contractState.saleState).toLowerCase())}.</p>`;
+}
+
+function getLooperMintAvailability(contractState, quantity, connected) {
+  if (!connected) return { canMint: false, reason: null };
+  if (!contractState) return { canMint: false, reason: 'Load contract state before minting.' };
+  if (contractState.remainingPublicSupply !== null && contractState.remainingPublicSupply !== undefined && BigInt(contractState.remainingPublicSupply) <= 0n) {
+    return { canMint: false, reason: 'Supply is sold out.' };
+  }
+  if (!['allowlist', 'public'].includes(contractState.saleState)) {
+    return { canMint: false, reason: `Mint is ${formatSaleState(contractState.saleState).toLowerCase()}.` };
+  }
+  const mintQuantity = BigInt(quantity);
+  if (contractState.remainingPublicSupply !== null && contractState.remainingPublicSupply !== undefined && BigInt(contractState.remainingPublicSupply) < mintQuantity) {
+    return { canMint: false, reason: 'Not enough Loopers remain for that quantity.' };
+  }
+  if (contractState.saleState === 'allowlist') {
+    if (contractState.proof?.status === 'error') return { canMint: false, reason: 'Allowlist proof is unavailable right now.' };
+    if (!contractState.proof?.eligible) return { canMint: false, reason: `Public mint opens ${formatMintTimestamp(contractState.publicStart)}.` };
+    if (contractState.allowlistRemainingForWallet !== null && contractState.allowlistRemainingForWallet !== undefined && BigInt(contractState.allowlistRemainingForWallet) < mintQuantity) {
+      return { canMint: false, reason: 'Wallet allowlist mint cap reached for that quantity.' };
+    }
+  }
+  if (contractState.saleState === 'public' && contractState.publicRemainingForWallet !== null && contractState.publicRemainingForWallet !== undefined && BigInt(contractState.publicRemainingForWallet) < mintQuantity) {
+    return { canMint: false, reason: 'Wallet public mint cap reached for that quantity.' };
+  }
+  return { canMint: true, reason: null };
+}
+
+function getLooperMintQuantityMax(contractState) {
+  if (contractState?.saleState === 'allowlist') return Math.max(1, Number(contractState.allowlistRemainingForWallet ?? 3n));
+  if (contractState?.saleState === 'public') return Math.max(1, Number(contractState.publicRemainingForWallet ?? 10n));
+  return 10;
+}
+
+function renderLooperMintStatus(mint, explorerUrl) {
+  if (mint.status === 'minted' && mint.tx?.hash) {
+    const link = explorerUrl ? `<a href="${escapeAttribute(explorerUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortenAddress(mint.tx.hash))}</a>` : escapeHtml(mint.tx.hash);
+    return `<p class="looper-mint-status success" role="status">Mint transaction confirmed: ${link}</p>`;
+  }
+  if (mint.status === 'error') {
+    return `<p class="looper-mint-status error" role="alert">${escapeHtml(mint.error ?? 'Mint action failed.')}</p>`;
+  }
+  return '';
+}
+
+function getLooperMintSubmitLabel(contractState, connected) {
+  if (!connected) return 'Connect wallet';
+  if (!contractState) return 'Load contract';
+  if (contractState.saleState === 'allowlist') return 'Mint allowlist';
+  if (contractState.saleState === 'public') return 'Mint public';
+  return formatSaleState(contractState.saleState);
 }
 
 function renderPublicAgentsPage(root, state, handlers = {}) {
@@ -2241,6 +2534,9 @@ function bindProductHomeEvents(root, handlers, state) {
   bindSiteMenu(root);
   root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
+  root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
+  root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
+  root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));
   root.querySelector('[data-action="resolve-live-agent"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.currentTarget;

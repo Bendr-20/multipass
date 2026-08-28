@@ -60,6 +60,9 @@ export function createLegacyWalletClient(walletSigner) {
     },
     async connect() {},
     signMessage: walletSigner,
+    async request() {
+      throw new Error('Connected wallet cannot submit transactions.');
+    },
   };
 }
 
@@ -106,6 +109,11 @@ export function createInjectedWalletClient({ getWindow = () => globalThis.window
       const provider = getProvider();
       const signature = await requestPersonalSign(provider, address, message);
       return { wallet: address, signature };
+    },
+    async request(payload) {
+      if (!address && payload?.method !== 'eth_chainId') await connect();
+      const provider = getProvider();
+      return provider.request(payload);
     },
   };
 }

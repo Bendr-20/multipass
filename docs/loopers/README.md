@@ -18,8 +18,8 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - Contract deployment tooling: `packages/contracts/scripts/`
 - Deployment config examples: `packages/contracts/config/`
 - Allowlist registration/API code: `apps/web/src/looper-allowlist.js`, `apps/api/src/allowlist-store.js`, `apps/api/src/allowlist-snapshot.js`
-- Mint page implementation: not built yet
-- Metadata validator/reveal tooling: not built yet
+- Hidden Sepolia mint page implementation: `apps/web/src/looper-mint.js` behind `?mint=sepolia`
+- Metadata compiler/validator: `packages/loopers-metadata/`
 - Sibyl activation demo implementation: not built yet
 
 ## Naming Rules
