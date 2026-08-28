@@ -173,6 +173,7 @@ export function createMultipassApi({
   loopersAllowlistGlobalRateLimit,
   loopersAllowlistRegistrationPaused = false,
   loopersAllowlistRequireBrowserOrigin = false,
+  loopersAllowlistBlockedSources = [],
   loopersTurnstileSecretKey,
 } = {}) {
   if (!store) {
@@ -195,6 +196,7 @@ export function createMultipassApi({
     loopersAllowlistSnapshot,
     loopersAllowlistRegistrationPaused: Boolean(loopersAllowlistRegistrationPaused),
     loopersAllowlistRequireBrowserOrigin: Boolean(loopersAllowlistRequireBrowserOrigin),
+    loopersAllowlistBlockedSources: new Set(loopersAllowlistBlockedSources.map(normalizeLooperAllowlistSource).filter(Boolean)),
     loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
@@ -367,6 +369,11 @@ async function handleLooperPost(request, parts, context) {
     if (context.loopersAllowlistRequireBrowserOrigin && !isTrustedBrowserOrigin(request, context)) {
       return errorResponse(403, 'browser_origin_required', 'Allowlist registration must be submitted from the Loopers site.');
     }
+    const body = await readJsonBody(request);
+    const source = normalizeLooperAllowlistSource(body.source ?? 'launch-page');
+    if (context.loopersAllowlistBlockedSources.has(source)) {
+      return errorResponse(403, 'source_blocked', 'This allowlist registration source is temporarily unavailable.');
+    }
     const clientIp = getClientRateLimitKey(request);
     const rateLimit = context.loopersAllowlistRateLimiter.check(clientIp);
     if (!rateLimit.allowed) {
@@ -398,7 +405,6 @@ async function handleLooperPost(request, parts, context) {
         },
       }, 429, { 'retry-after': String(globalRateLimit.retryAfterSeconds) });
     }
-    const body = await readJsonBody(request);
     if (hasLooperAllowlistBotTrap(body)) {
       return errorResponse(400, 'bot_detected', 'Allowlist registration rejected.');
     }
@@ -408,7 +414,7 @@ async function handleLooperPost(request, parts, context) {
     }
     const result = await context.loopersAllowlist.register({
       address: body.address,
-      source: normalizeLooperAllowlistSource(body.source ?? 'launch-page'),
+      source,
     });
     return jsonResponse({
       schema_version: '0.1.0',

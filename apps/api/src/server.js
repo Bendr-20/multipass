@@ -26,6 +26,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
     loopersAllowlistRegistrationPaused: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_PAUSED, 'MULTIPASS_LOOPERS_ALLOWLIST_PAUSED') ?? false,
     loopersAllowlistRequireBrowserOrigin: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN, 'MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN') ?? false,
+    loopersAllowlistBlockedSources: parseStringList(env.MULTIPASS_LOOPERS_ALLOWLIST_BLOCKED_SOURCES),
     loopersAllowlistRateLimit: parseRateLimitConfig({
       limit: env.MULTIPASS_LOOPERS_ALLOWLIST_RATE_LIMIT,
       windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_RATE_WINDOW_SECONDS,
@@ -77,6 +78,7 @@ export async function startServer(options = {}) {
     loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
     loopersAllowlistRegistrationPaused: Boolean(options.loopersAllowlistRegistrationPaused),
     loopersAllowlistRequireBrowserOrigin: Boolean(options.loopersAllowlistRequireBrowserOrigin),
+    loopersAllowlistBlockedSources: options.loopersAllowlistBlockedSources ?? [],
     loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersAllowlistGlobalRateLimit: options.loopersAllowlistGlobalRateLimit,
@@ -150,6 +152,7 @@ export async function startServer(options = {}) {
     loopersAllowlistSnapshot,
     loopersAllowlistRegistrationPaused: parsed.loopersAllowlistRegistrationPaused,
     loopersAllowlistRequireBrowserOrigin: parsed.loopersAllowlistRequireBrowserOrigin,
+    loopersAllowlistBlockedSources: parsed.loopersAllowlistBlockedSources,
     loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
     loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
@@ -194,9 +197,13 @@ function parsePort(value, fallback, source) {
 }
 
 function parseOriginList(value) {
+  return parseStringList(value);
+}
+
+function parseStringList(value) {
   return String(value ?? '')
     .split(',')
-    .map((origin) => origin.trim())
+    .map((entry) => entry.trim())
     .filter(Boolean);
 }
 

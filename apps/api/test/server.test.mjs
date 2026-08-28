@@ -23,6 +23,7 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistSnapshotPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
+    loopersAllowlistBlockedSources: [],
     loopersAllowlistRateLimit: undefined,
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
@@ -50,6 +51,7 @@ test('CLI flags override environment values', () => {
       loopersAllowlistSnapshotPath: null,
       loopersAllowlistRegistrationPaused: false,
       loopersAllowlistRequireBrowserOrigin: false,
+      loopersAllowlistBlockedSources: [],
       loopersAllowlistRateLimit: undefined,
       loopersAllowlistSubnetRateLimit: undefined,
       loopersAllowlistGlobalRateLimit: undefined,
@@ -77,6 +79,7 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistSnapshotPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
+    loopersAllowlistBlockedSources: [],
     loopersAllowlistRateLimit: undefined,
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
@@ -112,6 +115,7 @@ test('parseServerOptions accepts Looper allowlist pause flag from env', () => {
 test('parseServerOptions accepts Looper allowlist slow-mode env', () => {
   const options = parseServerOptions([], {
     MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN: '1',
+    MULTIPASS_LOOPERS_ALLOWLIST_BLOCKED_SOURCES: '20260826c, bot-wave',
     MULTIPASS_LOOPERS_ALLOWLIST_RATE_LIMIT: '1',
     MULTIPASS_LOOPERS_ALLOWLIST_RATE_WINDOW_SECONDS: '600',
     MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT: '4',
@@ -120,6 +124,7 @@ test('parseServerOptions accepts Looper allowlist slow-mode env', () => {
     MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_WINDOW_SECONDS: '3600',
   });
   assert.equal(options.loopersAllowlistRequireBrowserOrigin, true);
+  assert.deepEqual(options.loopersAllowlistBlockedSources, ['20260826c', 'bot-wave']);
   assert.deepEqual(options.loopersAllowlistRateLimit, { limit: 1, windowMs: 600_000 });
   assert.deepEqual(options.loopersAllowlistSubnetRateLimit, { limit: 4, windowMs: 600_000 });
   assert.deepEqual(options.loopersAllowlistGlobalRateLimit, { limit: 12, windowMs: 3_600_000 });
@@ -253,6 +258,40 @@ test('startServer can require trusted browser origin for Looper allowlist regist
       body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
     });
     assert.equal(trustedOrigin.status, 201);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer can block known bad Looper allowlist sources before rate limiting', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistBlockedSources: ['20260826c'],
+    loopersAllowlistRateLimit: { limit: 1, windowMs: 60_000, now: () => 1_000 },
+  });
+
+  try {
+    for (const address of [
+      '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+      '0x0000000000000000000000000000000000000001',
+    ]) {
+      const blocked = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address, source: '20260826c' }),
+      });
+      assert.equal(blocked.status, 403);
+      assert.equal((await blocked.json()).error.code, 'source_blocked');
+    }
+
+    const allowed = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'launch-page' }),
+    });
+    assert.equal(allowed.status, 201);
   } finally {
     await server.close();
   }
