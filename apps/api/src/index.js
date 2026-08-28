@@ -37,12 +37,12 @@ const JSON_HEADERS = {
 const MANAGER_COOKIE_NAME = 'multipass_manager';
 const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
 const LOOPERS_ALLOWLIST_RATE_LIMIT = {
-  limit: 2,
-  windowMs: 60_000,
+  limit: 1,
+  windowMs: 600_000,
 };
 const LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT = {
-  limit: 6,
-  windowMs: 60_000,
+  limit: 4,
+  windowMs: 600_000,
 };
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
@@ -167,6 +167,7 @@ export function createMultipassApi({
   loopersAllowlistRateLimit,
   loopersAllowlistSubnetRateLimit,
   loopersAllowlistRegistrationPaused = false,
+  loopersAllowlistRequireBrowserOrigin = false,
   loopersTurnstileSecretKey,
 } = {}) {
   if (!store) {
@@ -188,6 +189,7 @@ export function createMultipassApi({
     loopersAllowlist,
     loopersAllowlistSnapshot,
     loopersAllowlistRegistrationPaused: Boolean(loopersAllowlistRegistrationPaused),
+    loopersAllowlistRequireBrowserOrigin: Boolean(loopersAllowlistRequireBrowserOrigin),
     loopersAllowlistRateLimiter: createFixedWindowRateLimiter(loopersAllowlistRateLimit ?? LOOPERS_ALLOWLIST_RATE_LIMIT),
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
@@ -355,6 +357,9 @@ async function handleLooperPost(request, parts, context) {
     }
     if (context.loopersAllowlistRegistrationPaused) {
       return errorResponse(503, 'registration_paused', 'Loopers allowlist registration is temporarily paused.');
+    }
+    if (context.loopersAllowlistRequireBrowserOrigin && !isTrustedBrowserOrigin(request, context)) {
+      return errorResponse(403, 'browser_origin_required', 'Allowlist registration must be submitted from the Loopers site.');
     }
     const clientIp = getClientRateLimitKey(request);
     const rateLimit = context.loopersAllowlistRateLimiter.check(clientIp);
@@ -2123,6 +2128,11 @@ function assertTrustedOrigin(request, context) {
   if (!context.allowedOrigins.has(origin)) {
     throw new ApiForbiddenError('Request origin is not allowed for Multipass manager writes.');
   }
+}
+
+function isTrustedBrowserOrigin(request, context) {
+  const origin = request.headers.get('origin') || originFromReferer(request.headers.get('referer'));
+  return Boolean(origin && context.allowedOrigins.has(origin));
 }
 
 function domainFromRequest(request) {

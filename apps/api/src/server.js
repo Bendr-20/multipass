@@ -25,6 +25,15 @@ export function parseServerOptions(argv = [], env = process.env) {
     loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
     loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
     loopersAllowlistRegistrationPaused: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_PAUSED, 'MULTIPASS_LOOPERS_ALLOWLIST_PAUSED') ?? false,
+    loopersAllowlistRequireBrowserOrigin: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN, 'MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN') ?? false,
+    loopersAllowlistRateLimit: parseRateLimitConfig({
+      limit: env.MULTIPASS_LOOPERS_ALLOWLIST_RATE_LIMIT,
+      windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_RATE_WINDOW_SECONDS,
+    }, 'MULTIPASS_LOOPERS_ALLOWLIST_RATE'),
+    loopersAllowlistSubnetRateLimit: parseRateLimitConfig({
+      limit: env.MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT,
+      windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_WINDOW_SECONDS,
+    }, 'MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE'),
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
   };
 
@@ -63,6 +72,7 @@ export async function startServer(options = {}) {
     loopersAllowlistPath: options.loopersAllowlistPath ?? null,
     loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
     loopersAllowlistRegistrationPaused: Boolean(options.loopersAllowlistRegistrationPaused),
+    loopersAllowlistRequireBrowserOrigin: Boolean(options.loopersAllowlistRequireBrowserOrigin),
     loopersAllowlistRateLimit: options.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
@@ -134,6 +144,7 @@ export async function startServer(options = {}) {
     loopersAllowlist,
     loopersAllowlistSnapshot,
     loopersAllowlistRegistrationPaused: parsed.loopersAllowlistRegistrationPaused,
+    loopersAllowlistRequireBrowserOrigin: parsed.loopersAllowlistRequireBrowserOrigin,
     loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
     loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
@@ -201,6 +212,25 @@ function parseOptionalBoolean(value, source) {
   if (['1', 'true', 'yes'].includes(String(value).toLowerCase())) return true;
   if (['0', 'false', 'no'].includes(String(value).toLowerCase())) return false;
   throw new Error(`Invalid boolean for ${source}: ${value}`);
+}
+
+function parseOptionalPositiveInteger(value, source) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid positive integer for ${source}: ${value}`);
+  }
+  return parsed;
+}
+
+function parseRateLimitConfig({ limit, windowSeconds } = {}, sourcePrefix) {
+  const parsedLimit = parseOptionalPositiveInteger(limit, `${sourcePrefix}_LIMIT`);
+  const parsedWindowSeconds = parseOptionalPositiveInteger(windowSeconds, `${sourcePrefix}_WINDOW_SECONDS`);
+  if (parsedLimit === null && parsedWindowSeconds === null) return undefined;
+  return {
+    ...(parsedLimit !== null ? { limit: parsedLimit } : {}),
+    ...(parsedWindowSeconds !== null ? { windowMs: parsedWindowSeconds * 1000 } : {}),
+  };
 }
 
 async function main() {

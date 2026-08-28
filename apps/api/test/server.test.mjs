@@ -22,6 +22,9 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
     loopersAllowlistRegistrationPaused: false,
+    loopersAllowlistRequireBrowserOrigin: false,
+    loopersAllowlistRateLimit: undefined,
+    loopersAllowlistSubnetRateLimit: undefined,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -45,6 +48,9 @@ test('CLI flags override environment values', () => {
       loopersAllowlistPath: null,
       loopersAllowlistSnapshotPath: null,
       loopersAllowlistRegistrationPaused: false,
+      loopersAllowlistRequireBrowserOrigin: false,
+      loopersAllowlistRateLimit: undefined,
+      loopersAllowlistSubnetRateLimit: undefined,
       loopersTurnstileSecretKey: null,
     },
   );
@@ -68,6 +74,9 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
     loopersAllowlistRegistrationPaused: false,
+    loopersAllowlistRequireBrowserOrigin: false,
+    loopersAllowlistRateLimit: undefined,
+    loopersAllowlistSubnetRateLimit: undefined,
     loopersTurnstileSecretKey: null,
   });
 });
@@ -95,6 +104,19 @@ test('parseServerOptions accepts Looper allowlist snapshot path from env or CLI'
 test('parseServerOptions accepts Looper allowlist pause flag from env', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PAUSED: '1' }).loopersAllowlistRegistrationPaused, true);
   assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_ALLOWLIST_PAUSED: '0' }).loopersAllowlistRegistrationPaused, false);
+});
+
+test('parseServerOptions accepts Looper allowlist slow-mode env', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN: '1',
+    MULTIPASS_LOOPERS_ALLOWLIST_RATE_LIMIT: '1',
+    MULTIPASS_LOOPERS_ALLOWLIST_RATE_WINDOW_SECONDS: '600',
+    MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT: '4',
+    MULTIPASS_LOOPERS_ALLOWLIST_SUBNET_RATE_WINDOW_SECONDS: '600',
+  });
+  assert.equal(options.loopersAllowlistRequireBrowserOrigin, true);
+  assert.deepEqual(options.loopersAllowlistRateLimit, { limit: 1, windowMs: 600_000 });
+  assert.deepEqual(options.loopersAllowlistSubnetRateLimit, { limit: 4, windowMs: 600_000 });
 });
 
 test('parseServerOptions accepts Looper Turnstile secret from env', () => {
@@ -137,7 +159,12 @@ test('startServer serves discovery and profile routes on an ephemeral port', asy
 });
 
 test('startServer registers and checks Looper allowlist addresses', async () => {
-  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0 });
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    loopersAllowlistRateLimit: { limit: 5, windowMs: 60_000 },
+  });
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 
   try {
@@ -190,6 +217,36 @@ test('startServer can pause Looper allowlist registration intake', async () => {
     });
     assert.equal(register.status, 503);
     assert.equal((await register.json()).error.code, 'registration_paused');
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer can require trusted browser origin for Looper allowlist registration', async () => {
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    publicBaseUrl: 'https://helixa.xyz',
+    allowedOrigins: ['https://helixa.xyz'],
+    loopersAllowlistRequireBrowserOrigin: true,
+  });
+
+  try {
+    const noOrigin = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
+    });
+    assert.equal(noOrigin.status, 403);
+    assert.equal((await noOrigin.json()).error.code, 'browser_origin_required');
+
+    const trustedOrigin = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://helixa.xyz' },
+      body: JSON.stringify({ address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', source: 'test' }),
+    });
+    assert.equal(trustedOrigin.status, 201);
   } finally {
     await server.close();
   }
