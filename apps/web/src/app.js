@@ -2161,10 +2161,9 @@ function renderLooperMintPage(root, state, handlers = {}) {
 
 function renderLooperMintLaunch(state) {
   return `
-    ${renderLooperMintStatusStrip(state.looperMint)}
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
-      ${renderLooperMintArtStack()}
+      ${renderLooperMintStatusStrip(state.looperMint)}
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
@@ -2210,22 +2209,6 @@ function renderLooperMintSignal(label, value) {
     <div class="looper-mint-signal">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
-    </div>
-  `;
-}
-
-function renderLooperMintArtStack() {
-  return `
-    <div class="looper-mint-art-stack" aria-hidden="true">
-      <figure class="looper-mint-art-card primary">
-        <img src="/multipass/looper-mint-sample-01.png" width="1024" height="1024" alt="" />
-      </figure>
-      <figure class="looper-mint-art-card secondary">
-        <img src="/multipass/looper-mint-sample-02.png" width="1024" height="1024" alt="" />
-      </figure>
-      <figure class="looper-mint-art-card tertiary">
-        <img src="/multipass/looper-mint-sample-03.png" width="1024" height="1024" alt="" />
-      </figure>
     </div>
   `;
 }

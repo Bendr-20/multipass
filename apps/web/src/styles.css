@@ -327,7 +327,6 @@ button:focus-visible {
 }
 
 .looper-mint-status-strip {
-  grid-column: 1 / -1;
   width: min(620px, 100%);
 }
 
@@ -412,54 +411,6 @@ button:focus-visible {
   overflow-wrap: anywhere;
   font-size: clamp(1rem, 1.6vw, 1.35rem);
   line-height: 1;
-}
-
-.looper-mint-art-stack {
-  position: relative;
-  width: min(560px, 100%);
-  aspect-ratio: 1.22;
-  min-height: 330px;
-}
-
-.looper-mint-art-card {
-  position: absolute;
-  display: block;
-  margin: 0;
-  overflow: hidden;
-  border: 3px solid var(--ink);
-  background: var(--paper);
-  box-shadow: 8px 8px 0 #000;
-}
-
-.looper-mint-art-card img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.looper-mint-art-card.primary {
-  z-index: 3;
-  left: 22%;
-  top: 3%;
-  width: 54%;
-  transform: rotate(-2deg);
-}
-
-.looper-mint-art-card.secondary {
-  z-index: 2;
-  left: 0;
-  top: 25%;
-  width: 38%;
-  transform: rotate(5deg);
-}
-
-.looper-mint-art-card.tertiary {
-  z-index: 1;
-  right: 0;
-  top: 28%;
-  width: 40%;
-  transform: rotate(-6deg);
 }
 
 .looper-mint-action-column {
@@ -3372,16 +3323,11 @@ h1 {
   }
 
   .looper-mint-showcase {
-    order: 2;
-  }
-
-  .looper-mint-action-column {
     order: 1;
   }
 
-  .looper-mint-art-stack {
-    width: min(480px, 100%);
-    min-height: 280px;
+  .looper-mint-action-column {
+    order: 2;
   }
 
   .looper-mint-grid {
@@ -4074,10 +4020,6 @@ h1 {
 
   .looper-mint-signal-row {
     grid-template-columns: 1fr;
-  }
-
-  .looper-mint-art-stack {
-    min-height: 220px;
   }
 
   .looper-mint-action-column .looper-allowlist-panel.compact {
