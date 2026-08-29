@@ -17,6 +17,13 @@ export const PRIVY_CONNECT_WALLET_LIST = [
   'wallet_connect',
   'wallet_connect_qr',
 ];
+export const PRIVY_EXTERNAL_WALLET_CONFIG = {
+  coinbaseWallet: {
+    config: {
+      preference: { options: 'all' },
+    },
+  },
+};
 
 function connectedAtValue(wallet) {
   const value = Number(wallet?.connectedAt);

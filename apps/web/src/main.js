@@ -5,7 +5,7 @@ import { PrivyProvider } from '@privy-io/react-auth';
 import { base } from 'viem/chains';
 
 import { createApp } from './app.js';
-import { createPrivyWalletClient, PRIVY_CONNECT_WALLET_LIST, PrivyWalletBridge } from './privy-wallet-client.js';
+import { createPrivyWalletClient, PRIVY_CONNECT_WALLET_LIST, PRIVY_EXTERNAL_WALLET_CONFIG, PrivyWalletBridge } from './privy-wallet-client.js';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
 const appRoot = document.querySelector('#app');
@@ -35,6 +35,7 @@ if (walletRoot && PRIVY_APP_ID) {
             ethereum: { createOnLogin: 'off' },
             solana: { createOnLogin: 'off' },
           },
+          externalWallets: PRIVY_EXTERNAL_WALLET_CONFIG,
         },
       },
       React.createElement(PrivyWalletBridge, { client: walletClient, configured: true }),

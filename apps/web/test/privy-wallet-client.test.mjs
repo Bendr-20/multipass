@@ -7,6 +7,7 @@ import {
   createPrivyWalletClient,
   getAddressFromPrivyConnectResult,
   PRIVY_CONNECT_WALLET_LIST,
+  PRIVY_EXTERNAL_WALLET_CONFIG,
   selectConnectedWalletAddress,
   selectEvmWallet,
 } from '../src/privy-wallet-client.js';
@@ -122,6 +123,16 @@ test('Privy connect wallet list includes Base, Coinbase, and fallback wallet opt
   ]);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('base_account'), true);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('coinbase_wallet'), true);
+});
+
+test('Privy external wallet config keeps Coinbase smart wallets enabled', () => {
+  assert.deepEqual(PRIVY_EXTERNAL_WALLET_CONFIG, {
+    coinbaseWallet: {
+      config: {
+        preference: { options: 'all' },
+      },
+    },
+  });
 });
 
 test('createPrivyConnectAction opens Privy with Multipass prompt and explicit timeout', async () => {
