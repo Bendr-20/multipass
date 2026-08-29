@@ -21,6 +21,7 @@ import { createAgentCarousel, createClaritySections, createFragmentTrustMap, cre
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
 const PUBLIC_AGENTS_PATH = '/multipass/agents';
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
+const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
@@ -92,7 +93,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         resolveLiveAgent(resolverInput);
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
-      } else if (state.pageKind === 'looper_allowlist' && state.looperMint.enabled) {
+      } else if (state.pageKind === 'looper_mint' && state.looperMint.enabled && state.looperMint.config?.contractAddress) {
         refreshLooperMint({ silent: true });
       }
     } catch (error) {
@@ -553,6 +554,20 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function refreshLooperMint(options = {}) {
     const currentMint = state.looperMint ?? createInitialLooperMintState();
     if (!currentMint.enabled) return;
+    if (!currentMint.config?.contractAddress) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        looperMint: {
+          ...currentMint,
+          status: 'unconfigured',
+          contractState: null,
+          error: null,
+        },
+      };
+      render(root, state, handlers);
+      return;
+    }
     const walletSnapshot = activeWalletClient.getSnapshot();
     state = {
       ...state,
@@ -1119,6 +1134,7 @@ function getInitialResolverInput() {
 function getInitialPageKind() {
   if (typeof window === 'undefined') return 'profile';
   const locationUrl = new URL(window.location.href);
+  if (isLooperMintRoute(locationUrl)) return 'looper_mint';
   if (isLooperAllowlistRoute(locationUrl)) return 'looper_allowlist';
   if (isStaticSwarmProfileRoute(locationUrl)) return 'profile';
   if (isPublicAgentsRoute(locationUrl)) return 'agents';
@@ -1133,6 +1149,14 @@ function isPublicAgentsRoute(locationUrl) {
 
 function isLooperAllowlistRoute(locationUrl) {
   return LOOPER_ALLOWLIST_PATHS.has(locationUrl.pathname);
+}
+
+function isLooperMintRoute(locationUrl) {
+  return LOOPER_MINT_PATHS.has(locationUrl.pathname);
+}
+
+function isLooperRoute(locationUrl) {
+  return isLooperAllowlistRoute(locationUrl) || isLooperMintRoute(locationUrl);
 }
 
 function isStaticSwarmProfileRoute(locationUrl) {
@@ -1177,7 +1201,7 @@ function defaultLoadDemo({ fetchImpl } = {}) {
   const locationUrl = new URL(window.location.href);
   const apiBase = getApiBaseFromLocation(locationUrl);
   const savedSlug = getSavedSlugFromLocation(locationUrl);
-  if (isLooperAllowlistRoute(locationUrl)) return loadStaticMultipassDemo();
+  if (isLooperRoute(locationUrl)) return loadStaticMultipassDemo();
   if (isStaticSwarmProfileRoute(locationUrl)) return loadStaticSwarmProfileDemo();
   if (isPublicAgentsRoute(locationUrl)) return loadStaticMultipassDemo();
   if (savedSlug) return loadSavedMultipassDemo({ apiBase, slug: savedSlug, fetchImpl });
@@ -1439,6 +1463,11 @@ function render(root, state, handlers = {}) {
     return;
   }
 
+  if (state.pageKind === 'looper_mint') {
+    renderLooperMintPage(root, state, handlers);
+    return;
+  }
+
   if (state.resolverStatus === 'loading') {
     renderProfileLoadingShell(root, state, handlers);
     return;
@@ -1454,15 +1483,16 @@ function render(root, state, handlers = {}) {
 
 function updateDocumentMetadataForPage(state) {
   if (typeof document === 'undefined') return;
-  if (state.pageKind !== 'looper_allowlist') return;
+  if (!['looper_allowlist', 'looper_mint'].includes(state.pageKind)) return;
 
   document.title = 'Loopers';
-  setDocumentMeta('name', 'description', 'something new is coming...');
-  setDocumentMeta('property', 'og:url', 'https://helixa.xyz/allowlist?x=20260826c');
+  const isMint = state.pageKind === 'looper_mint';
+  setDocumentMeta('name', 'description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
+  setDocumentMeta('property', 'og:url', isMint ? 'https://helixa.xyz/mint' : 'https://helixa.xyz/allowlist?x=20260826c');
   setDocumentMeta('property', 'og:title', 'Loopers');
-  setDocumentMeta('property', 'og:description', 'something new is coming...');
+  setDocumentMeta('property', 'og:description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
   setDocumentMeta('name', 'twitter:title', 'Loopers');
-  setDocumentMeta('name', 'twitter:description', 'something new is coming...');
+  setDocumentMeta('name', 'twitter:description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
 }
 
 function setDocumentMeta(attributeName, attributeValue, content) {
@@ -2106,11 +2136,22 @@ function renderProductHome(root, state, handlers = {}) {
 }
 
 function renderLooperAllowlistPage(root, state, handlers = {}) {
-  const mintEnabled = Boolean(state.looperMint?.enabled);
   root.innerHTML = `
-    <div class="record-shell looper-allowlist-shell${mintEnabled ? ' looper-mint-shell' : ''}">
-      <section class="${mintEnabled ? 'looper-mint-launch' : 'looper-allowlist-hero'}" aria-label="${mintEnabled ? 'Loopers mint' : 'Loopers allowlist'}">
-        ${mintEnabled ? renderLooperMintLaunch(state) : renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
+    <div class="record-shell looper-allowlist-shell">
+      <section class="looper-allowlist-hero" aria-label="Loopers allowlist">
+        ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
+      </section>
+    </div>
+  `;
+
+  bindProductHomeEvents(root, handlers, state);
+}
+
+function renderLooperMintPage(root, state, handlers = {}) {
+  root.innerHTML = `
+    <div class="record-shell looper-allowlist-shell looper-mint-shell">
+      <section class="looper-mint-launch" aria-label="Loopers mint">
+        ${renderLooperMintLaunch(state)}
       </section>
     </div>
   `;
@@ -2126,7 +2167,6 @@ function renderLooperMintLaunch(state) {
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
-      ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: false, compact: true, walletSnapshot: state.walletSnapshot })}
     </div>
   `;
 }
@@ -2254,6 +2294,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
   if (!mint.enabled) return '';
   const walletSnapshot = options.walletSnapshot ?? {};
   const config = mint.config ?? {};
+  const contractConfigured = Boolean(config.contractAddress);
   const contractState = mint.contractState ?? null;
   const quantity = Number.isInteger(mint.quantity) ? mint.quantity : 1;
   const loading = mint.status === 'loading';
@@ -2264,7 +2305,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
   const phase = contractState?.saleState ?? 'unknown';
   const activePrice = getMintPhasePrice(contractState ?? {});
   const totalPrice = BigInt(activePrice ?? 0) * BigInt(quantity);
-  const mintAvailability = getLooperMintAvailability(contractState, quantity, connected);
+  const mintAvailability = getLooperMintAvailability(contractState, quantity, connected, { contractConfigured });
   const canMint = mintAvailability.canMint && !minting && !loading;
   const quantityMax = getLooperMintQuantityMax(contractState);
   const explorerUrl = mint.tx?.hash && config.explorerBaseUrl ? `${config.explorerBaseUrl}/tx/${mint.tx.hash}` : null;
@@ -2277,7 +2318,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
           <p class="card-label">${escapeHtml(config.label ?? 'Loopers mint')}</p>
           <h2>${escapeHtml(config.mode === 'rehearsal' ? 'Rehearsal mint' : 'Mint Loopers')}</h2>
         </div>
-        <button type="button" class="looper-mint-refresh-button" data-action="refresh-looper-mint" ${loading || minting ? 'disabled' : ''}>${loading ? 'Refreshing...' : 'Refresh'}</button>
+        <button type="button" class="looper-mint-refresh-button" data-action="refresh-looper-mint" ${loading || minting || !contractConfigured ? 'disabled' : ''}>${loading ? 'Refreshing...' : 'Refresh'}</button>
       </div>
       <div class="looper-mint-grid">
         ${renderLooperMintFact('Contract', config.contractAddress ? shortenAddress(config.contractAddress) : 'Not configured')}
@@ -2294,7 +2335,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
         </div>
         <button type="button" data-action="connect-looper-mint-wallet" ${connecting || minting || walletUnconfigured ? 'disabled' : ''}>${connecting ? 'Connecting...' : connected ? 'Reconnect' : 'Connect wallet'}</button>
       </div>
-      ${renderLooperMintEligibility(contractState, walletSnapshot)}
+      ${renderLooperMintEligibility(contractState, walletSnapshot, { contractConfigured })}
       <form class="looper-mint-form" data-action="mint-loopers">
         <label>
           <span>Quantity</span>
@@ -2304,7 +2345,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
           <span>Estimated cost</span>
           <strong>${escapeHtml(formatEthFromWei(totalPrice))}</strong>
         </div>
-        <button type="submit" ${canMint ? '' : 'disabled'}>${minting ? 'Minting...' : getLooperMintSubmitLabel(contractState, connected)}</button>
+        <button type="submit" ${canMint ? '' : 'disabled'}>${minting ? 'Minting...' : getLooperMintSubmitLabel(contractState, connected, { contractConfigured })}</button>
       </form>
       ${!canMint && mintAvailability.reason ? `<p class="looper-mint-note">${escapeHtml(mintAvailability.reason)}</p>` : ''}
       ${renderLooperMintStatus(mint, explorerUrl)}
@@ -2321,7 +2362,8 @@ function renderLooperMintFact(label, value) {
   `;
 }
 
-function renderLooperMintEligibility(contractState, walletSnapshot = {}) {
+function renderLooperMintEligibility(contractState, walletSnapshot = {}, options = {}) {
+  if (options.contractConfigured === false) return '<p class="looper-mint-note">Mint contract is not configured yet.</p>';
   if (!contractState) return '<p class="looper-mint-note">Contract state loads from the configured chain before minting.</p>';
   if (!walletSnapshot.connected || !walletSnapshot.address) return '<p class="looper-mint-note">Connect a wallet to check allowlist eligibility and wallet limits.</p>';
   if (contractState.saleState === 'allowlist') {
@@ -2336,8 +2378,9 @@ function renderLooperMintEligibility(contractState, walletSnapshot = {}) {
   return `<p class="looper-mint-note">Mint is ${escapeHtml(formatSaleState(contractState.saleState).toLowerCase())}.</p>`;
 }
 
-function getLooperMintAvailability(contractState, quantity, connected) {
+function getLooperMintAvailability(contractState, quantity, connected, options = {}) {
   if (!connected) return { canMint: false, reason: null };
+  if (options.contractConfigured === false) return { canMint: false, reason: 'Mint contract is not configured yet.' };
   if (!contractState) return { canMint: false, reason: 'Load contract state before minting.' };
   if (contractState.remainingPublicSupply !== null && contractState.remainingPublicSupply !== undefined && BigInt(contractState.remainingPublicSupply) <= 0n) {
     return { canMint: false, reason: 'Supply is sold out.' };
@@ -2379,8 +2422,9 @@ function renderLooperMintStatus(mint, explorerUrl) {
   return '';
 }
 
-function getLooperMintSubmitLabel(contractState, connected) {
+function getLooperMintSubmitLabel(contractState, connected, options = {}) {
   if (!connected) return 'Connect wallet';
+  if (options.contractConfigured === false) return 'Not configured';
   if (!contractState) return 'Load contract';
   if (contractState.saleState === 'allowlist') return 'Mint allowlist';
   if (contractState.saleState === 'public') return 'Mint public';

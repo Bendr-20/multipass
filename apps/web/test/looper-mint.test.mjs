@@ -15,10 +15,19 @@ const REHEARSAL_MERKLE_ROOT = '0x7708767dfca7691ceba909e8c050828f998a9c0bd69642d
 
 test('getLooperMintConfigFromLocation keeps public allowlist registration mint-free by default', () => {
   assert.deepEqual(getLooperMintConfigFromLocation('https://helixa.xyz/allowlist'), { enabled: false });
+  assert.deepEqual(getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia'), { enabled: false });
+});
+
+test('getLooperMintConfigFromLocation enables pending Base mainnet config on the mint route', () => {
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint');
+  assert.equal(config.enabled, true);
+  assert.equal(config.mode, 'mainnet');
+  assert.equal(config.chainId, 8453);
+  assert.equal(config.contractAddress, null);
 });
 
 test('getLooperMintConfigFromLocation enables Base Sepolia rehearsal from query config', () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   assert.equal(config.enabled, true);
   assert.equal(config.mode, 'rehearsal');
   assert.equal(config.chainId, 84532);
@@ -39,7 +48,7 @@ test('formatEthFromWei trims noisy decimals', () => {
 
 test('loadLooperMintContractState reads contract facts and allowlist proof', async () => {
   const calls = [];
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   const publicClient = createPublicClientFixture();
   const state = await loadLooperMintContractState({
     config,
@@ -62,7 +71,7 @@ test('loadLooperMintContractState reads contract facts and allowlist proof', asy
 });
 
 test('mintLoopers switches chain and sends allowlist mint transaction', async () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   const publicClient = createPublicClientFixture();
   const requests = [];
   const walletClient = {
@@ -95,7 +104,7 @@ test('mintLoopers switches chain and sends allowlist mint transaction', async ()
 });
 
 test('mintLoopers blocks allowlist mint when proof API says ineligible', async () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   await assert.rejects(
     mintLoopers({
       config,
@@ -111,7 +120,7 @@ test('mintLoopers blocks allowlist mint when proof API says ineligible', async (
 });
 
 test('mintLoopers blocks allowlist mint when proof root does not match the contract', async () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   await assert.rejects(
     mintLoopers({
       config,
@@ -131,7 +140,7 @@ test('mintLoopers blocks allowlist mint when proof root does not match the contr
 });
 
 test('mintLoopers blocks wallet cap overruns before sending transactions', async () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   const requests = [];
   await assert.rejects(
     mintLoopers({
@@ -153,7 +162,7 @@ test('mintLoopers blocks wallet cap overruns before sending transactions', async
 });
 
 test('mintLoopers reports reverted transaction receipts as failures', async () => {
-  const config = getLooperMintConfigFromLocation('https://helixa.xyz/allowlist?mint=sepolia');
+  const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   await assert.rejects(
     mintLoopers({
       config,

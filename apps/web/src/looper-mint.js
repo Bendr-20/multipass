@@ -27,6 +27,7 @@ export const LOOPERS_MINT_ABI = parseAbi([
 const SALE_STATES = ['not_started', 'allowlist', 'public', 'ended'];
 const DEFAULT_REHEARSAL_RPC = 'https://base-sepolia-rpc.publicnode.com';
 const DEFAULT_MAINNET_RPC = 'https://mainnet.base.org';
+const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
 export function getLooperMintConfigFromLocation(locationUrl) {
   const url = toUrl(locationUrl);
@@ -34,12 +35,13 @@ export function getLooperMintConfigFromLocation(locationUrl) {
   const rehearsalRequested = ['sepolia', 'base-sepolia', 'rehearsal', 'testnet'].includes(mode);
   const mainnetRequested = ['mainnet', 'base'].includes(mode);
   const contractOverride = normalizeOptionalAddress(url.searchParams.get('contract') ?? url.searchParams.get('loopers_contract'));
+  const mintRouteRequested = LOOPER_MINT_PATHS.has(url.pathname);
 
-  if (!rehearsalRequested && !mainnetRequested && !contractOverride) {
+  if (!mintRouteRequested) {
     return { enabled: false };
   }
 
-  if (mainnetRequested) {
+  if (mainnetRequested || (!rehearsalRequested && !contractOverride)) {
     return {
       enabled: true,
       mode: 'mainnet',

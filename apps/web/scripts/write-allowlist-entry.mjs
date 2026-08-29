@@ -7,8 +7,10 @@ const webRoot = join(scriptDir, '..');
 const distRoot = join(webRoot, 'dist');
 const sourcePath = join(distRoot, 'index.html');
 const outputPath = join(distRoot, 'allowlist', 'index.html');
+const mintOutputPath = join(distRoot, 'mint', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
+const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
 const LOOPERS_SOCIAL_URL = 'https://helixa.xyz/allowlist?x=20260826c';
 const LOOPERS_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-allowlist-preview-20260826c.jpg';
 
@@ -33,3 +35,7 @@ const allowlistHtml = html
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, allowlistHtml);
+await mkdir(dirname(mintOutputPath), { recursive: true });
+await writeFile(mintOutputPath, allowlistHtml
+  .replaceAll(LOOPERS_DESCRIPTION, LOOPERS_MINT_DESCRIPTION)
+  .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint'));

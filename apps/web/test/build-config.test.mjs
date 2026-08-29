@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const rootPackage = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+const allowlistEntryScript = readFileSync(new URL('../scripts/write-allowlist-entry.mjs', import.meta.url), 'utf8');
 const PRIVY_APP_ID = 'cmlv6ibdm00350el2jsm8m8s6';
 
 function rootWebBuildScript() {
@@ -15,4 +16,9 @@ test('production web build includes the public Privy app id', () => {
 
 test('root web:build script emits assets under /multipass/', () => {
   assert.match(rootWebBuildScript(), /MULTIPASS_BASE=\/multipass\//, 'web:build must set the deployed Vite base path');
+});
+
+test('Loopers build script emits a static mint route entry', () => {
+  assert.match(allowlistEntryScript, /join\(distRoot, 'mint', 'index\.html'\)/);
+  assert.match(allowlistEntryScript, /Mint Loopers on Base\./);
 });

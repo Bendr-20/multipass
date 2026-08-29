@@ -976,8 +976,8 @@ test('standalone Looper allowlist keeps mint panel hidden without contract confi
   assert.doesNotMatch(root.textContent, /Rehearsal mint/i);
 });
 
-test('standalone Looper allowlist renders rehearsal mint state from contract client', async () => {
-  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+test('standalone Looper mint route renders rehearsal mint state from contract client', async () => {
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const walletClient = createWalletClientFixture({
     snapshot: {
@@ -1002,6 +1002,7 @@ test('standalone Looper allowlist renders rehearsal mint state from contract cli
 
   const panel = root.querySelector('.looper-mint-panel');
   assert.ok(root.querySelector('.looper-mint-launch'));
+  assert.equal(root.querySelector('.looper-allowlist-panel'), null);
   assert.ok(root.querySelector('.looper-mint-art-stack img[src="/multipass/looper-mint-sample-01.png"]'));
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
   assert.ok(panel);
@@ -1017,12 +1018,46 @@ test('standalone Looper allowlist renders rehearsal mint state from contract cli
   assert.equal(loadCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
 });
 
-test('standalone Looper allowlist can still register while rehearsal mint panel is enabled', async () => {
+test('standalone Looper mint route renders pending mainnet launch surface without a contract address', async () => {
+  const root = setupDom('https://helixa.xyz/mint');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const loadCalls = [];
+  const looperMintClient = {
+    loadState: async (input) => {
+      loadCalls.push(input);
+      throw new Error('loadState should not be called without a contract address');
+    },
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  assert.ok(root.querySelector('.looper-mint-launch'));
+  assert.ok(root.querySelector('.looper-mint-panel'));
+  assert.equal(root.querySelector('.looper-allowlist-panel'), null);
+  assert.match(root.textContent, /Mint your Looper/i);
+  assert.match(root.textContent, /Mint contract is not configured yet/i);
+  assert.equal(loadCalls.length, 0);
+});
+
+test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {
   const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const calls = [];
   const looperMintClient = {
-    loadState: async () => sampleLooperMintState(),
+    loadState: async () => {
+      throw new Error('mint state should not load on allowlist route');
+    },
     mint: async () => {
       throw new Error('mint should not be called');
     },
@@ -1039,6 +1074,8 @@ test('standalone Looper allowlist can still register while rehearsal mint panel 
   }).start();
   await flushAsyncEvents(30);
 
+  assert.equal(root.querySelector('.looper-mint-panel'), null);
+  assert.equal(root.querySelector('.looper-mint-launch'), null);
   const form = root.querySelector('[data-action="register-looper-allowlist"]');
   form.querySelector('[name="looper_allowlist_address"]').value = address.toLowerCase();
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -1050,7 +1087,7 @@ test('standalone Looper allowlist can still register while rehearsal mint panel 
 });
 
 test('standalone Looper mint panel sends ineligible allowlist wallets to public countdown', async () => {
-  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia');
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const walletClient = createWalletClientFixture({
     snapshot: {
@@ -1077,7 +1114,7 @@ test('standalone Looper mint panel sends ineligible allowlist wallets to public 
 });
 
 test('standalone Looper mint panel disables impossible wallet-cap quantities', async () => {
-  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia');
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const walletClient = createWalletClientFixture({
     snapshot: {
@@ -1102,7 +1139,7 @@ test('standalone Looper mint panel disables impossible wallet-cap quantities', a
 });
 
 test('standalone Looper mint form submits quantity through contract client', async () => {
-  const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const walletClient = createWalletClientFixture({
     snapshot: {
