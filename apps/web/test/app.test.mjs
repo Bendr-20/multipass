@@ -1050,6 +1050,30 @@ test('standalone Looper mint route renders pending mainnet launch surface withou
   assert.equal(loadCalls.length, 0);
 });
 
+test('standalone Looper mint route puts mint status at the top of the launch page', async () => {
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState(),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const launch = root.querySelector('.looper-mint-launch');
+  const statusStrip = root.querySelector('.looper-mint-status-strip');
+  const heroCopy = root.querySelector('.looper-mint-hero-copy');
+
+  assert.ok(launch);
+  assert.equal(launch.children[0], statusStrip);
+  assert.equal(heroCopy.querySelector('.looper-mint-signal-row'), null);
+  assert.match(statusStrip.textContent, /Phase/i);
+  assert.match(statusStrip.textContent, /Minted/i);
+  assert.match(statusStrip.textContent, /Supply/i);
+});
+
 test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {
   const root = setupDom('https://helixa.xyz/allowlist?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

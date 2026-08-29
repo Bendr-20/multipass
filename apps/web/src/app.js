@@ -2161,6 +2161,7 @@ function renderLooperMintPage(root, state, handlers = {}) {
 
 function renderLooperMintLaunch(state) {
   return `
+    ${renderLooperMintStatusStrip(state.looperMint)}
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
       ${renderLooperMintArtStack()}
@@ -2172,13 +2173,7 @@ function renderLooperMintLaunch(state) {
 }
 
 function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
-  const contractState = mint.contractState ?? null;
   const config = mint.config ?? {};
-  const phaseLabel = contractState ? formatSaleState(contractState.saleState) : 'Loading';
-  const mintedLabel = contractState ? contractState.totalMinted.toString() : '0';
-  const supplyLabel = contractState
-    ? `${contractState.remainingPublicSupply.toString()} left`
-    : '7440 supply';
   const chainLabel = config.mode === 'rehearsal' ? 'Sepolia rehearsal' : 'Base mainnet';
 
   return `
@@ -2187,6 +2182,20 @@ function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
       <img class="looper-mint-hero-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
       <h1>Mint your Looper.</h1>
       <p class="looper-mint-hero-lead">Agent-native PFPs for the Helixa activation layer. Cheap, weird, onchain, and ready to wake up later.</p>
+    </div>
+  `;
+}
+
+function renderLooperMintStatusStrip(mint = createInitialLooperMintState()) {
+  const contractState = mint.contractState ?? null;
+  const phaseLabel = contractState ? formatSaleState(contractState.saleState) : 'Loading';
+  const mintedLabel = contractState ? contractState.totalMinted.toString() : '0';
+  const supplyLabel = contractState
+    ? `${contractState.remainingPublicSupply.toString()} left`
+    : '7440 supply';
+
+  return `
+    <div class="looper-mint-status-strip">
       <div class="looper-mint-signal-row" aria-label="Mint status">
         ${renderLooperMintSignal('Phase', phaseLabel)}
         ${renderLooperMintSignal('Minted', mintedLabel)}

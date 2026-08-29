@@ -326,6 +326,11 @@ button:focus-visible {
   min-width: 0;
 }
 
+.looper-mint-status-strip {
+  grid-column: 1 / -1;
+  width: min(620px, 100%);
+}
+
 .looper-mint-hero-copy {
   display: grid;
   gap: 14px;
@@ -4048,6 +4053,10 @@ h1 {
   .looper-mint-launch {
     gap: 18px;
     min-height: auto;
+  }
+
+  .looper-mint-status-strip {
+    width: 100%;
   }
 
   .looper-mint-hero-copy {
