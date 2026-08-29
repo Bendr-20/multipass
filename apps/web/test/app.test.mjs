@@ -1024,6 +1024,25 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(loadCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
 });
 
+test('standalone Looper mint route shows one wallet connect action before connection', async () => {
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState(),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  const connectButtons = [...panel.querySelectorAll('button')].filter((button) => /connect wallet/i.test(button.textContent ?? ''));
+  assert.equal(connectButtons.length, 1);
+  assert.equal(connectButtons[0].dataset.action, 'connect-looper-mint-wallet');
+  assert.equal(panel.querySelector('[data-action="mint-loopers"]'), null);
+});
+
 test('standalone Looper mint route renders pending mainnet launch surface without a contract address', async () => {
   const root = setupDom('https://helixa.xyz/mint');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

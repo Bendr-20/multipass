@@ -2293,17 +2293,19 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
         <button type="button" data-action="connect-looper-mint-wallet" ${connecting || minting || walletUnconfigured ? 'disabled' : ''}>${connecting ? 'Connecting...' : connected ? 'Reconnect' : 'Connect wallet'}</button>
       </div>
       ${renderLooperMintEligibility(contractState, walletSnapshot, { contractConfigured })}
-      <form class="looper-mint-form" data-action="mint-loopers">
-        <label>
-          <span>Quantity</span>
-          <input name="looper_mint_quantity" type="number" inputmode="numeric" min="1" max="${escapeAttribute(quantityMax)}" step="1" value="${escapeAttribute(quantity)}" ${minting ? 'disabled' : ''} />
-        </label>
-        <div class="looper-mint-cost">
-          <span>Estimated cost</span>
-          <strong>${escapeHtml(formatEthFromWei(totalPrice))}</strong>
-        </div>
-        <button type="submit" ${canMint ? '' : 'disabled'}>${minting ? 'Minting...' : getLooperMintSubmitLabel(contractState, connected, { contractConfigured })}</button>
-      </form>
+      ${connected ? `
+        <form class="looper-mint-form" data-action="mint-loopers">
+          <label>
+            <span>Quantity</span>
+            <input name="looper_mint_quantity" type="number" inputmode="numeric" min="1" max="${escapeAttribute(quantityMax)}" step="1" value="${escapeAttribute(quantity)}" ${minting ? 'disabled' : ''} />
+          </label>
+          <div class="looper-mint-cost">
+            <span>Estimated cost</span>
+            <strong>${escapeHtml(formatEthFromWei(totalPrice))}</strong>
+          </div>
+          <button type="submit" ${canMint ? '' : 'disabled'}>${minting ? 'Minting...' : getLooperMintSubmitLabel(contractState, connected, { contractConfigured })}</button>
+        </form>
+      ` : ''}
       ${!canMint && mintAvailability.reason ? `<p class="looper-mint-note">${escapeHtml(mintAvailability.reason)}</p>` : ''}
       ${renderLooperMintStatus(mint, explorerUrl)}
     </section>
