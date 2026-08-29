@@ -326,10 +326,6 @@ button:focus-visible {
   min-width: 0;
 }
 
-.looper-mint-status-strip {
-  width: min(620px, 100%);
-}
-
 .looper-mint-hero-copy {
   display: grid;
   gap: 14px;
@@ -367,50 +363,6 @@ button:focus-visible {
   font-size: clamp(3.1rem, 7vw, 6.4rem);
   letter-spacing: 0;
   line-height: 0.88;
-}
-
-.looper-mint-hero-lead {
-  max-width: 580px;
-  margin: 0;
-  color: rgba(255, 250, 241, 0.88);
-  font-size: clamp(1rem, 1.6vw, 1.25rem);
-  font-weight: 850;
-  line-height: 1.35;
-}
-
-.looper-mint-signal-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  width: min(620px, 100%);
-}
-
-.looper-mint-signal {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-  padding: 10px;
-  border: 2px solid var(--ink);
-  background: rgba(255, 250, 241, 0.92);
-  box-shadow: 4px 4px 0 #000;
-  color: var(--ink);
-  text-shadow: none;
-}
-
-.looper-mint-signal span {
-  color: #524e47;
-  font-size: 10px;
-  font-weight: 950;
-  letter-spacing: 0.10em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.looper-mint-signal strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: clamp(1rem, 1.6vw, 1.35rem);
-  line-height: 1;
 }
 
 .looper-mint-action-column {
@@ -622,14 +574,7 @@ button:focus-visible {
   box-shadow: 10px 10px 0 var(--ink);
 }
 
-.looper-mint-panel-logo {
-  display: none;
-  width: min(260px, 74%);
-  height: auto;
-  filter: drop-shadow(4px 5px 0 rgba(0, 0, 0, 0.88));
-}
-
-.looper-mint-heading,
+.looper-mint-toolbar,
 .looper-mint-wallet,
 .looper-mint-form {
   display: grid;
@@ -638,17 +583,13 @@ button:focus-visible {
   align-items: end;
 }
 
-.looper-mint-heading h2,
-.looper-mint-heading p,
+.looper-mint-toolbar {
+  grid-template-columns: 1fr;
+}
+
 .looper-mint-status,
 .looper-mint-note {
   margin: 0;
-}
-
-.looper-mint-heading h2 {
-  font-size: clamp(1.8rem, 3vw, 2.7rem);
-  letter-spacing: 0;
-  line-height: 1;
 }
 
 .looper-mint-grid {
@@ -3316,7 +3257,7 @@ h1 {
   .looper-allowlist-panel,
   .looper-allowlist-form,
   .looper-mint-launch,
-  .looper-mint-heading,
+  .looper-mint-toolbar,
   .looper-mint-wallet,
   .looper-mint-form {
     grid-template-columns: 1fr;
@@ -4001,10 +3942,6 @@ h1 {
     min-height: auto;
   }
 
-  .looper-mint-status-strip {
-    width: 100%;
-  }
-
   .looper-mint-hero-copy {
     gap: 10px;
   }
@@ -4018,10 +3955,6 @@ h1 {
     width: min(360px, 100%);
   }
 
-  .looper-mint-signal-row {
-    grid-template-columns: 1fr;
-  }
-
   .looper-mint-action-column .looper-allowlist-panel.compact {
     padding: 14px;
   }
@@ -4029,10 +3962,6 @@ h1 {
   .looper-mint-panel {
     padding: 16px;
     box-shadow: 5px 5px 0 var(--ink);
-  }
-
-  .looper-mint-panel-logo {
-    display: block;
   }
 
   .looper-allowlist-copy h2 {

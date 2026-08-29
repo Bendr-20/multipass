@@ -2163,7 +2163,6 @@ function renderLooperMintLaunch(state) {
   return `
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
-      ${renderLooperMintStatusStrip(state.looperMint)}
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
@@ -2180,35 +2179,6 @@ function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
       <p class="looper-mint-kicker">${escapeHtml(chainLabel)}</p>
       <img class="looper-mint-hero-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
       <h1>Mint your Looper.</h1>
-      <p class="looper-mint-hero-lead">Agent-native PFPs for the Helixa activation layer. Cheap, weird, onchain, and ready to wake up later.</p>
-    </div>
-  `;
-}
-
-function renderLooperMintStatusStrip(mint = createInitialLooperMintState()) {
-  const contractState = mint.contractState ?? null;
-  const phaseLabel = contractState ? formatSaleState(contractState.saleState) : 'Loading';
-  const mintedLabel = contractState ? contractState.totalMinted.toString() : '0';
-  const supplyLabel = contractState
-    ? `${contractState.remainingPublicSupply.toString()} left`
-    : '7440 supply';
-
-  return `
-    <div class="looper-mint-status-strip">
-      <div class="looper-mint-signal-row" aria-label="Mint status">
-        ${renderLooperMintSignal('Phase', phaseLabel)}
-        ${renderLooperMintSignal('Minted', mintedLabel)}
-        ${renderLooperMintSignal('Supply', supplyLabel)}
-      </div>
-    </div>
-  `;
-}
-
-function renderLooperMintSignal(label, value) {
-  return `
-    <div class="looper-mint-signal">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
     </div>
   `;
 }
@@ -2304,12 +2274,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
 
   return `
     <section class="looper-mint-panel" aria-label="Loopers mint">
-      <img class="looper-mint-panel-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
-      <div class="looper-mint-heading">
-        <div>
-          <p class="card-label">${escapeHtml(config.label ?? 'Loopers mint')}</p>
-          <h2>${escapeHtml(config.mode === 'rehearsal' ? 'Rehearsal mint' : 'Mint Loopers')}</h2>
-        </div>
+      <div class="looper-mint-toolbar">
         <button type="button" class="looper-mint-refresh-button" data-action="refresh-looper-mint" ${loading || minting || !contractConfigured ? 'disabled' : ''}>${loading ? 'Refreshing...' : 'Refresh'}</button>
       </div>
       <div class="looper-mint-grid">

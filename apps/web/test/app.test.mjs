@@ -1006,9 +1006,13 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(root.querySelector('.looper-mint-art-stack'), null);
   assert.equal(root.querySelector('.looper-mint-art-card'), null);
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
-  assert.match(root.querySelector('.looper-mint-status-strip')?.textContent ?? '', /7439 left/i);
+  assert.equal(root.querySelector('.looper-mint-status-strip'), null);
+  assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.ok(panel);
-  assert.match(panel.textContent, /Rehearsal mint/);
+  assert.equal(panel.querySelector('.looper-mint-panel-logo'), null);
+  assert.equal(panel.querySelector('.looper-mint-heading'), null);
+  assert.match(panel.querySelector('.looper-mint-refresh-button')?.textContent ?? '', /Refresh/i);
+  assert.doesNotMatch(panel.textContent, /Base Sepolia rehearsal|Rehearsal mint/i);
   assert.match(panel.textContent, /Allowlist/);
   assert.match(panel.textContent, /Allowlist eligible/);
   assert.match(panel.textContent, /Remaining discounted mints: 2/);
@@ -1052,7 +1056,7 @@ test('standalone Looper mint route renders pending mainnet launch surface withou
   assert.equal(loadCalls.length, 0);
 });
 
-test('standalone Looper mint route starts with hero copy and hides pre-reveal art', async () => {
+test('standalone Looper mint route starts with simple hero copy and hides pre-reveal art', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const looperMintClient = {
     loadState: async () => sampleLooperMintState(),
@@ -1066,19 +1070,17 @@ test('standalone Looper mint route starts with hero copy and hides pre-reveal ar
 
   const launch = root.querySelector('.looper-mint-launch');
   const showcase = root.querySelector('.looper-mint-showcase');
-  const statusStrip = root.querySelector('.looper-mint-status-strip');
   const heroCopy = root.querySelector('.looper-mint-hero-copy');
 
   assert.ok(launch);
   assert.equal(launch.children[0], showcase);
   assert.equal(showcase.children[0], heroCopy);
-  assert.equal(showcase.children[1], statusStrip);
+  assert.equal(showcase.children.length, 1);
+  assert.equal(root.querySelector('.looper-mint-status-strip'), null);
+  assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.equal(heroCopy.querySelector('.looper-mint-signal-row'), null);
   assert.equal(root.querySelector('.looper-mint-art-stack'), null);
   assert.equal(root.querySelector('.looper-mint-art-card'), null);
-  assert.match(statusStrip.textContent, /Phase/i);
-  assert.match(statusStrip.textContent, /Minted/i);
-  assert.match(statusStrip.textContent, /Supply/i);
 });
 
 test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {
