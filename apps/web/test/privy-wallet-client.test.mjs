@@ -129,7 +129,17 @@ test('Privy external wallet config keeps Coinbase smart wallets enabled', () => 
   assert.deepEqual(PRIVY_EXTERNAL_WALLET_CONFIG, {
     coinbaseWallet: {
       config: {
+        appName: 'Helixa',
+        appLogoUrl: 'https://helixa.xyz/helixa-logo.jpg',
+        appChainIds: [8453, 84532],
         preference: { options: 'all' },
+      },
+    },
+    baseAccount: {
+      config: {
+        appName: 'Helixa',
+        appLogoUrl: 'https://helixa.xyz/helixa-logo.jpg',
+        appChainIds: [8453, 84532],
       },
     },
   });

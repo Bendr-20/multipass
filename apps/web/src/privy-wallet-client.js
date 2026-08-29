@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect } from 'react';
 import { useConnectWallet, usePrivy, useWallets } from '@privy-io/react-auth';
 import { getAddress, isAddress } from 'viem';
+import { base, baseSepolia } from 'viem/chains';
 
 import { defaultWalletSnapshot, requestPersonalSign, shortenAddress } from './wallet-client.js';
 
@@ -9,6 +10,9 @@ const WALLET_NOT_CONFIGURED_MESSAGE = 'Wallet login is not configured for this b
 const CONNECT_EVM_WALLET_MESSAGE = 'Connect an Ethereum wallet to sign the owner claim.';
 const WALLET_CANNOT_SIGN_MESSAGE = 'Connected wallet cannot sign messages.';
 const PRIVY_CONNECT_DESCRIPTION = 'Connect your wallet to Multipass.';
+const PRIVY_APP_NAME = 'Helixa';
+const PRIVY_APP_LOGO_URL = 'https://helixa.xyz/helixa-logo.jpg';
+const PRIVY_SMART_WALLET_CHAIN_IDS = [base.id, baseSepolia.id];
 export const PRIVY_CONNECT_WALLET_LIST = [
   'base_account',
   'coinbase_wallet',
@@ -20,7 +24,17 @@ export const PRIVY_CONNECT_WALLET_LIST = [
 export const PRIVY_EXTERNAL_WALLET_CONFIG = {
   coinbaseWallet: {
     config: {
+      appName: PRIVY_APP_NAME,
+      appLogoUrl: PRIVY_APP_LOGO_URL,
+      appChainIds: PRIVY_SMART_WALLET_CHAIN_IDS,
       preference: { options: 'all' },
+    },
+  },
+  baseAccount: {
+    config: {
+      appName: PRIVY_APP_NAME,
+      appLogoUrl: PRIVY_APP_LOGO_URL,
+      appChainIds: PRIVY_SMART_WALLET_CHAIN_IDS,
     },
   },
 };

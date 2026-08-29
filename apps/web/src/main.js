@@ -2,15 +2,19 @@ import './styles.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { PrivyProvider } from '@privy-io/react-auth';
-import { base } from 'viem/chains';
+import { base, baseSepolia } from 'viem/chains';
 
 import { createApp } from './app.js';
+import { getLooperMintConfigFromLocation } from './looper-mint.js';
 import { createPrivyWalletClient, PRIVY_CONNECT_WALLET_LIST, PRIVY_EXTERNAL_WALLET_CONFIG, PrivyWalletBridge } from './privy-wallet-client.js';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
 const appRoot = document.querySelector('#app');
 const walletRoot = document.querySelector('#wallet-root');
 const walletClient = createPrivyWalletClient();
+const looperMintConfig = getLooperMintConfigFromLocation(window.location.href);
+const walletDefaultChain = looperMintConfig.enabled ? looperMintConfig.chain : base;
+const walletSupportedChains = Array.from(new Map([base, baseSepolia, walletDefaultChain].map((chain) => [chain.id, chain])).values());
 
 createApp({ root: appRoot, walletClient }).start();
 
@@ -22,8 +26,8 @@ if (walletRoot && PRIVY_APP_ID) {
         appId: PRIVY_APP_ID,
         config: {
           loginMethods: ['wallet'],
-          defaultChain: base,
-          supportedChains: [base],
+          defaultChain: walletDefaultChain,
+          supportedChains: walletSupportedChains,
           appearance: {
             theme: 'dark',
             accentColor: '#6eecd8',
