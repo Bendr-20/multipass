@@ -972,6 +972,7 @@ test('standalone Looper allowlist keeps mint panel hidden without contract confi
   await createApp({ root, loadDemo: async () => sampleData() }).start();
 
   assert.equal(root.querySelector('.looper-mint-panel'), null);
+  assert.equal(root.querySelector('.looper-mint-launch'), null);
   assert.doesNotMatch(root.textContent, /Rehearsal mint/i);
 });
 
@@ -1000,6 +1001,9 @@ test('standalone Looper allowlist renders rehearsal mint state from contract cli
   await flushAsyncEvents(30);
 
   const panel = root.querySelector('.looper-mint-panel');
+  assert.ok(root.querySelector('.looper-mint-launch'));
+  assert.ok(root.querySelector('.looper-mint-art-stack img[src="/multipass/looper-mint-sample-01.png"]'));
+  assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
   assert.ok(panel);
   assert.match(panel.textContent, /Rehearsal mint/);
   assert.match(panel.textContent, /Allowlist/);

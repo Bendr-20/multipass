@@ -2106,16 +2106,79 @@ function renderProductHome(root, state, handlers = {}) {
 }
 
 function renderLooperAllowlistPage(root, state, handlers = {}) {
+  const mintEnabled = Boolean(state.looperMint?.enabled);
   root.innerHTML = `
-    <div class="record-shell looper-allowlist-shell">
-      <section class="looper-allowlist-hero" aria-label="Loopers allowlist">
-        ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
-        ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
+    <div class="record-shell looper-allowlist-shell${mintEnabled ? ' looper-mint-shell' : ''}">
+      <section class="${mintEnabled ? 'looper-mint-launch' : 'looper-allowlist-hero'}" aria-label="${mintEnabled ? 'Loopers mint' : 'Loopers allowlist'}">
+        ${mintEnabled ? renderLooperMintLaunch(state) : renderLooperAllowlistPanel(state.looperAllowlist, { standalone: true, walletSnapshot: state.walletSnapshot })}
       </section>
     </div>
   `;
 
   bindProductHomeEvents(root, handlers, state);
+}
+
+function renderLooperMintLaunch(state) {
+  return `
+    <div class="looper-mint-showcase">
+      ${renderLooperMintHeroCopy(state.looperMint)}
+      ${renderLooperMintArtStack()}
+    </div>
+    <div class="looper-mint-action-column">
+      ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
+      ${renderLooperAllowlistPanel(state.looperAllowlist, { standalone: false, compact: true, walletSnapshot: state.walletSnapshot })}
+    </div>
+  `;
+}
+
+function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
+  const contractState = mint.contractState ?? null;
+  const config = mint.config ?? {};
+  const phaseLabel = contractState ? formatSaleState(contractState.saleState) : 'Loading';
+  const mintedLabel = contractState ? contractState.totalMinted.toString() : '0';
+  const supplyLabel = contractState
+    ? `${contractState.remainingPublicSupply.toString()} left`
+    : '7440 supply';
+  const chainLabel = config.mode === 'rehearsal' ? 'Sepolia rehearsal' : 'Base mainnet';
+
+  return `
+    <div class="looper-mint-hero-copy">
+      <p class="looper-mint-kicker">${escapeHtml(chainLabel)}</p>
+      <img class="looper-mint-hero-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
+      <h1>Mint your Looper.</h1>
+      <p class="looper-mint-hero-lead">Agent-native PFPs for the Helixa activation layer. Cheap, weird, onchain, and ready to wake up later.</p>
+      <div class="looper-mint-signal-row" aria-label="Mint status">
+        ${renderLooperMintSignal('Phase', phaseLabel)}
+        ${renderLooperMintSignal('Minted', mintedLabel)}
+        ${renderLooperMintSignal('Supply', supplyLabel)}
+      </div>
+    </div>
+  `;
+}
+
+function renderLooperMintSignal(label, value) {
+  return `
+    <div class="looper-mint-signal">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderLooperMintArtStack() {
+  return `
+    <div class="looper-mint-art-stack" aria-hidden="true">
+      <figure class="looper-mint-art-card primary">
+        <img src="/multipass/looper-mint-sample-01.png" width="1024" height="1024" alt="" />
+      </figure>
+      <figure class="looper-mint-art-card secondary">
+        <img src="/multipass/looper-mint-sample-02.png" width="1024" height="1024" alt="" />
+      </figure>
+      <figure class="looper-mint-art-card tertiary">
+        <img src="/multipass/looper-mint-sample-03.png" width="1024" height="1024" alt="" />
+      </figure>
+    </div>
+  `;
 }
 
 function renderLooperAllowlistPanel(allowlist = createInitialLooperAllowlistState(), options = {}) {
@@ -2126,11 +2189,14 @@ function renderLooperAllowlistPanel(allowlist = createInitialLooperAllowlistStat
   const walletSnapshot = options.walletSnapshot ?? {};
   const walletUnconfigured = walletSnapshot.configured === false;
   const headingTag = options.standalone ? 'h1' : 'h2';
+  const compact = Boolean(options.compact);
   return `
-    <section class="looper-allowlist-panel" aria-label="Loopers allowlist">
+    <section class="looper-allowlist-panel${compact ? ' compact' : ''}" aria-label="Loopers allowlist">
       <div class="looper-allowlist-copy">
-        <${headingTag} class="looper-allowlist-logo-heading"><span class="looper-allowlist-heading-text">Loopers</span><img class="looper-allowlist-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="" aria-hidden="true" /></${headingTag}>
-        <p>something new is coming...</p>
+        ${compact
+          ? `<${headingTag}>Need to add a wallet?</${headingTag}>`
+          : `<${headingTag} class="looper-allowlist-logo-heading"><span class="looper-allowlist-heading-text">Loopers</span><img class="looper-allowlist-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="" aria-hidden="true" /></${headingTag}>`}
+        <p>${compact ? 'Register a Base address or Base name for a later allowlist refresh.' : 'something new is coming...'}</p>
       </div>
       <form class="looper-allowlist-form" data-action="register-looper-allowlist">
         <label>
@@ -2205,6 +2271,7 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
 
   return `
     <section class="looper-mint-panel" aria-label="Loopers mint">
+      <img class="looper-mint-panel-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
       <div class="looper-mint-heading">
         <div>
           <p class="card-label">${escapeHtml(config.label ?? 'Loopers mint')}</p>
