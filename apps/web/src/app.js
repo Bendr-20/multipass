@@ -77,6 +77,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     groupActivationRequestId: 0,
     looperAllowlist: createInitialLooperAllowlistState(),
     looperMint: createInitialLooperMintState(),
+    consoleWalletStatus: null,
+    consoleWalletError: null,
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -518,6 +520,40 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           status: 'error',
           error: getLooperAllowlistWalletErrorMessage(error),
         },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function connectConsoleWallet() {
+    state = {
+      ...state,
+      consoleWalletStatus: 'connecting',
+      consoleWalletError: null,
+      walletSnapshot: activeWalletClient.getSnapshot(),
+    };
+    render(root, state, handlers);
+
+    try {
+      let walletSnapshot = activeWalletClient.getSnapshot();
+      if (walletSnapshot.configured === false) throw new Error('Wallet login is not configured for this build.');
+      if (walletSnapshot.ready === false) throw new Error('Wallet options are still loading.');
+      await activeWalletClient.connect();
+      walletSnapshot = activeWalletClient.getSnapshot();
+      if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to use Console wallet identity.');
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleWalletStatus: 'connected',
+        consoleWalletError: null,
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        consoleWalletStatus: 'error',
+        consoleWalletError: getWalletErrorMessage(error),
       };
       render(root, state, handlers);
     }
@@ -1076,7 +1112,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -2638,6 +2674,7 @@ function bindProductHomeEvents(root, handlers, state) {
   bindSiteMenu(root);
   root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
+  root.querySelector('[data-action="connect-console-wallet"]')?.addEventListener('click', () => handlers.connectConsoleWallet?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
   root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
   root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));

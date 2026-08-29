@@ -54,9 +54,10 @@ const DEFAULT_SIGNAL_MODULES = [
 export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents = [] } = {}) {
   const profile = data.profile ?? {};
   const wallet = state.walletSnapshot ?? {};
+  const walletConnected = Boolean(wallet.connected && wallet.address);
   const publicProofCount = countPublicFragments(data);
   const activeAgents = agents.length ? agents : createFallbackAgents(data);
-  const connectedWallet = wallet.connected && wallet.address
+  const connectedWallet = walletConnected
     ? shortenAddress(wallet.address)
     : (wallet.configured === false ? 'Wallet unavailable' : 'Not connected');
 
@@ -66,6 +67,14 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     headline: 'Human-facing control for agents that remember.',
     lead: 'A focused Multipass surface for wallet identity, persistent memory, missions, signals, and human-reviewed onchain action proposals.',
     safetyNote: CONSOLE_SAFETY_NOTE,
+    wallet: {
+      connected: walletConnected,
+      unavailable: wallet.configured === false,
+      ready: wallet.ready !== false,
+      label: walletConnected ? (wallet.label ?? shortenAddress(wallet.address)) : connectedWallet,
+      status: state.consoleWalletStatus ?? null,
+      error: state.consoleWalletError ?? null,
+    },
     status: [
       { label: 'Wallet', value: connectedWallet },
       { label: 'Agents', value: activeAgents.length || 0 },
@@ -102,9 +111,12 @@ export function renderMultipassConsole(snapshot = {}) {
             <a href="#console-signals" class="homepage-action">Open signals</a>
           </div>
         </div>
-        <dl class="console-status-grid" aria-label="Console status">
-          ${(snapshot.status ?? []).map(renderStatusItem).join('')}
-        </dl>
+        <div class="console-identity-stack">
+          ${renderWalletPanel(snapshot.wallet)}
+          <dl class="console-status-grid" aria-label="Console status">
+            ${(snapshot.status ?? []).map(renderStatusItem).join('')}
+          </dl>
+        </div>
       </section>
 
       <section id="console-agents" class="console-panel console-agent-panel" aria-label="Onchain agents">
@@ -159,6 +171,33 @@ export function renderMultipassConsole(snapshot = {}) {
         <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
       </section>
     </main>
+  `;
+}
+
+function renderWalletPanel(wallet = {}) {
+  const connecting = wallet.status === 'connecting';
+  const connected = Boolean(wallet.connected);
+  const unavailable = Boolean(wallet.unavailable);
+  const ready = wallet.ready !== false;
+  const label = wallet.label ?? (unavailable ? 'Wallet unavailable' : 'Not connected');
+  const buttonLabel = connecting
+    ? 'Connecting...'
+    : connected
+      ? 'Reconnect'
+      : ready
+        ? 'Connect wallet'
+        : 'Loading wallet...';
+
+  return `
+    <section class="console-wallet-panel" aria-label="Wallet identity">
+      <div>
+        <p class="card-label">Wallet identity</p>
+        <strong>${escapeHtml(label)}</strong>
+        <p>${connected ? 'Operator context is attached to this wallet for the current Console session.' : 'No operator wallet is attached to this Console session.'}</p>
+      </div>
+      <button type="button" data-action="connect-console-wallet" ${connecting || unavailable || !ready ? 'disabled' : ''}>${escapeHtml(buttonLabel)}</button>
+      ${wallet.error ? `<p class="console-wallet-error">${escapeHtml(wallet.error)}</p>` : ''}
+    </section>
   `;
 }
 

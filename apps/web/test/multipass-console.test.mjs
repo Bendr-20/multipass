@@ -40,6 +40,8 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.match(snapshot.lead, /persistent memory/i);
   assert.match(snapshot.lead, /onchain action proposals/i);
   assert.equal(snapshot.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
+  assert.equal(snapshot.wallet.label, '0x1234...5678');
+  assert.equal(snapshot.wallet.connected, true);
   assert.equal(snapshot.status.find((item) => item.label === 'Agents')?.value, 2);
   assert.equal(snapshot.status.find((item) => item.label === 'Public proof')?.value, 2);
   assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead}`, /looper/i);
@@ -59,6 +61,8 @@ test('Multipass Console renderer includes memory missions and market signals as 
   assert.match(text, /Vaults/);
   assert.match(text, /Agent assets/);
   assert.match(text, /Fresh-session recall/);
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /No operator wallet is attached/);
   assert.match(text, /does not place trades/);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|custody transferred|credentials released|tool authority granted|private credentials available/i);
 });

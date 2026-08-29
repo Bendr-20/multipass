@@ -1695,10 +1695,37 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /Vaults/);
   assert.match(consolePage.textContent, /Fresh-session recall/);
   assert.ok(consolePage.querySelector('a[href="/multipass/?agent=1"]'));
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /No operator wallet is attached/);
   assert.ok(root.querySelector('.live-resolver'));
   assert.doesNotMatch(consolePage.querySelector('.console-hero')?.textContent ?? '', /Loopers|NFT dashboard/i);
   assert.match(consolePage.textContent, /does not place trades/i);
   assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
+});
+
+test('dedicated Console route connects wallet and shows the active identity', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const calls = [];
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    connect: async () => {
+      calls.push(['connect']);
+      walletClient.setSnapshot({
+        connected: true,
+        address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+        label: '0x27E3...91Ea',
+      });
+    },
+  });
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient }).start();
+  root.querySelector('[data-action="connect-console-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.deepEqual(calls, [['connect']]);
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
+  assert.match(root.querySelector('.console-status-grid')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
 });
 
 test('dedicated Console route loads static Multipass data instead of saved slug API data', async () => {

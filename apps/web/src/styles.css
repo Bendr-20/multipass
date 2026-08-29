@@ -4442,6 +4442,66 @@ h1 {
   margin-top: 4px;
 }
 
+.console-identity-stack {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
+  min-width: 0;
+}
+
+.console-wallet-panel {
+  display: grid;
+  gap: 14px;
+  align-content: space-between;
+  border: 1px solid rgba(54, 95, 125, 0.34);
+  background:
+    linear-gradient(135deg, rgba(110, 236, 216, 0.11), transparent 58%),
+    var(--paper-soft);
+  padding: 16px;
+}
+
+.console-wallet-panel strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.console-wallet-panel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.console-wallet-panel button {
+  width: fit-content;
+  border: 1px solid rgba(10, 10, 20, 0.16);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.console-wallet-panel button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.console-wallet-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.console-wallet-error {
+  color: var(--danger, #b42318) !important;
+  font-weight: 800;
+}
+
 .console-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
