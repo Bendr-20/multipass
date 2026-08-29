@@ -396,6 +396,16 @@ test('startServer rate limits repeated Looper allowlist registration attempts by
     });
     assert.equal(first.status, 201);
 
+    const duplicate = await fetch(`${server.url}/api/loopers/allowlist/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({ address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', source: 'retry' }),
+    });
+    assert.equal(duplicate.status, 200);
+    const duplicateBody = await duplicate.json();
+    assert.equal(duplicateBody.created, false);
+    assert.equal(duplicateBody.entry.source, 'test');
+
     const limited = await fetch(`${server.url}/api/loopers/allowlist/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },

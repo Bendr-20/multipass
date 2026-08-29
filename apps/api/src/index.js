@@ -374,6 +374,25 @@ async function handleLooperPost(request, parts, context) {
     if (context.loopersAllowlistBlockedSources.has(source)) {
       return errorResponse(403, 'source_blocked', 'This allowlist registration source is temporarily unavailable.');
     }
+    let existingStatus;
+    try {
+      existingStatus = await context.loopersAllowlist.status(body.address);
+    } catch (error) {
+      if (error instanceof AllowlistInputError) {
+        return errorResponse(400, error.code, error.message);
+      }
+      throw error;
+    }
+    if (existingStatus.registered) {
+      return jsonResponse({
+        schema_version: '0.1.0',
+        collection: 'loopers',
+        registered: true,
+        created: false,
+        address: existingStatus.address,
+        entry: existingStatus.entry,
+      }, 200);
+    }
     const clientIp = getClientRateLimitKey(request);
     const rateLimit = context.loopersAllowlistRateLimiter.check(clientIp);
     if (!rateLimit.allowed) {
