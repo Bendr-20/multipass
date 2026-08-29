@@ -4383,6 +4383,285 @@ h1 {
   align-content: start;
 }
 
+.multipass-console-shell .record-header {
+  margin-bottom: 24px;
+}
+
+.multipass-console {
+  display: grid;
+  gap: 18px;
+}
+
+.console-hero,
+.console-panel,
+.console-recall-panel {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.console-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
+  gap: 22px;
+  align-items: stretch;
+  padding: 24px;
+}
+
+.console-hero-copy {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+}
+
+.console-hero-copy h1,
+.console-panel-heading h2,
+.console-recall-panel h2 {
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: 0;
+  line-height: 0.98;
+}
+
+.console-hero-copy h1 {
+  max-width: 760px;
+  font-size: 72px;
+}
+
+.console-hero-copy .lead,
+.console-panel-heading p,
+.console-recall-panel p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.console-actions {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.console-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.console-status-grid div,
+.console-agent-card,
+.console-memory-list article,
+.console-mission-list article,
+.console-signal-grid article,
+.console-safety-note {
+  border: 1px solid var(--soft-line);
+  background: var(--paper-soft);
+}
+
+.console-status-grid div {
+  display: grid;
+  align-content: space-between;
+  min-height: 112px;
+  padding: 14px;
+}
+
+.console-status-grid dt,
+.console-agent-card dt,
+.console-mission-list span,
+.console-signal-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-status-grid dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.console-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.console-panel-heading {
+  display: grid;
+  gap: 9px;
+}
+
+.console-panel-heading h2,
+.console-recall-panel h2 {
+  font-size: 38px;
+}
+
+.console-agent-list,
+.console-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.console-agent-card {
+  display: grid;
+  min-height: 190px;
+  gap: 14px;
+  align-content: space-between;
+  padding: 16px;
+}
+
+.console-agent-card strong,
+.console-memory-list strong,
+.console-mission-list strong,
+.console-signal-grid strong {
+  display: block;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.console-agent-card span,
+.console-agent-card dd,
+.console-agent-card a,
+.console-agent-card > span,
+.console-memory-list p,
+.console-mission-list p,
+.console-signal-grid p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.console-agent-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.console-agent-card dd {
+  margin: 3px 0 0;
+}
+
+.console-agent-card a {
+  font-weight: 800;
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.console-agent-card a:hover {
+  text-decoration: underline;
+}
+
+.console-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.console-memory-list,
+.console-mission-list {
+  display: grid;
+  gap: 10px;
+}
+
+.console-memory-list article,
+.console-mission-list article,
+.console-signal-grid article {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  align-content: start;
+  padding: 15px;
+}
+
+.console-memory-list p,
+.console-mission-list p,
+.console-signal-grid p {
+  margin: 0;
+}
+
+.console-signals-panel {
+  border-color: rgba(54, 95, 125, 0.34);
+  background:
+    linear-gradient(135deg, rgba(54, 95, 125, 0.10), transparent 48%),
+    var(--paper);
+}
+
+.console-recall-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.52fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 22px;
+}
+
+.console-safety-note {
+  display: grid;
+  align-content: center;
+  padding: 16px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .console-hero,
+  .console-grid,
+  .console-recall-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .console-agent-list,
+  .console-signal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .console-hero-copy h1 {
+    font-size: 56px;
+  }
+
+  .console-panel-heading h2,
+  .console-recall-panel h2 {
+    font-size: 34px;
+  }
+}
+
+@media (max-width: 620px) {
+  .console-hero,
+  .console-panel,
+  .console-recall-panel {
+    padding: 16px;
+  }
+
+  .console-status-grid,
+  .console-agent-list,
+  .console-signal-grid,
+  .console-agent-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .console-hero-copy h1 {
+    font-size: 42px;
+  }
+
+  .console-panel-heading h2,
+  .console-recall-panel h2 {
+    font-size: 30px;
+  }
+
+  .console-status-grid div,
+  .console-agent-card,
+  .console-memory-list article,
+  .console-mission-list article,
+  .console-signal-grid article {
+    min-height: auto;
+  }
+}
+
 .owner-command-overview,
 .owner-command-unlock,
 .owner-command-section,

@@ -1676,6 +1676,45 @@ test('homepage View agents opens a dedicated public agents route instead of rend
 
   assert.equal(root.querySelector('.public-agent-gallery'), null);
   assert.equal(root.querySelector('a[href="/multipass/agents"]')?.textContent, 'View agents');
+  assert.equal(root.querySelector('.homepage-actions a[href="/multipass/console"]')?.textContent, 'Open Console');
+});
+
+test('dedicated Console route renders a human-facing operating surface for onchain agents', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  await createApp({ root, loadDemo: async () => sampleData() }).start();
+
+  assert.equal(root.querySelector('.product-home-shell'), null);
+  const consolePage = root.querySelector('.multipass-console');
+  assert.ok(consolePage);
+  assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Multipass Console');
+  assert.match(consolePage.textContent, /Human-facing control for agents that remember/);
+  assert.match(consolePage.textContent, /persistent memory/i);
+  assert.match(consolePage.textContent, /onchain agents/i);
+  assert.match(consolePage.textContent, /Signals/);
+  assert.match(consolePage.textContent, /Tokenized equities/);
+  assert.match(consolePage.textContent, /Vaults/);
+  assert.match(consolePage.textContent, /Fresh-session recall/);
+  assert.ok(consolePage.querySelector('a[href="/multipass/?agent=1"]'));
+  assert.ok(root.querySelector('.live-resolver'));
+  assert.doesNotMatch(consolePage.querySelector('.console-hero')?.textContent ?? '', /Loopers|NFT dashboard/i);
+  assert.match(consolePage.textContent, /does not place trades/i);
+  assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
+});
+
+test('dedicated Console route loads static Multipass data instead of saved slug API data', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const fetchCalls = [];
+  await createApp({
+    root,
+    fetchImpl: async (url) => {
+      fetchCalls.push(String(url));
+      throw new Error(`unexpected fetch: ${url}`);
+    },
+  }).start();
+
+  assert.ok(root.querySelector('.multipass-console'));
+  assert.deepEqual(fetchCalls, []);
+  assert.doesNotMatch(root.textContent, /Could not load Multipass API data|console\/hydrated/i);
 });
 
 test('dedicated agents route renders public agent gallery cards with safe Multipass links', async () => {
@@ -2038,6 +2077,7 @@ test('hamburger menu opens trusted Helixa and CRED links', async () => {
   const links = [...menu.querySelectorAll('a')].map((link) => ({ label: link.textContent.trim(), href: link.getAttribute('href') }));
   assert.deepEqual(links, [
     { label: 'Multipass Home', href: '/multipass/' },
+    { label: 'Multipass Console', href: '/multipass/console' },
     { label: 'Register Agent', href: 'https://helixa.xyz/' },
     { label: 'Cred Exchange', href: 'https://cred.exchange/' },
     { label: '$CRED Token', href: 'https://bankr.bot/agents/helixa' },

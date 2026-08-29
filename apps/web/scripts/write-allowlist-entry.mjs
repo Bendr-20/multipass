@@ -8,6 +8,7 @@ const distRoot = join(webRoot, 'dist');
 const sourcePath = join(distRoot, 'index.html');
 const outputPath = join(distRoot, 'allowlist', 'index.html');
 const mintOutputPath = join(distRoot, 'mint', 'index.html');
+const consoleOutputPath = join(distRoot, 'console', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
 const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
@@ -39,3 +40,13 @@ await mkdir(dirname(mintOutputPath), { recursive: true });
 await writeFile(mintOutputPath, allowlistHtml
   .replaceAll(LOOPERS_DESCRIPTION, LOOPERS_MINT_DESCRIPTION)
   .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint'));
+
+await mkdir(dirname(consoleOutputPath), { recursive: true });
+await writeFile(consoleOutputPath, html
+  .replace(/<title>[\s\S]*?<\/title>/u, '<title>Multipass Console</title>')
+  .replace(/<meta name="description" content="[^"]*" \/>/u, '<meta name="description" content="Persistent operating console for onchain agents." />')
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, '<meta property="og:title" content="Multipass Console" />')
+  .replace(/<meta property="og:description" content="[^"]*" \/>/u, '<meta property="og:description" content="Persistent operating console for onchain agents." />')
+  .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/console" />')
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Multipass Console" />')
+  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, '<meta name="twitter:description" content="Persistent operating console for onchain agents." />'));

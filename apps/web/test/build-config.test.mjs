@@ -24,6 +24,11 @@ test('Loopers build script emits a static mint route entry', () => {
   assert.match(allowlistEntryScript, /Mint Loopers on Base\./);
 });
 
+test('web build emits a static Console route entry', () => {
+  assert.match(allowlistEntryScript, /join\(distRoot, 'console', 'index\.html'\)/);
+  assert.match(allowlistEntryScript, /Persistent operating console for onchain agents\./);
+});
+
 test('Privy chain config follows the active Loopers mint route', () => {
   assert.match(mainSource, /getLooperMintConfigFromLocation\(window\.location\.href\)/);
   assert.match(mainSource, /defaultChain: walletDefaultChain/);
