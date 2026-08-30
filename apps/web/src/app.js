@@ -6,6 +6,7 @@ import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeF
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
 import { getMarketplacePresenceEntries } from './marketplace-presence.js';
 import { getCommunicationChannels, getCommunicationContactPolicy } from './communication-channels.js';
+import { sendConsoleAgentMessage as defaultSendConsoleAgentMessage } from './console-agent-api.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
@@ -79,6 +80,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     looperMint: createInitialLooperMintState(),
     consoleWalletStatus: null,
     consoleWalletError: null,
+    consoleAgentThread: createInitialConsoleAgentThreadState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
@@ -554,6 +556,72 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         walletSnapshot: activeWalletClient.getSnapshot(),
         consoleWalletStatus: 'error',
         consoleWalletError: getWalletErrorMessage(error),
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function sendConsoleAgentMessage(event) {
+    event?.preventDefault?.();
+    const form = event?.currentTarget;
+    const message = String(form?.querySelector?.('textarea[name="message"]')?.value ?? '').trim();
+    if (!message) return;
+    const walletSnapshot = activeWalletClient.getSnapshot();
+    if (!walletSnapshot.connected || !walletSnapshot.address) {
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          status: 'error',
+          error: 'Connect a wallet before messaging an agent.',
+        },
+      };
+      render(root, state, handlers);
+      return;
+    }
+
+    state = {
+      ...state,
+      walletSnapshot,
+      consoleAgentThread: {
+        ...state.consoleAgentThread,
+        status: 'sending',
+        error: null,
+      },
+    };
+    render(root, state, handlers);
+
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const result = await claimApi.sendConsoleAgentMessage({
+        apiBase,
+        wallet: walletSnapshot.address,
+        message,
+        fetchImpl,
+      });
+      const priorMessages = state.consoleAgentThread.messages ?? [];
+      state = {
+        ...state,
+        consoleAgentThread: {
+          status: 'received',
+          error: null,
+          messages: [...priorMessages, ...(result.thread?.messages ?? [])],
+          proposals: result.proposals ?? [],
+          memoryProvider: result.memory?.provider ?? 'Sibyl-ready',
+          transport: result.thread?.transport ?? 'XMTP-ready',
+          inferenceProvider: result.thread?.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? 'Bankr-ready',
+        },
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          status: 'error',
+          error: getWalletErrorMessage(error),
+        },
       };
       render(root, state, handlers);
     }
@@ -1112,7 +1180,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, sendConsoleAgentMessage, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1287,6 +1355,7 @@ const defaultClaimApi = {
   importMultipassTool,
   refreshMultipassTool,
   logoutMultipassSession,
+  sendConsoleAgentMessage: defaultSendConsoleAgentMessage,
 };
 
 function createInitialGroupActivationState() {
@@ -1307,6 +1376,18 @@ function createInitialLooperMintState() {
     contractState: null,
     tx: null,
     error: null,
+  };
+}
+
+function createInitialConsoleAgentThreadState() {
+  return {
+    status: 'idle',
+    error: null,
+    messages: [],
+    proposals: [],
+    transport: 'XMTP-ready',
+    memoryProvider: 'Sibyl-ready',
+    inferenceProvider: 'Bankr-ready',
   };
 }
 
@@ -2675,6 +2756,7 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
   root.querySelector('[data-action="connect-console-wallet"]')?.addEventListener('click', () => handlers.connectConsoleWallet?.());
+  root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
   root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
   root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));

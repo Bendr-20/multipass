@@ -55,6 +55,10 @@ export interface MultipassApiOptions {
   loopersAllowlistRateLimit?: unknown;
   loopersAllowlistSubnetRateLimit?: unknown;
   loopersTurnstileSecretKey?: string | null;
+  bankrLlmKey?: string | null;
+  bankrLlmModel?: string | null;
+  consoleAgentBankrLlmEnabled?: boolean;
+  consoleAgentRuntime?: { handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown };
 }
 
 export interface MultipassApi {

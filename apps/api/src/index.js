@@ -20,6 +20,8 @@ import {
   normalizeMultipassSourceInput,
 } from './canonical-profile.js';
 import { getAllowlistProof } from './allowlist-snapshot.js';
+import { createConsoleAgentRuntime } from './agent-runtime/index.js';
+import { createBankrLlmClient } from './bankr-llm/index.js';
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
@@ -175,12 +177,21 @@ export function createMultipassApi({
   loopersAllowlistRequireBrowserOrigin = false,
   loopersAllowlistBlockedSources = [],
   loopersTurnstileSecretKey,
+  bankrLlmKey,
+  bankrLlmModel,
+  consoleAgentBankrLlmEnabled = false,
+  consoleAgentRuntime,
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
   }
 
   const normalizedBaseUrl = stripTrailingSlash(baseUrl ?? 'http://localhost');
+  const runtime = consoleAgentRuntime ?? createConsoleAgentRuntime({
+    llmClient: consoleAgentBankrLlmEnabled
+      ? createBankrLlmClient({ apiKey: bankrLlmKey, model: bankrLlmModel, fetchImpl }) ?? undefined
+      : undefined,
+  });
   const context = {
     store,
     savedRecords,
@@ -201,6 +212,7 @@ export function createMultipassApi({
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
+    consoleAgentRuntime: runtime,
   };
 
   return {
@@ -302,6 +314,10 @@ async function handlePostRequest(request, parts, context) {
     return errorResponse(404, 'not_found', 'Route not found.');
   }
 
+  if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'message' && parts.length === 5) {
+    return handleConsoleAgentMessage(request, context);
+  }
+
   if (parts[2] === 'groups' && parts[3] === 'preview' && parts.length === 4) {
     return handleGroupPreview(request, context);
   }
@@ -356,6 +372,19 @@ async function handlePostRequest(request, parts, context) {
   }
 
   return errorResponse(404, 'not_found', 'Route not found.');
+}
+
+async function handleConsoleAgentMessage(request, context) {
+  const body = await readJsonBody(request);
+  const wallet = normalizeWallet(body.wallet, 'wallet');
+  const message = String(body.message ?? '').trim();
+  if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
+  const result = await context.consoleAgentRuntime.handleMessage({
+    ...body,
+    wallet,
+    message,
+  });
+  return jsonResponse(result);
 }
 
 async function handleLooperPost(request, parts, context) {

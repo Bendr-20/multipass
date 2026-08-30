@@ -40,6 +40,9 @@ export function parseServerOptions(argv = [], env = process.env) {
       windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_WINDOW_SECONDS,
     }, 'MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE'),
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
+    bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
+    bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
+    consoleAgentBankrLlmEnabled: parseOptionalBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED, 'MULTIPASS_AGENT_BANKR_LLM_ENABLED') ?? false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -83,6 +86,9 @@ export async function startServer(options = {}) {
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersAllowlistGlobalRateLimit: options.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
+    bankrLlmKey: options.bankrLlmKey ?? null,
+    bankrLlmModel: options.bankrLlmModel ?? null,
+    consoleAgentBankrLlmEnabled: Boolean(options.consoleAgentBankrLlmEnabled),
     fetchImpl: options.fetchImpl,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
@@ -157,6 +163,9 @@ export async function startServer(options = {}) {
     loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
     loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
+    bankrLlmKey: parsed.bankrLlmKey,
+    bankrLlmModel: parsed.bankrLlmModel,
+    consoleAgentBankrLlmEnabled: parsed.consoleAgentBankrLlmEnabled,
     fetchImpl: parsed.fetchImpl,
   });
 

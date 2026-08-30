@@ -28,6 +28,9 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    bankrLlmKey: null,
+    bankrLlmModel: null,
+    consoleAgentBankrLlmEnabled: false,
   });
 });
 
@@ -56,6 +59,9 @@ test('CLI flags override environment values', () => {
       loopersAllowlistSubnetRateLimit: undefined,
       loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
+      bankrLlmKey: null,
+      bankrLlmModel: null,
+      consoleAgentBankrLlmEnabled: false,
     },
   );
 });
@@ -84,6 +90,9 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    bankrLlmKey: null,
+    bankrLlmModel: null,
+    consoleAgentBankrLlmEnabled: false,
   });
 });
 
@@ -132,6 +141,25 @@ test('parseServerOptions accepts Looper allowlist slow-mode env', () => {
 
 test('parseServerOptions accepts Looper Turnstile secret from env', () => {
   assert.equal(parseServerOptions([], { MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY: 'secret' }).loopersTurnstileSecretKey, 'secret');
+});
+
+test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in', () => {
+  const defaultOptions = parseServerOptions([], {
+    BANKR_LLM_KEY: 'test-key',
+    MULTIPASS_AGENT_LLM_MODEL: 'test-model',
+  });
+
+  assert.equal(defaultOptions.bankrLlmKey, 'test-key');
+  assert.equal(defaultOptions.bankrLlmModel, 'test-model');
+  assert.equal(defaultOptions.consoleAgentBankrLlmEnabled, false);
+
+  const enabledOptions = parseServerOptions([], {
+    BANKR_API_KEY: 'fallback-key',
+    MULTIPASS_AGENT_BANKR_LLM_ENABLED: '1',
+  });
+
+  assert.equal(enabledOptions.bankrLlmKey, 'fallback-key');
+  assert.equal(enabledOptions.consoleAgentBankrLlmEnabled, true);
 });
 
 test('startServer can advertise a public base URL while listening locally', async () => {

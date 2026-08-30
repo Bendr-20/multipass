@@ -13,8 +13,9 @@ const PRIVY_CONNECT_DESCRIPTION = 'Connect your wallet to Multipass.';
 const PRIVY_APP_NAME = 'Helixa';
 const PRIVY_APP_LOGO_URL = 'https://helixa.xyz/helixa-logo.jpg';
 const PRIVY_SMART_WALLET_CHAIN_IDS = [base.id, baseSepolia.id];
+export const PRIVY_BASE_ACCOUNT_WALLET_ID = 'base_account';
 export const PRIVY_CONNECT_WALLET_LIST = [
-  'base_account',
+  PRIVY_BASE_ACCOUNT_WALLET_ID,
   'coinbase_wallet',
   'metamask',
   'rainbow',
@@ -68,6 +69,18 @@ function getWalletAddress(wallet) {
   return normalizeAddressOrNull(wallet?.address ?? wallet?.walletAddress);
 }
 
+function getAddressFromLinkedAccounts(accounts = []) {
+  if (!Array.isArray(accounts)) return null;
+  for (const account of accounts) {
+    const address = getWalletAddress(account)
+      ?? getWalletAddress(account?.wallet)
+      ?? getWalletAddress(account?.smartWallet)
+      ?? getWalletAddress(account?.embeddedWallet);
+    if (address) return address;
+  }
+  return null;
+}
+
 export function getAddressFromPrivyConnectResult(result) {
   if (Array.isArray(result)) {
     for (const item of result) {
@@ -79,8 +92,13 @@ export function getAddressFromPrivyConnectResult(result) {
 
   return getWalletAddress(result)
     ?? getWalletAddress(result?.wallet)
+    ?? getWalletAddress(result?.smartWallet)
+    ?? getWalletAddress(result?.baseAccount)
+    ?? getWalletAddress(result?.embeddedWallet)
     ?? getWalletAddress(result?.account)
-    ?? getWalletAddress(result?.user?.wallet);
+    ?? getWalletAddress(result?.user?.wallet)
+    ?? getWalletAddress(result?.user?.smartWallet)
+    ?? getAddressFromLinkedAccounts(result?.user?.linkedAccounts);
 }
 
 export function createPrivyConnectionError(error) {

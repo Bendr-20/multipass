@@ -4514,6 +4514,9 @@ h1 {
 .console-memory-list article,
 .console-mission-list article,
 .console-signal-grid article,
+.console-thread-status span,
+.console-thread-message,
+.console-proposal-card,
 .console-safety-note {
   border: 1px solid var(--soft-line);
   background: var(--paper-soft);
@@ -4653,6 +4656,137 @@ h1 {
     var(--paper);
 }
 
+.console-agent-thread-panel {
+  grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
+  align-items: start;
+}
+
+.console-thread-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-thread-status span {
+  display: inline-grid;
+  gap: 3px;
+  min-width: 130px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.console-thread-status strong {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-thread-messages {
+  display: grid;
+  gap: 10px;
+}
+
+.console-thread-message {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+}
+
+.console-thread-message.human {
+  border-color: rgba(54, 95, 125, 0.28);
+  background: rgba(54, 95, 125, 0.07);
+}
+
+.console-thread-message span,
+.console-proposal-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-thread-message p,
+.console-proposal-card p,
+.console-proposal-card small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.console-thread-composer {
+  display: grid;
+  gap: 10px;
+}
+
+.console-thread-composer label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-thread-composer textarea {
+  width: 100%;
+  min-height: 94px;
+  resize: vertical;
+  border: 1px solid rgba(10, 10, 20, 0.16);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 12px;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.console-thread-composer button {
+  width: fit-content;
+  border: 1px solid rgba(10, 10, 20, 0.16);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.console-thread-composer button:disabled,
+.console-thread-composer textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.console-thread-error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-weight: 800;
+}
+
+.console-proposal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.console-proposal-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.console-proposal-card strong {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
 .console-recall-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.52fr);
@@ -4671,6 +4805,7 @@ h1 {
 @media (max-width: 900px) {
   .console-hero,
   .console-grid,
+  .console-agent-thread-panel,
   .console-recall-panel {
     grid-template-columns: 1fr;
   }

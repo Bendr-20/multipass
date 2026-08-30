@@ -33,6 +33,38 @@ Working title: `Looper Memory Activation`
 
 The fresh-session recall moment is the core proof.
 
+## Communication Model
+
+Use XMTP as the human-agent communication rail for the demo.
+
+XMTP is the message transport, not the agent brain or memory system:
+
+- Multipass owns identity, activation, control, and the Console UI.
+- XMTP carries wallet-native messages between the human and the activated Looper agent.
+- Sibyl stores and recalls durable private memory extracted from the conversation and mission state.
+- Bankr LLM Gateway is the preferred inference provider for the hosted agent runtime when configured and funded.
+- The agent runtime reads XMTP messages, recalls Sibyl memory, checks signal data, calls the LLM, and replies with briefings or review-only proposals.
+
+Activated Looper flow:
+
+1. Holder connects wallet in Multipass Console.
+2. Holder activates a Looper and chooses its agent/profile name.
+3. Multipass links the Looper activation profile to a Looper agent XMTP identity.
+4. Console embeds the XMTP thread as the Looper's agent thread.
+5. Holder sends commands or preferences through the Console thread.
+6. Agent runtime receives the XMTP message, recalls Sibyl memory, and reads relevant signal data.
+7. Agent runtime calls Bankr LLM Gateway to generate the response when enabled.
+8. Agent replies through XMTP.
+9. Console renders the reply, updates mission/proposal state, and saves durable memory back to Sibyl when appropriate.
+
+The Console remains the primary human-facing surface, while XMTP makes the Looper reachable as a wallet-native agent outside the website.
+
+## Inference Utility
+
+Use Bankr LLM Gateway as the first-choice LLM provider for the demo runtime.
+
+This makes the holder value prop concrete: activating a Looper can include sponsored agent inference instead of only static profile access. The API key and credit accounting stay server-side in the hosted worker; the browser only talks to Multipass. If the Bankr gateway is unavailable, the demo should degrade to a clearly labeled local/fallback mode rather than pretending Bankr inference is live.
+
 ## Public/Private Memory Split
 
 Public Looper history belongs to the Looper:
@@ -73,7 +105,7 @@ V1 activation creates:
 - memory slot
 - starting Cred state
 - owner/operator wallet link
-- basic chat or command surface if infra is ready
+- XMTP-backed agent thread embedded in Multipass Console
 
 Defer:
 
@@ -104,9 +136,9 @@ Track B, Sibyl activation demo:
 
 - demo Looper profile in Multipass
 - activate + name agent
+- XMTP human-agent messaging rail
 - Sibyl memory save/recall/search
 - fresh-session recall demo
 - public/private memory split
 
 Tracks share product story but should not technically block each other.
-

@@ -57,12 +57,54 @@ test('Multipass Console renderer includes memory missions and market signals as 
   assert.match(text, /Memory/);
   assert.match(text, /Missions/);
   assert.match(text, /Signals/);
+  assert.match(text, /Agent Thread/);
+  assert.match(text, /Message the activated Looper/);
+  assert.match(text, /Bankr-ready/);
+  assert.match(text, /Sibyl-ready/);
+  assert.match(text, /XMTP-ready/);
   assert.match(text, /Tokenized equities/);
   assert.match(text, /Vaults/);
   assert.match(text, /Agent assets/);
   assert.match(text, /Fresh-session recall/);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /No operator wallet is attached/);
   assert.match(text, /does not place trades/);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|custody transferred|credentials released|tool authority granted|private credentials available/i);
+});
+
+test('Multipass Console renderer includes agent runtime messages and review-only proposals', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    data: sampleData(),
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAgentThread: {
+        status: 'received',
+        transport: 'xmtp_ready',
+        memoryProvider: 'local_sibyl_adapter',
+        inferenceProvider: 'fake_bankr',
+        messages: [
+          { role: 'human', text: 'Watch NVDAx and Base agent tokens.', transport: 'console' },
+          { role: 'agent', text: 'Saved. I will prepare review-only proposals.', transport: 'xmtp_ready' },
+        ],
+        proposals: [
+          {
+            status: 'review_only',
+            title: 'Review watchlist briefing',
+            action: 'Keep monitoring before any execution.',
+            risk: 'No transaction authority is attached to this proposal.',
+          },
+        ],
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const text = root.textContent;
+
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, false);
+  assert.match(text, /Watch NVDAx/);
+  assert.match(text, /Saved/);
+  assert.match(text, /Review watchlist briefing/);
+  assert.match(text, /No transaction authority/);
 });

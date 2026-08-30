@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  PRIVY_BASE_ACCOUNT_WALLET_ID,
   createPrivyConnectAction,
   createPrivyConnectionError,
   createPrivyWalletClient,
@@ -55,6 +56,25 @@ test('selectConnectedWalletAddress falls back to Privy linked wallet accounts', 
 test('getAddressFromPrivyConnectResult extracts smart wallet addresses from modal results', () => {
   assert.equal(getAddressFromPrivyConnectResult({
     wallet: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+});
+
+test('getAddressFromPrivyConnectResult accepts Base Account smart wallet result shapes', () => {
+  assert.equal(getAddressFromPrivyConnectResult({
+    baseAccount: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+
+  assert.equal(getAddressFromPrivyConnectResult({
+    user: {
+      linkedAccounts: [
+        { type: 'email', address: 'not-a-wallet' },
+        {
+          type: 'wallet',
+          walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+          smartWallet: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
+        },
+      ],
+    },
   }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
 });
 
@@ -114,13 +134,14 @@ test('createPrivyWalletClient delegates connect and signMessage actions', async 
 
 test('Privy connect wallet list includes Base, Coinbase, and fallback wallet options', () => {
   assert.deepEqual(PRIVY_CONNECT_WALLET_LIST, [
-    'base_account',
+    PRIVY_BASE_ACCOUNT_WALLET_ID,
     'coinbase_wallet',
     'metamask',
     'rainbow',
     'wallet_connect',
     'wallet_connect_qr',
   ]);
+  assert.equal(PRIVY_CONNECT_WALLET_LIST[0], PRIVY_BASE_ACCOUNT_WALLET_ID);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('base_account'), true);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('coinbase_wallet'), true);
 });

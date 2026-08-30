@@ -206,14 +206,17 @@ Source:
 Next tasks:
 
 - Confirm Sibyl API/integration path.
+- Confirm XMTP SDK/inbox integration path.
 - Choose a non-leaking demo fixture.
 - Build activate + name flow.
+- Add XMTP-backed agent thread inside Multipass Console.
 - Add Sibyl memory save, recall, and search.
 - Capture a fresh-session recall demo.
 - Keep public Looper history token-scoped and private operator memory wallet-scoped.
 
 Rules:
 
+- XMTP is the message rail; Sibyl is the memory layer; Multipass is the identity/control surface.
 - Sibyl demo can run in parallel.
 - Sibyl must not bloat the mint contract or block Base Sepolia mint rehearsal.
 

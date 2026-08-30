@@ -1,3 +1,5 @@
+import { renderConsoleAgentThread } from './console-agent-thread.js';
+
 const CONSOLE_SAFETY_NOTE = 'Read, recall, and proposal surface only. Multipass Console does not place trades, transfer custody, release credentials, or grant tool authority from this view.';
 
 const DEFAULT_MEMORY_CELLS = [
@@ -91,6 +93,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     memoryCells: DEFAULT_MEMORY_CELLS,
     missionLanes: DEFAULT_MISSION_LANES,
     signalModules: DEFAULT_SIGNAL_MODULES,
+    agentThread: createAgentThreadSnapshot(state),
     recall: {
       title: 'Fresh-session recall',
       body: 'The demo should restart cold, reconnect the wallet, and show the selected agent still knows what it was tracking, why it mattered, and what the next human-reviewed move should be.',
@@ -129,6 +132,8 @@ export function renderMultipassConsole(snapshot = {}) {
           ${(snapshot.agents ?? []).map(renderAgentCard).join('')}
         </div>
       </section>
+
+      ${renderConsoleAgentThread(snapshot.agentThread)}
 
       <section class="console-grid" aria-label="Console operating layers">
         <div class="console-panel">
@@ -172,6 +177,28 @@ export function renderMultipassConsole(snapshot = {}) {
       </section>
     </main>
   `;
+}
+
+function createAgentThreadSnapshot(state = {}) {
+  const wallet = state.walletSnapshot ?? {};
+  const connected = Boolean(wallet.connected && wallet.address);
+  const thread = state.consoleAgentThread ?? {};
+  const latestAgentMessage = thread.messages?.findLast?.((message) => message.role === 'agent');
+  return {
+    status: thread.status ?? 'idle',
+    disabled: !connected,
+    error: thread.error ?? null,
+    transport: thread.transport ?? 'XMTP-ready',
+    memoryProvider: thread.memoryProvider ?? 'Sibyl-ready',
+    inferenceProvider: thread.inferenceProvider ?? 'Bankr-ready',
+    messages: thread.messages,
+    proposals: thread.proposals,
+    summary: latestAgentMessage
+      ? 'The hosted worker answered with Looper context, memory state, and review-only action rules.'
+      : connected
+        ? 'Send a message to the hosted worker. The response path is Bankr-ready and the memory path is Sibyl-ready.'
+        : 'Connect a wallet to unlock the agent thread.',
+  };
 }
 
 function renderWalletPanel(wallet = {}) {

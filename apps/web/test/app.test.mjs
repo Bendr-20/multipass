@@ -1728,6 +1728,82 @@ test('dedicated Console route connects wallet and shows the active identity', as
   assert.match(root.querySelector('.console-status-grid')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
 });
 
+test('dedicated Console route sends wallet-scoped agent thread messages', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const calls = [];
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      label: '0x27E3...91Ea',
+    },
+  });
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    claimApi: {
+      sendConsoleAgentMessage: async (input) => {
+        calls.push(input);
+        return {
+          thread: {
+            transport: 'xmtp_ready',
+            messages: [
+              { role: 'human', text: input.message, transport: 'console' },
+              { role: 'agent', text: 'Saved through the hosted worker.', transport: 'xmtp_ready', inferenceProvider: 'fake_bankr' },
+            ],
+          },
+          memory: { provider: 'local_sibyl_adapter' },
+          proposals: [
+            {
+              status: 'review_only',
+              title: 'Review watchlist briefing',
+              action: 'Keep monitoring before execution.',
+              risk: 'No transaction authority is attached.',
+            },
+          ],
+        };
+      },
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="send-console-agent-message"]');
+  form.querySelector('textarea[name="message"]').value = 'Watch NVDAx and Base agent tokens.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].wallet, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.equal(calls[0].message, 'Watch NVDAx and Base agent tokens.');
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
+  assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
+});
+
+test('dedicated Console route accepts Base smart wallet identity snapshots', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let walletClient;
+  walletClient = createWalletClientFixture({
+    connect: async () => {
+      walletClient.setSnapshot({
+        connected: true,
+        address: '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE',
+        label: '0x709D...44aE',
+        walletClientType: 'base_account',
+      });
+    },
+  });
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient }).start();
+  root.querySelector('[data-action="connect-console-wallet"]').click();
+  await flushAsyncEvents();
+
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x709D\.\.\.44aE/);
+  assert.equal(root.querySelector('[data-action="connect-looper-mint-wallet"]'), null);
+});
+
 test('dedicated Console route loads static Multipass data instead of saved slug API data', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const fetchCalls = [];
