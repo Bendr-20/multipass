@@ -5,7 +5,7 @@ export function renderConsoleAgentThread(thread = {}) {
       role: 'agent',
       text: thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
-        : 'Connect a wallet, activate an operator slot, and this thread becomes the agent inbox.',
+        : 'Wallet required.',
       transport: 'console',
     }];
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
@@ -15,9 +15,9 @@ export function renderConsoleAgentThread(thread = {}) {
   return `
     <section class="console-panel console-agent-thread-panel" aria-label="Agent thread">
       <div class="console-panel-heading">
-        <p class="card-label">Agent Thread</p>
-        <h2>Write the mission.</h2>
-        <p>${escapeHtml(thread.summary ?? 'Console chat routes to the hosted agent worker. XMTP is the message rail, Sibyl is memory, and Bankr powers inference when configured.')}</p>
+        <p class="card-label">Mission</p>
+        <h2>Mission control</h2>
+        <p>${escapeHtml(thread.summary ?? 'Ready for mission input.')}</p>
       </div>
       <div class="console-thread-status" aria-label="Agent runtime status">
         ${renderStatusPill('Transport', thread.transport ?? 'XMTP-ready')}
@@ -33,7 +33,7 @@ export function renderConsoleAgentThread(thread = {}) {
           <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Track tokenized equities, vault opportunities, and agent-asset signals. Keep proposals review-only.')}" ${disabled ? 'disabled' : ''}></textarea>
         </label>
         <div class="console-thread-actions">
-          <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : 'Activate mission'}</button>
+          <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Saving...' : 'Save mission'}</button>
           <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Reset session</button>
         </div>
       </form>
@@ -52,7 +52,7 @@ function renderStatusPill(label, value) {
 }
 
 function renderThreadMessage(message = {}) {
-  const role = message.role === 'human' ? 'Human' : 'Looper';
+  const role = message.role === 'human' ? 'Human' : 'Agent';
   return `
     <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}">
       <span>${escapeHtml(role)} - ${escapeHtml(message.transport ?? 'console')}</span>

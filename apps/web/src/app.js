@@ -1438,9 +1438,13 @@ function createInitialConsoleAgentThreadState() {
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
   const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'tokenized equities, vault opportunities, and agent-asset signals';
   const constraint = savedMemory.find((entry) => entry.tags?.includes?.('constraint') || entry.tags?.includes?.('risk'))?.text || 'review-only proposals';
-  const proposalLine = proposals.length ? 'A review-only proposal object is still waiting for human approval.' : 'No execution path is attached.';
-  const walletLine = wallet ? `I remember this wallet ${shortenAddress(wallet)}.` : 'I remember this wallet.';
-  return `${walletLine} Active mission: ${activeMission}. Constraint: ${constraint}. ${proposalLine}`;
+  const proposalLine = proposals.length ? `${proposals.length} proposal queued.` : 'No proposal queued.';
+  const walletLine = wallet ? `Wallet ${shortenAddress(wallet)}` : 'Wallet';
+  return `${walletLine} recalled. Mission: ${trimSentenceEnd(activeMission)}. Constraint: ${trimSentenceEnd(constraint)}. ${proposalLine}`;
+}
+
+function trimSentenceEnd(value) {
+  return String(value ?? '').trim().replace(/[.!?]+$/u, '');
 }
 
 const defaultLooperMintClient = {
@@ -1666,6 +1670,16 @@ function render(root, state, handlers = {}) {
 
 function updateDocumentMetadataForPage(state) {
   if (typeof document === 'undefined') return;
+  if (state.pageKind === 'console') {
+    document.title = 'Multipass Console';
+    setDocumentMeta('name', 'description', 'Persistent operating console for onchain agents.');
+    setDocumentMeta('property', 'og:url', 'https://helixa.xyz/multipass/console');
+    setDocumentMeta('property', 'og:title', 'Multipass Console');
+    setDocumentMeta('property', 'og:description', 'Persistent operating console for onchain agents.');
+    setDocumentMeta('name', 'twitter:title', 'Multipass Console');
+    setDocumentMeta('name', 'twitter:description', 'Persistent operating console for onchain agents.');
+    return;
+  }
   if (!['looper_allowlist', 'looper_mint'].includes(state.pageKind)) return;
 
   document.title = 'Loopers';
