@@ -36,14 +36,16 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   });
 
   assert.equal(snapshot.title, 'Multipass Console');
-  assert.match(snapshot.lead, /wallet identity/i);
-  assert.match(snapshot.lead, /persistent memory/i);
-  assert.match(snapshot.lead, /onchain action proposals/i);
+  assert.match(snapshot.lead, /agent identity/i);
+  assert.match(snapshot.lead, /review-only proposals/i);
   assert.equal(snapshot.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
   assert.equal(snapshot.wallet.label, '0x1234...5678');
   assert.equal(snapshot.wallet.connected, true);
   assert.equal(snapshot.status.find((item) => item.label === 'Agents')?.value, 2);
   assert.equal(snapshot.status.find((item) => item.label === 'Public proof')?.value, 2);
+  assert.deepEqual(snapshot.storySteps.map((step) => step.label), ['Identity', 'Activation', 'Mission', 'Memory', 'Recall', 'Briefing', 'Proposal']);
+  assert.equal(snapshot.storySteps.find((step) => step.label === 'Identity')?.state, 'proved');
+  assert.equal(snapshot.operatorSlot.state, 'Activated');
   assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead}`, /looper/i);
 });
 
@@ -53,12 +55,17 @@ test('Multipass Console renderer includes memory missions and market signals as 
   const text = root.textContent;
 
   assert.ok(root.querySelector('.multipass-console'));
-  assert.match(text, /Human-facing control for agents that remember/);
+  assert.ok(root.querySelector('.console-story-rail'));
+  assert.match(text, /Activate an onchain agent/);
+  assert.match(text, /Onchain Agent Slot/);
+  assert.match(text, /Unactivated/);
   assert.match(text, /Memory/);
   assert.match(text, /Missions/);
-  assert.match(text, /Signals/);
+  assert.match(text, /Briefing/);
   assert.match(text, /Agent Thread/);
-  assert.match(text, /Message the activated Looper/);
+  assert.match(text, /Write the mission/);
+  assert.match(text, /Activate mission/);
+  assert.match(text, /Reset session/);
   assert.match(text, /Bankr-ready/);
   assert.match(text, /Sibyl-ready/);
   assert.match(text, /XMTP-ready/);
@@ -68,6 +75,7 @@ test('Multipass Console renderer includes memory missions and market signals as 
   assert.match(text, /Fresh-session recall/);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /No operator wallet is attached/);
   assert.match(text, /does not place trades/);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|custody transferred|credentials released|tool authority granted|private credentials available/i);
@@ -96,6 +104,10 @@ test('Multipass Console renderer includes agent runtime messages and review-only
             risk: 'No transaction authority is attached to this proposal.',
           },
         ],
+        savedMemory: [
+          { text: 'Watchlist preference: NVDAx and Base agent tokens.', tags: ['watchlist'] },
+          { text: 'Constraint: review-only proposals.', tags: ['constraint'] },
+        ],
       },
     },
   });
@@ -103,8 +115,37 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   const text = root.textContent;
 
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, false);
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
+  assert.equal(root.querySelector('.console-story-rail li.proved strong')?.textContent, 'Identity');
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
   assert.match(text, /Review watchlist briefing/);
   assert.match(text, /No transaction authority/);
+});
+
+test('Multipass Console renderer shows fresh-session recall after client reset', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    data: sampleData(),
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAgentThread: {
+        status: 'reset',
+        sessionReset: true,
+        recalledMission: 'I remember this wallet 0x1234...5678. Active mission: tokenized equities, vault opportunities, and agent-asset signals. Constraint: review-only proposals. No execution path is attached.',
+        savedMemory: [
+          { text: 'Watchlist preference: tokenized equities, vault opportunities, and agent-asset signals.', tags: ['watchlist'] },
+        ],
+        messages: [],
+        proposals: [],
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const text = root.textContent;
+
+  assert.match(text, /New session started/);
+  assert.match(text, /I remember this wallet/);
+  assert.match(text, /review-only proposals/);
+  assert.equal([...root.querySelectorAll('.console-story-rail li.proved strong')].some((node) => node.textContent === 'Recall'), true);
 });

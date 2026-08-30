@@ -4392,7 +4392,7 @@ h1 {
   gap: 18px;
 }
 
-.console-hero,
+.console-operator-stage,
 .console-panel,
 .console-recall-panel {
   border: 1px solid var(--line);
@@ -4400,12 +4400,12 @@ h1 {
   box-shadow: var(--shadow);
 }
 
-.console-hero {
+.console-operator-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
-  gap: 22px;
+  grid-template-columns: minmax(180px, 0.26fr) minmax(0, 1fr);
+  gap: 0;
   align-items: stretch;
-  padding: 24px;
+  overflow: hidden;
 }
 
 .console-hero-copy {
@@ -4437,9 +4437,61 @@ h1 {
   line-height: 1.55;
 }
 
-.console-actions {
-  justify-content: flex-start;
-  margin-top: 4px;
+.console-story-rail {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  border-right: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(110, 236, 216, 0.10), transparent 42%),
+    var(--paper-soft);
+  padding: 18px;
+}
+
+.console-story-rail ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.console-story-rail li {
+  display: grid;
+  gap: 5px;
+  min-height: 58px;
+  align-content: center;
+  border: 1px solid var(--soft-line);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 10px;
+}
+
+.console-story-rail li.proved {
+  border-color: rgba(20, 134, 101, 0.34);
+  background: rgba(110, 236, 216, 0.12);
+}
+
+.console-story-rail span,
+.console-operator-slot span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-story-rail strong {
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.console-activation-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.04fr) minmax(300px, 0.96fr);
+  gap: 22px;
+  align-items: stretch;
+  padding: 24px;
 }
 
 .console-identity-stack {
@@ -4492,9 +4544,39 @@ h1 {
   transform: translateY(-1px);
 }
 
+.console-thread-actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
 .console-wallet-panel button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.console-operator-slot {
+  display: grid;
+  align-content: space-between;
+  gap: 12px;
+  min-height: 170px;
+  border: 1px solid rgba(54, 95, 125, 0.34);
+  background:
+    linear-gradient(135deg, rgba(180, 144, 255, 0.10), transparent 54%),
+    var(--paper-soft);
+  padding: 16px;
+}
+
+.console-operator-slot strong {
+  display: block;
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.02;
+}
+
+.console-operator-slot p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .console-wallet-error {
@@ -4746,6 +4828,13 @@ h1 {
   line-height: 1.4;
 }
 
+.console-thread-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-thread-actions button,
 .console-thread-composer button {
   width: fit-content;
   border: 1px solid rgba(10, 10, 20, 0.16);
@@ -4756,6 +4845,11 @@ h1 {
   font: inherit;
   font-weight: 900;
   cursor: pointer;
+}
+
+.console-thread-actions button[data-action="reset-console-session"] {
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .console-thread-composer button:disabled,
@@ -4803,11 +4897,23 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .console-hero,
+  .console-operator-stage,
+  .console-activation-main,
   .console-grid,
   .console-agent-thread-panel,
   .console-recall-panel {
     grid-template-columns: 1fr;
+  }
+
+  .console-story-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .console-story-rail ol {
+    grid-template-columns: repeat(7, minmax(110px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 4px;
   }
 
   .console-agent-list,
@@ -4826,9 +4932,10 @@ h1 {
 }
 
 @media (max-width: 620px) {
-  .console-hero,
+  .console-activation-main,
   .console-panel,
-  .console-recall-panel {
+  .console-recall-panel,
+  .console-story-rail {
     padding: 16px;
   }
 
@@ -4852,8 +4959,23 @@ h1 {
   .console-agent-card,
   .console-memory-list article,
   .console-mission-list article,
+  .console-operator-slot,
   .console-signal-grid article {
     min-height: auto;
+  }
+
+  .console-thread-actions,
+  .console-thread-actions button {
+    width: 100%;
+  }
+
+  .console-story-rail ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .console-story-rail li {
+    min-height: 54px;
   }
 }
 

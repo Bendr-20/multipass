@@ -608,6 +608,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           error: null,
           messages: [...priorMessages, ...(result.thread?.messages ?? [])],
           proposals: result.proposals ?? [],
+          savedMemory: result.memory?.saved ?? [],
+          recalledMemory: result.memory?.recalled ?? [],
+          missions: result.missions ?? [],
+          recalledMission: createConsoleRecallSummary({
+            wallet: walletSnapshot.address,
+            message,
+            missions: result.missions ?? [],
+            savedMemory: result.memory?.saved ?? [],
+            proposals: result.proposals ?? [],
+          }),
+          sessionReset: false,
           memoryProvider: result.memory?.provider ?? 'Sibyl-ready',
           transport: result.thread?.transport ?? 'XMTP-ready',
           inferenceProvider: result.thread?.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? 'Bankr-ready',
@@ -625,6 +636,34 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
       render(root, state, handlers);
     }
+  }
+
+  function resetConsoleSession() {
+    const walletSnapshot = activeWalletClient.getSnapshot();
+    const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
+    const recalledMission = currentThread.recalledMission ?? createConsoleRecallSummary({
+      wallet: walletSnapshot.address,
+      missions: currentThread.missions ?? [],
+      savedMemory: currentThread.savedMemory ?? [],
+      proposals: currentThread.proposals ?? [],
+    });
+    state = {
+      ...state,
+      walletSnapshot,
+      consoleAgentThread: {
+        ...createInitialConsoleAgentThreadState(),
+        status: 'reset',
+        sessionReset: true,
+        recalledMission,
+        savedMemory: currentThread.savedMemory ?? [],
+        recalledMemory: currentThread.recalledMemory ?? [],
+        missions: currentThread.missions ?? [],
+        transport: currentThread.transport ?? 'XMTP-ready',
+        memoryProvider: currentThread.memoryProvider ?? 'Sibyl-ready',
+        inferenceProvider: currentThread.inferenceProvider ?? 'Bankr-ready',
+      },
+    };
+    render(root, state, handlers);
   }
 
   async function connectLooperMintWallet() {
@@ -1180,7 +1219,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, sendConsoleAgentMessage, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1385,10 +1424,23 @@ function createInitialConsoleAgentThreadState() {
     error: null,
     messages: [],
     proposals: [],
+    savedMemory: [],
+    recalledMemory: [],
+    missions: [],
+    recalledMission: null,
+    sessionReset: false,
     transport: 'XMTP-ready',
     memoryProvider: 'Sibyl-ready',
     inferenceProvider: 'Bankr-ready',
   };
+}
+
+function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
+  const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'tokenized equities, vault opportunities, and agent-asset signals';
+  const constraint = savedMemory.find((entry) => entry.tags?.includes?.('constraint') || entry.tags?.includes?.('risk'))?.text || 'review-only proposals';
+  const proposalLine = proposals.length ? 'A review-only proposal object is still waiting for human approval.' : 'No execution path is attached.';
+  const walletLine = wallet ? `I remember this wallet ${shortenAddress(wallet)}.` : 'I remember this wallet.';
+  return `${walletLine} Active mission: ${activeMission}. Constraint: ${constraint}. ${proposalLine}`;
 }
 
 const defaultLooperMintClient = {
@@ -2757,6 +2809,7 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
   root.querySelector('[data-action="connect-console-wallet"]')?.addEventListener('click', () => handlers.connectConsoleWallet?.());
   root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
+  root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
   root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
   root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));

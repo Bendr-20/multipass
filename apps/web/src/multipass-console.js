@@ -53,6 +53,18 @@ const DEFAULT_SIGNAL_MODULES = [
   },
 ];
 
+const DEFAULT_CONSOLE_MISSION = 'Track tokenized equities, vault opportunities, and agent-asset signals. Remember that I only want review-only proposals.';
+
+const STORY_STEPS = [
+  { key: 'identity', label: 'Identity' },
+  { key: 'activation', label: 'Activation' },
+  { key: 'mission', label: 'Mission' },
+  { key: 'memory', label: 'Memory' },
+  { key: 'recall', label: 'Recall' },
+  { key: 'briefing', label: 'Briefing' },
+  { key: 'proposal', label: 'Proposal' },
+];
+
 export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents = [] } = {}) {
   const profile = data.profile ?? {};
   const wallet = state.walletSnapshot ?? {};
@@ -63,12 +75,18 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     ? shortenAddress(wallet.address)
     : (wallet.configured === false ? 'Wallet unavailable' : 'Not connected');
 
+  const agentThread = createAgentThreadSnapshot(state);
+  const storyState = createStoryState({ walletConnected, agentThread });
+
   return {
     title: 'Multipass Console',
     kicker: 'Onchain agent operations',
-    headline: 'Human-facing control for agents that remember.',
-    lead: 'A focused Multipass surface for wallet identity, persistent memory, missions, signals, and human-reviewed onchain action proposals.',
+    headline: walletConnected ? 'Operator slot online.' : 'Activate an onchain agent.',
+    lead: walletConnected
+      ? 'This wallet controls the agent identity, not the agent funds. Mission memory and review-only proposals stay bound to the operator thread.'
+      : 'Connect a wallet, activate an agent slot, write the mission, reset the session, then prove the agent remembers.',
     safetyNote: CONSOLE_SAFETY_NOTE,
+    defaultMission: DEFAULT_CONSOLE_MISSION,
     wallet: {
       connected: walletConnected,
       unavailable: wallet.configured === false,
@@ -83,6 +101,17 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
       { label: 'Public proof', value: publicProofCount },
       { label: 'Mode', value: 'Human review' },
     ],
+    storySteps: STORY_STEPS.map((step) => ({
+      ...step,
+      state: storyState[step.key] ? 'proved' : 'waiting',
+    })),
+    operatorSlot: {
+      label: walletConnected ? 'Looper #1234' : 'Onchain Agent Slot',
+      state: walletConnected ? 'Activated' : 'Unactivated',
+      copy: walletConnected
+        ? 'Wallet identity resolved. Agent control is active for memory, messages, and review-only proposals.'
+        : 'Waiting for wallet identity. No agent funds, tools, or trade routes are granted here.',
+    },
     agents: activeAgents.slice(0, 5).map((agent) => ({
       name: agent.name ?? profile.display_name ?? 'Onchain agent',
       role: agent.role ?? agent.framework ?? 'Agent profile',
@@ -93,10 +122,10 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     memoryCells: DEFAULT_MEMORY_CELLS,
     missionLanes: DEFAULT_MISSION_LANES,
     signalModules: DEFAULT_SIGNAL_MODULES,
-    agentThread: createAgentThreadSnapshot(state),
+    agentThread,
     recall: {
-      title: 'Fresh-session recall',
-      body: 'The demo should restart cold, reconnect the wallet, and show the selected agent still knows what it was tracking, why it mattered, and what the next human-reviewed move should be.',
+      title: agentThread.sessionReset ? 'New session started.' : 'Fresh-session recall',
+      body: agentThread.recalledMission || 'Reset the visible session after saving a mission. The wallet thread should come back with the active mission and review-only constraint intact.',
     },
   };
 }
@@ -104,32 +133,18 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
 export function renderMultipassConsole(snapshot = {}) {
   return `
     <main class="multipass-console" aria-label="Multipass Console">
-      <section class="console-hero">
-        <div class="console-hero-copy">
-          <p class="eyebrow">${escapeHtml(snapshot.kicker ?? 'Onchain agent operations')}</p>
-          <h1>${escapeHtml(snapshot.headline ?? 'Human-facing control for agents that remember.')}</h1>
-          <p class="lead">${escapeHtml(snapshot.lead ?? '')}</p>
-          <div class="homepage-actions console-actions">
-            <a href="#console-agents" class="homepage-action primary">View agents</a>
-            <a href="#console-signals" class="homepage-action">Open signals</a>
+      <section class="console-operator-stage">
+        ${renderStoryRail(snapshot.storySteps)}
+        <div class="console-activation-main">
+          <div class="console-hero-copy">
+            <p class="eyebrow">${escapeHtml(snapshot.kicker ?? 'Onchain agent operations')}</p>
+            <h1>${escapeHtml(snapshot.headline ?? 'Activate an onchain agent.')}</h1>
+            <p class="lead">${escapeHtml(snapshot.lead ?? '')}</p>
           </div>
-        </div>
-        <div class="console-identity-stack">
-          ${renderWalletPanel(snapshot.wallet)}
-          <dl class="console-status-grid" aria-label="Console status">
-            ${(snapshot.status ?? []).map(renderStatusItem).join('')}
-          </dl>
-        </div>
-      </section>
-
-      <section id="console-agents" class="console-panel console-agent-panel" aria-label="Onchain agents">
-        <div class="console-panel-heading">
-          <p class="card-label">Agents</p>
-          <h2>Operate from the agent record.</h2>
-          <p>Pick the agent, inspect its public profile context, then use memory and mission state to decide what happens next.</p>
-        </div>
-        <div class="console-agent-list">
-          ${(snapshot.agents ?? []).map(renderAgentCard).join('')}
+          <div class="console-identity-stack">
+            ${renderWalletPanel(snapshot.wallet)}
+            ${renderOperatorSlot(snapshot.operatorSlot)}
+          </div>
         </div>
       </section>
 
@@ -156,24 +171,35 @@ export function renderMultipassConsole(snapshot = {}) {
         </div>
       </section>
 
+      <section class="console-panel console-recall-panel" aria-label="Hackathon recall demo">
+        <div>
+          <p class="card-label">Recall</p>
+          <h2>${escapeHtml(snapshot.recall?.title ?? 'Fresh-session recall')}</h2>
+          <p>${escapeHtml(snapshot.recall?.body ?? '')}</p>
+        </div>
+        <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
+      </section>
+
       <section id="console-signals" class="console-panel console-signals-panel" aria-label="Market and agent signals">
         <div class="console-panel-heading">
-          <p class="card-label">Signals</p>
-          <h2>Market interfaces without making the console a trading app.</h2>
-          <p>Signals are remembered watchlists, briefs, risk notes, and human-confirmed action proposals for onchain agents.</p>
+          <p class="card-label">Briefing</p>
+          <h2>Signals become a human-reviewed brief.</h2>
+          <p>Demo signals are watchlists, briefs, risk notes, and review-only proposal objects for onchain agents.</p>
         </div>
         <div class="console-signal-grid">
           ${(snapshot.signalModules ?? []).map(renderSignalModule).join('')}
         </div>
       </section>
 
-      <section class="console-panel console-recall-panel" aria-label="Hackathon recall demo">
-        <div>
-          <p class="card-label">Hackathon proof</p>
-          <h2>${escapeHtml(snapshot.recall?.title ?? 'Fresh-session recall')}</h2>
-          <p>${escapeHtml(snapshot.recall?.body ?? '')}</p>
+      <section id="console-agents" class="console-panel console-agent-panel" aria-label="Onchain agents">
+        <div class="console-panel-heading">
+          <p class="card-label">Agent source</p>
+          <h2>Operate from the agent record.</h2>
+          <p>Public proof context stays visible, while private memory and authority stay behind the wallet-controlled thread.</p>
         </div>
-        <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
+        <div class="console-agent-list">
+          ${(snapshot.agents ?? []).map(renderAgentCard).join('')}
+        </div>
       </section>
     </main>
   `;
@@ -184,6 +210,7 @@ function createAgentThreadSnapshot(state = {}) {
   const connected = Boolean(wallet.connected && wallet.address);
   const thread = state.consoleAgentThread ?? {};
   const latestAgentMessage = thread.messages?.findLast?.((message) => message.role === 'agent');
+  const hasRuntimeProof = Boolean(thread.messages?.length || thread.proposals?.length || thread.savedMemory?.length);
   return {
     status: thread.status ?? 'idle',
     disabled: !connected,
@@ -191,14 +218,70 @@ function createAgentThreadSnapshot(state = {}) {
     transport: thread.transport ?? 'XMTP-ready',
     memoryProvider: thread.memoryProvider ?? 'Sibyl-ready',
     inferenceProvider: thread.inferenceProvider ?? 'Bankr-ready',
+    defaultMission: DEFAULT_CONSOLE_MISSION,
     messages: thread.messages,
     proposals: thread.proposals,
+    savedMemory: thread.savedMemory,
+    recalledMemory: thread.recalledMemory,
+    missions: thread.missions,
+    sessionReset: Boolean(thread.sessionReset),
+    recalledMission: thread.recalledMission ?? null,
+    canReset: hasRuntimeProof,
     summary: latestAgentMessage
       ? 'The hosted worker answered with Looper context, memory state, and review-only action rules.'
+      : thread.sessionReset && thread.recalledMission
+        ? thread.recalledMission
       : connected
-        ? 'Send a message to the hosted worker. The response path is Bankr-ready and the memory path is Sibyl-ready.'
+        ? 'Give the operator a mission. The response path is Bankr-ready and the memory path is Sibyl-ready.'
         : 'Connect a wallet to unlock the agent thread.',
   };
+}
+
+function createStoryState({ walletConnected, agentThread }) {
+  const messageCount = Array.isArray(agentThread.messages) ? agentThread.messages.length : 0;
+  const savedMemoryCount = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory.length : 0;
+  const recalledMemoryCount = Array.isArray(agentThread.recalledMemory) ? agentThread.recalledMemory.length : 0;
+  const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
+  const hasAgentBriefing = agentThread.messages?.some?.((message) => message.role === 'agent');
+  return {
+    identity: walletConnected,
+    activation: walletConnected,
+    mission: messageCount > 0 || savedMemoryCount > 0,
+    memory: savedMemoryCount > 0,
+    recall: Boolean(agentThread.sessionReset || recalledMemoryCount > 0),
+    briefing: Boolean(hasAgentBriefing),
+    proposal: proposalCount > 0,
+  };
+}
+
+function renderStoryRail(steps = []) {
+  return `
+    <aside class="console-story-rail" aria-label="Console proof steps">
+      <p class="card-label">Proof rail</p>
+      <ol>
+        ${steps.map(renderStoryStep).join('')}
+      </ol>
+    </aside>
+  `;
+}
+
+function renderStoryStep(step = {}) {
+  return `
+    <li class="${step.state === 'proved' ? 'proved' : 'waiting'}">
+      <span>${escapeHtml(step.state === 'proved' ? 'Proved' : 'Waiting')}</span>
+      <strong>${escapeHtml(step.label ?? '')}</strong>
+    </li>
+  `;
+}
+
+function renderOperatorSlot(slot = {}) {
+  return `
+    <section class="console-operator-slot" aria-label="Agent slot">
+      <span>${escapeHtml(slot.state ?? 'Unactivated')}</span>
+      <strong>${escapeHtml(slot.label ?? 'Onchain Agent Slot')}</strong>
+      <p>${escapeHtml(slot.copy ?? '')}</p>
+    </section>
+  `;
 }
 
 function renderWalletPanel(wallet = {}) {

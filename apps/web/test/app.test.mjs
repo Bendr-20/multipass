@@ -1687,18 +1687,20 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   const consolePage = root.querySelector('.multipass-console');
   assert.ok(consolePage);
   assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Multipass Console');
-  assert.match(consolePage.textContent, /Human-facing control for agents that remember/);
-  assert.match(consolePage.textContent, /persistent memory/i);
+  assert.match(consolePage.textContent, /Activate an onchain agent/);
+  assert.match(consolePage.textContent, /Proof rail/);
+  assert.match(consolePage.textContent, /Onchain Agent Slot/);
   assert.match(consolePage.textContent, /onchain agents/i);
-  assert.match(consolePage.textContent, /Signals/);
+  assert.match(consolePage.textContent, /Briefing/);
   assert.match(consolePage.textContent, /Tokenized equities/);
   assert.match(consolePage.textContent, /Vaults/);
   assert.match(consolePage.textContent, /Fresh-session recall/);
   assert.ok(consolePage.querySelector('a[href="/multipass/?agent=1"]'));
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /No operator wallet is attached/);
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.ok(root.querySelector('.live-resolver'));
-  assert.doesNotMatch(consolePage.querySelector('.console-hero')?.textContent ?? '', /Loopers|NFT dashboard/i);
+  assert.doesNotMatch(consolePage.querySelector('.console-operator-stage')?.textContent ?? '', /Loopers|NFT dashboard/i);
   assert.match(consolePage.textContent, /does not place trades/i);
   assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
 });
@@ -1725,7 +1727,8 @@ test('dedicated Console route connects wallet and shows the active identity', as
   assert.deepEqual(calls, [['connect']]);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
-  assert.match(root.querySelector('.console-status-grid')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
+  assert.match(root.querySelector('.console-operator-slot')?.textContent ?? '', /Activated/);
+  assert.equal([...root.querySelectorAll('.console-story-rail li.proved strong')].some((node) => node.textContent === 'Identity'), true);
 });
 
 test('dedicated Console route sends wallet-scoped agent thread messages', async () => {
@@ -1779,6 +1782,13 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.equal(calls[0].message, 'Watch NVDAx and Base agent tokens.');
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
   assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
+  root.querySelector('[data-action="reset-console-session"]').click();
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.console-recall-panel')?.textContent ?? '', /New session started/);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /I remember this wallet/);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /review-only/);
+  assert.equal(root.querySelector('.console-proposal-list'), null);
 });
 
 test('dedicated Console route accepts Base smart wallet identity snapshots', async () => {

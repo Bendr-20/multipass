@@ -3,7 +3,9 @@ export function renderConsoleAgentThread(thread = {}) {
     ? thread.messages
     : [{
       role: 'agent',
-      text: 'Connect a wallet, activate a Looper, and this thread becomes the agent inbox.',
+      text: thread.sessionReset && thread.recalledMission
+        ? thread.recalledMission
+        : 'Connect a wallet, activate an operator slot, and this thread becomes the agent inbox.',
       transport: 'console',
     }];
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
@@ -14,7 +16,7 @@ export function renderConsoleAgentThread(thread = {}) {
     <section class="console-panel console-agent-thread-panel" aria-label="Agent thread">
       <div class="console-panel-heading">
         <p class="card-label">Agent Thread</p>
-        <h2>Message the activated Looper.</h2>
+        <h2>Write the mission.</h2>
         <p>${escapeHtml(thread.summary ?? 'Console chat routes to the hosted agent worker. XMTP is the message rail, Sibyl is memory, and Bankr powers inference when configured.')}</p>
       </div>
       <div class="console-thread-status" aria-label="Agent runtime status">
@@ -28,9 +30,12 @@ export function renderConsoleAgentThread(thread = {}) {
       <form class="console-thread-composer" data-action="send-console-agent-message">
         <label>
           <span>Message</span>
-          <textarea name="message" rows="3" placeholder="Ask the Looper to track a market, remember a preference, or draft a review-only proposal." ${disabled ? 'disabled' : ''}></textarea>
+          <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Track tokenized equities, vault opportunities, and agent-asset signals. Keep proposals review-only.')}" ${disabled ? 'disabled' : ''}></textarea>
         </label>
-        <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : 'Send to agent'}</button>
+        <div class="console-thread-actions">
+          <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : 'Activate mission'}</button>
+          <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Reset session</button>
+        </div>
       </form>
       ${thread.error ? `<p class="console-thread-error">${escapeHtml(thread.error)}</p>` : ''}
       ${proposals.length ? `
@@ -50,7 +55,7 @@ function renderThreadMessage(message = {}) {
   const role = message.role === 'human' ? 'Human' : 'Looper';
   return `
     <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}">
-      <span>${escapeHtml(role)} · ${escapeHtml(message.transport ?? 'console')}</span>
+      <span>${escapeHtml(role)} - ${escapeHtml(message.transport ?? 'console')}</span>
       <p>${escapeHtml(message.text ?? '')}</p>
     </article>
   `;
@@ -74,4 +79,8 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll('`', '&#96;');
 }
