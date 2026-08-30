@@ -1694,7 +1694,16 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.ok(consolePage.querySelector('.console-trust-graph-card'));
   assert.ok(consolePage.querySelector('.console-signal-chart-card'));
   assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
-  assert.match(consolePage.textContent, /Trust graph/);
+  assert.match(consolePage.textContent, /Trust Graph v2/);
+  assert.equal(consolePage.querySelectorAll('.console-graph-ring').length, 5);
+  assert.equal(consolePage.querySelectorAll('.console-graph-node').length, 7);
+  assert.match(consolePage.textContent, /Preferred/);
+  assert.match(consolePage.textContent, /Prime/);
+  assert.match(consolePage.textContent, /Qualified/);
+  assert.match(consolePage.textContent, /Marginal/);
+  assert.match(consolePage.textContent, /Junk/);
+  assert.match(consolePage.textContent, /Protocols/);
+  assert.match(consolePage.textContent, /Decisions/);
   assert.match(consolePage.textContent, /Signal card/);
   assert.match(consolePage.textContent, /Agent records/i);
   assert.match(consolePage.textContent, /Mission control/);
@@ -1706,7 +1715,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.ok(root.querySelector('.live-resolver'));
-  assert.doesNotMatch(consolePage.textContent, /Loopers|NFT dashboard/i);
+  assert.doesNotMatch(consolePage.textContent, /Loopers|NFT dashboard|Legendary/i);
   assert.match(consolePage.textContent, /No trades/i);
   assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
 });

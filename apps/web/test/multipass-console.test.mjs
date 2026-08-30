@@ -48,9 +48,13 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.identityCard.label, 'Operator status');
   assert.equal(snapshot.identityCard.name, 'Bendr 2.0');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
-  assert.equal(snapshot.trustGraph.nodes.length, 6);
+  assert.equal(snapshot.trustGraph.label, 'Trust Graph v2');
+  assert.equal(snapshot.trustGraph.activeTier, 'Prime');
+  assert.deepEqual(snapshot.trustGraph.tiers.map((tier) => tier.label), ['Preferred', 'Prime', 'Qualified', 'Marginal', 'Junk']);
+  assert.equal(snapshot.trustGraph.tiers.find((tier) => tier.label === 'Prime')?.active, true);
+  assert.equal(snapshot.trustGraph.nodes.length, 7);
   assert.equal(snapshot.signalChart.lanes.length, 3);
-  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead}`, /looper/i);
+  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.trustGraph.tiers.map((tier) => tier.label).join(' ')}`, /looper|legendary/i);
 });
 
 test('Multipass Console renderer includes memory missions and market signals as reviewed proposals', () => {
@@ -66,11 +70,19 @@ test('Multipass Console renderer includes memory missions and market signals as 
   assert.ok(root.querySelector('.console-signal-chart-card'));
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
   assert.ok(root.querySelector('.console-graph-core'));
-  assert.equal(root.querySelectorAll('.console-graph-node').length, 6);
+  assert.equal(root.querySelectorAll('.console-graph-node').length, 7);
+  assert.equal(root.querySelectorAll('.console-graph-ring').length, 5);
   assert.equal(root.querySelectorAll('.console-chart-visual i').length, 8);
   assert.match(text, /Multipass Console/);
   assert.match(text, /Operator status/);
-  assert.match(text, /Trust graph/);
+  assert.match(text, /Trust Graph v2/);
+  assert.match(text, /Preferred/);
+  assert.match(text, /Prime/);
+  assert.match(text, /Qualified/);
+  assert.match(text, /Marginal/);
+  assert.match(text, /Junk/);
+  assert.match(text, /Protocols/);
+  assert.match(text, /Decisions/);
   assert.match(text, /Signal card/);
   assert.match(text, /Memory/);
   assert.match(text, /Mission lanes/);
@@ -91,7 +103,7 @@ test('Multipass Console renderer includes memory missions and market signals as 
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);
   assert.match(text, /No trades/);
-  assert.doesNotMatch(text, /Loopers|NFT dashboard|custody transferred|credentials released|tool authority granted|private credentials available/i);
+  assert.doesNotMatch(text, /Loopers|NFT dashboard|Legendary|custody transferred|credentials released|tool authority granted|private credentials available/i);
 });
 
 test('Multipass Console renderer includes agent runtime messages and review-only proposals', () => {

@@ -65,6 +65,14 @@ const FLOW_STEPS = [
   { key: 'proposal', label: 'Proposal' },
 ];
 
+const TRUST_TIERS = [
+  { label: 'Preferred', range: '91-100' },
+  { label: 'Prime', range: '76-90' },
+  { label: 'Qualified', range: '51-75' },
+  { label: 'Marginal', range: '26-50' },
+  { label: 'Junk', range: '0-25' },
+];
+
 export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents = [] } = {}) {
   const profile = data.profile ?? {};
   const wallet = state.walletSnapshot ?? {};
@@ -81,7 +89,9 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
   const activeAgentLabel = activeAgents[0]?.name ?? profile.display_name ?? 'Agent slot';
   const activeAgent = activeAgents[0] ?? {};
-  const activeCred = activeAgent.credLabel ?? (activeAgent.credScore === null || activeAgent.credScore === undefined ? 'Cred pending' : `Cred ${activeAgent.credScore}`);
+  const activeScore = normalizeCredScore(activeAgent.credScore ?? profile.cred_summary?.score);
+  const activeTier = getCredTier(activeScore);
+  const activeCred = activeAgent.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
 
   return {
     title: 'Multipass Console',
@@ -130,17 +140,23 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
       ],
     },
     trustGraph: {
-      label: 'Trust graph',
+      label: 'Trust Graph v2',
       center: activeAgentLabel,
-      state: walletConnected ? 'Live identity graph' : 'Awaiting wallet',
+      state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
       edges: publicProofCount + savedMemoryCount + proposalCount,
+      activeTier,
+      tiers: TRUST_TIERS.map((tier) => ({
+        ...tier,
+        active: tier.label === activeTier,
+      })),
       nodes: [
-        { label: 'Wallet', state: walletConnected ? 'Bound' : 'Open', className: walletConnected ? 'ready' : 'open' },
-        { label: 'Sibyl', state: savedMemoryCount ? `${savedMemoryCount} memories` : 'Ready', className: savedMemoryCount ? 'ready' : 'open' },
-        { label: 'XMTP', state: agentThread.transport ?? 'Ready', className: walletConnected ? 'ready' : 'open' },
-        { label: 'Cred', state: activeCred, className: 'score' },
-        { label: 'Signals', state: 'Watching', className: 'watch' },
-        { label: 'Review', state: `${proposalCount} queued`, className: proposalCount ? 'ready' : 'open' },
+        { label: 'Wallet', state: walletConnected ? 'Bound' : 'Open', className: walletConnected ? 'ready orbit-wallet' : 'open orbit-wallet' },
+        { label: 'Protocols', state: 'Base / ERC-8004', className: 'score orbit-protocols' },
+        { label: 'Missions', state: agentThread.missions?.length ? `${agentThread.missions.length} active` : 'Ready', className: 'watch orbit-missions' },
+        { label: 'Signals', state: 'Watching', className: 'watch orbit-signals' },
+        { label: 'Agents', state: `${activeAgents.length} visible`, className: 'open orbit-agents' },
+        { label: 'Decisions', state: savedMemoryCount ? `${savedMemoryCount} Sibyl saved` : 'Sibyl ready', className: savedMemoryCount ? 'ready orbit-decisions' : 'open orbit-decisions' },
+        { label: 'Review', state: `${proposalCount} queued`, className: proposalCount ? 'ready orbit-review' : 'open orbit-review' },
       ],
     },
     signalChart: {
@@ -349,6 +365,7 @@ function renderDashboardCard(card = {}) {
 
 function renderTrustGraphCard(graph = {}) {
   const nodes = graph.nodes ?? [];
+  const tiers = graph.tiers ?? TRUST_TIERS;
   return `
     <section class="console-visual-card console-trust-graph-card" aria-label="Trust graph">
       <div class="console-card-head">
@@ -356,14 +373,23 @@ function renderTrustGraphCard(graph = {}) {
         <span>${escapeHtml(graph.state ?? 'Awaiting wallet')}</span>
       </div>
       <div class="console-graph-visual" aria-hidden="true">
+        ${tiers.map((tier, index) => `
+          <div class="console-graph-ring ring-${index + 1} ${tier.active ? 'active' : ''}">
+            <span>${escapeHtml(tier.label)}</span>
+          </div>
+        `).join('')}
         <div class="console-graph-edge edge-wallet"></div>
-        <div class="console-graph-edge edge-sibyl"></div>
-        <div class="console-graph-edge edge-xmtp"></div>
-        <div class="console-graph-edge edge-cred"></div>
-        <div class="console-graph-edge edge-signal"></div>
+        <div class="console-graph-edge edge-protocols"></div>
+        <div class="console-graph-edge edge-missions"></div>
+        <div class="console-graph-edge edge-signals"></div>
+        <div class="console-graph-edge edge-agents"></div>
+        <div class="console-graph-edge edge-decisions"></div>
         <div class="console-graph-edge edge-review"></div>
         <div class="console-graph-core">${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</div>
-        ${nodes.map((node, index) => `<div class="console-graph-node node-${index + 1} ${escapeAttribute(node.className ?? 'open')}">${escapeHtml(node.label ?? '')}</div>`).join('')}
+        ${nodes.map((node) => `<div class="console-graph-node ${escapeAttribute(node.className ?? 'open')}">${escapeHtml(node.label ?? '')}</div>`).join('')}
+      </div>
+      <div class="console-tier-strip" aria-label="Cred tier rings">
+        ${tiers.map((tier) => `<span class="${tier.active ? 'active' : ''}"><strong>${escapeHtml(tier.label)}</strong>${escapeHtml(tier.range)}</span>`).join('')}
       </div>
       <div class="console-graph-list">
         ${nodes.map((node) => `
@@ -516,6 +542,22 @@ function shortenAddress(address) {
   const value = String(address ?? '').trim();
   if (value.length <= 12) return value;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function normalizeCredScore(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const score = Number(value);
+  if (!Number.isFinite(score)) return null;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function getCredTier(score) {
+  if (score === null) return null;
+  if (score >= 91) return 'Preferred';
+  if (score >= 76) return 'Prime';
+  if (score >= 51) return 'Qualified';
+  if (score >= 26) return 'Marginal';
+  return 'Junk';
 }
 
 function shortenLabel(value) {
