@@ -5446,13 +5446,13 @@ h1 {
 }
 
 .console-graph-node.orbit-wallet {
-  left: 10%;
+  left: 13%;
   top: 13%;
 }
 
 .console-graph-node.orbit-protocols {
   left: 38%;
-  top: 7%;
+  top: 11%;
 }
 
 .console-graph-node.orbit-missions {
@@ -5476,7 +5476,7 @@ h1 {
 }
 
 .console-graph-node.orbit-review {
-  left: 10%;
+  left: 13%;
   top: 53%;
 }
 

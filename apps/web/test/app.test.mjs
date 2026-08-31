@@ -1708,14 +1708,14 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /Protocols/);
   assert.match(consolePage.textContent, /8453:1/);
   assert.match(consolePage.textContent, /Checks/);
-  assert.match(consolePage.textContent, /Runtime checks/);
+  assert.match(consolePage.textContent, /Trust checks/);
   assert.match(consolePage.textContent, /Identity proof/);
   assert.match(consolePage.textContent, /public routes/);
   assert.match(consolePage.textContent, /Agent records/i);
   assert.match(consolePage.textContent, /Agent mission/);
   assert.match(consolePage.textContent, /Approval gate/);
   assert.match(consolePage.textContent, /No recalled mission yet/);
-  assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching/);
+  assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.ok(consolePage.querySelector('a[href="/multipass/?agent=1"]'));
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);

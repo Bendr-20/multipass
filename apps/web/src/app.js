@@ -1436,7 +1436,7 @@ function createInitialConsoleAgentThreadState() {
 }
 
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
-  const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'tokenized equities, vault opportunities, and agent-asset signals';
+  const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'Cred tier, public proof, route health, and mission changes';
   const constraint = savedMemory.find((entry) => entry.tags?.includes?.('constraint') || entry.tags?.includes?.('risk'))?.text || 'review-only proposals';
   const proposalLine = proposals.length ? `${proposals.length} proposal queued.` : 'No proposal queued.';
   const walletLine = wallet ? `Wallet ${shortenAddress(wallet)}` : 'Wallet';

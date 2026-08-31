@@ -70,8 +70,8 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.identityCard.name, 'Bendr 2.0');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
   assert.equal(snapshot.trustGraph.label, 'Trust Graph v2');
-  assert.match(snapshot.trustGraph.summary, /Cred sits at the center/i);
-  assert.match(snapshot.trustGraph.summary, /runtime checks/i);
+  assert.match(snapshot.trustGraph.summary, /Cred stays at the center/i);
+  assert.match(snapshot.trustGraph.summary, /proof, routes, mission memory/i);
   assert.equal(snapshot.trustGraph.activeTier, 'Prime');
   assert.equal(snapshot.trustGraph.state, 'Cred ring: Prime');
   assert.equal(snapshot.trustGraph.nodes.length, 7);
@@ -80,8 +80,8 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'Protocols')?.state, '2 standards / 8453:1');
   assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Checks')?.state ?? '', /2 public fragments/);
   assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Checks')?.state ?? '', /3 public routes/);
-  assert.equal(snapshot.signalChart.label, 'Agent checks');
-  assert.equal(snapshot.signalChart.title, 'Runtime checks');
+  assert.equal(snapshot.signalChart.label, 'Graph checks');
+  assert.equal(snapshot.signalChart.title, 'Trust checks');
   assert.equal(snapshot.signalChart.lanes.length, 6);
   assert.equal(snapshot.signalChart.lanes.find((lane) => lane.title === 'Cred tier')?.status, 'Prime');
   assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.trustGraph.nodes.map((node) => node.label).join(' ')}`, /looper|legendary/i);
@@ -112,7 +112,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Multipass Console/);
   assert.match(text, /Next/);
   assert.match(text, /Connect wallet/);
-  assert.match(text, /Agent, memory, and mission state stay tied to your wallet/);
+  assert.match(text, /Agent identity, memory, and review state stay tied to your wallet/);
   assert.match(text, /Your agent/);
   assert.match(text, /Trust Graph v2/);
   assert.match(text, /Cred ring: Prime/);
@@ -120,13 +120,13 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Protocols/);
   assert.match(text, /8453:1/);
   assert.match(text, /Checks/);
-  assert.match(text, /Runtime checks/);
+  assert.match(text, /Trust checks/);
   assert.match(text, /Identity proof/);
   assert.match(text, /2 public fragments/);
   assert.match(text, /Owner wallet/);
   assert.match(text, /Public routes/);
   assert.match(text, /public routes/);
-  assert.match(text, /Cred sits at the center/);
+  assert.match(text, /Cred stays at the center/);
   assert.match(text, /Cred tier: Prime/);
   assert.match(text, /Memory/);
   assert.match(text, /Mission lanes/);
@@ -138,7 +138,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /XMTP-ready/);
   assert.match(text, /Approval gate/);
   assert.match(text, /Recall/);
-  assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching/);
+  assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching|signals feed/i);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
@@ -200,9 +200,9 @@ test('Multipass Console renderer shows fresh-session recall after client reset',
       consoleAgentThread: {
         status: 'reset',
         sessionReset: true,
-        recalledMission: 'I remember this wallet 0x1234...5678. Active mission: tokenized equities, vault opportunities, and agent-asset signals. Constraint: review-only proposals. No execution path is attached.',
+        recalledMission: 'I remember this wallet 0x1234...5678. Active mission: Cred tier, public proof, route health, and mission changes. Constraint: review-only proposals. No execution path is attached.',
         savedMemory: [
-          { text: 'Watchlist preference: tokenized equities, vault opportunities, and agent-asset signals.', tags: ['watchlist'] },
+          { text: 'Watchlist preference: Cred tier, public proof, route health, and mission changes.', tags: ['watchlist'] },
         ],
         messages: [],
         proposals: [],

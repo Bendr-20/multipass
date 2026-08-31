@@ -30,7 +30,7 @@ export function renderConsoleAgentThread(thread = {}) {
       <form class="console-thread-composer" data-action="send-console-agent-message">
         <label>
           <span>Message</span>
-          <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Track tokenized equities, vault opportunities, and agent-asset signals. Brief me first; keep every action for my approval.')}" ${disabled ? 'disabled' : ''}></textarea>
+          <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Watch this agent\'s Cred tier, public proof, route health, and mission changes. Brief me first; keep every action for my approval.')}" ${disabled ? 'disabled' : ''}></textarea>
         </label>
         <div class="console-thread-actions">
           <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Saving...' : 'Save mission'}</button>
