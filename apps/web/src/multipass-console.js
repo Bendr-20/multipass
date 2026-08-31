@@ -42,19 +42,34 @@ const DEFAULT_MISSION_LANES = [
 
 const DEFAULT_SIGNAL_MODULES = [
   {
-    title: 'Tokenized equities',
-    status: '+12.4%',
-    body: 'NVDAx / AAPLx',
+    title: 'Identity proof',
+    status: 'Standards',
+    body: 'Agent record and public profile evidence',
   },
   {
-    title: 'Vaults',
-    status: '3 routes',
-    body: 'Yield / custody / risk',
+    title: 'Owner wallet',
+    status: 'Required',
+    body: 'Wallet scope for mission and memory',
   },
   {
-    title: 'Agent assets',
-    status: '+7.8%',
-    body: 'Base agents / $CRED',
+    title: 'Public routes',
+    status: 'Routes',
+    body: 'Contact, service, and discovery endpoints',
+  },
+  {
+    title: 'Cred tier',
+    status: 'Pending',
+    body: 'Trust score context',
+  },
+  {
+    title: 'Memory',
+    status: 'Ready',
+    body: 'Private recall for the connected wallet',
+  },
+  {
+    title: 'Approval gate',
+    status: 'Human review',
+    body: 'Briefs and proposals wait for approval',
   },
 ];
 
@@ -91,6 +106,8 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
   const flowState = createFlowState({ walletConnected, agentThread });
   const savedMemoryCount = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory.length : 0;
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
+  const routeCount = countPublicRoutes(data);
+  const standardsCount = countStandards(data);
   const activeAgentLabel = activeAgents[0]?.name ?? profile.display_name ?? 'Agent slot';
   const activeAgent = activeAgents[0] ?? {};
   const activeScore = normalizeCredScore(activeAgent.credScore ?? profile.cred_summary?.score);
@@ -106,6 +123,20 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     activeCred,
     activeTier,
     agentThread,
+    publicProofCount,
+    savedMemoryCount,
+    proposalCount,
+    routeCount,
+    standardsCount,
+    activeAgentCount: activeAgents.length,
+  });
+  const signalModules = createSignalModules({
+    walletConnected,
+    connectedWallet,
+    activeCred,
+    activeTier,
+    routeCount,
+    standardsCount,
     publicProofCount,
     savedMemoryCount,
     proposalCount,
@@ -160,11 +191,10 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     trustGraph,
     signalChart: {
-      label: "What it's watching",
-      title: 'Live signals',
-      state: proposalCount ? `${proposalCount} review queued` : 'Watching',
-      points: [28, 44, 38, 61, 56, 73, 68, 84],
-      lanes: DEFAULT_SIGNAL_MODULES,
+      label: 'Agent checks',
+      title: 'Runtime checks',
+      state: proposalCount ? `${proposalCount} review queued` : `${signalModules.length} tracked`,
+      lanes: signalModules,
     },
     operatorSlot: {
       label: walletConnected ? activeAgentLabel : 'Agent slot',
@@ -182,7 +212,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     })),
     memoryCells: DEFAULT_MEMORY_CELLS,
     missionLanes: DEFAULT_MISSION_LANES,
-    signalModules: DEFAULT_SIGNAL_MODULES,
+    signalModules,
     agentThread,
     recall: {
       title: agentThread.sessionReset ? 'Session reset' : 'Recall',
@@ -250,8 +280,8 @@ export function renderMultipassConsole(snapshot = {}) {
 
       <section id="console-signals" class="console-panel console-signals-panel" aria-label="Market and agent signals">
         <div class="console-panel-heading">
-          <p class="card-label">Signals</p>
-          <h2>Signal lanes</h2>
+          <p class="card-label">Checks</p>
+          <h2>Runtime checks</h2>
         </div>
         <div class="console-signal-grid">
           ${(snapshot.signalModules ?? []).map(renderSignalModule).join('')}
@@ -394,7 +424,7 @@ function renderDashboardCard(card = {}) {
 
 function renderTrustGraphCard(graph = {}) {
   const nodes = graph.nodes ?? [];
-  const edges = graph.edges ?? [];
+  const tiers = graph.tiers ?? TRUST_TIERS;
   return `
     <section class="console-visual-card console-trust-graph-card" aria-label="Trust graph">
       <div class="console-card-head">
@@ -402,23 +432,28 @@ function renderTrustGraphCard(graph = {}) {
         <span>${escapeHtml(graph.state ?? 'Awaiting wallet')}</span>
       </div>
       <div class="console-graph-visual">
-        <svg class="console-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          ${edges.map((edge) => `
-            <line x1="50" y1="50" x2="${escapeAttribute(edge.x)}" y2="${escapeAttribute(edge.y)}"></line>
-          `).join('')}
-        </svg>
-      <div class="console-graph-core">
-          <span>Agent</span>
-          <strong>${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</strong>
-      </div>
-        ${nodes.map((node) => `
-          <article class="console-graph-node ${escapeAttribute(node.className ?? 'open')}" style="--x: ${escapeAttribute(node.x)}%; --y: ${escapeAttribute(node.y)}%;">
-            <span>${escapeHtml(node.label ?? '')}</span>
-            <strong>${escapeHtml(node.state ?? '')}</strong>
-          </article>
+        ${tiers.map((tier, index) => `
+          <div class="console-graph-ring ring-${index + 1} ${tier.active ? 'active' : ''}">
+            <span>${escapeHtml(tier.label)}</span>
+          </div>
         `).join('')}
+        <div class="console-graph-edge edge-wallet"></div>
+        <div class="console-graph-edge edge-protocols"></div>
+        <div class="console-graph-edge edge-missions"></div>
+        <div class="console-graph-edge edge-checks"></div>
+        <div class="console-graph-edge edge-agents"></div>
+        <div class="console-graph-edge edge-decisions"></div>
+        <div class="console-graph-edge edge-review"></div>
+        <div class="console-graph-core">
+          <span>Cred</span>
+          <strong>${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</strong>
+        </div>
+        ${nodes.map((node) => `<div class="console-graph-node ${escapeAttribute(node.className ?? 'open')}"><span>${escapeHtml(node.label ?? '')}</span></div>`).join('')}
       </div>
       ${graph.summary ? `<p class="console-graph-summary">${escapeHtml(graph.summary)}</p>` : ''}
+      <div class="console-tier-strip" aria-label="Cred tier rings">
+        ${tiers.map((tier) => `<span class="${tier.active ? 'active' : ''}"><strong>${escapeHtml(tier.label)}</strong>${escapeHtml(tier.range)}</span>`).join('')}
+      </div>
       <div class="console-graph-list" aria-label="Trust graph edges">
         ${nodes.map((node) => `
           <article>
@@ -433,24 +468,16 @@ function renderTrustGraphCard(graph = {}) {
 }
 
 function renderSignalChartCard(chart = {}) {
-  const points = chart.points ?? [];
   const lanes = chart.lanes ?? [];
-  const markerStyle = (value, index) => `left: ${Math.max(4, Math.min(96, 8 + index * 12.5))}%; bottom: ${Math.max(12, Math.min(88, Number(value) || 0))}%;`;
-
   return `
-    <section class="console-visual-card console-signal-chart-card" aria-label="Signal chart">
+    <section class="console-visual-card console-signal-chart-card" aria-label="Agent checks">
       <div class="console-card-head">
-        <p class="card-label">${escapeHtml(chart.label ?? 'Signal chart')}</p>
+        <p class="card-label">${escapeHtml(chart.label ?? 'Agent checks')}</p>
         <span>${escapeHtml(chart.state ?? 'Watching')}</span>
       </div>
-      <div class="console-chart-visual" aria-hidden="true">
-        <div class="console-chart-grid"></div>
-        <div class="console-chart-line"></div>
-        ${points.map((point, index) => `<i style="${escapeAttribute(markerStyle(point, index))}"></i>`).join('')}
-      </div>
-      <div class="console-chart-lanes">
+      <div class="console-check-stack">
         ${lanes.map((lane, index) => `
-          <article style="--bar: ${escapeAttribute(String(Math.min(96, 42 + index * 17)))}%;">
+          <article class="${escapeAttribute(lane.className ?? 'open')}" style="--bar: ${escapeAttribute(String(Math.min(96, 36 + index * 9)))}%;">
             <span>${escapeHtml(lane.title ?? 'Signal')}</span>
             <strong>${escapeHtml(lane.status ?? 'Watch')}</strong>
             <small>${escapeHtml(lane.body ?? '')}</small>
@@ -604,11 +631,12 @@ function createTrustGraphModel({
   publicProofCount = 0,
   savedMemoryCount = 0,
   proposalCount = 0,
+  routeCount = countPublicRoutes(data),
+  standardsCount = countStandards(data),
+  activeAgentCount = 0,
 } = {}) {
   const profile = data.profile ?? {};
   const card = data.card ?? {};
-  const standardsCount = countStandards(data);
-  const routeCount = countPublicRoutes(data);
   const proofState = publicProofCount === 1 ? '1 public fragment' : `${publicProofCount} public fragments`;
   const ownerState = walletConnected
     ? `Bound ${connectedWallet}`
@@ -633,32 +661,80 @@ function createTrustGraphModel({
     : agentDnaState;
 
   const nodes = [
-    { key: 'owner', label: 'Owner', edgeLabel: 'owner / wallet', state: ownerState, x: 16, y: 22, className: walletConnected ? 'ready' : 'open' },
-    { key: 'agentdna', label: 'Identity', edgeLabel: 'identity anchor', state: agentDnaState, x: 50, y: 12, className: 'standard' },
-    { key: 'cred', label: 'Cred', edgeLabel: 'trust score', state: credState, x: 84, y: 22, className: 'cred' },
-    { key: 'intuition', label: 'Graph proof', edgeLabel: 'identity graph', state: intuitionState, x: 84, y: 48, className: intuitionState === 'Not published' ? 'open' : 'proof' },
-    { key: 'routes', label: 'Routes', edgeLabel: 'public routes', state: routeState, x: 78, y: 76, className: routeCount ? 'route' : 'open' },
-    { key: 'memory', label: 'Memory', edgeLabel: 'private recall', state: memoryState, x: 50, y: 88, className: savedMemoryCount ? 'ready' : 'runtime' },
-    { key: 'review', label: 'Review', edgeLabel: 'approval gate', state: reviewState, x: 22, y: 76, className: proposalCount ? 'ready' : 'review' },
-    { key: 'proof', label: 'Public proof', edgeLabel: 'public proof', state: proofState, x: 16, y: 48, className: publicProofCount ? 'proof' : 'open' },
+    { key: 'wallet', label: 'Wallet', edgeLabel: 'owner / wallet', state: ownerState, className: walletConnected ? 'ready orbit-wallet' : 'open orbit-wallet' },
+    { key: 'protocols', label: 'Protocols', edgeLabel: 'identity anchor', state: `${standardsState} / ${agentDnaState}`, className: 'standard orbit-protocols' },
+    { key: 'missions', label: 'Missions', edgeLabel: 'mission state', state: agentThread.summary ?? 'Wallet required', className: 'runtime orbit-missions' },
+    { key: 'checks', label: 'Checks', edgeLabel: 'runtime checks', state: `${proofState}; ${routeState}`, className: publicProofCount || routeCount ? 'proof orbit-checks' : 'open orbit-checks' },
+    { key: 'agents', label: 'Agents', edgeLabel: 'agent records', state: `${activeAgentCount || 0} visible`, className: 'ready orbit-agents' },
+    { key: 'decisions', label: 'Decisions', edgeLabel: 'proposal gate', state: reviewState, className: proposalCount ? 'ready orbit-decisions' : 'review orbit-decisions' },
+    { key: 'review', label: 'Review', edgeLabel: 'human approval', state: 'Human approves actions', className: 'review orbit-review' },
   ];
+  const tiers = TRUST_TIERS.map((tier) => ({
+    ...tier,
+    active: tier.label === activeTier,
+  }));
 
   return {
     label: 'Trust Graph v2',
     center: activeAgentLabel,
-    state: `${proofState} / ${standardsState}`,
-    summary: 'Shows who owns the agent, what public proof it has, what it can access, what it remembers, and what needs your approval.',
+    state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
+    summary: 'Cred sits at the center. The rings show trust tier, while the orbit shows wallet, protocols, missions, runtime checks, agent records, decisions, and human review.',
     nodes,
-    edges: nodes.map((node) => ({
-      x: node.x,
-      y: node.y,
-      label: node.edgeLabel,
-      labelX: midpoint(50, node.x),
-      labelY: midpoint(50, node.y),
-    })),
+    tiers,
     activeTier,
     credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Confidence signal only; you approve actions.` : null,
   };
+}
+
+function createSignalModules({
+  walletConnected = false,
+  connectedWallet = 'Not connected',
+  activeCred = 'Cred pending',
+  activeTier = null,
+  routeCount = 0,
+  standardsCount = 0,
+  publicProofCount = 0,
+  savedMemoryCount = 0,
+  proposalCount = 0,
+} = {}) {
+  return [
+    {
+      title: 'Identity proof',
+      status: standardsCount ? `${standardsCount} standards` : 'Pending',
+      body: publicProofCount ? `${publicProofCount} public proof fragments` : 'No public proof loaded',
+      className: publicProofCount ? 'ready' : 'open',
+    },
+    {
+      title: 'Owner wallet',
+      status: walletConnected ? connectedWallet : 'Required',
+      body: 'Controls the console session scope',
+      className: walletConnected ? 'ready' : 'open',
+    },
+    {
+      title: 'Public routes',
+      status: routeCount ? `${routeCount} routes` : 'None',
+      body: 'Contact, service, and discovery endpoints',
+      className: routeCount ? 'ready' : 'open',
+    },
+    {
+      title: 'Cred tier',
+      status: activeTier ?? 'Pending',
+      body: activeCred,
+      className: activeTier ? 'ready' : 'open',
+    },
+    {
+      title: 'Memory',
+      status: savedMemoryCount ? `${savedMemoryCount} saved` : 'Ready',
+      body: 'Private recall for this wallet and mission',
+      className: savedMemoryCount ? 'ready' : 'open',
+    },
+    {
+      title: 'Approval gate',
+      status: proposalCount ? `${proposalCount} queued` : 'Human review',
+      body: 'Briefs and proposals wait for approval',
+      className: proposalCount ? 'ready' : 'open',
+    },
+  ];
 }
 
 function shortenAddress(address) {
@@ -714,10 +790,6 @@ function formatGraphState(value) {
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ');
-}
-
-function midpoint(a, b) {
-  return String(Math.round((Number(a) + Number(b)) / 2));
 }
 
 function normalizeCredScore(value) {

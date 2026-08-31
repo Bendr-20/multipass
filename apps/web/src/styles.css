@@ -5201,7 +5201,8 @@ h1 {
 }
 
 .console-identity-stats,
-.console-chart-lanes {
+.console-chart-lanes,
+.console-check-stack {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -5278,6 +5279,64 @@ h1 {
   letter-spacing: 0;
   text-anchor: middle;
   text-transform: uppercase;
+}
+
+.console-graph-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  border: 1px solid rgba(10, 10, 20, 0.14);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.console-graph-ring span {
+  position: absolute;
+  right: 8px;
+  top: -8px;
+  background: var(--paper);
+  color: rgba(25, 27, 28, 0.54);
+  padding: 0 4px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.console-graph-ring.active {
+  border-color: rgba(20, 134, 101, 0.62);
+  box-shadow: 0 0 0 2px rgba(110, 236, 216, 0.08), inset 0 0 34px rgba(110, 236, 216, 0.08);
+}
+
+.console-graph-ring.active span {
+  color: var(--ink);
+}
+
+.console-graph-ring.ring-1 {
+  width: 30%;
+  height: 30%;
+}
+
+.console-graph-ring.ring-2 {
+  width: 46%;
+  height: 46%;
+}
+
+.console-graph-ring.ring-3 {
+  width: 62%;
+  height: 62%;
+}
+
+.console-graph-ring.ring-4 {
+  width: 78%;
+  height: 78%;
+}
+
+.console-graph-ring.ring-5 {
+  width: 94%;
+  height: 94%;
 }
 
 .console-graph-core,
@@ -5386,6 +5445,86 @@ h1 {
   background: rgba(25, 27, 28, 0.06);
 }
 
+.console-graph-node.orbit-wallet {
+  left: 5%;
+  top: 12%;
+}
+
+.console-graph-node.orbit-protocols {
+  left: 38%;
+  top: 4%;
+}
+
+.console-graph-node.orbit-missions {
+  left: 81%;
+  top: 18%;
+}
+
+.console-graph-node.orbit-checks {
+  left: 90%;
+  top: 49%;
+}
+
+.console-graph-node.orbit-agents {
+  left: 72%;
+  top: 83%;
+}
+
+.console-graph-node.orbit-decisions {
+  left: 26%;
+  top: 83%;
+}
+
+.console-graph-node.orbit-review {
+  left: 6%;
+  top: 53%;
+}
+
+.console-graph-edge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: 39%;
+  height: 1px;
+  transform-origin: left center;
+  background: linear-gradient(90deg, rgba(25, 27, 28, 0.34), transparent);
+}
+
+.console-graph-edge.edge-wallet {
+  transform: rotate(214deg);
+}
+
+.console-graph-edge.edge-protocols {
+  width: 25%;
+  transform: rotate(268deg);
+}
+
+.console-graph-edge.edge-missions {
+  width: 38%;
+  transform: rotate(328deg);
+}
+
+.console-graph-edge.edge-checks {
+  width: 36%;
+  transform: rotate(8deg);
+}
+
+.console-graph-edge.edge-agents {
+  width: 30%;
+  transform: rotate(55deg);
+}
+
+.console-graph-edge.edge-decisions {
+  width: 34%;
+  transform: rotate(126deg);
+}
+
+.console-graph-edge.edge-review {
+  width: 37%;
+  transform: rotate(172deg);
+}
+
 .console-cred-summary {
   margin: 0;
   border: 1px solid rgba(10, 10, 20, 0.1);
@@ -5405,6 +5544,38 @@ h1 {
   line-height: 1.3;
 }
 
+.console-tier-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(88px, 100%), 1fr));
+  gap: 6px;
+}
+
+.console-tier-strip span {
+  display: grid;
+  gap: 4px;
+  min-height: 42px;
+  align-content: center;
+  border: 1px solid var(--soft-line);
+  background: var(--paper);
+  color: var(--muted);
+  padding: 7px 6px;
+  font-size: 10px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.console-tier-strip strong {
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.console-tier-strip span.active {
+  border-color: rgba(20, 134, 101, 0.48);
+  background: rgba(110, 236, 216, 0.13);
+}
+
 .console-graph-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5419,7 +5590,8 @@ h1 {
 }
 
 .console-graph-list span,
-.console-chart-lanes span {
+.console-chart-lanes span,
+.console-check-stack span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 900;
@@ -5428,7 +5600,8 @@ h1 {
 }
 
 .console-graph-list strong,
-.console-chart-lanes strong {
+.console-chart-lanes strong,
+.console-check-stack strong {
   color: var(--ink);
   font-size: 14px;
   line-height: 1.1;
@@ -5468,7 +5641,8 @@ h1 {
   transform: translate(-50%, 50%);
 }
 
-.console-chart-lanes article {
+.console-chart-lanes article,
+.console-check-stack article {
   position: relative;
   display: grid;
   gap: 5px;
@@ -5479,7 +5653,8 @@ h1 {
   padding: 10px;
 }
 
-.console-chart-lanes article::after {
+.console-chart-lanes article::after,
+.console-check-stack article::after {
   content: "";
   position: absolute;
   left: 0;
@@ -5489,7 +5664,13 @@ h1 {
   background: var(--ink);
 }
 
-.console-chart-lanes small {
+.console-check-stack article.ready {
+  border-color: rgba(20, 134, 101, 0.44);
+  background: rgba(110, 236, 216, 0.09);
+}
+
+.console-chart-lanes small,
+.console-check-stack small {
   color: var(--muted);
   line-height: 1.25;
 }
