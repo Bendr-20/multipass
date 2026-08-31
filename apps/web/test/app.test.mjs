@@ -1732,43 +1732,27 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(document.title, 'Multipass Console');
   assert.equal(document.querySelector('meta[property="og:title"]')?.getAttribute('content'), 'Multipass Console');
   assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Multipass Console');
-  assert.match(consolePage.textContent, /One Cred graph for one onchain agent/i);
-  assert.match(consolePage.textContent, /human approval/i);
+  assert.match(consolePage.textContent, /select an owned agent/i);
+  assert.match(consolePage.textContent, /review-only/i);
   assert.ok(consolePage.querySelector('.console-trust-stage'));
   assert.equal(consolePage.querySelectorAll('.console-status-strip div').length, 4);
   assert.equal(consolePage.querySelectorAll('.console-flow-panel li').length, 0);
-  assert.match(consolePage.textContent, /Next/);
   assert.ok(consolePage.querySelector('.console-trust-rail'));
   assert.ok(consolePage.querySelector('.console-support-grid'));
   assert.ok(consolePage.querySelector('.console-identity-card'));
-  assert.ok(consolePage.querySelector('.console-trust-graph-card'));
-  assert.equal(consolePage.querySelectorAll('.console-trust-stage .console-signal-chart-card').length, 0);
+  assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
   assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
-  assert.match(consolePage.textContent, /Trust Graph v2/);
-  assert.equal(consolePage.querySelectorAll('.console-graph-ring').length, 5);
-  assert.equal(consolePage.querySelectorAll('.console-graph-lines line').length, 0);
-  assert.equal(consolePage.querySelectorAll('.console-tier-strip span').length, 5);
-  assert.equal(consolePage.querySelectorAll('.console-graph-marker').length, 5);
-  assert.equal(consolePage.querySelectorAll('.console-graph-marker.agent-marker').length, 0);
-  assert.equal(consolePage.querySelectorAll('.console-graph-guide-dot').length, 18);
-  assert.equal(consolePage.querySelectorAll('.console-graph-list article').length, 5);
-  assert.equal(consolePage.querySelectorAll('#console-signals').length, 0);
-  assert.equal(consolePage.querySelectorAll('.console-signal-grid article').length, 0);
-  assert.doesNotMatch(consolePage.textContent, /Cred ring: Prime|Cred tier: Prime/);
-  assert.match(consolePage.textContent, /Awaiting score/);
-  assert.match(consolePage.textContent, /AgentDNA/);
-  assert.match(consolePage.textContent, /Intuition/);
+  assert.match(consolePage.textContent, /Agent manager suite/);
+  assert.match(consolePage.textContent, /Selected agent chat/);
+  assert.match(consolePage.textContent, /Sibyl recall/);
   assert.match(consolePage.textContent, /Connect wallet/);
   assert.match(consolePage.textContent, /Proof/);
-  assert.doesNotMatch(consolePage.textContent, /Routes/);
-  assert.doesNotMatch(consolePage.textContent, /Trust checks/);
-  assert.doesNotMatch(consolePage.textContent, /Identity proof/);
-  assert.doesNotMatch(consolePage.textContent, /Public routes/);
+  assert.match(consolePage.textContent, /Routes/);
+  assert.match(consolePage.textContent, /Standards/);
   assert.match(consolePage.textContent, /Wallet-owned agents/i);
   assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
-  assert.match(consolePage.textContent, /Agent mission/);
-  assert.match(consolePage.textContent, /Approval gate/);
-  assert.match(consolePage.textContent, /No recalled mission yet/);
+  assert.match(consolePage.textContent, /Live agent controls/);
+  assert.match(consolePage.textContent, /No recalled memory yet/);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
@@ -1777,8 +1761,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.ok(root.querySelector('.live-resolver'));
   assert.doesNotMatch(consolePage.textContent, /Loopers|NFT dashboard|Legendary/i);
-  assert.match(consolePage.textContent, /You approve every action/i);
-  assert.match(consolePage.textContent, /No trades/i);
+  assert.match(consolePage.textContent, /every action still waits for you/i);
   assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
 });
 
@@ -1810,10 +1793,11 @@ test('dedicated Console route connects wallet and shows the active identity', as
   assert.deepEqual(calls, [['connect']]);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
-  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Active/);
-  assert.match(root.querySelector('.console-trust-graph-card')?.textContent ?? '', /Bound/);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
+  assert.match(root.querySelector('.console-session-panel')?.textContent ?? '', /One wallet-owned agent at a time/);
   assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Bendr 2\.0/);
-  assert.equal(root.querySelectorAll('.console-graph-marker.agent-marker').length, 1);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, false);
 });
 
 test('dedicated Console route sends wallet-scoped agent thread messages', async () => {
@@ -1838,13 +1822,13 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
         calls.push(input);
         return {
           thread: {
-            transport: 'xmtp_ready',
+            transport: 'live_chat',
             messages: [
-              { role: 'human', text: input.message, transport: 'console' },
-              { role: 'agent', text: 'Saved through the hosted worker.', transport: 'xmtp_ready', inferenceProvider: 'fake_bankr' },
+              { role: 'human', text: input.message, transport: 'live_chat' },
+              { role: 'agent', text: 'Saved through the hosted worker.', transport: 'live_chat', inferenceProvider: 'fake_bankr' },
             ],
           },
-          memory: { provider: 'local_sibyl_adapter' },
+          memory: { provider: 'sibyl_memory' },
           proposals: [
             {
               status: 'review_only',
@@ -1866,13 +1850,15 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].wallet, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
   assert.equal(calls[0].agentId, '1');
+  assert.equal(calls[0].tokenId, '1');
+  assert.equal(calls[0].agentName, 'Bendr 2.0');
   assert.equal(calls[0].message, 'Watch NVDAx and Base agent tokens.');
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
   assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
   root.querySelector('[data-action="reset-console-session"]').click();
   await flushAsyncEvents();
-  assert.match(root.querySelector('.console-recall-panel')?.textContent ?? '', /Session reset/);
+  assert.match(root.querySelector('.console-recall-panel')?.textContent ?? '', /Session recall/);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Wallet 0x27E3\.\.\.91Ea recalled/);
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /tokens\.\./);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /review-only/);

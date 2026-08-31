@@ -1,13 +1,15 @@
 import { SavedMultipassError, joinApiPath } from './saved-multipass-api.js';
 
-export async function sendConsoleAgentMessage({ apiBase, wallet, message, agentId = 'looper-demo', fetchImpl = fetch } = {}) {
+export async function sendConsoleAgentMessage({ apiBase, wallet, message, agentId = 'agent-manager', tokenId = null, agentName = null, fetchImpl = fetch } = {}) {
   return requestConsoleJson({
     apiBase,
     path: '/api/multipass/console/agent/message',
     method: 'POST',
     body: {
       wallet: String(wallet ?? '').trim(),
-      agentId: String(agentId ?? 'looper-demo').trim() || 'looper-demo',
+      agentId: String(agentId ?? 'agent-manager').trim() || 'agent-manager',
+      tokenId: String(tokenId ?? agentId ?? 'agent-manager').trim() || 'agent-manager',
+      agentName: String(agentName ?? '').trim() || null,
       message: String(message ?? '').trim(),
     },
     fetchImpl,

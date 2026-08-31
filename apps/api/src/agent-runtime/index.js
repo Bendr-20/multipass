@@ -1,16 +1,15 @@
 import {
   buildSibylMemoryNamespace,
-  createLocalSibylMemoryStore,
+  createSibylMemoryStore,
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
-import { createLocalXmtpAgentClient } from '../xmtp-agent/index.js';
 
-const DEFAULT_AGENT_ID = 'looper-demo';
+const DEFAULT_AGENT_ID = 'agent-manager';
+const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 
 export function createConsoleAgentRuntime({
-  memoryClient = createLocalSibylMemoryStore(),
+  memoryClient = createSibylMemoryStore(),
   llmClient = createLocalLlmClient(),
-  xmtpClient = createLocalXmtpAgentClient(),
   signalProvider = createLocalSignalProvider(),
   now = () => new Date().toISOString(),
 } = {}) {
@@ -22,14 +21,9 @@ export function createConsoleAgentRuntime({
 
       const profile = createRuntimeProfile(input);
       const namespace = profile.memoryNamespace;
-      const threadId = profile.xmtp.inbox;
-      const userMessage = await xmtpClient.appendMessage({
-        threadId,
-        role: 'human',
-        text: message,
-        transport: 'console',
-      });
-      const recalledMemory = await memoryClient.recallMemory({ namespace, query: message });
+      const threadId = profile.chat.threadId;
+      const priorMessages = await memoryClient.loadThread?.({ namespace, limit: 8 }) ?? [];
+      const recalledMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
       const signals = await signalProvider.getSignals({ profile, message, memory: recalledMemory });
       const llm = await llmClient.generate({
         profile,
@@ -37,20 +31,36 @@ export function createConsoleAgentRuntime({
         message,
         memory: recalledMemory,
         signals,
+        history: priorMessages,
       });
+
+      const userMessage = createThreadMessage({
+        id: `msg_${hashish(`${threadId}:human:${message}:${now()}`)}`,
+        role: 'human',
+        text: message,
+        sentAt: now(),
+        transport: 'live_chat',
+      });
+
       const extractedMemories = extractDurableMemoryFromMessage(message);
       const savedMemory = [];
       for (const memory of extractedMemories) {
-        const saved = await memoryClient.saveMemory({ namespace, ...memory });
+        const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
         if (saved) savedMemory.push(saved);
       }
 
-      const agentMessage = await xmtpClient.appendMessage({
-        threadId,
+      const agentMessage = createThreadMessage({
+        id: `msg_${hashish(`${threadId}:agent:${llm.text}:${now()}`)}`,
         role: 'agent',
         text: llm.text,
-        transport: 'xmtp_ready',
+        sentAt: now(),
+        transport: 'live_chat',
         inferenceProvider: llm.provider,
+      });
+
+      const threadMessages = await memoryClient.appendThread({
+        namespace,
+        messages: [userMessage, agentMessage],
       });
 
       return {
@@ -58,20 +68,20 @@ export function createConsoleAgentRuntime({
         mode: 'console_agent_runtime',
         profile,
         thread: {
-          transport: 'xmtp_ready',
-          adapter: xmtpClient.provider ?? 'xmtp_ready',
+          transport: 'live_chat',
+          adapter: 'console_live_session',
           threadId,
-          messages: [userMessage, agentMessage],
+          messages: threadMessages,
         },
         memory: {
-          provider: memoryClient.provider ?? 'sibyl_ready',
+          provider: memoryClient.provider ?? 'sibyl_memory',
           namespace,
           recalled: recalledMemory,
           saved: savedMemory,
         },
         signals,
         missions: deriveMissions(message, savedMemory),
-        proposals: deriveProposals({ message, signals, memory: savedMemory }),
+        proposals: deriveProposals({ message, signals }),
       };
     },
   };
@@ -79,24 +89,24 @@ export function createConsoleAgentRuntime({
 
 export function createRuntimeProfile(input = {}) {
   const wallet = requireWallet(input.wallet);
-  const agentId = String(input.agentId ?? input.activationId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
+  const tokenId = String(input.tokenId ?? input.agentId ?? 'unknown').trim() || 'unknown';
+  const agentId = String(input.agentId ?? tokenId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
   const activationId = String(input.activationId ?? `activation_${agentId}`).trim();
-  const tokenId = String(input.tokenId ?? '1234').trim();
-  const displayName = String(input.agentName ?? input.displayName ?? `Looper #${tokenId}`).trim();
+  const displayName = String(input.agentName ?? input.displayName ?? (tokenId === 'unknown' ? 'Selected agent' : `Agent #${tokenId}`)).trim();
   return {
     activationId,
     agentId,
     displayName,
-    source: 'multipass_console',
+    source: 'multipass_console_manager',
     rootIdentity: {
-      collection: 'Loopers',
-      tokenContract: String(input.tokenContract ?? 'demo:loopers').trim(),
+      collection: 'Helixa AgentDNA',
+      tokenContract: String(input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim(),
       tokenId,
       ownerWallet: wallet,
     },
-    xmtp: {
-      inbox: `xmtp:${agentId}`,
-      status: 'ready_for_adapter',
+    chat: {
+      threadId: `console:${agentId}`,
+      status: 'live',
     },
     inference: {
       provider: 'bankr_llm_gateway',
@@ -114,16 +124,19 @@ export function createRuntimeProfile(input = {}) {
 export function createLocalLlmClient() {
   return {
     provider: 'local_bankr_adapter',
-    async generate({ profile, message, memory, signals } = {}) {
+    async generate({ profile, memory, signals, history } = {}) {
       const memoryLine = memory?.length
-        ? `I found ${memory.length} remembered item${memory.length === 1 ? '' : 's'} for this Looper.`
-        : 'I do not have prior memory for this Looper yet.';
+        ? `I found ${memory.length} Sibyl memory item${memory.length === 1 ? '' : 's'} tied to this agent.`
+        : 'I do not have Sibyl memory for this agent yet.';
       const signalLine = signals?.length
-        ? `Current signal lane: ${signals[0].title} is ${signals[0].status.toLowerCase()}.`
-        : 'Signal context is not loaded yet.';
+        ? `Current suite status: ${signals[0].title} is ${String(signals[0].status ?? '').toLowerCase()}.`
+        : 'Suite status is still initializing.';
+      const historyLine = history?.length
+        ? `I also loaded ${history.length} recent chat message${history.length === 1 ? '' : 's'}.`
+        : 'This looks like a fresh chat.';
       return {
         provider: 'local_bankr_adapter',
-        text: `${profile.displayName} is online. ${memoryLine} ${signalLine} I saved any durable watchlist, preference, or constraint from: "${message}". I can prepare review-only proposals, but I cannot execute trades.`,
+        text: `${profile.displayName} is online. ${memoryLine} ${historyLine} ${signalLine} I saved durable watchlist, preference, and constraint notes from your message. I can brief and propose, but every action stays review-only.`,
       };
     },
   };
@@ -131,12 +144,12 @@ export function createLocalLlmClient() {
 
 function createLocalSignalProvider() {
   return {
-    async getSignals() {
+    async getSignals({ profile, memory } = {}) {
       return [
         {
-          title: 'Agent assets',
-          status: 'Watch',
-          summary: 'Base agent-token and agent-economy signals are in watch mode for the first runtime slice.',
+          title: 'Manager suite',
+          status: memory?.length ? 'Recalled' : 'Ready',
+          summary: `${profile.displayName} is loaded for live chat with Sibyl-backed recall and human approval.`,
         },
       ];
     },
@@ -144,23 +157,23 @@ function createLocalSignalProvider() {
 }
 
 function deriveMissions(message, savedMemory) {
-  if (!savedMemory.some((memory) => memory.tags.includes('watchlist') || memory.tags.includes('mission'))) return [];
+  if (!savedMemory.some((memory) => memory.tags?.includes('watchlist') || memory.tags?.includes('mission'))) return [];
   return [{
     id: 'mission_watchlist',
-    title: 'Watch remembered signal lanes',
+    title: 'Active watchlist',
     status: 'active',
     summary: message,
   }];
 }
 
 function deriveProposals({ message, signals }) {
-  if (!/\bwatch\b|\btrack\b|\bmonitor\b|\brecommend\b/i.test(message)) return [];
+  if (!/\bwatch\b|\btrack\b|\bmonitor\b|\brecommend\b|\breview\b/i.test(message)) return [];
   return [{
     id: 'proposal_review_only_watch',
-    title: 'Review watchlist briefing',
+    title: 'Review live briefing',
     status: 'review_only',
-    action: 'Keep monitoring before any execution.',
-    rationale: signals?.[0]?.summary ?? 'Signal data is still initializing.',
+    action: 'Keep monitoring and wait for human approval before any external action.',
+    rationale: signals?.[0]?.summary ?? 'The suite is loaded and waiting for review.',
     risk: 'No transaction authority is attached to this proposal.',
   }];
 }
@@ -169,4 +182,23 @@ function requireWallet(value) {
   const wallet = String(value ?? '').trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(wallet)) throw new TypeError('wallet must be an EVM wallet address.');
   return wallet;
+}
+
+function createThreadMessage(message = {}) {
+  return {
+    id: String(message.id ?? `msg_${hashish(`${message.role}:${message.text}:${message.sentAt}`)}`),
+    role: String(message.role ?? 'agent') === 'human' ? 'human' : 'agent',
+    text: String(message.text ?? '').trim(),
+    sentAt: String(message.sentAt ?? new Date().toISOString()),
+    transport: String(message.transport ?? 'live_chat'),
+    ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
+  };
+}
+
+function hashish(value) {
+  let hash = 0;
+  for (const char of String(value)) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }

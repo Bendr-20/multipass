@@ -81,6 +81,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleWalletStatus: null,
     consoleWalletError: null,
     consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+    consoleSelectedAgentId: null,
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
@@ -556,6 +557,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           error: null,
           agents: [],
         },
+        consoleSelectedAgentId: null,
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
@@ -622,16 +624,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         apiBase,
         wallet: walletSnapshot.address,
         agentId: activeConsoleAgent.tokenId,
+        tokenId: activeConsoleAgent.tokenId,
+        agentName: activeConsoleAgent.name,
         message,
         fetchImpl,
       });
-      const priorMessages = state.consoleAgentThread.messages ?? [];
       state = {
         ...state,
         consoleAgentThread: {
           status: 'received',
           error: null,
-          messages: [...priorMessages, ...(result.thread?.messages ?? [])],
+          messages: result.thread?.messages ?? [],
           proposals: result.proposals ?? [],
           savedMemory: result.memory?.saved ?? [],
           recalledMemory: result.memory?.recalled ?? [],
@@ -669,6 +672,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         ...state,
         walletSnapshot,
         consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+        consoleSelectedAgentId: null,
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
@@ -690,6 +694,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
     try {
       const agents = await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl);
+      const selectedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
       state = {
         ...state,
         walletSnapshot,
@@ -698,6 +703,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           error: null,
           agents,
         },
+        consoleSelectedAgentId: selectedAgentId,
+        consoleAgentThread: selectedAgentId === state.consoleSelectedAgentId
+          ? state.consoleAgentThread
+          : createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
     } catch (error) {
@@ -709,9 +718,22 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           error: getWalletErrorMessage(error),
           agents: [],
         },
+        consoleSelectedAgentId: null,
+        consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
     }
+  }
+
+  function selectConsoleAgent(event) {
+    const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
+    if (tokenId === state.consoleSelectedAgentId) return;
+    state = {
+      ...state,
+      consoleSelectedAgentId: tokenId,
+      consoleAgentThread: createInitialConsoleAgentThreadState(),
+    };
+    render(root, state, handlers);
   }
 
   function resetConsoleSession() {
@@ -734,9 +756,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         savedMemory: currentThread.savedMemory ?? [],
         recalledMemory: currentThread.recalledMemory ?? [],
         missions: currentThread.missions ?? [],
-        transport: currentThread.transport ?? 'XMTP-ready',
-        memoryProvider: currentThread.memoryProvider ?? 'Sibyl-ready',
-        inferenceProvider: currentThread.inferenceProvider ?? 'Bankr-ready',
+        transport: currentThread.transport ?? 'live_chat',
+        memoryProvider: currentThread.memoryProvider ?? 'sibyl_memory',
+        inferenceProvider: currentThread.inferenceProvider ?? 'local_bankr_adapter',
       },
     };
     render(root, state, handlers);
@@ -1295,7 +1317,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1505,9 +1527,9 @@ function createInitialConsoleAgentThreadState() {
     missions: [],
     recalledMission: null,
     sessionReset: false,
-    transport: 'XMTP-ready',
-    memoryProvider: 'Sibyl-ready',
-    inferenceProvider: 'Bankr-ready',
+    transport: 'live_chat',
+    memoryProvider: 'sibyl_memory',
+    inferenceProvider: 'local_bankr_adapter',
   };
 }
 
@@ -1524,7 +1546,19 @@ function getConsoleDisplayAgents(state = {}) {
 }
 
 function getActiveConsoleAgent(state = {}) {
-  return getConsoleDisplayAgents(state)[0] ?? null;
+  const agents = getConsoleDisplayAgents(state);
+  if (!agents.length) return null;
+  const selectedId = String(state.consoleSelectedAgentId ?? '').trim();
+  if (!selectedId) return agents[0] ?? null;
+  return agents.find((agent) => String(agent?.tokenId ?? '') === selectedId) ?? agents[0] ?? null;
+}
+
+function resolveConsoleSelectedAgentId(agents = [], selectedAgentId = null) {
+  const validAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
+  if (!validAgents.length) return null;
+  const selectedId = String(selectedAgentId ?? '').trim();
+  if (selectedId && validAgents.some((agent) => String(agent?.tokenId ?? '') === selectedId)) return selectedId;
+  return String(validAgents[0]?.tokenId ?? '').trim() || null;
 }
 
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
@@ -2912,6 +2946,7 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelectorAll('[data-action="connect-console-wallet"]').forEach((button) => {
     button.addEventListener('click', () => handlers.connectConsoleWallet?.());
   });
+  root.querySelector('[data-action="select-console-agent"]')?.addEventListener('change', (event) => handlers.selectConsoleAgent?.(event));
   root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
   root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());

@@ -7,7 +7,7 @@ import { buildSibylMemoryNamespace, createLocalSibylMemoryStore, extractDurableM
 
 const WALLET = '0x1234567890abcdef1234567890abcdef12345678';
 
-test('runtime profile binds Looper identity to wallet, XMTP, Bankr, and Sibyl namespace', () => {
+test('runtime profile binds the selected agent to live chat, Bankr, and Sibyl namespace', () => {
   const profile = createRuntimeProfile({
     wallet: WALLET,
     agentId: 'looper-1234',
@@ -19,7 +19,7 @@ test('runtime profile binds Looper identity to wallet, XMTP, Bankr, and Sibyl na
   assert.equal(profile.displayName, 'Signal Looper');
   assert.equal(profile.rootIdentity.ownerWallet, WALLET);
   assert.equal(profile.rootIdentity.tokenId, '1234');
-  assert.equal(profile.xmtp.inbox, 'xmtp:looper-1234');
+  assert.equal(profile.chat.threadId, 'console:looper-1234');
   assert.equal(profile.inference.provider, 'bankr_llm_gateway');
   assert.equal(profile.memoryNamespace, 'multipass:0x1234567890abcdef1234567890abcdef12345678:looper-1234:activation-looper-1234');
   assert.equal(profile.permissions.trading, 'review_only');
@@ -47,13 +47,14 @@ test('local Sibyl adapter saves and recalls durable watchlist memory', async () 
 
 test('console agent runtime receives a message, saves memory, and emits review-only proposal', async () => {
   const runtime = createConsoleAgentRuntime({
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
     now: () => '2026-08-30T01:30:00.000Z',
     llmClient: {
       async generate({ profile, message, memory, signals }) {
-        assert.equal(profile.displayName, 'Looper #1234');
+        assert.equal(profile.displayName, 'Agent #1234');
         assert.match(message, /NVDAx/);
         assert.equal(memory.length, 0);
-        assert.equal(signals[0].title, 'Agent assets');
+        assert.equal(signals[0].title, 'Manager suite');
         return { provider: 'fake_bankr', text: 'Saved. I will monitor those lanes and keep proposals review-only.' };
       },
     },
@@ -67,7 +68,7 @@ test('console agent runtime receives a message, saves memory, and emits review-o
   });
 
   assert.equal(result.mode, 'console_agent_runtime');
-  assert.equal(result.thread.transport, 'xmtp_ready');
+  assert.equal(result.thread.transport, 'live_chat');
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'fake_bankr');
   assert.equal(result.memory.saved.length, 2);
   assert.equal(result.missions[0].status, 'active');
@@ -75,10 +76,49 @@ test('console agent runtime receives a message, saves memory, and emits review-o
   assert.match(result.proposals[0].risk, /No transaction authority/);
 });
 
+test('console agent runtime appends only new thread messages between turns', async () => {
+  const memoryClient = createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' });
+  const runtime = createConsoleAgentRuntime({
+    memoryClient,
+    now: () => '2026-08-30T01:30:00.000Z',
+    llmClient: {
+      async generate({ message }) {
+        return { provider: 'fake_bankr', text: `Replying to: ${message}` };
+      },
+    },
+  });
+
+  const first = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+    message: 'Watch NVDAx.',
+  });
+  const second = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+    message: 'Review the last update.',
+  });
+
+  assert.equal(first.thread.messages.length, 2);
+  assert.equal(second.thread.messages.length, 4);
+  assert.deepEqual(
+    second.thread.messages.map((entry) => entry.text),
+    [
+      'Watch NVDAx.',
+      'Replying to: Watch NVDAx.',
+      'Review the last update.',
+      'Replying to: Review the last update.',
+    ],
+  );
+});
+
 test('POST /api/multipass/console/agent/message returns runtime thread payload', async () => {
   const api = createMultipassApi({
     store: createMemoryStore(),
     consoleAgentRuntime: createConsoleAgentRuntime({
+      memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
       now: () => '2026-08-30T01:30:00.000Z',
       llmClient: {
         async generate() {

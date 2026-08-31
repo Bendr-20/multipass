@@ -31,6 +31,7 @@ function sampleData() {
 function sampleAgents() {
   return [
     {
+      tokenId: '1',
       name: 'Bendr 2.0',
       role: 'Lead agent',
       credScore: 80,
@@ -42,7 +43,7 @@ function sampleAgents() {
       verified: true,
       href: '/multipass/?agent=1',
     },
-    { name: 'Quigbot', role: 'Strategy agent', credScore: 75, proofCount: 1, routeCount: 1, standardsCount: 1, verified: true, href: '/multipass/?agent=81' },
+    { tokenId: '81', name: 'Quigbot', role: 'Strategy agent', credScore: 75, proofCount: 1, routeCount: 1, standardsCount: 1, verified: true, href: '/multipass/?agent=81' },
   ];
 }
 
@@ -52,131 +53,105 @@ function render(html) {
 
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {
   const snapshot = createMultipassConsoleSnapshot({
-    data: sampleData(),
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
     },
   });
 
   assert.equal(snapshot.title, 'Multipass Console');
-  assert.match(snapshot.lead, /one Cred graph/i);
-  assert.match(snapshot.lead, /onchain agent/i);
-  assert.match(snapshot.lead, /human approval/i);
-  assert.equal(snapshot.nextAction.title, 'Save mission');
-  assert.match(snapshot.nextAction.body, /watch/i);
-  assert.equal(snapshot.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
-  assert.equal(snapshot.status.find((item) => item.label === 'Agents')?.value, '2 owned');
-  assert.equal(snapshot.status.find((item) => item.label === 'Cred')?.value, 'Cred 80');
-  assert.equal(snapshot.status.find((item) => item.label === 'Approval')?.value, 'Human review');
-  assert.equal(snapshot.wallet.label, '0x1234...5678');
-  assert.equal(snapshot.wallet.connected, true);
-  assert.deepEqual(snapshot.flowSteps.map((step) => step.label), ['Wallet', 'Agent', 'Mission', 'Memory', 'Briefing', 'Proposal']);
-  assert.equal(snapshot.flowSteps.find((step) => step.label === 'Wallet')?.state, 'done');
-  assert.equal(snapshot.identityCard.label, 'Your agent');
+  assert.match(snapshot.lead, /select an owned agent/i);
+  assert.match(snapshot.lead, /Sibyl-backed memory/i);
+  assert.match(snapshot.lead, /review-only approvals/i);
+  assert.equal(snapshot.session.nextAction.title, 'Start live chat');
+  assert.match(snapshot.session.nextAction.body, /first mission/i);
+  assert.equal(snapshot.session.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
+  assert.equal(snapshot.session.status.find((item) => item.label === 'Agent')?.value, 'Bendr 2.0');
+  assert.equal(snapshot.session.status.find((item) => item.label === 'Chat')?.value, 'Live');
+  assert.equal(snapshot.session.status.find((item) => item.label === 'Memory')?.value, 'Sibyl ready');
+  assert.equal(snapshot.session.wallet.label, '0x1234...5678');
+  assert.equal(snapshot.session.wallet.connected, true);
+  assert.equal(snapshot.session.selectionEnabled, true);
+  assert.equal(snapshot.session.options.length, 2);
+  assert.equal(snapshot.session.activeAgentId, '1');
+  assert.match(snapshot.session.selectionHint, /One wallet-owned agent at a time/i);
+  assert.equal(snapshot.identityCard.label, 'Selected agent');
   assert.equal(snapshot.identityCard.name, 'Bendr 2.0');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
-  assert.equal(snapshot.trustGraph.label, 'Trust Graph v2');
-  assert.match(snapshot.trustGraph.summary, /wallet-owned field/i);
-  assert.match(snapshot.trustGraph.summary, /2 loaded/i);
-  assert.equal(snapshot.trustGraph.activeTier, 'Prime');
-  assert.equal(snapshot.trustGraph.state, 'Cred ring: Prime');
-  assert.equal(snapshot.trustGraph.nodes.length, 5);
-  assert.equal(snapshot.trustGraph.markers.length, 7);
-  assert.equal(snapshot.trustGraph.guideDots.length, 18);
-  assert.equal(snapshot.trustGraph.tiers.length, 5);
-  assert.equal(snapshot.trustGraph.tiers.find((tier) => tier.label === 'Prime')?.active, true);
-  assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'AgentDNA')?.state, '8453:1');
-  assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Proof')?.state ?? '', /2 live signals/);
-  assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'Routes'), undefined);
-  assert.equal(snapshot.signalChart.label, 'Graph checks');
-  assert.equal(snapshot.signalChart.title, 'Trust checks');
-  assert.equal(snapshot.signalChart.lanes.length, 6);
-  assert.equal(snapshot.signalChart.lanes.find((lane) => lane.title === 'Cred tier')?.status, 'Prime');
-  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.trustGraph.nodes.map((node) => node.label).join(' ')}`, /looper|legendary/i);
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Proof')?.value, '2');
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Routes')?.value, '1');
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Standards')?.value, '1');
+  assert.equal(snapshot.suiteChecks.length, 6);
+  assert.equal(snapshot.suiteChecks.find((item) => item.label === 'Selected agent')?.value, '#1');
+  assert.equal(snapshot.suiteChecks.find((item) => item.label === 'Cred')?.value, 'Cred 80');
+  assert.equal(snapshot.agentThread.agentName, 'Bendr 2.0');
+  assert.equal(snapshot.agents.length, 2);
+  assert.equal(snapshot.agents[0].selected, true);
+  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.agents.map((agent) => agent.name).join(' ')}`, /looper|legendary/i);
 });
 
 test('Multipass Console renderer includes memory missions and runtime checks as reviewed proposals', () => {
-  const snapshot = createMultipassConsoleSnapshot({ data: sampleData(), agents: sampleAgents() });
+  const snapshot = createMultipassConsoleSnapshot({ agents: sampleAgents() });
   const root = render(renderMultipassConsole(snapshot));
   const text = root.textContent;
 
   assert.ok(root.querySelector('.multipass-console'));
   assert.ok(root.querySelector('.console-dashboard-header'));
   assert.ok(root.querySelector('.console-trust-stage'));
+  assert.ok(root.querySelector('.console-wallet-panel'));
   assert.equal(root.querySelectorAll('.console-status-strip div').length, 4);
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.ok(root.querySelector('.console-trust-rail'));
   assert.ok(root.querySelector('.console-support-grid'));
   assert.ok(root.querySelector('.console-identity-card'));
-  assert.ok(root.querySelector('.console-trust-graph-card'));
-  assert.equal(root.querySelectorAll('.console-trust-stage .console-signal-chart-card').length, 0);
+  assert.equal(root.querySelector('.console-trust-graph-card'), null);
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
-  assert.ok(root.querySelector('.console-graph-core'));
-  assert.equal(root.querySelectorAll('.console-graph-marker').length, 7);
-  assert.equal(root.querySelectorAll('.console-graph-guide-dot').length, 18);
-  assert.equal(root.querySelectorAll('.console-graph-lines line').length, 0);
-  assert.equal(root.querySelectorAll('.console-graph-ring').length, 5);
-  assert.equal(root.querySelectorAll('.console-tier-strip span').length, 5);
-  assert.equal(root.querySelectorAll('.console-graph-list article').length, 5);
-  assert.equal(root.querySelectorAll('#console-signals').length, 0);
-  assert.equal(root.querySelectorAll('.console-signal-grid article').length, 0);
-  assert.equal(root.querySelectorAll('.console-chart-visual i').length, 0);
   assert.match(text, /Multipass Console/);
-  assert.match(text, /Next/);
+  assert.match(text, /Agent manager suite/);
   assert.match(text, /Connect wallet/);
-  assert.match(text, /Agent identity, memory, and review state stay tied to your wallet/);
-  assert.match(text, /Your agent/);
-  assert.match(text, /Trust Graph v2/);
-  assert.match(text, /Cred ring: Prime/);
-  assert.match(text, /Prime/);
-  assert.match(text, /AgentDNA/);
-  assert.match(text, /Intuition/);
-  assert.match(text, /8453:1/);
-  assert.match(text, /Proof/);
-  assert.match(text, /2 live signals/);
-  assert.doesNotMatch(text, /Trust checks/);
-  assert.doesNotMatch(text, /Identity proof/);
-  assert.doesNotMatch(text, /Public routes/);
-  assert.match(text, /Connect a wallet to load real owned agents into the graph/);
-  assert.match(text, /Cred tier: Prime/);
+  assert.match(text, /Select agent/);
+  assert.match(text, /Selected agent/);
+  assert.match(text, /Live agent controls/);
+  assert.match(text, /Truthful surface only/);
+  assert.match(text, /Bendr 2\.0 chat/);
+  assert.match(text, /Sibyl recall/);
   assert.match(text, /Memory/);
-  assert.match(text, /Mission lanes/);
-  assert.match(text, /Agent mission/);
-  assert.match(text, /Save mission/);
-  assert.match(text, /Reset session/);
-  assert.match(text, /Bankr-ready/);
-  assert.match(text, /Sibyl-ready/);
-  assert.match(text, /XMTP-ready/);
-  assert.match(text, /Approval gate/);
+  assert.match(text, /Send/);
+  assert.match(text, /Reset chat/);
+  assert.match(text, /Bankr-ready|Bankr gateway/);
+  assert.match(text, /Sibyl memory/);
+  assert.match(text, /Live chat/);
+  assert.match(text, /Review-only/);
   assert.match(text, /Recall/);
   assert.match(text, /Wallet-owned agents/);
+  assert.match(text, /The Console only loads real Helixa agents owned by the connected wallet/);
   assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching|signals feed/i);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);
-  assert.match(text, /You approve every action/);
-  assert.match(text, /No trades/);
+  assert.match(text, /every action still waits for you/i);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|Legendary|custody transferred|credentials released|tool authority granted|private credentials available/i);
 });
 
 test('Multipass Console renderer includes agent runtime messages and review-only proposals', () => {
   const snapshot = createMultipassConsoleSnapshot({
-    data: sampleData(),
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
       consoleAgentThread: {
         status: 'received',
-        transport: 'xmtp_ready',
+        transport: 'live_chat',
         memoryProvider: 'local_sibyl_adapter',
         inferenceProvider: 'fake_bankr',
         messages: [
           { role: 'human', text: 'Watch NVDAx and Base agent tokens.', transport: 'console' },
-          { role: 'agent', text: 'Saved. I will prepare review-only proposals.', transport: 'xmtp_ready' },
+          { role: 'agent', text: 'Saved. I will prepare review-only proposals.', transport: 'live_chat' },
         ],
         proposals: [
           {
@@ -198,21 +173,23 @@ test('Multipass Console renderer includes agent runtime messages and review-only
 
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, false);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
-  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Active/);
-  assert.match(root.querySelector('.console-trust-rail')?.textContent ?? '', /1 proposal waiting/);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
+  assert.match(root.querySelector('.console-trust-rail')?.textContent ?? '', /1 queued/);
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
   assert.match(text, /Review watchlist briefing/);
   assert.match(text, /No transaction authority/);
+  assert.match(text, /Sibyl memory/);
 });
 
 test('Multipass Console renderer shows fresh-session recall after client reset', () => {
   const snapshot = createMultipassConsoleSnapshot({
-    data: sampleData(),
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
       consoleAgentThread: {
         status: 'reset',
         sessionReset: true,
@@ -228,8 +205,9 @@ test('Multipass Console renderer shows fresh-session recall after client reset',
   const root = render(renderMultipassConsole(snapshot));
   const text = root.textContent;
 
-  assert.match(text, /Session reset/);
+  assert.match(text, /Session recall/);
   assert.match(text, /I remember this wallet/);
   assert.match(text, /review-only proposals/);
   assert.equal(root.querySelector('.console-signal-grid'), null);
+  assert.match(root.querySelector('.console-recall-panel')?.textContent ?? '', /Session recall/);
 });
