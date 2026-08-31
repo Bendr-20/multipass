@@ -103,6 +103,8 @@ test('console agent runtime appends only new thread messages between turns', asy
 
   assert.equal(first.thread.messages.length, 2);
   assert.equal(second.thread.messages.length, 4);
+  assert.equal(second.memory.recalled.length, 1);
+  assert.match(second.memory.recalled[0].text, /Watchlist preference: Watch NVDAx\./);
   assert.deepEqual(
     second.thread.messages.map((entry) => entry.text),
     [

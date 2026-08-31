@@ -23,7 +23,9 @@ export function createConsoleAgentRuntime({
       const namespace = profile.memoryNamespace;
       const threadId = profile.chat.threadId;
       const priorMessages = await memoryClient.loadThread?.({ namespace, limit: 8 }) ?? [];
-      const recalledMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
+      const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
+      const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
+      const recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
       const signals = await signalProvider.getSignals({ profile, message, memory: recalledMemory });
       const llm = await llmClient.generate({
         profile,
@@ -193,6 +195,19 @@ function createThreadMessage(message = {}) {
     transport: String(message.transport ?? 'live_chat'),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
   };
+}
+
+function mergeMemoryEntries(entries = []) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const text = String(entry?.text ?? '').trim();
+    if (!text) return false;
+    const tags = Array.isArray(entry.tags) ? entry.tags.join(',') : '';
+    const key = `${text}::${tags}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function hashish(value) {
