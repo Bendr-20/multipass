@@ -6,11 +6,22 @@ import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/m
 
 function sampleData() {
   return {
-    profile: { display_name: 'Bendr 2.0', subject_type: 'agent' },
+    profile: {
+      display_name: 'Bendr 2.0',
+      subject_type: 'agent',
+      owner_summary: { owner_state: 'unclaimed' },
+      standards_profile: { supported_standard_ids: ['ERC-8004', 'ERC-8217'] },
+      cred_summary: { score: 80 },
+    },
+    card: {
+      message_routes: [{ visibility: 'public' }],
+      service_endpoints: [{ visibility: 'public' }],
+      standards_refs: [{ standard_id: 'ERC-8004' }],
+    },
     fragments: {
       fragments: [
-        { fragment_id: 'public_identity', visibility: 'public' },
-        { fragment_id: 'public_route', visibility: 'public' },
+        { fragment_id: 'public_identity', fragment_type: 'attestation', visibility: 'public' },
+        { fragment_id: 'public_route', fragment_type: 'endpoint', visibility: 'public' },
         { fragment_id: 'private_note', visibility: 'private' },
       ],
     },
@@ -19,7 +30,15 @@ function sampleData() {
 
 function sampleAgents() {
   return [
-    { name: 'Bendr 2.0', role: 'Lead agent', credScore: 80, verified: true, href: '/multipass/?agent=1' },
+    {
+      name: 'Bendr 2.0',
+      role: 'Lead agent',
+      credScore: 80,
+      helixaId: '8453:1',
+      intuition: { label: 'Published', canonicalAgentId: '8453:18531' },
+      verified: true,
+      href: '/multipass/?agent=1',
+    },
     { name: 'Quigbot', role: 'Strategy agent', credScore: 75, verified: true, href: '/multipass/?agent=81' },
   ];
 }
@@ -38,10 +57,12 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.title, 'Multipass Console');
   assert.match(snapshot.lead, /operator identity/i);
   assert.match(snapshot.lead, /command room/i);
+  assert.equal(snapshot.nextAction.title, 'Save mission');
+  assert.match(snapshot.nextAction.body, /watch/i);
   assert.equal(snapshot.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
   assert.equal(snapshot.wallet.label, '0x1234...5678');
   assert.equal(snapshot.wallet.connected, true);
-  assert.equal(snapshot.status.find((item) => item.label === 'Agents')?.value, 2);
+  assert.equal(snapshot.status.find((item) => item.label === 'Agents visible')?.value, 2);
   assert.equal(snapshot.status.find((item) => item.label === 'Public proof')?.value, 2);
   assert.deepEqual(snapshot.flowSteps.map((step) => step.label), ['Identity', 'Activation', 'Mission', 'Memory', 'Recall', 'Brief', 'Proposal']);
   assert.equal(snapshot.flowSteps.find((step) => step.label === 'Identity')?.state, 'done');
@@ -50,11 +71,13 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
   assert.equal(snapshot.trustGraph.label, 'Trust Graph v2');
   assert.equal(snapshot.trustGraph.activeTier, 'Prime');
-  assert.deepEqual(snapshot.trustGraph.tiers.map((tier) => tier.label), ['Preferred', 'Prime', 'Qualified', 'Marginal', 'Junk']);
-  assert.equal(snapshot.trustGraph.tiers.find((tier) => tier.label === 'Prime')?.active, true);
-  assert.equal(snapshot.trustGraph.nodes.length, 7);
+  assert.equal(snapshot.trustGraph.nodes.length, 8);
+  assert.equal(snapshot.trustGraph.edges.length, 8);
+  assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'AgentDNA')?.state, '8453:1');
+  assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'Intuition')?.state, 'Published 8453:18531');
+  assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Routes')?.state ?? '', /3 public routes/);
   assert.equal(snapshot.signalChart.lanes.length, 3);
-  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.trustGraph.tiers.map((tier) => tier.label).join(' ')}`, /looper|legendary/i);
+  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.trustGraph.nodes.map((node) => node.label).join(' ')}`, /looper|legendary/i);
 });
 
 test('Multipass Console renderer includes memory missions and market signals as reviewed proposals', () => {
@@ -64,25 +87,34 @@ test('Multipass Console renderer includes memory missions and market signals as 
 
   assert.ok(root.querySelector('.multipass-console'));
   assert.ok(root.querySelector('.console-dashboard-header'));
+  assert.ok(root.querySelector('.console-command-strip'));
+  assert.equal(root.querySelectorAll('.console-status-strip div').length, 4);
+  assert.equal(root.querySelectorAll('.console-flow-panel li').length, 7);
   assert.ok(root.querySelector('.console-control-grid'));
   assert.ok(root.querySelector('.console-identity-card'));
   assert.ok(root.querySelector('.console-trust-graph-card'));
   assert.ok(root.querySelector('.console-signal-chart-card'));
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
   assert.ok(root.querySelector('.console-graph-core'));
-  assert.equal(root.querySelectorAll('.console-graph-node').length, 7);
-  assert.equal(root.querySelectorAll('.console-graph-ring').length, 5);
+  assert.equal(root.querySelectorAll('.console-graph-node').length, 8);
+  assert.equal(root.querySelectorAll('.console-graph-lines line').length, 8);
+  assert.equal(root.querySelectorAll('.console-graph-ring').length, 0);
   assert.equal(root.querySelectorAll('.console-chart-visual i').length, 8);
   assert.match(text, /Multipass Console/);
+  assert.match(text, /Next/);
+  assert.match(text, /Connect wallet/);
+  assert.match(text, /Operator, memory, and mission state stay wallet-scoped/);
   assert.match(text, /Operator status/);
   assert.match(text, /Trust Graph v2/);
-  assert.match(text, /Preferred/);
   assert.match(text, /Prime/);
-  assert.match(text, /Qualified/);
-  assert.match(text, /Marginal/);
-  assert.match(text, /Junk/);
-  assert.match(text, /Protocols/);
-  assert.match(text, /Decisions/);
+  assert.match(text, /AgentDNA/);
+  assert.match(text, /8453:1/);
+  assert.match(text, /Intuition/);
+  assert.match(text, /Published 8453:18531/);
+  assert.match(text, /Public proof/);
+  assert.match(text, /2 public fragments/);
+  assert.match(text, /public routes/);
+  assert.match(text, /Cred tier: Prime/);
   assert.match(text, /Signal card/);
   assert.match(text, /Memory/);
   assert.match(text, /Mission lanes/);

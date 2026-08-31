@@ -4,34 +4,34 @@ const CONSOLE_SAFETY_NOTE = 'Review-only console. No trades. No custody transfer
 
 const DEFAULT_MEMORY_CELLS = [
   {
-    label: 'Identity',
-    value: 'Wallet + record',
+    label: 'Identity anchor',
+    value: 'AgentDNA + owner',
   },
   {
-    label: 'Mission',
-    value: 'Brief saved',
+    label: 'Private recall',
+    value: 'Sibyl memory',
   },
   {
-    label: 'Recall',
-    value: 'Sibyl ready',
+    label: 'Decision gate',
+    value: 'Review queue',
   },
 ];
 
 const DEFAULT_MISSION_LANES = [
   {
-    title: 'Mission',
-    status: 'Ready',
-    body: 'Save mandate',
+    title: 'Connect',
+    status: 'Wallet',
+    body: 'Scope the operator.',
   },
   {
-    title: 'Signals',
-    status: 'Watch',
-    body: 'Track lanes',
+    title: 'Brief',
+    status: 'Mission',
+    body: 'Save the mandate.',
   },
   {
-    title: 'Review',
-    status: 'Required',
-    body: 'Approval gate',
+    title: 'Approve',
+    status: 'Proposal',
+    body: 'Keep execution separate.',
   },
 ];
 
@@ -92,14 +92,29 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
   const activeScore = normalizeCredScore(activeAgent.credScore ?? profile.cred_summary?.score);
   const activeTier = getCredTier(activeScore);
   const activeCred = activeAgent.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
+  const nextAction = createNextAction({ walletConnected, agentThread, proposalCount });
+  const trustGraph = createTrustGraphModel({
+    data,
+    walletConnected,
+    connectedWallet,
+    activeAgent,
+    activeAgentLabel,
+    activeCred,
+    activeTier,
+    agentThread,
+    publicProofCount,
+    savedMemoryCount,
+    proposalCount,
+  });
 
   return {
     title: 'Multipass Console',
     kicker: 'Console',
     headline: 'Multipass Console',
-    lead: 'Operator identity, memory, signals, and review-only proposals in one command room.',
+    lead: 'Operator identity, mission memory, live signals, and review-only proposals in one wallet-scoped command room.',
     safetyNote: CONSOLE_SAFETY_NOTE,
     defaultMission: DEFAULT_CONSOLE_MISSION,
+    nextAction,
     wallet: {
       connected: walletConnected,
       unavailable: wallet.configured === false,
@@ -109,8 +124,8 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
       error: state.consoleWalletError ?? null,
     },
     status: [
-      { label: 'Wallet', value: connectedWallet },
-      { label: 'Agents', value: activeAgents.length || 0 },
+      { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
+      { label: 'Agents visible', value: activeAgents.length || 0 },
       { label: 'Public proof', value: publicProofCount },
       { label: 'Mode', value: 'Human review' },
     ],
@@ -139,26 +154,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
         { label: 'Memory', value: savedMemoryCount || 'Ready' },
       ],
     },
-    trustGraph: {
-      label: 'Trust Graph v2',
-      center: activeAgentLabel,
-      state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
-      edges: publicProofCount + savedMemoryCount + proposalCount,
-      activeTier,
-      tiers: TRUST_TIERS.map((tier) => ({
-        ...tier,
-        active: tier.label === activeTier,
-      })),
-      nodes: [
-        { label: 'Wallet', state: walletConnected ? 'Bound' : 'Open', className: walletConnected ? 'ready orbit-wallet' : 'open orbit-wallet' },
-        { label: 'Protocols', state: 'Base / ERC-8004', className: 'score orbit-protocols' },
-        { label: 'Missions', state: agentThread.missions?.length ? `${agentThread.missions.length} active` : 'Ready', className: 'watch orbit-missions' },
-        { label: 'Signals', state: 'Watching', className: 'watch orbit-signals' },
-        { label: 'Agents', state: `${activeAgents.length} visible`, className: 'open orbit-agents' },
-        { label: 'Decisions', state: savedMemoryCount ? `${savedMemoryCount} Sibyl saved` : 'Sibyl ready', className: savedMemoryCount ? 'ready orbit-decisions' : 'open orbit-decisions' },
-        { label: 'Review', state: `${proposalCount} queued`, className: proposalCount ? 'ready orbit-review' : 'open orbit-review' },
-      ],
-    },
+    trustGraph,
     signalChart: {
       label: 'Signal card',
       title: 'Mission watch',
@@ -201,6 +197,14 @@ export function renderMultipassConsole(snapshot = {}) {
           <p class="lead">${escapeHtml(snapshot.lead ?? '')}</p>
         </div>
         <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
+      </section>
+
+      <section class="console-command-strip" aria-label="Console status">
+        ${renderNextAction(snapshot.nextAction)}
+        <dl class="console-status-strip">
+          ${(snapshot.status ?? []).map(renderStatusItem).join('')}
+        </dl>
+        ${renderFlowPanel(snapshot.flowSteps)}
       </section>
 
       <section class="console-control-grid" aria-label="Console controls">
@@ -332,6 +336,16 @@ function renderFlowStep(step = {}) {
   `;
 }
 
+function renderNextAction(action = {}) {
+  return `
+    <section class="console-next-action" aria-label="Next action">
+      <p class="card-label">Next</p>
+      <strong>${escapeHtml(action.title ?? 'Connect wallet')}</strong>
+      <span>${escapeHtml(action.body ?? 'Start the operator session.')}</span>
+    </section>
+  `;
+}
+
 function renderIdentityCard(card = {}) {
   return `
     <section class="console-visual-card console-identity-card" aria-label="Agent identity card">
@@ -365,40 +379,39 @@ function renderDashboardCard(card = {}) {
 
 function renderTrustGraphCard(graph = {}) {
   const nodes = graph.nodes ?? [];
-  const tiers = graph.tiers ?? TRUST_TIERS;
+  const edges = graph.edges ?? [];
   return `
     <section class="console-visual-card console-trust-graph-card" aria-label="Trust graph">
       <div class="console-card-head">
         <p class="card-label">${escapeHtml(graph.label ?? 'Trust graph')}</p>
         <span>${escapeHtml(graph.state ?? 'Awaiting wallet')}</span>
       </div>
-      <div class="console-graph-visual" aria-hidden="true">
-        ${tiers.map((tier, index) => `
-          <div class="console-graph-ring ring-${index + 1} ${tier.active ? 'active' : ''}">
-            <span>${escapeHtml(tier.label)}</span>
-          </div>
-        `).join('')}
-        <div class="console-graph-edge edge-wallet"></div>
-        <div class="console-graph-edge edge-protocols"></div>
-        <div class="console-graph-edge edge-missions"></div>
-        <div class="console-graph-edge edge-signals"></div>
-        <div class="console-graph-edge edge-agents"></div>
-        <div class="console-graph-edge edge-decisions"></div>
-        <div class="console-graph-edge edge-review"></div>
-        <div class="console-graph-core">${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</div>
-        ${nodes.map((node) => `<div class="console-graph-node ${escapeAttribute(node.className ?? 'open')}">${escapeHtml(node.label ?? '')}</div>`).join('')}
-      </div>
-      <div class="console-tier-strip" aria-label="Cred tier rings">
-        ${tiers.map((tier) => `<span class="${tier.active ? 'active' : ''}"><strong>${escapeHtml(tier.label)}</strong>${escapeHtml(tier.range)}</span>`).join('')}
-      </div>
-      <div class="console-graph-list">
+      <div class="console-graph-visual">
+        <svg class="console-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          ${edges.map((edge) => `
+            <line x1="50" y1="50" x2="${escapeAttribute(edge.x)}" y2="${escapeAttribute(edge.y)}"></line>
+          `).join('')}
+        </svg>
+        <div class="console-graph-core">
+          <span>Profile</span>
+          <strong>${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</strong>
+        </div>
         ${nodes.map((node) => `
-          <article>
+          <article class="console-graph-node ${escapeAttribute(node.className ?? 'open')}" style="--x: ${escapeAttribute(node.x)}%; --y: ${escapeAttribute(node.y)}%;">
             <span>${escapeHtml(node.label ?? '')}</span>
             <strong>${escapeHtml(node.state ?? '')}</strong>
           </article>
         `).join('')}
       </div>
+      <div class="console-graph-list" aria-label="Trust graph edges">
+        ${nodes.map((node) => `
+          <article>
+            <span>${escapeHtml(node.edgeLabel ?? node.label ?? '')}</span>
+            <strong>${escapeHtml(node.state ?? '')}</strong>
+          </article>
+        `).join('')}
+      </div>
+      ${graph.credSummary ? `<p class="console-cred-summary">${escapeHtml(graph.credSummary)}</p>` : ''}
     </section>
   `;
 }
@@ -538,10 +551,158 @@ function createFallbackAgents(data = {}) {
   }];
 }
 
+function createNextAction({ walletConnected = false, agentThread = {}, proposalCount = 0 } = {}) {
+  const messageCount = Array.isArray(agentThread.messages) ? agentThread.messages.length : 0;
+  const savedMemoryCount = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory.length : 0;
+  if (!walletConnected) {
+    return {
+      title: 'Connect wallet',
+      body: 'Operator, memory, and mission state stay wallet-scoped.',
+    };
+  }
+  if (proposalCount > 0) {
+    return {
+      title: 'Review proposal',
+      body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for human approval.`,
+    };
+  }
+  if (messageCount > 0 || savedMemoryCount > 0) {
+    return {
+      title: 'Keep watching',
+      body: 'Mission memory is saved; new signals feed the next briefing.',
+    };
+  }
+  return {
+    title: 'Save mission',
+    body: 'Tell the operator what to watch before it prepares proposals.',
+  };
+}
+
+function createTrustGraphModel({
+  data = {},
+  walletConnected = false,
+  connectedWallet = 'Not connected',
+  activeAgent = {},
+  activeAgentLabel = 'Agent slot',
+  activeCred = 'Cred pending',
+  activeTier = null,
+  agentThread = {},
+  publicProofCount = 0,
+  savedMemoryCount = 0,
+  proposalCount = 0,
+} = {}) {
+  const profile = data.profile ?? {};
+  const card = data.card ?? {};
+  const standardsCount = countStandards(data);
+  const routeCount = countPublicRoutes(data);
+  const proofState = publicProofCount === 1 ? '1 public fragment' : `${publicProofCount} public fragments`;
+  const ownerState = walletConnected
+    ? `Bound ${connectedWallet}`
+    : formatGraphState(profile.owner_summary?.owner_state ?? 'unclaimed');
+  const agentDnaState = activeAgent.helixaId
+    ?? (activeAgent.tokenId === null || activeAgent.tokenId === undefined ? null : `8453:${activeAgent.tokenId}`)
+    ?? firstStandardId(data)
+    ?? 'ERC-8004 ready';
+  const intuitionState = formatIntuitionState(activeAgent.intuition ?? card.intuition);
+  const credState = activeTier ? `${activeCred} / ${activeTier}` : activeCred;
+  const memoryState = savedMemoryCount
+    ? `${savedMemoryCount} Sibyl saved`
+    : (agentThread.memoryProvider ?? 'Sibyl-ready');
+  const reviewState = proposalCount
+    ? `${proposalCount} queued`
+    : 'Review-only';
+  const routeState = routeCount
+    ? `${routeCount} public route${routeCount === 1 ? '' : 's'}`
+    : 'No public routes';
+  const standardsState = standardsCount
+    ? `${standardsCount} standard${standardsCount === 1 ? '' : 's'}`
+    : agentDnaState;
+
+  const nodes = [
+    { key: 'owner', label: 'Owner', edgeLabel: 'owner / wallet', state: ownerState, x: 16, y: 22, className: walletConnected ? 'ready' : 'open' },
+    { key: 'agentdna', label: 'AgentDNA', edgeLabel: 'identity anchor', state: agentDnaState, x: 50, y: 12, className: 'standard' },
+    { key: 'cred', label: 'Cred', edgeLabel: 'trust score', state: credState, x: 84, y: 22, className: 'cred' },
+    { key: 'intuition', label: 'Intuition', edgeLabel: 'identity graph', state: intuitionState, x: 84, y: 48, className: intuitionState === 'Not published' ? 'open' : 'proof' },
+    { key: 'routes', label: 'Routes', edgeLabel: 'public routes', state: routeState, x: 78, y: 76, className: routeCount ? 'route' : 'open' },
+    { key: 'memory', label: 'Memory', edgeLabel: 'private recall', state: memoryState, x: 50, y: 88, className: savedMemoryCount ? 'ready' : 'runtime' },
+    { key: 'review', label: 'Review', edgeLabel: 'proposal gate', state: reviewState, x: 22, y: 76, className: proposalCount ? 'ready' : 'review' },
+    { key: 'proof', label: 'Public proof', edgeLabel: 'public proof', state: proofState, x: 16, y: 48, className: publicProofCount ? 'proof' : 'open' },
+  ];
+
+  return {
+    label: 'Trust Graph v2',
+    center: activeAgentLabel,
+    state: `${proofState} / ${standardsState}`,
+    nodes,
+    edges: nodes.map((node) => ({
+      x: node.x,
+      y: node.y,
+      label: node.edgeLabel,
+      labelX: midpoint(50, node.x),
+      labelY: midpoint(50, node.y),
+    })),
+    activeTier,
+    credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Confidence signal only; approvals stay human-gated.` : null,
+  };
+}
+
 function shortenAddress(address) {
   const value = String(address ?? '').trim();
   if (value.length <= 12) return value;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function countStandards(data = {}) {
+  const profileStandards = data.profile?.standards_profile?.supported_standard_ids;
+  if (Array.isArray(profileStandards)) return profileStandards.filter(Boolean).length;
+  const standardRefs = data.standards?.standard_refs;
+  if (Array.isArray(standardRefs)) return standardRefs.filter(Boolean).length;
+  const cardStandards = data.card?.standards_refs;
+  if (Array.isArray(cardStandards)) return cardStandards.filter(Boolean).length;
+  return 0;
+}
+
+function firstStandardId(data = {}) {
+  return data.profile?.standards_profile?.supported_standard_ids?.find(Boolean)
+    ?? data.standards?.standard_refs?.find((standard) => standard?.standard_id)?.standard_id
+    ?? data.card?.standards_refs?.find((standard) => standard?.standard_id)?.standard_id
+    ?? null;
+}
+
+function countPublicRoutes(data = {}) {
+  const card = data.card ?? {};
+  const messageRoutes = Array.isArray(card.message_routes)
+    ? card.message_routes.filter((route) => route?.visibility !== 'private').length
+    : 0;
+  const endpoints = Array.isArray(card.service_endpoints)
+    ? card.service_endpoints.filter((endpoint) => endpoint?.visibility !== 'private').length
+    : 0;
+  const routeFragments = Array.isArray(data.fragments?.fragments)
+    ? data.fragments.fragments.filter((fragment) => fragment?.visibility === 'public' && fragment?.fragment_type === 'endpoint').length
+    : 0;
+  return messageRoutes + endpoints + routeFragments;
+}
+
+function formatIntuitionState(intuition) {
+  if (!intuition || typeof intuition !== 'object') return 'Not published';
+  const label = String(intuition.label ?? intuition.status ?? '').trim();
+  const canonical = String(intuition.canonicalAgentId ?? '').trim();
+  const shortLabel = label || 'Published';
+  return canonical ? `${shortLabel} ${canonical}` : shortLabel;
+}
+
+function formatGraphState(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  return text
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function midpoint(a, b) {
+  return String(Math.round((Number(a) + Number(b)) / 2));
 }
 
 function normalizeCredScore(value) {
@@ -560,10 +721,14 @@ function getCredTier(score) {
   return 'Junk';
 }
 
+function getCredTierRange(tierLabel) {
+  return TRUST_TIERS.find((tier) => tier.label === tierLabel)?.range ?? '';
+}
+
 function shortenLabel(value) {
   const text = String(value ?? '').trim();
-  if (text.length <= 10) return text;
-  return text.slice(0, 10);
+  if (text.length <= 12) return text;
+  return text.slice(0, 12);
 }
 
 function escapeHtml(value) {

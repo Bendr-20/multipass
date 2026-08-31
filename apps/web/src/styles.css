@@ -4988,6 +4988,7 @@ h1 {
 }
 
 .console-dashboard-header,
+.console-command-strip,
 .console-control-grid {
   border: 1px solid var(--line);
   background: var(--paper);
@@ -5019,6 +5020,84 @@ h1 {
   margin: 5px 0 0;
   color: var(--muted);
   line-height: 1.35;
+}
+
+.console-command-strip {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.25fr) minmax(240px, 0.32fr) minmax(500px, 0.74fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px;
+}
+
+.console-next-action,
+.console-status-strip,
+.console-flow-panel {
+  border: 1px solid var(--soft-line);
+  background: var(--paper-soft);
+}
+
+.console-next-action {
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  min-height: 92px;
+  padding: 12px;
+}
+
+.console-next-action strong {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.console-next-action span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.console-status-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+}
+
+.console-status-strip div {
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  border-right: 1px solid var(--soft-line);
+  border-bottom: 1px solid var(--soft-line);
+  padding: 12px;
+}
+
+.console-status-strip div:nth-child(even) {
+  border-right: 0;
+}
+
+.console-status-strip div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.console-status-strip dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-status-strip dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 .console-control-grid {
@@ -5155,15 +5234,36 @@ h1 {
 .console-graph-visual {
   position: relative;
   min-height: 254px;
+  overflow: hidden;
   border: 1px solid rgba(10, 10, 20, 0.12);
   background:
     linear-gradient(rgba(54, 95, 125, 0.09) 1px, transparent 1px),
     linear-gradient(90deg, rgba(54, 95, 125, 0.09) 1px, transparent 1px),
-    radial-gradient(circle at 50% 50%, rgba(232, 184, 75, 0.12), transparent 11%),
-    radial-gradient(circle at 50% 50%, rgba(90, 157, 230, 0.11), transparent 25%),
-    radial-gradient(circle at 50% 50%, rgba(110, 236, 216, 0.1), transparent 42%),
+    radial-gradient(circle at 50% 50%, rgba(110, 236, 216, 0.12), transparent 22%),
     var(--paper);
-  background-size: 28px 28px, 28px 28px, auto, auto, auto, auto;
+  background-size: 28px 28px, 28px 28px, auto, auto;
+}
+
+.console-graph-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.console-graph-lines line {
+  stroke: rgba(25, 27, 28, 0.28);
+  stroke-width: 0.45;
+}
+
+.console-graph-lines text {
+  fill: rgba(25, 27, 28, 0.54);
+  font-size: 2.3px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-anchor: middle;
+  text-transform: uppercase;
 }
 
 .console-graph-core,
@@ -5181,82 +5281,60 @@ h1 {
 .console-graph-core {
   left: 50%;
   top: 50%;
+  gap: 4px;
   z-index: 5;
-  width: 82px;
-  height: 82px;
+  width: 86px;
+  min-height: 70px;
+  padding: 8px;
   transform: translate(-50%, -50%);
   background: var(--ink);
   color: var(--paper);
-  font-size: 14px;
   text-align: center;
 }
 
-.console-graph-node {
-  z-index: 4;
-  width: 74px;
-  min-height: 34px;
-  padding: 7px 6px;
+.console-graph-core span {
+  color: rgba(255, 252, 245, 0.65);
   font-size: 10px;
-  text-align: center;
+  font-weight: 900;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.console-graph-ring {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: block;
-  border: 1px solid rgba(10, 10, 20, 0.14);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+.console-graph-core strong {
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
-.console-graph-ring span {
-  position: absolute;
-  right: 8px;
-  top: -8px;
-  background: var(--paper);
-  color: rgba(25, 27, 28, 0.54);
-  padding: 0 4px;
+.console-graph-node {
+  left: var(--x);
+  top: var(--y);
+  z-index: 4;
+  width: 78px;
+  min-height: 42px;
+  gap: 4px;
+  padding: 7px 6px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.console-graph-node span {
+  color: var(--muted);
   font-size: 8px;
   font-weight: 900;
-  letter-spacing: 0;
+  letter-spacing: 0.06em;
   line-height: 1;
   text-transform: uppercase;
 }
 
-.console-graph-ring.active {
-  border-color: rgba(20, 134, 101, 0.62);
-  box-shadow: 0 0 0 2px rgba(110, 236, 216, 0.08), inset 0 0 34px rgba(110, 236, 216, 0.08);
-}
-
-.console-graph-ring.active span {
+.console-graph-node strong {
   color: var(--ink);
-}
-
-.console-graph-ring.ring-1 {
-  width: 30%;
-  height: 30%;
-}
-
-.console-graph-ring.ring-2 {
-  width: 46%;
-  height: 46%;
-}
-
-.console-graph-ring.ring-3 {
-  width: 62%;
-  height: 62%;
-}
-
-.console-graph-ring.ring-4 {
-  width: 78%;
-  height: 78%;
-}
-
-.console-graph-ring.ring-5 {
-  width: 94%;
-  height: 94%;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 .console-graph-node.ready {
@@ -5264,126 +5342,45 @@ h1 {
   background: rgba(110, 236, 216, 0.18);
 }
 
-.console-graph-node.score {
+.console-graph-node.cred {
   border-color: rgba(180, 144, 255, 0.72);
   background: rgba(180, 144, 255, 0.16);
 }
 
-.console-graph-node.watch {
+.console-graph-node.standard {
+  border-color: rgba(232, 184, 75, 0.7);
+  background: rgba(232, 184, 75, 0.15);
+}
+
+.console-graph-node.proof {
   border-color: rgba(54, 95, 125, 0.62);
   background: rgba(128, 208, 255, 0.15);
 }
 
-.console-graph-node.orbit-wallet {
-  left: 5%;
-  top: 12%;
+.console-graph-node.route {
+  border-color: rgba(20, 134, 101, 0.56);
+  background: rgba(110, 236, 216, 0.12);
 }
 
-.console-graph-node.orbit-protocols {
-  left: 38%;
-  top: 4%;
+.console-graph-node.runtime {
+  border-color: rgba(25, 27, 28, 0.34);
+  background: rgba(255, 252, 245, 0.72);
 }
 
-.console-graph-node.orbit-missions {
-  right: 5%;
-  top: 13%;
+.console-graph-node.review {
+  border-color: rgba(25, 27, 28, 0.5);
+  background: rgba(25, 27, 28, 0.06);
 }
 
-.console-graph-node.orbit-signals {
-  right: 7%;
-  top: 52%;
-}
-
-.console-graph-node.orbit-agents {
-  right: 22%;
-  bottom: 5%;
-}
-
-.console-graph-node.orbit-decisions {
-  left: 18%;
-  bottom: 5%;
-}
-
-.console-graph-node.orbit-review {
-  left: 6%;
-  top: 53%;
-}
-
-.console-graph-edge {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 2;
-  width: 39%;
-  height: 1px;
-  transform-origin: left center;
-  background: linear-gradient(90deg, rgba(25, 27, 28, 0.34), transparent);
-}
-
-.console-graph-edge.edge-wallet {
-  transform: rotate(214deg);
-}
-
-.console-graph-edge.edge-protocols {
-  width: 25%;
-  transform: rotate(268deg);
-}
-
-.console-graph-edge.edge-missions {
-  width: 38%;
-  transform: rotate(328deg);
-}
-
-.console-graph-edge.edge-signals {
-  width: 36%;
-  transform: rotate(8deg);
-}
-
-.console-graph-edge.edge-agents {
-  width: 30%;
-  transform: rotate(55deg);
-}
-
-.console-graph-edge.edge-decisions {
-  width: 34%;
-  transform: rotate(126deg);
-}
-
-.console-graph-edge.edge-review {
-  width: 37%;
-  transform: rotate(172deg);
-}
-
-.console-tier-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(88px, 100%), 1fr));
-  gap: 6px;
-}
-
-.console-tier-strip span {
-  display: grid;
-  gap: 4px;
-  min-height: 42px;
-  align-content: center;
-  border: 1px solid var(--soft-line);
-  background: var(--paper);
+.console-cred-summary {
+  margin: 0;
+  border: 1px solid rgba(10, 10, 20, 0.1);
+  background: rgba(255, 252, 245, 0.72);
   color: var(--muted);
-  padding: 7px 6px;
-  font-size: 10px;
-  line-height: 1.1;
-  overflow-wrap: anywhere;
-}
-
-.console-tier-strip strong {
-  color: var(--ink);
-  font-size: 10px;
-  line-height: 1;
-  overflow-wrap: anywhere;
-}
-
-.console-tier-strip span.active {
-  border-color: rgba(20, 134, 101, 0.48);
-  background: rgba(110, 236, 216, 0.13);
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
 }
 
 .console-graph-list {
@@ -5481,8 +5478,8 @@ h1 {
   display: grid;
   align-content: space-between;
   gap: 10px;
-  min-height: 174px;
-  padding: 14px;
+  min-height: 92px;
+  padding: 12px;
 }
 
 .console-wallet-panel {
@@ -5553,7 +5550,7 @@ h1 {
 
 .console-flow-panel ol {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
   margin: 0;
   padding: 0;
@@ -5561,12 +5558,13 @@ h1 {
 }
 
 .console-flow-panel li {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  align-content: space-between;
+  gap: 5px;
+  min-height: 48px;
   border: 1px solid var(--soft-line);
   background: var(--paper);
-  padding: 7px 8px;
+  padding: 6px 7px;
 }
 
 .console-flow-panel li.done {
@@ -5576,13 +5574,13 @@ h1 {
 
 .console-flow-panel strong {
   color: var(--ink);
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.1;
 }
 
 .console-flow-panel span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1.1;
 }
@@ -5674,6 +5672,7 @@ h1 {
 }
 
 @media (max-width: 1100px) {
+  .console-command-strip,
   .console-control-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5691,6 +5690,7 @@ h1 {
 
 @media (max-width: 620px) {
   .console-dashboard-header,
+  .console-command-strip,
   .console-control-grid,
   .console-panel,
   .console-recall-panel {
@@ -5698,14 +5698,32 @@ h1 {
   }
 
   .console-control-grid,
+  .console-status-strip,
   .console-identity-stats,
   .console-chart-lanes,
-  .console-tier-strip,
-  .console-graph-list,
   .console-agent-list,
   .console-signal-grid,
   .console-agent-card dl {
     grid-template-columns: 1fr;
+  }
+
+  .console-control-grid {
+    grid-template-areas:
+      "graph"
+      "identity"
+      "signals";
+  }
+
+  .console-identity-card {
+    grid-area: identity;
+  }
+
+  .console-trust-graph-card {
+    grid-area: graph;
+  }
+
+  .console-signal-chart-card {
+    grid-area: signals;
   }
 
   .console-dashboard-header h1 {
@@ -5728,28 +5746,73 @@ h1 {
     min-height: auto;
   }
 
+  .console-agent-portrait {
+    aspect-ratio: 2.35;
+    max-height: 150px;
+  }
+
+  .console-identity-body > strong {
+    font-size: 28px;
+  }
+
+  .console-identity-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .console-mini-stat {
+    min-height: 56px;
+    padding: 8px;
+  }
+
+  .console-mini-stat strong {
+    font-size: 14px;
+  }
+
+  .console-status-strip div {
+    min-height: 58px;
+    border-bottom: 1px solid var(--soft-line);
+  }
+
+  .console-status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .console-status-strip div:nth-child(odd) {
+    border-right: 1px solid var(--soft-line);
+  }
+
+  .console-status-strip div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .console-status-strip div:last-child {
+    border-bottom: 0;
+  }
+
+  .console-flow-panel ol {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .console-thread-actions,
   .console-thread-actions button {
     width: 100%;
   }
 
   .console-graph-visual {
-    min-height: 236px;
+    min-height: 250px;
+  }
+
+  .console-graph-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .console-graph-node {
-    width: 66px;
-    font-size: 9px;
+    width: 72px;
   }
 
   .console-graph-core {
-    width: 70px;
-    height: 70px;
-    font-size: 12px;
-  }
-
-  .console-tier-strip span {
-    min-height: 38px;
+    width: 72px;
+    min-height: 62px;
   }
 }
 
