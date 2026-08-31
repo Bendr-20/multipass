@@ -113,7 +113,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     title: 'Multipass Console',
     kicker: 'Console',
     headline: 'Multipass Console',
-    lead: 'Connect your wallet, load an onchain agent, give it a mission, and review its proposals.',
+    lead: 'One Cred graph for one onchain agent: identity, proof, memory, and human approval.',
     safetyNote: CONSOLE_SAFETY_NOTE,
     defaultMission: DEFAULT_CONSOLE_MISSION,
     nextAction,
@@ -127,9 +127,9 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     status: [
       { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
-      { label: 'Agent records', value: activeAgents.length || 0 },
-      { label: 'Public proof', value: publicProofCount },
-      { label: 'Mode', value: 'Human review' },
+      { label: 'Cred', value: activeCred },
+      { label: 'Proof', value: publicProofCount },
+      { label: 'Approval', value: 'Human review' },
     ],
     flowSteps: FLOW_STEPS.map((step) => ({
       ...step,
@@ -200,23 +200,20 @@ export function renderMultipassConsole(snapshot = {}) {
         <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
       </section>
 
-      <section class="console-command-strip" aria-label="Console status">
-        ${renderNextAction(snapshot.nextAction, snapshot.wallet)}
-        <dl class="console-status-strip">
-          ${(snapshot.status ?? []).map(renderStatusItem).join('')}
-        </dl>
-        ${renderFlowPanel(snapshot.flowSteps)}
+      <section class="console-trust-stage" aria-label="Console trust graph">
+        ${renderTrustGraphCard(snapshot.trustGraph)}
+        <aside class="console-trust-rail" aria-label="Console controls">
+          ${renderNextAction(snapshot.nextAction, snapshot.wallet)}
+          <dl class="console-status-strip">
+            ${(snapshot.status ?? []).map(renderStatusItem).join('')}
+          </dl>
+        </aside>
       </section>
 
       ${renderConsoleAgentThread(snapshot.agentThread)}
 
-      <section class="console-control-grid" aria-label="Console controls">
+      <section class="console-support-grid" aria-label="Console supporting context">
         ${renderIdentityCard(snapshot.identityCard)}
-        ${renderTrustGraphCard(snapshot.trustGraph)}
-        ${renderSignalChartCard(snapshot.signalChart)}
-      </section>
-
-      <section class="console-grid" aria-label="Console operating layers">
         <div class="console-panel">
           <div class="console-panel-heading">
             <p class="card-label">Memory</p>
@@ -242,16 +239,6 @@ export function renderMultipassConsole(snapshot = {}) {
           <p class="card-label">Recall</p>
           <h2>${escapeHtml(snapshot.recall?.title ?? 'Fresh-session recall')}</h2>
           <p>${escapeHtml(snapshot.recall?.body ?? '')}</p>
-        </div>
-      </section>
-
-      <section id="console-signals" class="console-panel console-signals-panel" aria-label="Trust graph checks">
-        <div class="console-panel-heading">
-          <p class="card-label">Checks</p>
-          <h2>Trust checks</h2>
-        </div>
-        <div class="console-signal-grid">
-          ${(snapshot.signalModules ?? []).map(renderSignalModule).join('')}
         </div>
       </section>
 
@@ -405,11 +392,9 @@ function renderTrustGraphCard(graph = {}) {
           </div>
         `).join('')}
         <div class="console-graph-edge edge-wallet"></div>
-        <div class="console-graph-edge edge-protocols"></div>
-        <div class="console-graph-edge edge-missions"></div>
-        <div class="console-graph-edge edge-checks"></div>
-        <div class="console-graph-edge edge-agents"></div>
-        <div class="console-graph-edge edge-decisions"></div>
+        <div class="console-graph-edge edge-identity"></div>
+        <div class="console-graph-edge edge-intuition"></div>
+        <div class="console-graph-edge edge-proof"></div>
         <div class="console-graph-edge edge-review"></div>
         <div class="console-graph-core">
           <span>Cred</span>
@@ -423,17 +408,6 @@ function renderTrustGraphCard(graph = {}) {
         `).join('')}
       </div>
       ${graph.summary ? `<p class="console-graph-summary">${escapeHtml(graph.summary)}</p>` : ''}
-      <div class="console-tier-strip" aria-label="Cred tier rings">
-        ${tiers.map((tier) => `<span class="${tier.active ? 'active' : ''}"><strong>${escapeHtml(tier.label)}</strong>${escapeHtml(tier.range)}</span>`).join('')}
-      </div>
-      <div class="console-graph-list" aria-label="Trust graph edges">
-        ${nodes.map((node) => `
-          <article>
-            <span>${escapeHtml(node.edgeLabel ?? node.label ?? '')}</span>
-            <strong>${escapeHtml(node.state ?? '')}</strong>
-          </article>
-        `).join('')}
-      </div>
       ${graph.credSummary ? `<p class="console-cred-summary">${escapeHtml(graph.credSummary)}</p>` : ''}
     </section>
   `;
@@ -625,20 +599,11 @@ function createTrustGraphModel({
   const reviewState = proposalCount
     ? `${proposalCount} queued`
     : 'Human approval';
-  const routeState = routeCount
-    ? `${routeCount} public route${routeCount === 1 ? '' : 's'}`
-    : 'No public routes';
-  const standardsState = standardsCount
-    ? `${standardsCount} standard${standardsCount === 1 ? '' : 's'}`
-    : agentDnaState;
-
   const nodes = [
     { key: 'wallet', label: 'Wallet', edgeLabel: 'owner / wallet', state: ownerState, visualState: ownerState, className: walletConnected ? 'ready orbit-wallet' : 'open orbit-wallet' },
-    { key: 'protocols', label: 'Protocols', edgeLabel: 'identity anchor', state: `${standardsState} / ${agentDnaState}`, visualState: agentDnaState, className: 'standard orbit-protocols' },
-    { key: 'missions', label: 'Missions', edgeLabel: 'mission state', state: agentThread.summary ?? 'Wallet required', visualState: walletConnected ? 'Active' : 'Required', className: 'runtime orbit-missions' },
-    { key: 'checks', label: 'Checks', edgeLabel: 'trust checks', state: `${proofState}; ${routeState}`, visualState: `${publicProofCount} proof`, className: publicProofCount || routeCount ? 'proof orbit-checks' : 'open orbit-checks' },
-    { key: 'agents', label: 'Agents', edgeLabel: 'agent records', state: `${activeAgentCount || 0} visible`, visualState: `${activeAgentCount || 0} visible`, className: 'ready orbit-agents' },
-    { key: 'decisions', label: 'Decisions', edgeLabel: 'proposal gate', state: reviewState, visualState: reviewState, className: proposalCount ? 'ready orbit-decisions' : 'review orbit-decisions' },
+    { key: 'identity', label: 'AgentDNA', edgeLabel: 'identity anchor', state: agentDnaState, visualState: agentDnaState, className: 'standard orbit-identity' },
+    { key: 'intuition', label: 'Intuition', edgeLabel: 'graph proof', state: intuitionState, visualState: intuitionState, className: intuitionState === 'Not published' ? 'open orbit-intuition' : 'proof orbit-intuition' },
+    { key: 'proof', label: 'Proof', edgeLabel: 'public proof', state: proofState, visualState: `${publicProofCount} proof`, className: publicProofCount ? 'proof orbit-proof' : 'open orbit-proof' },
     { key: 'review', label: 'Review', edgeLabel: 'human approval', state: 'Human approves actions', visualState: 'Review-only', className: 'review orbit-review' },
   ];
   const tiers = TRUST_TIERS.map((tier) => ({
@@ -650,11 +615,11 @@ function createTrustGraphModel({
     label: 'Trust Graph v2',
     center: activeAgentLabel,
     state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
-    summary: 'Cred stays at the center. The rings show trust tier, while the orbit shows the proof, routes, mission memory, and review gates behind that tier.',
+    summary: 'Old-site shape, simplified for the Console. Inner rings mean stronger Cred; orbit points show what backs it.',
     nodes,
     tiers,
     activeTier,
-    credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Trust context only; you approve actions.` : null,
+    credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Memory informs briefings; actions still wait for you.` : null,
   };
 }
 

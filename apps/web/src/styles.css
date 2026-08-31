@@ -4990,8 +4990,8 @@ h1 {
 }
 
 .console-dashboard-header,
-.console-command-strip,
-.console-control-grid {
+.console-trust-stage,
+.console-support-grid {
   border: 1px solid var(--line);
   background: var(--paper);
   box-shadow: var(--shadow);
@@ -5024,12 +5024,25 @@ h1 {
   line-height: 1.35;
 }
 
-.console-command-strip {
+.console-trust-stage {
   display: grid;
-  grid-template-columns: minmax(170px, 0.25fr) minmax(240px, 0.32fr) minmax(500px, 0.74fr);
+  grid-template-columns: minmax(520px, 1fr) minmax(260px, 0.36fr);
   gap: 12px;
   align-items: stretch;
   padding: 12px;
+}
+
+.console-trust-stage .console-trust-graph-card {
+  min-height: 0;
+}
+
+.console-trust-stage .console-graph-visual {
+  min-height: 460px;
+}
+
+.console-trust-rail {
+  display: grid;
+  gap: 12px;
 }
 
 .console-next-action,
@@ -5114,9 +5127,9 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.console-control-grid {
+.console-support-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.12fr) minmax(280px, 0.93fr);
+  grid-template-columns: minmax(280px, 0.9fr) repeat(2, minmax(240px, 1fr));
   gap: 12px;
   padding: 12px;
 }
@@ -5385,12 +5398,13 @@ h1 {
   left: var(--x);
   top: var(--y);
   z-index: 4;
-  width: 78px;
-  min-height: 42px;
+  width: 86px;
+  min-height: 56px;
   gap: 4px;
-  padding: 7px 6px;
+  padding: 8px 7px;
   text-align: center;
   transform: translate(-50%, -50%);
+  border-radius: 999px;
 }
 
 .console-graph-node span {
@@ -5446,38 +5460,28 @@ h1 {
 }
 
 .console-graph-node.orbit-wallet {
-  left: 13%;
-  top: 13%;
+  left: 22%;
+  top: 30%;
 }
 
-.console-graph-node.orbit-protocols {
-  left: 38%;
+.console-graph-node.orbit-identity {
+  left: 50%;
   top: 11%;
 }
 
-.console-graph-node.orbit-missions {
+.console-graph-node.orbit-intuition {
   left: 78%;
-  top: 18%;
+  top: 31%;
 }
 
-.console-graph-node.orbit-checks {
-  left: 84%;
-  top: 49%;
-}
-
-.console-graph-node.orbit-agents {
-  left: 70%;
-  top: 83%;
-}
-
-.console-graph-node.orbit-decisions {
-  left: 26%;
-  top: 83%;
+.console-graph-node.orbit-proof {
+  left: 68%;
+  top: 84%;
 }
 
 .console-graph-node.orbit-review {
-  left: 13%;
-  top: 53%;
+  left: 27%;
+  top: 78%;
 }
 
 .console-graph-edge {
@@ -5492,37 +5496,28 @@ h1 {
 }
 
 .console-graph-edge.edge-wallet {
-  transform: rotate(214deg);
-}
-
-.console-graph-edge.edge-protocols {
-  width: 25%;
-  transform: rotate(268deg);
-}
-
-.console-graph-edge.edge-missions {
-  width: 38%;
-  transform: rotate(328deg);
-}
-
-.console-graph-edge.edge-checks {
-  width: 36%;
-  transform: rotate(8deg);
-}
-
-.console-graph-edge.edge-agents {
-  width: 30%;
-  transform: rotate(55deg);
-}
-
-.console-graph-edge.edge-decisions {
   width: 34%;
-  transform: rotate(126deg);
+  transform: rotate(220deg);
+}
+
+.console-graph-edge.edge-identity {
+  width: 38%;
+  transform: rotate(270deg);
+}
+
+.console-graph-edge.edge-intuition {
+  width: 36%;
+  transform: rotate(326deg);
+}
+
+.console-graph-edge.edge-proof {
+  width: 36%;
+  transform: rotate(62deg);
 }
 
 .console-graph-edge.edge-review {
-  width: 37%;
-  transform: rotate(172deg);
+  width: 35%;
+  transform: rotate(143deg);
 }
 
 .console-cred-summary {
@@ -5875,8 +5870,8 @@ h1 {
 }
 
 @media (max-width: 1100px) {
-  .console-command-strip,
-  .console-control-grid {
+  .console-trust-stage,
+  .console-support-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -5893,14 +5888,14 @@ h1 {
 
 @media (max-width: 620px) {
   .console-dashboard-header,
-  .console-command-strip,
-  .console-control-grid,
+  .console-trust-stage,
+  .console-support-grid,
   .console-panel,
   .console-recall-panel {
     padding: 12px;
   }
 
-  .console-control-grid,
+  .console-support-grid,
   .console-status-strip,
   .console-identity-stats,
   .console-chart-lanes,
@@ -5908,25 +5903,6 @@ h1 {
   .console-signal-grid,
   .console-agent-card dl {
     grid-template-columns: 1fr;
-  }
-
-  .console-control-grid {
-    grid-template-areas:
-      "graph"
-      "identity"
-      "signals";
-  }
-
-  .console-identity-card {
-    grid-area: identity;
-  }
-
-  .console-trust-graph-card {
-    grid-area: graph;
-  }
-
-  .console-signal-chart-card {
-    grid-area: signals;
   }
 
   .console-dashboard-header h1 {
@@ -6003,6 +5979,10 @@ h1 {
 
   .console-graph-visual {
     min-height: 250px;
+  }
+
+  .console-trust-stage .console-graph-visual {
+    min-height: 330px;
   }
 
   .console-graph-list {
