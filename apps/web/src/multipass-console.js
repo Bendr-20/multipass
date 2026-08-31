@@ -59,6 +59,53 @@ const TRUST_TIERS = [
   { label: 'Junk', range: '0-25' },
 ];
 
+const TRUST_GRAPH_SUPPORT_LAYOUT = [
+  { key: 'wallet', x: 45, y: 55, size: 'support-large' },
+  { key: 'identity', x: 50, y: 42, size: 'support-medium' },
+  { key: 'intuition', x: 58, y: 49, size: 'support-medium' },
+  { key: 'proof', x: 57, y: 60, size: 'support-large' },
+  { key: 'review', x: 43, y: 64, size: 'support-medium' },
+];
+
+const TRUST_GRAPH_AGENT_LAYOUT = [
+  { x: 34, y: 26, size: 'agent-medium' },
+  { x: 44, y: 20, size: 'agent-medium' },
+  { x: 55, y: 19, size: 'agent-medium' },
+  { x: 66, y: 24, size: 'agent-medium' },
+  { x: 74, y: 33, size: 'agent-small' },
+  { x: 78, y: 45, size: 'agent-medium' },
+  { x: 76, y: 57, size: 'agent-small' },
+  { x: 70, y: 69, size: 'agent-medium' },
+  { x: 60, y: 76, size: 'agent-small' },
+  { x: 48, y: 78, size: 'agent-medium' },
+  { x: 36, y: 74, size: 'agent-medium' },
+  { x: 27, y: 66, size: 'agent-small' },
+  { x: 22, y: 54, size: 'agent-medium' },
+  { x: 22, y: 41, size: 'agent-small' },
+  { x: 26, y: 30, size: 'agent-medium' },
+];
+
+const TRUST_GRAPH_GUIDE_DOT_LAYOUT = [
+  { x: 30, y: 18, size: 'sm' },
+  { x: 39, y: 15, size: 'sm' },
+  { x: 50, y: 14, size: 'md' },
+  { x: 61, y: 15, size: 'sm' },
+  { x: 70, y: 19, size: 'sm' },
+  { x: 77, y: 27, size: 'sm' },
+  { x: 82, y: 39, size: 'md' },
+  { x: 83, y: 52, size: 'sm' },
+  { x: 78, y: 64, size: 'sm' },
+  { x: 69, y: 74, size: 'md' },
+  { x: 58, y: 81, size: 'sm' },
+  { x: 46, y: 83, size: 'sm' },
+  { x: 34, y: 80, size: 'md' },
+  { x: 24, y: 72, size: 'sm' },
+  { x: 17, y: 61, size: 'sm' },
+  { x: 15, y: 48, size: 'md' },
+  { x: 17, y: 35, size: 'sm' },
+  { x: 23, y: 24, size: 'sm' },
+];
+
 export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents = [] } = {}) {
   const profile = data.profile ?? {};
   const wallet = state.walletSnapshot ?? {};
@@ -85,6 +132,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     data,
     walletConnected,
     connectedWallet,
+    activeAgents,
     activeAgent,
     activeAgentLabel,
     activeCred,
@@ -379,35 +427,51 @@ function renderDashboardCard(card = {}) {
 function renderTrustGraphCard(graph = {}) {
   const nodes = graph.nodes ?? [];
   const tiers = graph.tiers ?? TRUST_TIERS;
+  const markers = graph.markers ?? [];
+  const guideDots = graph.guideDots ?? [];
   return `
     <section class="console-visual-card console-trust-graph-card" aria-label="Trust graph">
       <div class="console-card-head">
         <p class="card-label">${escapeHtml(graph.label ?? 'Trust graph')}</p>
         <span>${escapeHtml(graph.state ?? 'Awaiting wallet')}</span>
       </div>
-      <div class="console-graph-visual">
-        ${tiers.map((tier, index) => `
-          <div class="console-graph-ring ring-${index + 1} ${tier.active ? 'active' : ''}">
-            <span>${escapeHtml(tier.label)}</span>
-          </div>
+      <div class="console-tier-strip" aria-label="Cred tier rings">
+        ${tiers.map((tier) => `
+          <span class="tier-${escapeAttribute(slugifyLabel(tier.label))} ${tier.active ? 'active' : ''}">
+            <strong>${escapeHtml(tier.label)}</strong>
+            ${escapeHtml(tier.range)}
+          </span>
         `).join('')}
-        <div class="console-graph-edge edge-wallet"></div>
-        <div class="console-graph-edge edge-identity"></div>
-        <div class="console-graph-edge edge-intuition"></div>
-        <div class="console-graph-edge edge-proof"></div>
-        <div class="console-graph-edge edge-review"></div>
+      </div>
+      <div class="console-graph-visual">
+        <div class="console-graph-halo" aria-hidden="true"></div>
+        <div class="console-graph-halo-core" aria-hidden="true"></div>
+        ${tiers.map((tier, index) => `<div class="console-graph-ring ring-${index + 1} ${tier.active ? 'active' : ''}"></div>`).join('')}
+        ${guideDots.map((dot) => `
+          <i class="console-graph-guide-dot size-${escapeAttribute(dot.size ?? 'sm')}" style="left: ${escapeAttribute(String(dot.x ?? 50))}%; top: ${escapeAttribute(String(dot.y ?? 50))}%;"></i>
+        `).join('')}
         <div class="console-graph-core">
           <span>Cred</span>
           <strong>${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</strong>
         </div>
-        ${nodes.map((node) => `
-          <div class="console-graph-node ${escapeAttribute(node.className ?? 'open')}">
-            <span>${escapeHtml(node.label ?? '')}</span>
-            <strong>${escapeHtml(shortenGraphNodeState(node.visualState ?? node.state ?? ''))}</strong>
+        ${markers.map((marker) => `
+          <div class="console-graph-marker ${escapeAttribute(marker.className ?? 'tone-neutral')} ${escapeAttribute(marker.size ?? 'agent-small')} ${marker.image ? 'has-image' : 'has-label'}" style="left: ${escapeAttribute(String(marker.x ?? 50))}%; top: ${escapeAttribute(String(marker.y ?? 50))}%;" title="${escapeAttribute(marker.title ?? marker.label ?? '')}">
+            ${marker.image
+              ? `<img src="${escapeAttribute(marker.image)}" alt="${escapeAttribute(marker.title ?? marker.label ?? 'Agent marker')}" loading="lazy">`
+              : `<span>${escapeHtml(marker.label ?? '')}</span>`}
           </div>
         `).join('')}
       </div>
       ${graph.summary ? `<p class="console-graph-summary">${escapeHtml(graph.summary)}</p>` : ''}
+      <div class="console-graph-list" aria-label="Trust graph edges">
+        ${nodes.map((node) => `
+          <article>
+            <span>${escapeHtml(node.label ?? node.edgeLabel ?? '')}</span>
+            <strong>${escapeHtml(node.state ?? '')}</strong>
+            <small>${escapeHtml(node.edgeLabel ?? '')}</small>
+          </article>
+        `).join('')}
+      </div>
       ${graph.credSummary ? `<p class="console-cred-summary">${escapeHtml(graph.credSummary)}</p>` : ''}
     </section>
   `;
@@ -569,6 +633,7 @@ function createTrustGraphModel({
   data = {},
   walletConnected = false,
   connectedWallet = 'Not connected',
+  activeAgents = [],
   activeAgent = {},
   activeAgentLabel = 'Agent slot',
   activeCred = 'Cred pending',
@@ -610,17 +675,81 @@ function createTrustGraphModel({
     ...tier,
     active: tier.label === activeTier,
   }));
+  const { markers, guideDots } = createTrustGraphField({ activeAgents, nodes });
 
   return {
     label: 'Trust Graph v2',
     center: activeAgentLabel,
     state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
-    summary: 'Old-site shape, simplified for the Console. Inner rings mean stronger Cred; orbit points show what backs it.',
+    summary: 'Dense old-site field. The halo shows nearby agents and support context; the highlighted ring shows where this profile lands.',
     nodes,
+    markers,
+    guideDots,
     tiers,
     activeTier,
     credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Memory informs briefings; actions still wait for you.` : null,
   };
+}
+
+function createTrustGraphField({ activeAgents = [], nodes = [] } = {}) {
+  const nodeMap = new Map(nodes.map((node) => [node.key, node]));
+  const supportMarkers = TRUST_GRAPH_SUPPORT_LAYOUT.map((slot, index) => {
+    const node = nodeMap.get(slot.key);
+    return {
+      ...slot,
+      label: getSupportGlyph(slot.key),
+      title: node?.label ?? slot.key,
+      className: `support-marker ${pickGraphTone(index)}`,
+    };
+  });
+  const roster = expandGraphRoster(activeAgents, TRUST_GRAPH_AGENT_LAYOUT.length);
+  const agentMarkers = TRUST_GRAPH_AGENT_LAYOUT.map((slot, index) => {
+    const agent = roster[index] ?? {};
+    return {
+      ...slot,
+      label: getGraphMarkerLabel(agent.name ?? `Agent ${index + 1}`),
+      image: agent.image ?? null,
+      title: agent.name
+        ? `${agent.name}${agent.credScore === null || agent.credScore === undefined ? '' : ` · Cred ${agent.credScore}`}`
+        : `Agent ${index + 1}`,
+      className: `agent-marker ${pickGraphTone(index + supportMarkers.length)}`,
+    };
+  });
+
+  return {
+    markers: [...agentMarkers, ...supportMarkers],
+    guideDots: TRUST_GRAPH_GUIDE_DOT_LAYOUT.map((dot) => ({ ...dot })),
+  };
+}
+
+function expandGraphRoster(agents = [], count = 0) {
+  const roster = agents.filter(Boolean);
+  if (!roster.length || count <= 0) return [];
+  return Array.from({ length: count }, (_, index) => roster[index % roster.length]);
+}
+
+function getSupportGlyph(key) {
+  if (key === 'wallet') return 'W';
+  if (key === 'identity') return 'ID';
+  if (key === 'intuition') return 'IX';
+  if (key === 'proof') return 'PF';
+  if (key === 'review') return 'RV';
+  return 'AG';
+}
+
+function getGraphMarkerLabel(value) {
+  const parts = String(value ?? '')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return 'AG';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+}
+
+function pickGraphTone(index = 0) {
+  return ['tone-gold', 'tone-emerald', 'tone-violet', 'tone-rose', 'tone-sky'][index % 5];
 }
 
 function createSignalModules({
@@ -759,6 +888,15 @@ function shortenGraphNodeState(value) {
   const text = String(value ?? '').trim();
   if (text.length <= 16) return text;
   return `${text.slice(0, 15)}...`;
+}
+
+function slugifyLabel(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'value';
 }
 
 function escapeHtml(value) {

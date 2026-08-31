@@ -1704,7 +1704,10 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /Trust Graph v2/);
   assert.equal(consolePage.querySelectorAll('.console-graph-ring').length, 5);
   assert.equal(consolePage.querySelectorAll('.console-graph-lines line').length, 0);
-  assert.equal(consolePage.querySelectorAll('.console-graph-node').length, 5);
+  assert.equal(consolePage.querySelectorAll('.console-tier-strip span').length, 5);
+  assert.equal(consolePage.querySelectorAll('.console-graph-marker').length, 20);
+  assert.equal(consolePage.querySelectorAll('.console-graph-guide-dot').length, 18);
+  assert.equal(consolePage.querySelectorAll('.console-graph-list article').length, 5);
   assert.equal(consolePage.querySelectorAll('#console-signals').length, 0);
   assert.equal(consolePage.querySelectorAll('.console-signal-grid article').length, 0);
   assert.match(consolePage.textContent, /Prime/);
