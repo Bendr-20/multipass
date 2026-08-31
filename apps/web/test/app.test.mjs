@@ -345,6 +345,49 @@ async function savedZoriProfileFetch(url) {
   throw new Error(`Unexpected Zori URL ${url}`);
 }
 
+function createConsoleOwnedAgentsFetch({ wallet = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', tokenIds = [1], directoryAgents = null } = {}) {
+  const ownedWallet = wallet.toLowerCase();
+  return async function fetchImpl(url) {
+    const value = String(url);
+    if (value.endsWith('/agents?limit=1000&page=1')) {
+      return new Response(JSON.stringify({
+        page: 1,
+        pages: 1,
+        agents: directoryAgents ?? [
+          { tokenId: 81, name: 'Quigbot', owner: '0x1111111111111111111111111111111111111111' },
+          ...tokenIds.map((tokenId) => ({ tokenId, name: tokenId === 1 ? 'Bendr 2.0' : `Agent #${tokenId}`, owner: ownedWallet })),
+        ],
+      }), { status: 200 });
+    }
+    if (value.endsWith('/agent/1')) {
+      return new Response(JSON.stringify({
+        tokenId: 1,
+        name: 'Bendr 2.0',
+        framework: 'openclaw',
+        owner: wallet,
+        verified: true,
+        credScore: 65,
+        services: { web: { url: 'https://helixa.xyz/agent/1' } },
+        metadata: { framework: 'openclaw' },
+        intuition: { status: 'published', label: 'Published', canonicalAgentId: '8453:18531' },
+      }), { status: 200 });
+    }
+    if (value.endsWith('/agent/7')) {
+      return new Response(JSON.stringify({
+        tokenId: 7,
+        name: 'Wallet Seven',
+        framework: 'custom',
+        owner: wallet,
+        verified: true,
+        credScore: 72,
+        services: { web: { url: 'https://helixa.xyz/agent/7' } },
+        metadata: { framework: 'custom' },
+      }), { status: 200 });
+    }
+    throw new Error(`Unexpected console URL ${url}`);
+  };
+}
+
 function fillGroupActivationForm(root, overrides = {}) {
   if (!root.querySelector('[data-role="group-activation-form"]')) {
     root.querySelector('[data-action="show-group-activation"]')?.click();
@@ -1705,29 +1748,32 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(consolePage.querySelectorAll('.console-graph-ring').length, 5);
   assert.equal(consolePage.querySelectorAll('.console-graph-lines line').length, 0);
   assert.equal(consolePage.querySelectorAll('.console-tier-strip span').length, 5);
-  assert.equal(consolePage.querySelectorAll('.console-graph-marker').length, 20);
+  assert.equal(consolePage.querySelectorAll('.console-graph-marker').length, 5);
+  assert.equal(consolePage.querySelectorAll('.console-graph-marker.agent-marker').length, 0);
   assert.equal(consolePage.querySelectorAll('.console-graph-guide-dot').length, 18);
   assert.equal(consolePage.querySelectorAll('.console-graph-list article').length, 5);
   assert.equal(consolePage.querySelectorAll('#console-signals').length, 0);
   assert.equal(consolePage.querySelectorAll('.console-signal-grid article').length, 0);
-  assert.match(consolePage.textContent, /Prime/);
-  assert.match(consolePage.textContent, /Cred ring: Prime/);
+  assert.doesNotMatch(consolePage.textContent, /Cred ring: Prime|Cred tier: Prime/);
+  assert.match(consolePage.textContent, /Awaiting score/);
   assert.match(consolePage.textContent, /AgentDNA/);
   assert.match(consolePage.textContent, /Intuition/);
-  assert.match(consolePage.textContent, /8453:1/);
+  assert.match(consolePage.textContent, /Connect wallet/);
   assert.match(consolePage.textContent, /Proof/);
   assert.doesNotMatch(consolePage.textContent, /Routes/);
   assert.doesNotMatch(consolePage.textContent, /Trust checks/);
   assert.doesNotMatch(consolePage.textContent, /Identity proof/);
   assert.doesNotMatch(consolePage.textContent, /Public routes/);
-  assert.match(consolePage.textContent, /Agent records/i);
+  assert.match(consolePage.textContent, /Wallet-owned agents/i);
+  assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
   assert.match(consolePage.textContent, /Agent mission/);
   assert.match(consolePage.textContent, /Approval gate/);
   assert.match(consolePage.textContent, /No recalled mission yet/);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
-  assert.ok(consolePage.querySelector('a[href="/multipass/?agent=1"]'));
+  assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.ok(root.querySelector('.live-resolver'));
   assert.doesNotMatch(consolePage.textContent, /Loopers|NFT dashboard|Legendary/i);
@@ -1751,15 +1797,23 @@ test('dedicated Console route connects wallet and shows the active identity', as
     },
   });
 
-  await createApp({ root, loadDemo: async () => sampleData(), walletClient }).start();
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch(),
+  }).start();
   root.querySelector('[data-action="connect-console-wallet"]').click();
-  await flushAsyncEvents();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushAsyncEvents(20);
 
   assert.deepEqual(calls, [['connect']]);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Active/);
   assert.match(root.querySelector('.console-trust-graph-card')?.textContent ?? '', /Bound/);
+  assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Bendr 2\.0/);
+  assert.equal(root.querySelectorAll('.console-graph-marker.agent-marker').length, 1);
 });
 
 test('dedicated Console route sends wallet-scoped agent thread messages', async () => {
@@ -1778,6 +1832,7 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
     root,
     loadDemo: async () => sampleData(),
     walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch(),
     claimApi: {
       sendConsoleAgentMessage: async (input) => {
         calls.push(input);
@@ -1810,6 +1865,7 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].wallet, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.equal(calls[0].agentId, '1');
   assert.equal(calls[0].message, 'Watch NVDAx and Base agent tokens.');
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
   assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
@@ -1837,12 +1893,22 @@ test('dedicated Console route accepts Base smart wallet identity snapshots', asy
     },
   });
 
-  await createApp({ root, loadDemo: async () => sampleData(), walletClient }).start();
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({
+      wallet: '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE',
+      tokenIds: [7],
+    }),
+  }).start();
   root.querySelector('[data-action="connect-console-wallet"]').click();
-  await flushAsyncEvents();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushAsyncEvents(20);
 
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x709D\.\.\.44aE/);
+  assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Wallet Seven/);
   assert.equal(root.querySelector('[data-action="connect-looper-mint-wallet"]'), null);
 });
 

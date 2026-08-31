@@ -9,6 +9,7 @@ import {
   createLiveMarketplaceListing,
   fetchHelixaAgent,
   fetchHelixaAgentDirectory,
+  fetchOwnedHelixaAgents,
   loadLiveHelixaMultipass,
   mapHelixaAgentToMultipassDemo,
   parseHelixaResolverInput,
@@ -104,6 +105,55 @@ test('fetchHelixaAgentDirectory requests the public directory without private he
   assert.equal(calls[0].options?.credentials, 'omit');
   assert.deepEqual(Object.keys(calls[0].options?.headers ?? {}), ['Accept']);
   assert.deepEqual(directory, [{ tokenId: 1, name: 'Bendr 2.0' }]);
+});
+
+test('fetchOwnedHelixaAgents filters the live directory by owner wallet and hydrates real agent cards', async () => {
+  const calls = [];
+  const agents = await fetchOwnedHelixaAgents('0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith('/agents?limit=1000&page=1')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          page: 1,
+          pages: 2,
+          agents: [
+            { tokenId: 81, name: 'Quigbot', owner: '0x1111111111111111111111111111111111111111' },
+          ],
+        }),
+      };
+    }
+    if (url.endsWith('/agents?limit=1000&page=2')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          page: 2,
+          pages: 2,
+          agents: [
+            { tokenId: 1, name: 'Bendr 2.0', owner: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea' },
+          ],
+        }),
+      };
+    }
+    if (url.endsWith('/agent/1')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify(await bendrFixture()) };
+    }
+    throw new Error(`unexpected ${url}`);
+  });
+
+  assert.equal(calls[0].url, 'https://api.helixa.xyz/api/v2/agents?limit=1000&page=1');
+  assert.equal(calls[1].url, 'https://api.helixa.xyz/api/v2/agents?limit=1000&page=2');
+  assert.equal(calls[2].url, 'https://api.helixa.xyz/api/v2/agent/1');
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].name, 'Bendr 2.0');
+  assert.equal(agents[0].tokenId, '1');
+  assert.equal(agents[0].helixaId, '8453:1');
+  assert.equal(agents[0].state, 'Owned by connected wallet');
+  assert.equal(agents[0].href, '/multipass/?agent=1');
+  assert.equal(agents[0].image, 'https://api.helixa.xyz/api/v2/aura/1.png');
+  assert.ok(agents[0].proofCount > 0);
 });
 
 test('loadLiveHelixaMultipass resolves exact names through directory lookup', async () => {

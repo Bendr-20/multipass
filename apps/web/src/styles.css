@@ -4705,6 +4705,12 @@ h1 {
   text-decoration: underline;
 }
 
+.console-agent-error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-weight: 800;
+}
+
 .console-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5421,12 +5427,12 @@ h1 {
   object-fit: cover;
 }
 
-.console-graph-marker.agent-small {
+.console-graph-marker[class~="agent-small"] {
   width: 34px;
   height: 34px;
 }
 
-.console-graph-marker.agent-medium {
+.console-graph-marker[class~="agent-medium"] {
   width: 42px;
   height: 42px;
 }

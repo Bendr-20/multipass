@@ -107,11 +107,13 @@ const TRUST_GRAPH_GUIDE_DOT_LAYOUT = [
 ];
 
 export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents = [] } = {}) {
-  const profile = data.profile ?? {};
   const wallet = state.walletSnapshot ?? {};
+  const agentRoster = state.consoleOwnedAgents ?? { status: 'idle', error: null, agents: [] };
   const walletConnected = Boolean(wallet.connected && wallet.address);
-  const publicProofCount = countPublicFragments(data);
-  const activeAgents = agents.length ? agents : createFallbackAgents(data);
+  const activeAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
+  const activeAgent = activeAgents[0] ?? {};
+  const activeAgentCount = activeAgents.length;
+  const publicProofCount = Number.isFinite(activeAgent.proofCount) ? activeAgent.proofCount : 0;
   const connectedWallet = walletConnected
     ? shortenAddress(wallet.address)
     : (wallet.configured === false ? 'Wallet unavailable' : 'Not connected');
@@ -120,18 +122,28 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
   const flowState = createFlowState({ walletConnected, agentThread });
   const savedMemoryCount = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory.length : 0;
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
-  const routeCount = countPublicRoutes(data);
-  const standardsCount = countStandards(data);
-  const activeAgentLabel = activeAgents[0]?.name ?? profile.display_name ?? 'Agent slot';
-  const activeAgent = activeAgents[0] ?? {};
-  const activeScore = normalizeCredScore(activeAgent.credScore ?? profile.cred_summary?.score);
+  const routeCount = Number.isFinite(activeAgent.routeCount) ? activeAgent.routeCount : 0;
+  const standardsCount = Number.isFinite(activeAgent.standardsCount) ? activeAgent.standardsCount : 0;
+  const activeAgentLabel = activeAgent.name
+    ?? (walletConnected
+      ? agentRoster.status === 'loading'
+        ? 'Loading owned agents'
+        : 'No owned agents found'
+      : 'Agent slot');
+  const activeScore = normalizeCredScore(activeAgent.credScore);
   const activeTier = getCredTier(activeScore);
   const activeCred = activeAgent.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
-  const nextAction = createNextAction({ walletConnected, agentThread, proposalCount });
+  const nextAction = createNextAction({
+    walletConnected,
+    agentThread,
+    proposalCount,
+    activeAgentCount,
+    agentRosterStatus: agentRoster.status,
+  });
   const trustGraph = createTrustGraphModel({
-    data,
     walletConnected,
     connectedWallet,
+    agentRosterStatus: agentRoster.status,
     activeAgents,
     activeAgent,
     activeAgentLabel,
@@ -143,7 +155,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     proposalCount,
     routeCount,
     standardsCount,
-    activeAgentCount: activeAgents.length,
+    activeAgentCount,
   });
   const signalModules = createSignalModules({
     walletConnected,
@@ -175,8 +187,8 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     status: [
       { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
+      { label: 'Agents', value: walletConnected ? formatOwnedAgentStatus(activeAgentCount, agentRoster.status) : 'Connect first' },
       { label: 'Cred', value: activeCred },
-      { label: 'Proof', value: publicProofCount },
       { label: 'Approval', value: 'Human review' },
     ],
     flowSteps: FLOW_STEPS.map((step) => ({
@@ -186,7 +198,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     identityCard: {
       label: 'Your agent',
       name: activeAgentLabel,
-      role: activeAgent.role ?? profile.subject_type ?? 'Onchain agent',
+      role: activeAgent.role ?? 'Onchain agent',
       image: activeAgent.image ?? '/multipass/og-bendr-profile-capture.png',
       walletLabel: walletConnected ? connectedWallet : 'Wallet required',
       walletConnected,
@@ -200,7 +212,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
       },
       stats: [
         { label: 'Cred', value: activeCred },
-        { label: 'State', value: walletConnected ? 'Active' : 'Standby' },
+        { label: 'State', value: activeAgentCount ? 'Active' : (walletConnected ? 'No owned agent' : 'Standby') },
         { label: 'Memory', value: savedMemoryCount || 'Ready' },
       ],
     },
@@ -213,18 +225,21 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     operatorSlot: {
       label: walletConnected ? activeAgentLabel : 'Agent slot',
-      state: walletConnected ? 'Active' : 'Inactive',
-      copy: walletConnected
+      state: activeAgentCount ? 'Active' : 'Inactive',
+      copy: activeAgentCount
         ? 'Identity attached.'
-        : 'Wallet required.',
+        : walletConnected
+          ? 'No wallet-owned agent loaded yet.'
+          : 'Wallet required.',
     },
     agents: activeAgents.slice(0, 5).map((agent) => ({
-      name: agent.name ?? profile.display_name ?? 'Onchain agent',
+      name: agent.name ?? 'Onchain agent',
       role: agent.role ?? agent.framework ?? 'Agent profile',
       cred: agent.credLabel ?? (agent.credScore === null || agent.credScore === undefined ? 'Cred pending' : `Cred ${agent.credScore}`),
-      state: agent.verified ? 'Verified profile' : 'Review needed',
+      state: agent.state ?? (agent.verified ? 'Verified profile' : 'Review needed'),
       href: agent.href ?? null,
     })),
+    agentRoster,
     memoryCells: DEFAULT_MEMORY_CELLS,
     missionLanes: DEFAULT_MISSION_LANES,
     signalModules,
@@ -293,11 +308,12 @@ export function renderMultipassConsole(snapshot = {}) {
       <section id="console-agents" class="console-panel console-agent-panel" aria-label="Onchain agents">
         <div class="console-panel-heading">
           <p class="card-label">Agents</p>
-          <h2>Agent records</h2>
+          <h2>Wallet-owned agents</h2>
         </div>
         <div class="console-agent-list">
-          ${(snapshot.agents ?? []).map(renderAgentCard).join('')}
+          ${renderAgentRoster(snapshot)}
         </div>
+        ${snapshot.agentRoster?.error ? `<p class="console-agent-error">${escapeHtml(snapshot.agentRoster.error)}</p>` : ''}
       </section>
     </main>
   `;
@@ -305,13 +321,17 @@ export function renderMultipassConsole(snapshot = {}) {
 
 function createAgentThreadSnapshot(state = {}) {
   const wallet = state.walletSnapshot ?? {};
+  const agentRoster = state.consoleOwnedAgents ?? {};
   const connected = Boolean(wallet.connected && wallet.address);
+  const ownedAgents = Array.isArray(agentRoster.agents) ? agentRoster.agents.length : 0;
   const thread = state.consoleAgentThread ?? {};
   const latestAgentMessage = thread.messages?.findLast?.((message) => message.role === 'agent');
   const hasRuntimeProof = Boolean(thread.messages?.length || thread.proposals?.length || thread.savedMemory?.length);
+  const loadingAgents = agentRoster.status === 'loading';
+  const rosterError = agentRoster.error ?? null;
   return {
     status: thread.status ?? 'idle',
-    disabled: !connected,
+    disabled: !connected || loadingAgents || ownedAgents === 0,
     error: thread.error ?? null,
     transport: thread.transport ?? 'XMTP-ready',
     memoryProvider: thread.memoryProvider ?? 'Sibyl-ready',
@@ -329,9 +349,15 @@ function createAgentThreadSnapshot(state = {}) {
       ? 'Saved. Proposal queue updated.'
       : thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
-      : connected
-        ? 'Ready for mission input.'
-        : 'Wallet required.',
+      : !connected
+        ? 'Wallet required.'
+      : loadingAgents
+        ? 'Loading wallet-owned agents.'
+      : rosterError
+        ? 'Could not load wallet-owned agents.'
+      : ownedAgents === 0
+        ? 'No Helixa agents found for this wallet.'
+        : 'Ready for mission input.',
   };
 }
 
@@ -343,7 +369,7 @@ function createFlowState({ walletConnected, agentThread }) {
   const hasAgentBriefing = agentThread.messages?.some?.((message) => message.role === 'agent');
   return {
     wallet: walletConnected,
-    agent: walletConnected,
+    agent: walletConnected && !agentThread.disabled,
     mission: messageCount > 0 || savedMemoryCount > 0,
     memory: savedMemoryCount > 0,
     briefing: Boolean(hasAgentBriefing || agentThread.sessionReset || recalledMemoryCount > 0),
@@ -537,6 +563,34 @@ function renderStatusItem(item = {}) {
   return `<div><dt>${escapeHtml(item.label ?? '')}</dt><dd>${escapeHtml(item.value ?? '')}</dd></div>`;
 }
 
+function renderAgentRoster(snapshot = {}) {
+  const agents = Array.isArray(snapshot.agents) ? snapshot.agents : [];
+  if (agents.length) return agents.map(renderAgentCard).join('');
+
+  const status = snapshot.agentRoster?.status ?? 'idle';
+  let title = 'Connect a wallet';
+  let body = 'The Console only loads real Helixa agents owned by the connected wallet.';
+  if (status === 'loading') {
+    title = 'Loading owned agents';
+    body = 'Checking the live Helixa directory for agents owned by this wallet.';
+  } else if (status === 'loaded') {
+    title = 'No owned agents found';
+    body = 'This wallet does not currently own a live Helixa agent record.';
+  } else if (status === 'error') {
+    title = 'Agent load failed';
+    body = 'The live ownership lookup failed, so the Console is refusing to invent a roster.';
+  }
+
+  return `
+    <article class="console-agent-card console-agent-card-empty">
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(body)}</span>
+      </div>
+    </article>
+  `;
+}
+
 function renderAgentCard(agent = {}) {
   const openLink = agent.href ? `<a href="${escapeAttribute(agent.href)}">Open profile</a>` : '<span>Profile pending</span>';
   return `
@@ -589,26 +643,31 @@ function countPublicFragments(data = {}) {
     : 0;
 }
 
-function createFallbackAgents(data = {}) {
-  const card = data.card ?? {};
-  const profile = data.profile ?? {};
-  const name = card.name ?? profile.display_name;
-  if (!name) return [];
-  return [{
-    name,
-    role: profile.subject_type ?? 'agent',
-    credScore: profile.cred_summary?.score ?? null,
-    verified: card.trust_summary?.identity_status === 'verified',
-  }];
-}
-
-function createNextAction({ walletConnected = false, agentThread = {}, proposalCount = 0 } = {}) {
+function createNextAction({ walletConnected = false, agentThread = {}, proposalCount = 0, activeAgentCount = 0, agentRosterStatus = 'idle' } = {}) {
   const messageCount = Array.isArray(agentThread.messages) ? agentThread.messages.length : 0;
   const savedMemoryCount = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory.length : 0;
   if (!walletConnected) {
     return {
       title: 'Connect wallet',
       body: 'Agent identity, memory, and review state stay tied to your wallet.',
+    };
+  }
+  if (agentRosterStatus === 'loading') {
+    return {
+      title: 'Loading agents',
+      body: 'Checking the live Helixa directory for wallet-owned agents.',
+    };
+  }
+  if (agentRosterStatus === 'error') {
+    return {
+      title: 'Retry agent load',
+      body: 'Live ownership lookup failed, so the Console is not showing a synthetic roster.',
+    };
+  }
+  if (activeAgentCount === 0) {
+    return {
+      title: 'No owned agents',
+      body: 'This wallet needs a real Helixa agent record before the Console can attach a mission.',
     };
   }
   if (proposalCount > 0) {
@@ -630,9 +689,9 @@ function createNextAction({ walletConnected = false, agentThread = {}, proposalC
 }
 
 function createTrustGraphModel({
-  data = {},
   walletConnected = false,
   connectedWallet = 'Not connected',
+  agentRosterStatus = 'idle',
   activeAgents = [],
   activeAgent = {},
   activeAgentLabel = 'Agent slot',
@@ -642,22 +701,17 @@ function createTrustGraphModel({
   publicProofCount = 0,
   savedMemoryCount = 0,
   proposalCount = 0,
-  routeCount = countPublicRoutes(data),
-  standardsCount = countStandards(data),
+  routeCount = 0,
+  standardsCount = 0,
   activeAgentCount = 0,
 } = {}) {
-  const profile = data.profile ?? {};
-  const card = data.card ?? {};
-  const proofState = publicProofCount === 1 ? '1 public fragment' : `${publicProofCount} public fragments`;
+  const proofState = publicProofCount === 1 ? '1 live signal' : `${publicProofCount} live signals`;
   const ownerState = walletConnected
     ? `Bound ${connectedWallet}`
-    : formatGraphState(profile.owner_summary?.owner_state ?? 'unclaimed');
+    : 'Awaiting wallet';
   const agentDnaState = activeAgent.helixaId
-    ?? (activeAgent.tokenId === null || activeAgent.tokenId === undefined ? null : `8453:${activeAgent.tokenId}`)
-    ?? firstStandardId(data)
-    ?? 'ERC-8004 ready';
-  const intuitionState = formatIntuitionState(activeAgent.intuition ?? card.intuition);
-  const credState = activeTier ? `${activeCred} / ${activeTier}` : activeCred;
+    ?? (walletConnected ? 'No owned agent' : 'Connect wallet');
+  const intuitionState = formatIntuitionState(activeAgent.intuition);
   const memoryState = savedMemoryCount
     ? `${savedMemoryCount} saved`
     : 'Memory ready';
@@ -676,12 +730,21 @@ function createTrustGraphModel({
     active: tier.label === activeTier,
   }));
   const { markers, guideDots } = createTrustGraphField({ activeAgents, nodes });
+  const summary = !walletConnected
+    ? 'Connect a wallet to load real owned agents into the graph.'
+    : agentRosterStatus === 'loading'
+      ? 'Loading real wallet-owned agents from the live Helixa directory.'
+      : activeAgentCount === 0
+        ? 'No live wallet-owned agents were found, so the Console is not inventing halo members.'
+        : activeAgentCount === 1
+          ? 'Live wallet-owned field. The halo shows the connected wallet and the active agent only.'
+          : `Live wallet-owned field. The halo only shows agents owned by this wallet (${activeAgentCount} loaded).`;
 
   return {
     label: 'Trust Graph v2',
     center: activeAgentLabel,
     state: activeTier ? `Cred ring: ${activeTier}` : 'Awaiting score',
-    summary: 'Dense old-site field. The halo shows nearby agents and support context; the highlighted ring shows where this profile lands.',
+    summary,
     nodes,
     markers,
     guideDots,
@@ -703,8 +766,8 @@ function createTrustGraphField({ activeAgents = [], nodes = [] } = {}) {
     };
   });
   const roster = expandGraphRoster(activeAgents, TRUST_GRAPH_AGENT_LAYOUT.length);
-  const agentMarkers = TRUST_GRAPH_AGENT_LAYOUT.map((slot, index) => {
-    const agent = roster[index] ?? {};
+  const agentMarkers = roster.map((agent, index) => {
+    const slot = TRUST_GRAPH_AGENT_LAYOUT[index] ?? TRUST_GRAPH_AGENT_LAYOUT[TRUST_GRAPH_AGENT_LAYOUT.length - 1];
     return {
       ...slot,
       label: getGraphMarkerLabel(agent.name ?? `Agent ${index + 1}`),
@@ -725,7 +788,7 @@ function createTrustGraphField({ activeAgents = [], nodes = [] } = {}) {
 function expandGraphRoster(agents = [], count = 0) {
   const roster = agents.filter(Boolean);
   if (!roster.length || count <= 0) return [];
-  return Array.from({ length: count }, (_, index) => roster[index % roster.length]);
+  return roster.slice(0, count);
 }
 
 function getSupportGlyph(key) {
@@ -856,6 +919,13 @@ function formatGraphState(value) {
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ');
+}
+
+function formatOwnedAgentStatus(count, status) {
+  if (status === 'loading') return 'Loading...';
+  if (status === 'error') return 'Lookup failed';
+  if (count === 0) return '0 owned';
+  return `${count} owned`;
 }
 
 function normalizeCredScore(value) {

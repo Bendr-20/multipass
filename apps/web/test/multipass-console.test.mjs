@@ -36,10 +36,13 @@ function sampleAgents() {
       credScore: 80,
       helixaId: '8453:1',
       intuition: { label: 'Published', canonicalAgentId: '8453:18531' },
+      proofCount: 2,
+      routeCount: 1,
+      standardsCount: 1,
       verified: true,
       href: '/multipass/?agent=1',
     },
-    { name: 'Quigbot', role: 'Strategy agent', credScore: 75, verified: true, href: '/multipass/?agent=81' },
+    { name: 'Quigbot', role: 'Strategy agent', credScore: 75, proofCount: 1, routeCount: 1, standardsCount: 1, verified: true, href: '/multipass/?agent=81' },
   ];
 }
 
@@ -51,7 +54,10 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   const snapshot = createMultipassConsoleSnapshot({
     data: sampleData(),
     agents: sampleAgents(),
-    state: { walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' } },
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+    },
   });
 
   assert.equal(snapshot.title, 'Multipass Console');
@@ -61,28 +67,28 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.nextAction.title, 'Save mission');
   assert.match(snapshot.nextAction.body, /watch/i);
   assert.equal(snapshot.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
+  assert.equal(snapshot.status.find((item) => item.label === 'Agents')?.value, '2 owned');
   assert.equal(snapshot.status.find((item) => item.label === 'Cred')?.value, 'Cred 80');
   assert.equal(snapshot.status.find((item) => item.label === 'Approval')?.value, 'Human review');
   assert.equal(snapshot.wallet.label, '0x1234...5678');
   assert.equal(snapshot.wallet.connected, true);
-  assert.equal(snapshot.status.find((item) => item.label === 'Proof')?.value, 2);
   assert.deepEqual(snapshot.flowSteps.map((step) => step.label), ['Wallet', 'Agent', 'Mission', 'Memory', 'Briefing', 'Proposal']);
   assert.equal(snapshot.flowSteps.find((step) => step.label === 'Wallet')?.state, 'done');
   assert.equal(snapshot.identityCard.label, 'Your agent');
   assert.equal(snapshot.identityCard.name, 'Bendr 2.0');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
   assert.equal(snapshot.trustGraph.label, 'Trust Graph v2');
-  assert.match(snapshot.trustGraph.summary, /dense old-site field/i);
-  assert.match(snapshot.trustGraph.summary, /halo shows nearby agents/i);
+  assert.match(snapshot.trustGraph.summary, /wallet-owned field/i);
+  assert.match(snapshot.trustGraph.summary, /2 loaded/i);
   assert.equal(snapshot.trustGraph.activeTier, 'Prime');
   assert.equal(snapshot.trustGraph.state, 'Cred ring: Prime');
   assert.equal(snapshot.trustGraph.nodes.length, 5);
-  assert.equal(snapshot.trustGraph.markers.length, 20);
+  assert.equal(snapshot.trustGraph.markers.length, 7);
   assert.equal(snapshot.trustGraph.guideDots.length, 18);
   assert.equal(snapshot.trustGraph.tiers.length, 5);
   assert.equal(snapshot.trustGraph.tiers.find((tier) => tier.label === 'Prime')?.active, true);
   assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'AgentDNA')?.state, '8453:1');
-  assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Proof')?.state ?? '', /2 public fragments/);
+  assert.match(snapshot.trustGraph.nodes.find((node) => node.label === 'Proof')?.state ?? '', /2 live signals/);
   assert.equal(snapshot.trustGraph.nodes.find((node) => node.label === 'Routes'), undefined);
   assert.equal(snapshot.signalChart.label, 'Graph checks');
   assert.equal(snapshot.signalChart.title, 'Trust checks');
@@ -108,7 +114,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelectorAll('.console-trust-stage .console-signal-chart-card').length, 0);
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
   assert.ok(root.querySelector('.console-graph-core'));
-  assert.equal(root.querySelectorAll('.console-graph-marker').length, 20);
+  assert.equal(root.querySelectorAll('.console-graph-marker').length, 7);
   assert.equal(root.querySelectorAll('.console-graph-guide-dot').length, 18);
   assert.equal(root.querySelectorAll('.console-graph-lines line').length, 0);
   assert.equal(root.querySelectorAll('.console-graph-ring').length, 5);
@@ -129,11 +135,11 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Intuition/);
   assert.match(text, /8453:1/);
   assert.match(text, /Proof/);
-  assert.match(text, /2 public fragments/);
+  assert.match(text, /2 live signals/);
   assert.doesNotMatch(text, /Trust checks/);
   assert.doesNotMatch(text, /Identity proof/);
   assert.doesNotMatch(text, /Public routes/);
-  assert.match(text, /Dense old-site field/);
+  assert.match(text, /Connect a wallet to load real owned agents into the graph/);
   assert.match(text, /Cred tier: Prime/);
   assert.match(text, /Memory/);
   assert.match(text, /Mission lanes/);
@@ -145,6 +151,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /XMTP-ready/);
   assert.match(text, /Approval gate/);
   assert.match(text, /Recall/);
+  assert.match(text, /Wallet-owned agents/);
   assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching|signals feed/i);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button')?.disabled, true);
@@ -161,6 +168,7 @@ test('Multipass Console renderer includes agent runtime messages and review-only
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
       consoleAgentThread: {
         status: 'received',
         transport: 'xmtp_ready',
@@ -204,6 +212,7 @@ test('Multipass Console renderer shows fresh-session recall after client reset',
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
       consoleAgentThread: {
         status: 'reset',
         sessionReset: true,

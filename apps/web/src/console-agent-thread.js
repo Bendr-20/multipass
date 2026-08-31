@@ -5,7 +5,7 @@ export function renderConsoleAgentThread(thread = {}) {
       role: 'agent',
       text: thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
-        : 'Wallet required.',
+        : (thread.summary ?? 'Wallet required.'),
       transport: 'console',
     }];
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];

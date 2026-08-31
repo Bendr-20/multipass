@@ -5,6 +5,8 @@ const HELIXA_AGENT_API_BASE = 'https://api.helixa.xyz/api/v2/agent';
 const HELIXA_METADATA_API_BASE = 'https://api.helixa.xyz/api/v2/metadata';
 const HELIXA_AURA_API_BASE = 'https://api.helixa.xyz/api/v2/aura';
 const HELIXA_AGENTS_DIRECTORY_URL = 'https://api.helixa.xyz/api/v2/agents?limit=100';
+const HELIXA_CONSOLE_AGENTS_DIRECTORY_LIMIT = 1000;
+const HELIXA_CONSOLE_AGENTS_MAX_PAGES = 10;
 
 export class HelixaResolverError extends Error {
   constructor(code, message, details = {}) {
@@ -61,6 +63,44 @@ export async function fetchHelixaAgentDirectory(fetchImpl = fetch) {
   return body['agents'];
 }
 
+export async function fetchOwnedHelixaAgents(ownerWallet, fetchImpl = fetch) {
+  const normalizedOwnerWallet = normalizeWalletForMatch(ownerWallet);
+  if (!normalizedOwnerWallet) {
+    throw new HelixaResolverError('invalid_wallet', 'Connect a valid EVM wallet to load owned agents.');
+  }
+
+  const directoryAgents = await fetchConsoleAgentDirectory(fetchImpl);
+
+  const ownedAgents = directoryAgents
+    .filter((agent) => matchesOwnedWallet(agent, normalizedOwnerWallet))
+    .sort(compareAgentTokenIds);
+
+  return Promise.all(
+    ownedAgents.map(async (agent) => mapHelixaAgentToConsoleCard(await fetchHelixaAgent(agent.tokenId, fetchImpl))),
+  );
+}
+
+async function fetchConsoleAgentDirectory(fetchImpl) {
+  const agents = [];
+  for (let page = 1; page <= HELIXA_CONSOLE_AGENTS_MAX_PAGES; page += 1) {
+    const body = await fetchHelixaJson(getConsoleAgentsDirectoryUrl(page), fetchImpl, 'GET Helixa agents failed');
+    if (!Array.isArray(body?.['agents'])) {
+      throw new HelixaResolverError('invalid_json', 'Helixa returned a directory response Multipass cannot read yet.');
+    }
+
+    agents.push(...body['agents']);
+
+    const reportedPages = Number(body.pages);
+    if (Number.isFinite(reportedPages) && page >= reportedPages) break;
+    if (!Number.isFinite(reportedPages) && body['agents'].length < HELIXA_CONSOLE_AGENTS_DIRECTORY_LIMIT) break;
+  }
+  return agents;
+}
+
+function getConsoleAgentsDirectoryUrl(page) {
+  return `https://api.helixa.xyz/api/v2/agents?limit=${HELIXA_CONSOLE_AGENTS_DIRECTORY_LIMIT}&page=${encodeURIComponent(page)}`;
+}
+
 async function fetchHelixaJson(url, fetchImpl, failurePrefix) {
   let response;
   try {
@@ -89,6 +129,23 @@ async function fetchHelixaJson(url, fetchImpl, failurePrefix) {
   } catch (error) {
     throw new HelixaResolverError('invalid_json', 'Helixa returned a response Multipass cannot read yet.', { cause: error.message });
   }
+}
+
+function normalizeWalletForMatch(value) {
+  const wallet = String(value ?? '').trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(wallet) ? wallet : null;
+}
+
+function matchesOwnedWallet(agent, normalizedOwnerWallet) {
+  const owner = normalizeWalletForMatch(agent?.owner ?? agent?.ownerAddress);
+  return Boolean(owner && owner === normalizedOwnerWallet);
+}
+
+function compareAgentTokenIds(left, right) {
+  const leftValue = Number(left?.tokenId);
+  const rightValue = Number(right?.tokenId);
+  if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) return leftValue - rightValue;
+  return String(left?.tokenId ?? '').localeCompare(String(right?.tokenId ?? ''));
 }
 
 export function mapHelixaAgentToMultipassDemo(agent) {
@@ -194,6 +251,40 @@ export function mapHelixaAgentToMultipassDemo(agent) {
     },
     routes: { profile: `${HELIXA_AGENT_API_BASE}/${encodeURIComponent(tokenId)}` },
   };
+}
+
+function mapHelixaAgentToConsoleCard(agent) {
+  const tokenId = String(agent?.tokenId ?? '').trim();
+  const displayName = agent?.name || (tokenId ? `Agent #${tokenId}` : 'Onchain agent');
+  const intuition = normalizeLiveIntuition(agent?.intuition);
+  const observedAt = agent?.mintedAt ?? new Date().toISOString();
+  const fragments = tokenId ? createLiveFragments(agent, tokenId, `mp_helixa_agent_${tokenId}`, observedAt) : [];
+  const publicRoutes = createPublicRoutes(agent);
+  const standards = extractStandards(agent);
+  const credScore = hasNumericCred(agent?.credScore) ? Number(agent.credScore) : null;
+
+  return {
+    name: displayName,
+    tokenId,
+    helixaId: tokenId ? `${HELIXA_CHAIN_ID}:${tokenId}` : null,
+    role: createConsoleAgentRole(agent),
+    credScore,
+    credLabel: credScore === null ? 'Cred pending' : `Cred ${credScore}`,
+    verified: Boolean(agent?.verified),
+    state: 'Owned by connected wallet',
+    href: tokenId ? `/multipass/?agent=${encodeURIComponent(tokenId)}` : null,
+    image: tokenId ? `${HELIXA_AURA_API_BASE}/${encodeURIComponent(tokenId)}.png` : null,
+    intuition,
+    proofCount: fragments.length,
+    routeCount: publicRoutes.length,
+    standardsCount: standards.length,
+  };
+}
+
+function createConsoleAgentRole(agent) {
+  const framework = String(agent?.framework ?? agent?.metadata?.framework ?? '').trim();
+  if (framework) return `${formatLabel(framework)} agent`;
+  return 'Onchain agent';
 }
 
 export async function loadLiveHelixaMultipass(input, fetchImpl = fetch) {

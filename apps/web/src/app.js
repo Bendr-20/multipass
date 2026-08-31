@@ -1,6 +1,6 @@
 import { getActivationState } from './activation.js';
 import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, isCanonicalHelixaFallbackError, loadCanonicalHelixaMultipass, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
-import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
+import { fetchOwnedHelixaAgents, HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
@@ -80,6 +80,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     looperMint: createInitialLooperMintState(),
     consoleWalletStatus: null,
     consoleWalletError: null,
+    consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
@@ -100,6 +101,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         resolveLiveAgent(resolverInput);
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
+      } else if (state.pageKind === 'console' && state.walletSnapshot.connected && state.walletSnapshot.address) {
+        await refreshConsoleOwnedAgents({ walletSnapshot: state.walletSnapshot });
       } else if (state.pageKind === 'looper_mint' && state.looperMint.enabled && state.looperMint.config?.contractAddress) {
         refreshLooperMint({ silent: true });
       }
@@ -548,8 +551,15 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         walletSnapshot,
         consoleWalletStatus: 'connected',
         consoleWalletError: null,
+        consoleOwnedAgents: {
+          status: 'loading',
+          error: null,
+          agents: [],
+        },
+        consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
+      await refreshConsoleOwnedAgents({ walletSnapshot, skipLoadingState: true });
     } catch (error) {
       state = {
         ...state,
@@ -580,6 +590,20 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       render(root, state, handlers);
       return;
     }
+    const activeConsoleAgent = getActiveConsoleAgent(state);
+    if (!activeConsoleAgent?.tokenId) {
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          status: 'error',
+          error: 'No wallet-owned Helixa agent is loaded for this session.',
+        },
+      };
+      render(root, state, handlers);
+      return;
+    }
 
     state = {
       ...state,
@@ -597,6 +621,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const result = await claimApi.sendConsoleAgentMessage({
         apiBase,
         wallet: walletSnapshot.address,
+        agentId: activeConsoleAgent.tokenId,
         message,
         fetchImpl,
       });
@@ -632,6 +657,57 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           ...state.consoleAgentThread,
           status: 'error',
           error: getWalletErrorMessage(error),
+        },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function refreshConsoleOwnedAgents({ walletSnapshot = activeWalletClient.getSnapshot(), skipLoadingState = false } = {}) {
+    if (!walletSnapshot.connected || !walletSnapshot.address) {
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+        consoleAgentThread: createInitialConsoleAgentThreadState(),
+      };
+      render(root, state, handlers);
+      return;
+    }
+
+    if (!skipLoadingState) {
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleOwnedAgents: {
+          status: 'loading',
+          error: null,
+          agents: [],
+        },
+      };
+      render(root, state, handlers);
+    }
+
+    try {
+      const agents = await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl);
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleOwnedAgents: {
+          status: 'loaded',
+          error: null,
+          agents,
+        },
+      };
+      render(root, state, handlers);
+    } catch (error) {
+      state = {
+        ...state,
+        walletSnapshot,
+        consoleOwnedAgents: {
+          status: 'error',
+          error: getWalletErrorMessage(error),
+          agents: [],
         },
       };
       render(root, state, handlers);
@@ -1433,6 +1509,22 @@ function createInitialConsoleAgentThreadState() {
     memoryProvider: 'Sibyl-ready',
     inferenceProvider: 'Bankr-ready',
   };
+}
+
+function createInitialConsoleOwnedAgentsState() {
+  return {
+    status: 'idle',
+    error: null,
+    agents: [],
+  };
+}
+
+function getConsoleDisplayAgents(state = {}) {
+  return Array.isArray(state.consoleOwnedAgents?.['agents']) ? state.consoleOwnedAgents['agents'] : [];
+}
+
+function getActiveConsoleAgent(state = {}) {
+  return getConsoleDisplayAgents(state)[0] ?? null;
 }
 
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
@@ -2334,11 +2426,7 @@ function renderProductHome(root, state, handlers = {}) {
 }
 
 function renderMultipassConsolePage(root, state, handlers = {}) {
-  const agentCarousel = createAgentCarousel(createPublicAgentGalleryData(state.data));
-  const agents = (agentCarousel.cards ?? []).map((card, index) => ({
-    ...card,
-    href: getHomepageMultipassProfileHref(card, index),
-  }));
+  const agents = getConsoleDisplayAgents(state);
   const snapshot = createMultipassConsoleSnapshot({ data: state.data, state, agents });
   root.innerHTML = `
     <div class="record-shell multipass-console-shell">
