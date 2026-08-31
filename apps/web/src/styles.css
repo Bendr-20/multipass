@@ -4540,7 +4540,8 @@ h1 {
   cursor: pointer;
 }
 
-.console-wallet-panel button:hover:not(:disabled) {
+.console-wallet-panel button:hover:not(:disabled),
+.console-next-action button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
@@ -4548,7 +4549,8 @@ h1 {
   transform: translateY(-1px);
 }
 
-.console-wallet-panel button:disabled {
+.console-wallet-panel button:disabled,
+.console-next-action button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -5058,6 +5060,18 @@ h1 {
   line-height: 1.3;
 }
 
+.console-next-action button {
+  width: fit-content;
+  border: 1px solid rgba(10, 10, 20, 0.16);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .console-status-strip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5381,6 +5395,14 @@ h1 {
   font-size: 12px;
   font-weight: 800;
   line-height: 1.25;
+}
+
+.console-graph-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
 }
 
 .console-graph-list {

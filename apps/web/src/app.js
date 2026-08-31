@@ -2821,7 +2821,9 @@ function bindProductHomeEvents(root, handlers, state) {
   bindSiteMenu(root);
   root.querySelector('[data-action="register-looper-allowlist"]')?.addEventListener('submit', (event) => handlers.registerLooperAllowlist?.(event));
   root.querySelector('[data-action="connect-looper-wallet"]')?.addEventListener('click', () => handlers.connectLooperAllowlistWallet?.());
-  root.querySelector('[data-action="connect-console-wallet"]')?.addEventListener('click', () => handlers.connectConsoleWallet?.());
+  root.querySelectorAll('[data-action="connect-console-wallet"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.connectConsoleWallet?.());
+  });
   root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
   root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
@@ -2994,7 +2996,7 @@ function renderLiveResolver(state, options = {}) {
       <form data-action="resolve-live-agent">
         <div class="live-resolver-copy">
           <p class="card-label">Activate a live agent record</p>
-          <h2>Build a Multipass from live AgentDNA data.</h2>
+          <h2>Activate an existing agent.</h2>
           <p>Enter an AgentDNA ID, ERC-8004-style ID, token ID, or agent name.</p>
         </div>
         <label>
@@ -3002,7 +3004,7 @@ function renderLiveResolver(state, options = {}) {
           <input name="agent" value="${escapeAttribute(state.resolverInput ?? '')}" placeholder="81, 8453:81, or erc8004:8453:19125" autocomplete="off" />
         </label>
         <div class="live-resolver-actions">
-          <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate Multipass'}</button>
+          <button type="submit" ${isRetryBlocked(state) ? 'disabled' : ''}>${state.resolverStatus === 'loading' ? 'Activating...' : 'Activate agent'}</button>
           ${showGroupActivationButton ? '<button type="button" class="activate-swarm-button" data-action="show-group-activation">Activate Swarm</button>' : ''}
           ${showResetButton ? '<button type="button" data-action="reset-static-demo">Back to Multipass home</button>' : ''}
         </div>

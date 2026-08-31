@@ -1,19 +1,19 @@
 import { renderConsoleAgentThread } from './console-agent-thread.js';
 
-const CONSOLE_SAFETY_NOTE = 'Review-only console. No trades. No custody transfer. No tool authority.';
+const CONSOLE_SAFETY_NOTE = 'Your agent can brief and propose. You approve every action. No trades, custody transfer, or tool authority.';
 
 const DEFAULT_MEMORY_CELLS = [
   {
-    label: 'Identity anchor',
-    value: 'AgentDNA + owner',
+    label: 'Onchain identity',
+    value: 'Owner + agent record',
   },
   {
-    label: 'Private recall',
-    value: 'Sibyl memory',
+    label: 'Private memory',
+    value: 'Wallet-scoped recall',
   },
   {
-    label: 'Decision gate',
-    value: 'Review queue',
+    label: 'Approval gate',
+    value: 'Human review queue',
   },
 ];
 
@@ -21,17 +21,22 @@ const DEFAULT_MISSION_LANES = [
   {
     title: 'Connect',
     status: 'Wallet',
-    body: 'Scope the operator.',
+    body: 'Link the wallet that controls the session.',
   },
   {
-    title: 'Brief',
+    title: 'Load agent',
+    status: 'Agent',
+    body: 'Choose the onchain agent profile.',
+  },
+  {
+    title: 'Assign mission',
     status: 'Mission',
-    body: 'Save the mandate.',
+    body: 'Tell it what to watch and prepare.',
   },
   {
-    title: 'Approve',
+    title: 'Review',
     status: 'Proposal',
-    body: 'Keep execution separate.',
+    body: 'Approve or reject proposals yourself.',
   },
 ];
 
@@ -53,15 +58,14 @@ const DEFAULT_SIGNAL_MODULES = [
   },
 ];
 
-const DEFAULT_CONSOLE_MISSION = 'Track tokenized equities, vaults, Base agent assets, and $CRED. Review-only proposals.';
+const DEFAULT_CONSOLE_MISSION = 'Track tokenized equities, vaults, Base agent assets, and $CRED. Brief me first; keep every action for my approval.';
 
 const FLOW_STEPS = [
-  { key: 'identity', label: 'Identity' },
-  { key: 'activation', label: 'Activation' },
+  { key: 'wallet', label: 'Wallet' },
+  { key: 'agent', label: 'Agent' },
   { key: 'mission', label: 'Mission' },
   { key: 'memory', label: 'Memory' },
-  { key: 'recall', label: 'Recall' },
-  { key: 'briefing', label: 'Brief' },
+  { key: 'briefing', label: 'Briefing' },
   { key: 'proposal', label: 'Proposal' },
 ];
 
@@ -111,7 +115,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     title: 'Multipass Console',
     kicker: 'Console',
     headline: 'Multipass Console',
-    lead: 'Operator identity, mission memory, live signals, and review-only proposals in one wallet-scoped command room.',
+    lead: 'Connect your wallet, load an onchain agent, give it a mission, and review its proposals.',
     safetyNote: CONSOLE_SAFETY_NOTE,
     defaultMission: DEFAULT_CONSOLE_MISSION,
     nextAction,
@@ -125,7 +129,7 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     status: [
       { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
-      { label: 'Agents visible', value: activeAgents.length || 0 },
+      { label: 'Agent records', value: activeAgents.length || 0 },
       { label: 'Public proof', value: publicProofCount },
       { label: 'Mode', value: 'Human review' },
     ],
@@ -134,9 +138,9 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
       state: flowState[step.key] ? 'done' : 'open',
     })),
     identityCard: {
-      label: 'Operator status',
+      label: 'Your agent',
       name: activeAgentLabel,
-      role: activeAgent.role ?? profile.subject_type ?? 'Onchain operator',
+      role: activeAgent.role ?? profile.subject_type ?? 'Onchain agent',
       image: activeAgent.image ?? '/multipass/og-bendr-profile-capture.png',
       walletLabel: walletConnected ? connectedWallet : 'Wallet required',
       walletConnected,
@@ -156,14 +160,14 @@ export function createMultipassConsoleSnapshot({ data = {}, state = {}, agents =
     },
     trustGraph,
     signalChart: {
-      label: 'Signal card',
-      title: 'Mission watch',
+      label: "What it's watching",
+      title: 'Live signals',
       state: proposalCount ? `${proposalCount} review queued` : 'Watching',
       points: [28, 44, 38, 61, 56, 73, 68, 84],
       lanes: DEFAULT_SIGNAL_MODULES,
     },
     operatorSlot: {
-      label: walletConnected ? activeAgentLabel : 'Operator slot',
+      label: walletConnected ? activeAgentLabel : 'Agent slot',
       state: walletConnected ? 'Active' : 'Inactive',
       copy: walletConnected
         ? 'Identity attached.'
@@ -200,12 +204,14 @@ export function renderMultipassConsole(snapshot = {}) {
       </section>
 
       <section class="console-command-strip" aria-label="Console status">
-        ${renderNextAction(snapshot.nextAction)}
+        ${renderNextAction(snapshot.nextAction, snapshot.wallet)}
         <dl class="console-status-strip">
           ${(snapshot.status ?? []).map(renderStatusItem).join('')}
         </dl>
         ${renderFlowPanel(snapshot.flowSteps)}
       </section>
+
+      ${renderConsoleAgentThread(snapshot.agentThread)}
 
       <section class="console-control-grid" aria-label="Console controls">
         ${renderIdentityCard(snapshot.identityCard)}
@@ -213,13 +219,11 @@ export function renderMultipassConsole(snapshot = {}) {
         ${renderSignalChartCard(snapshot.signalChart)}
       </section>
 
-      ${renderConsoleAgentThread(snapshot.agentThread)}
-
       <section class="console-grid" aria-label="Console operating layers">
         <div class="console-panel">
           <div class="console-panel-heading">
             <p class="card-label">Memory</p>
-            <h2>Memory state</h2>
+            <h2>What it remembers</h2>
           </div>
           <div class="console-memory-list">
             ${(snapshot.memoryCells ?? []).map(renderMemoryCell).join('')}
@@ -306,12 +310,11 @@ function createFlowState({ walletConnected, agentThread }) {
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
   const hasAgentBriefing = agentThread.messages?.some?.((message) => message.role === 'agent');
   return {
-    identity: walletConnected,
-    activation: walletConnected,
+    wallet: walletConnected,
+    agent: walletConnected,
     mission: messageCount > 0 || savedMemoryCount > 0,
     memory: savedMemoryCount > 0,
-    recall: Boolean(agentThread.sessionReset || recalledMemoryCount > 0),
-    briefing: Boolean(hasAgentBriefing),
+    briefing: Boolean(hasAgentBriefing || agentThread.sessionReset || recalledMemoryCount > 0),
     proposal: proposalCount > 0,
   };
 }
@@ -336,12 +339,24 @@ function renderFlowStep(step = {}) {
   `;
 }
 
-function renderNextAction(action = {}) {
+function renderNextAction(action = {}, wallet = {}) {
+  const connecting = wallet.status === 'connecting';
+  const unavailable = Boolean(wallet.unavailable);
+  const ready = wallet.ready !== false;
+  const connected = Boolean(wallet.connected);
+  const buttonLabel = connecting
+    ? 'Connecting...'
+    : connected
+      ? 'Reconnect'
+      : 'Connect wallet';
   return `
     <section class="console-next-action" aria-label="Next action">
       <p class="card-label">Next</p>
       <strong>${escapeHtml(action.title ?? 'Connect wallet')}</strong>
       <span>${escapeHtml(action.body ?? 'Start the operator session.')}</span>
+      ${connected || action.title === 'Connect wallet'
+        ? `<button type="button" data-action="connect-console-wallet" ${connecting || unavailable || !ready ? 'disabled' : ''}>${escapeHtml(buttonLabel)}</button>`
+        : ''}
     </section>
   `;
 }
@@ -392,10 +407,10 @@ function renderTrustGraphCard(graph = {}) {
             <line x1="50" y1="50" x2="${escapeAttribute(edge.x)}" y2="${escapeAttribute(edge.y)}"></line>
           `).join('')}
         </svg>
-        <div class="console-graph-core">
-          <span>Profile</span>
+      <div class="console-graph-core">
+          <span>Agent</span>
           <strong>${escapeHtml(shortenLabel(graph.center ?? 'Agent'))}</strong>
-        </div>
+      </div>
         ${nodes.map((node) => `
           <article class="console-graph-node ${escapeAttribute(node.className ?? 'open')}" style="--x: ${escapeAttribute(node.x)}%; --y: ${escapeAttribute(node.y)}%;">
             <span>${escapeHtml(node.label ?? '')}</span>
@@ -403,6 +418,7 @@ function renderTrustGraphCard(graph = {}) {
           </article>
         `).join('')}
       </div>
+      ${graph.summary ? `<p class="console-graph-summary">${escapeHtml(graph.summary)}</p>` : ''}
       <div class="console-graph-list" aria-label="Trust graph edges">
         ${nodes.map((node) => `
           <article>
@@ -465,9 +481,7 @@ function renderWalletPanel(wallet = {}) {
     ? 'Connecting...'
     : connected
       ? 'Reconnect'
-      : ready
-        ? 'Connect wallet'
-        : 'Loading wallet...';
+      : 'Connect wallet';
 
   return `
     <section class="console-wallet-panel" aria-label="Wallet identity">
@@ -557,7 +571,7 @@ function createNextAction({ walletConnected = false, agentThread = {}, proposalC
   if (!walletConnected) {
     return {
       title: 'Connect wallet',
-      body: 'Operator, memory, and mission state stay wallet-scoped.',
+      body: 'Agent, memory, and mission state stay tied to your wallet.',
     };
   }
   if (proposalCount > 0) {
@@ -574,7 +588,7 @@ function createNextAction({ walletConnected = false, agentThread = {}, proposalC
   }
   return {
     title: 'Save mission',
-    body: 'Tell the operator what to watch before it prepares proposals.',
+    body: 'Tell the agent what to watch before it prepares a briefing.',
   };
 }
 
@@ -606,11 +620,11 @@ function createTrustGraphModel({
   const intuitionState = formatIntuitionState(activeAgent.intuition ?? card.intuition);
   const credState = activeTier ? `${activeCred} / ${activeTier}` : activeCred;
   const memoryState = savedMemoryCount
-    ? `${savedMemoryCount} Sibyl saved`
-    : (agentThread.memoryProvider ?? 'Sibyl-ready');
+    ? `${savedMemoryCount} saved`
+    : 'Memory ready';
   const reviewState = proposalCount
     ? `${proposalCount} queued`
-    : 'Review-only';
+    : 'Human approval';
   const routeState = routeCount
     ? `${routeCount} public route${routeCount === 1 ? '' : 's'}`
     : 'No public routes';
@@ -620,12 +634,12 @@ function createTrustGraphModel({
 
   const nodes = [
     { key: 'owner', label: 'Owner', edgeLabel: 'owner / wallet', state: ownerState, x: 16, y: 22, className: walletConnected ? 'ready' : 'open' },
-    { key: 'agentdna', label: 'AgentDNA', edgeLabel: 'identity anchor', state: agentDnaState, x: 50, y: 12, className: 'standard' },
+    { key: 'agentdna', label: 'Identity', edgeLabel: 'identity anchor', state: agentDnaState, x: 50, y: 12, className: 'standard' },
     { key: 'cred', label: 'Cred', edgeLabel: 'trust score', state: credState, x: 84, y: 22, className: 'cred' },
-    { key: 'intuition', label: 'Intuition', edgeLabel: 'identity graph', state: intuitionState, x: 84, y: 48, className: intuitionState === 'Not published' ? 'open' : 'proof' },
+    { key: 'intuition', label: 'Graph proof', edgeLabel: 'identity graph', state: intuitionState, x: 84, y: 48, className: intuitionState === 'Not published' ? 'open' : 'proof' },
     { key: 'routes', label: 'Routes', edgeLabel: 'public routes', state: routeState, x: 78, y: 76, className: routeCount ? 'route' : 'open' },
     { key: 'memory', label: 'Memory', edgeLabel: 'private recall', state: memoryState, x: 50, y: 88, className: savedMemoryCount ? 'ready' : 'runtime' },
-    { key: 'review', label: 'Review', edgeLabel: 'proposal gate', state: reviewState, x: 22, y: 76, className: proposalCount ? 'ready' : 'review' },
+    { key: 'review', label: 'Review', edgeLabel: 'approval gate', state: reviewState, x: 22, y: 76, className: proposalCount ? 'ready' : 'review' },
     { key: 'proof', label: 'Public proof', edgeLabel: 'public proof', state: proofState, x: 16, y: 48, className: publicProofCount ? 'proof' : 'open' },
   ];
 
@@ -633,6 +647,7 @@ function createTrustGraphModel({
     label: 'Trust Graph v2',
     center: activeAgentLabel,
     state: `${proofState} / ${standardsState}`,
+    summary: 'Shows who owns the agent, what public proof it has, what it can access, what it remembers, and what needs your approval.',
     nodes,
     edges: nodes.map((node) => ({
       x: node.x,
@@ -642,7 +657,7 @@ function createTrustGraphModel({
       labelY: midpoint(50, node.y),
     })),
     activeTier,
-    credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Confidence signal only; approvals stay human-gated.` : null,
+    credSummary: activeTier ? `Cred tier: ${activeTier} (${getCredTierRange(activeTier)}). Confidence signal only; you approve actions.` : null,
   };
 }
 

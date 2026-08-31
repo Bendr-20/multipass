@@ -16,7 +16,7 @@ export function renderConsoleAgentThread(thread = {}) {
     <section class="console-panel console-agent-thread-panel" aria-label="Agent thread">
       <div class="console-panel-heading">
         <p class="card-label">Mission</p>
-        <h2>Mission control</h2>
+        <h2>Agent mission</h2>
         <p>${escapeHtml(thread.summary ?? 'Ready for mission input.')}</p>
       </div>
       <div class="console-thread-status" aria-label="Agent runtime status">
@@ -30,7 +30,7 @@ export function renderConsoleAgentThread(thread = {}) {
       <form class="console-thread-composer" data-action="send-console-agent-message">
         <label>
           <span>Message</span>
-          <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Track tokenized equities, vault opportunities, and agent-asset signals. Keep proposals review-only.')}" ${disabled ? 'disabled' : ''}></textarea>
+          <textarea name="message" rows="3" placeholder="${escapeAttribute(thread.defaultMission ?? 'Track tokenized equities, vault opportunities, and agent-asset signals. Brief me first; keep every action for my approval.')}" ${disabled ? 'disabled' : ''}></textarea>
         </label>
         <div class="console-thread-actions">
           <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Saving...' : 'Save mission'}</button>
