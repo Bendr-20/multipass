@@ -43,6 +43,15 @@ export function parseServerOptions(argv = [], env = process.env) {
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
     consoleAgentBankrLlmEnabled: parseOptionalBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED, 'MULTIPASS_AGENT_BANKR_LLM_ENABLED') ?? false,
+    consoleXmtpEnabled: parseOptionalBoolean(env.MULTIPASS_XMTP_ENABLED, 'MULTIPASS_XMTP_ENABLED') ?? false,
+    consoleXmtpEnv: env.MULTIPASS_XMTP_ENV || 'production',
+    consoleXmtpWalletKey: env.MULTIPASS_XMTP_WALLET_KEY || null,
+    consoleXmtpDbPath: env.MULTIPASS_XMTP_DB_PATH || null,
+    consoleXmtpDbEncryptionKey: env.MULTIPASS_XMTP_DB_ENCRYPTION_KEY || null,
+    consoleXmtpHistorySyncUrl: env.MULTIPASS_XMTP_HISTORY_SYNC_URL || null,
+    consoleXmtpApiUrl: env.MULTIPASS_XMTP_API_URL || null,
+    consoleXmtpGatewayHost: env.MULTIPASS_XMTP_GATEWAY_HOST || null,
+    consoleXmtpAppVersion: env.MULTIPASS_XMTP_APP_VERSION || 'multipass-console',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -89,6 +98,15 @@ export async function startServer(options = {}) {
     bankrLlmKey: options.bankrLlmKey ?? null,
     bankrLlmModel: options.bankrLlmModel ?? null,
     consoleAgentBankrLlmEnabled: Boolean(options.consoleAgentBankrLlmEnabled),
+    consoleXmtpEnabled: Boolean(options.consoleXmtpEnabled),
+    consoleXmtpEnv: options.consoleXmtpEnv ?? 'production',
+    consoleXmtpWalletKey: options.consoleXmtpWalletKey ?? null,
+    consoleXmtpDbPath: options.consoleXmtpDbPath ?? null,
+    consoleXmtpDbEncryptionKey: options.consoleXmtpDbEncryptionKey ?? null,
+    consoleXmtpHistorySyncUrl: options.consoleXmtpHistorySyncUrl ?? null,
+    consoleXmtpApiUrl: options.consoleXmtpApiUrl ?? null,
+    consoleXmtpGatewayHost: options.consoleXmtpGatewayHost ?? null,
+    consoleXmtpAppVersion: options.consoleXmtpAppVersion ?? 'multipass-console',
     fetchImpl: options.fetchImpl,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
@@ -166,6 +184,15 @@ export async function startServer(options = {}) {
     bankrLlmKey: parsed.bankrLlmKey,
     bankrLlmModel: parsed.bankrLlmModel,
     consoleAgentBankrLlmEnabled: parsed.consoleAgentBankrLlmEnabled,
+    consoleXmtpEnabled: parsed.consoleXmtpEnabled,
+    consoleXmtpEnv: parsed.consoleXmtpEnv,
+    consoleXmtpWalletKey: parsed.consoleXmtpWalletKey,
+    consoleXmtpDbPath: parsed.consoleXmtpDbPath,
+    consoleXmtpDbEncryptionKey: parsed.consoleXmtpDbEncryptionKey,
+    consoleXmtpHistorySyncUrl: parsed.consoleXmtpHistorySyncUrl,
+    consoleXmtpApiUrl: parsed.consoleXmtpApiUrl,
+    consoleXmtpGatewayHost: parsed.consoleXmtpGatewayHost,
+    consoleXmtpAppVersion: parsed.consoleXmtpAppVersion,
     fetchImpl: parsed.fetchImpl,
   });
 

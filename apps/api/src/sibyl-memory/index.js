@@ -273,7 +273,11 @@ function normalizeThreadMessage(message = {}) {
     role: String(message.role ?? 'agent') === 'human' ? 'human' : 'agent',
     text,
     sentAt: String(message.sentAt ?? new Date().toISOString()),
-    transport: String(message.transport ?? 'live_chat'),
+    transport: String(message.transport ?? 'xmtp_local'),
+    ...(message.senderLabel ? { senderLabel: String(message.senderLabel) } : {}),
+    ...(message.participantId ? { participantId: String(message.participantId) } : {}),
+    ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
+    ...(message.xmtpMessageId ? { xmtpMessageId: String(message.xmtpMessageId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
   };
 }

@@ -68,12 +68,50 @@ test('console agent runtime receives a message, saves memory, and emits review-o
   });
 
   assert.equal(result.mode, 'console_agent_runtime');
-  assert.equal(result.thread.transport, 'live_chat');
+  assert.equal(result.thread.transport, 'xmtp_local');
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'fake_bankr');
   assert.equal(result.memory.saved.length, 2);
   assert.equal(result.missions[0].status, 'active');
   assert.equal(result.proposals[0].status, 'review_only');
   assert.match(result.proposals[0].risk, /No transaction authority/);
+});
+
+test('console agent runtime lets multiple agents participate in one room', async () => {
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
+    now: () => '2026-08-30T01:30:00.000Z',
+    llmClient: {
+      async generate({ participant, room, message }) {
+        return {
+          provider: 'fake_bankr',
+          text: `${participant.displayName} replying in ${room.name}: ${message}`,
+        };
+      },
+    },
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '1',
+    tokenId: '1',
+    agentName: 'Bendr 2.0',
+    roomName: 'Bendr 2.0 + 1 room',
+    participants: [
+      { tokenId: '1', agentId: '1', displayName: 'Bendr 2.0', role: 'Lead agent' },
+      { tokenId: '7', agentId: '7', displayName: 'Wallet Seven', role: 'Ops agent' },
+    ],
+    message: 'Review route health.',
+  });
+
+  assert.equal(result.room.name, 'Bendr 2.0 + 1 room');
+  assert.equal(result.room.participants.length, 2);
+  assert.equal(result.thread.transport, 'xmtp_local');
+  assert.equal(result.thread.messages.length, 3);
+  assert.deepEqual(
+    result.thread.messages.filter((entry) => entry.role === 'agent').map((entry) => entry.senderLabel),
+    ['Bendr 2.0', 'Wallet Seven'],
+  );
+  assert.match(result.proposals[0].action, /monitoring together/i);
 });
 
 test('console agent runtime appends only new thread messages between turns', async () => {

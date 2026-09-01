@@ -13,6 +13,9 @@ importers:
       '@helixa/multipass-sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@xmtp/node-sdk':
+        specifier: 6.1.0
+        version: 6.1.0
       viem:
         specifier: ^2.53.1
         version: 2.53.1(bufferutil@4.1.0)(utf-8-validate@6.0.3)(zod@4.4.3)
@@ -1467,6 +1470,21 @@ packages:
 
   '@walletconnect/window-metadata@1.0.1':
     resolution: {integrity: sha512-9koTqyGrM2cqFRW517BPY/iEtUDx2r1+Pwwu5m7sJ7ka79wi3EyqhqcICk/yDmv6jAS1rjKgTKXlEhanYjijcA==}
+
+  '@xmtp/content-type-primitives@3.0.0':
+    resolution: {integrity: sha512-gxK6+k0ywOz39LFJjrUF3fOXWXR3aAmIkF7e0rFz7c27izDimZC5E2oja9iz/CYyzDS6lf9Pm31qRcGTMSYaHg==}
+
+  '@xmtp/node-bindings@1.11.0':
+    resolution: {integrity: sha512-10uuI7OKtfuDah/bjw2mR8ABEtZ4OfZekN3YWy0rZvIyz23pcO+tjhfVmmy3wZCuOgkrFOi3e6eAKYcwTM7uJg==}
+    engines: {node: '>=22'}
+
+  '@xmtp/node-bindings@1.8.0':
+    resolution: {integrity: sha512-dyppg1pQNsEdGH13RfsbkbXdnUdjufak6ea1YahjCROgmaJClDpMHcMcSfMzoJzASanU58MwEdCgYUF638NKgw==}
+    engines: {node: '>=22'}
+
+  '@xmtp/node-sdk@6.1.0':
+    resolution: {integrity: sha512-HjuoK5+Cxo3F16CGmEQt+2oW6e2aPcapOaYyzjwHjdFqG/NYFDpxyfUCyiV6fW8XJ13L+UjasVEuLQiuGTmEGg==}
+    engines: {node: '>=22'}
 
   abitype@1.0.6:
     resolution: {integrity: sha512-MMSqYh4+C/aVqI2RQaWqbvI4Kxo5cQV40WQ4QFtDnNzCkqChm8MuENhElmynZlO0qUy/ObkEUaXtKqYnx1Kp3A==}
@@ -6086,6 +6104,19 @@ snapshots:
     dependencies:
       '@walletconnect/window-getters': 1.0.1
       tslib: 1.14.1
+
+  '@xmtp/content-type-primitives@3.0.0':
+    dependencies:
+      '@xmtp/node-bindings': 1.8.0
+
+  '@xmtp/node-bindings@1.11.0': {}
+
+  '@xmtp/node-bindings@1.8.0': {}
+
+  '@xmtp/node-sdk@6.1.0':
+    dependencies:
+      '@xmtp/content-type-primitives': 3.0.0
+      '@xmtp/node-bindings': 1.11.0
 
   abitype@1.0.6(zod@3.25.76):
     optionalDependencies:

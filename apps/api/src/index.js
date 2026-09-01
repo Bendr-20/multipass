@@ -32,6 +32,7 @@ import {
   summarizeToolsResponse,
 } from './tool-manifest.js';
 import { deriveX401ManifestFromFragments } from './x401-manifest.js';
+import { createDeferredXmtpAgentClient } from './xmtp-agent/index.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -180,6 +181,16 @@ export function createMultipassApi({
   bankrLlmKey,
   bankrLlmModel,
   consoleAgentBankrLlmEnabled = false,
+  consoleXmtpEnabled = false,
+  consoleXmtpEnv = 'production',
+  consoleXmtpWalletKey = null,
+  consoleXmtpDbPath = null,
+  consoleXmtpDbEncryptionKey = null,
+  consoleXmtpHistorySyncUrl = null,
+  consoleXmtpApiUrl = null,
+  consoleXmtpGatewayHost = null,
+  consoleXmtpAppVersion = 'multipass-console',
+  consoleXmtpClient,
   consoleAgentRuntime,
 } = {}) {
   if (!store) {
@@ -191,6 +202,17 @@ export function createMultipassApi({
     llmClient: consoleAgentBankrLlmEnabled
       ? createBankrLlmClient({ apiKey: bankrLlmKey, model: bankrLlmModel, fetchImpl }) ?? undefined
       : undefined,
+    xmtpClient: consoleXmtpClient ?? createDeferredXmtpAgentClient({
+      enabled: consoleXmtpEnabled,
+      env: consoleXmtpEnv,
+      walletKey: consoleXmtpWalletKey,
+      dbPath: consoleXmtpDbPath,
+      dbEncryptionKey: consoleXmtpDbEncryptionKey,
+      historySyncUrl: consoleXmtpHistorySyncUrl,
+      apiUrl: consoleXmtpApiUrl,
+      gatewayHost: consoleXmtpGatewayHost,
+      appVersion: consoleXmtpAppVersion,
+    }),
   });
   const context = {
     store,

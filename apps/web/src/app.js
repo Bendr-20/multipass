@@ -82,6 +82,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleWalletError: null,
     consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
     consoleSelectedAgentId: null,
+    consoleParticipantAgentIds: [],
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     walletSnapshot: activeWalletClient.getSnapshot(),
   };
@@ -558,6 +559,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           agents: [],
         },
         consoleSelectedAgentId: null,
+        consoleParticipantAgentIds: [],
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
@@ -593,6 +595,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       return;
     }
     const activeConsoleAgent = getActiveConsoleAgent(state);
+    const roomParticipants = getConsoleRoomParticipants(state);
+    const roomName = createConsoleRoomName(roomParticipants);
     if (!activeConsoleAgent?.tokenId) {
       state = {
         ...state,
@@ -626,6 +630,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         agentId: activeConsoleAgent.tokenId,
         tokenId: activeConsoleAgent.tokenId,
         agentName: activeConsoleAgent.name,
+        participants: roomParticipants,
+        roomName,
         message,
         fetchImpl,
       });
@@ -639,6 +645,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           savedMemory: result.memory?.saved ?? [],
           recalledMemory: result.memory?.recalled ?? [],
           missions: result.missions ?? [],
+          participants: result.thread?.participants ?? result.room?.participants ?? roomParticipants,
+          roomName: result.thread?.roomName ?? result.room?.name ?? roomName,
+          conversationId: result.thread?.conversationId ?? null,
           recalledMission: createConsoleRecallSummary({
             wallet: walletSnapshot.address,
             message,
@@ -673,6 +682,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         walletSnapshot,
         consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
         consoleSelectedAgentId: null,
+        consoleParticipantAgentIds: [],
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
@@ -695,6 +705,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const agents = await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl);
       const selectedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
+      const participantAgentIds = resolveConsoleParticipantAgentIds(agents, state.consoleParticipantAgentIds, selectedAgentId);
       state = {
         ...state,
         walletSnapshot,
@@ -704,6 +715,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           agents,
         },
         consoleSelectedAgentId: selectedAgentId,
+        consoleParticipantAgentIds: participantAgentIds,
         consoleAgentThread: selectedAgentId === state.consoleSelectedAgentId
           ? state.consoleAgentThread
           : createInitialConsoleAgentThreadState(),
@@ -719,6 +731,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           agents: [],
         },
         consoleSelectedAgentId: null,
+        consoleParticipantAgentIds: [],
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
@@ -728,9 +741,55 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function selectConsoleAgent(event) {
     const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
     if (tokenId === state.consoleSelectedAgentId) return;
+    const participantAgentIds = resolveConsoleParticipantAgentIds(
+      getConsoleDisplayAgents(state),
+      state.consoleParticipantAgentIds,
+      tokenId,
+    );
     state = {
       ...state,
       consoleSelectedAgentId: tokenId,
+      consoleParticipantAgentIds: participantAgentIds,
+      consoleAgentThread: createInitialConsoleAgentThreadState(),
+    };
+    render(root, state, handlers);
+  }
+
+  function activateConsoleRoom(event) {
+    const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim() || null;
+    if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
+    const participantAgentIds = resolveConsoleParticipantAgentIds(
+      getConsoleDisplayAgents(state),
+      state.consoleParticipantAgentIds,
+      tokenId,
+    );
+    state = {
+      ...state,
+      consoleSelectedAgentId: tokenId,
+      consoleParticipantAgentIds: participantAgentIds,
+      consoleAgentThread: createInitialConsoleAgentThreadState(),
+    };
+    render(root, state, handlers);
+  }
+
+  function toggleConsoleAgentRoom(event) {
+    const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
+    if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
+    const currentIds = new Set(resolveConsoleParticipantAgentIds(
+      getConsoleDisplayAgents(state),
+      state.consoleParticipantAgentIds,
+      state.consoleSelectedAgentId,
+    ));
+    if (currentIds.has(tokenId)) currentIds.delete(tokenId);
+    else currentIds.add(tokenId);
+    const participantAgentIds = resolveConsoleParticipantAgentIds(
+      getConsoleDisplayAgents(state),
+      [...currentIds],
+      state.consoleSelectedAgentId,
+    );
+    state = {
+      ...state,
+      consoleParticipantAgentIds: participantAgentIds,
       consoleAgentThread: createInitialConsoleAgentThreadState(),
     };
     render(root, state, handlers);
@@ -739,6 +798,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function resetConsoleSession() {
     const walletSnapshot = activeWalletClient.getSnapshot();
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
+    const roomParticipants = currentThread.participants?.length ? currentThread.participants : getConsoleRoomParticipants(state);
+    const roomName = String(currentThread.roomName ?? '').trim() || createConsoleRoomName(roomParticipants);
     const recalledMission = currentThread.recalledMission ?? createConsoleRecallSummary({
       wallet: walletSnapshot.address,
       missions: currentThread.missions ?? [],
@@ -756,7 +817,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         savedMemory: currentThread.savedMemory ?? [],
         recalledMemory: currentThread.recalledMemory ?? [],
         missions: currentThread.missions ?? [],
-        transport: currentThread.transport ?? 'live_chat',
+        participants: roomParticipants,
+        roomName,
+        transport: currentThread.transport ?? 'xmtp_local',
         memoryProvider: currentThread.memoryProvider ?? 'sibyl_memory',
         inferenceProvider: currentThread.inferenceProvider ?? 'local_bankr_adapter',
       },
@@ -1317,7 +1380,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1525,9 +1588,12 @@ function createInitialConsoleAgentThreadState() {
     savedMemory: [],
     recalledMemory: [],
     missions: [],
+    participants: [],
+    roomName: null,
+    conversationId: null,
     recalledMission: null,
     sessionReset: false,
-    transport: 'live_chat',
+    transport: 'xmtp_local',
     memoryProvider: 'sibyl_memory',
     inferenceProvider: 'local_bankr_adapter',
   };
@@ -1553,12 +1619,57 @@ function getActiveConsoleAgent(state = {}) {
   return agents.find((agent) => String(agent?.tokenId ?? '') === selectedId) ?? agents[0] ?? null;
 }
 
+function getConsoleRoomParticipants(state = {}) {
+  const agents = getConsoleDisplayAgents(state);
+  if (!agents.length) return [];
+  const byTokenId = new Map(agents.map((agent) => [String(agent?.tokenId ?? '').trim(), agent]));
+  const participantIds = resolveConsoleParticipantAgentIds(
+    agents,
+    state.consoleParticipantAgentIds,
+    state.consoleSelectedAgentId,
+  );
+  return participantIds
+    .map((tokenId) => byTokenId.get(String(tokenId ?? '').trim()))
+    .filter(Boolean)
+    .map((agent) => ({
+      participantId: String(agent.tokenId ?? '').trim(),
+      agentId: String(agent.tokenId ?? '').trim(),
+      tokenId: String(agent.tokenId ?? '').trim(),
+      displayName: agent.name ?? `Agent #${agent.tokenId ?? ''}`,
+      role: agent.role ?? agent.framework ?? 'Onchain agent',
+    }));
+}
+
 function resolveConsoleSelectedAgentId(agents = [], selectedAgentId = null) {
   const validAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
   if (!validAgents.length) return null;
   const selectedId = String(selectedAgentId ?? '').trim();
   if (selectedId && validAgents.some((agent) => String(agent?.tokenId ?? '') === selectedId)) return selectedId;
   return String(validAgents[0]?.tokenId ?? '').trim() || null;
+}
+
+function resolveConsoleParticipantAgentIds(agents = [], participantAgentIds = [], selectedAgentId = null) {
+  const validAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
+  if (!validAgents.length) return [];
+  const validTokenIds = new Set(validAgents.map((agent) => String(agent?.tokenId ?? '').trim()).filter(Boolean));
+  const selectedId = resolveConsoleSelectedAgentId(validAgents, selectedAgentId);
+  const ordered = [];
+  if (selectedId && validTokenIds.has(selectedId)) ordered.push(selectedId);
+  for (const tokenId of Array.isArray(participantAgentIds) ? participantAgentIds : []) {
+    const normalized = String(tokenId ?? '').trim();
+    if (!normalized || normalized === selectedId || !validTokenIds.has(normalized) || ordered.includes(normalized)) continue;
+    ordered.push(normalized);
+  }
+  return ordered;
+}
+
+function createConsoleRoomName(participants = []) {
+  const names = (Array.isArray(participants) ? participants : [])
+    .map((participant) => String(participant.displayName ?? '').trim())
+    .filter(Boolean);
+  if (!names.length) return 'Selected room';
+  if (names.length === 1) return `${names[0]} room`;
+  return `${names[0]} + ${names.length - 1} room`;
 }
 
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
@@ -2947,6 +3058,12 @@ function bindProductHomeEvents(root, handlers, state) {
     button.addEventListener('click', () => handlers.connectConsoleWallet?.());
   });
   root.querySelector('[data-action="select-console-agent"]')?.addEventListener('change', (event) => handlers.selectConsoleAgent?.(event));
+  root.querySelectorAll('[data-action="activate-console-room"]').forEach((button) => {
+    button.addEventListener('click', (event) => handlers.activateConsoleRoom?.(event));
+  });
+  root.querySelectorAll('[data-action="toggle-console-agent-room"]').forEach((button) => {
+    button.addEventListener('click', (event) => handlers.toggleConsoleAgentRoom?.(event));
+  });
   root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
   root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());

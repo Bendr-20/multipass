@@ -1,6 +1,16 @@
 import { SavedMultipassError, joinApiPath } from './saved-multipass-api.js';
 
-export async function sendConsoleAgentMessage({ apiBase, wallet, message, agentId = 'agent-manager', tokenId = null, agentName = null, fetchImpl = fetch } = {}) {
+export async function sendConsoleAgentMessage({
+  apiBase,
+  wallet,
+  message,
+  agentId = 'agent-manager',
+  tokenId = null,
+  agentName = null,
+  participants = [],
+  roomName = null,
+  fetchImpl = fetch,
+} = {}) {
   return requestConsoleJson({
     apiBase,
     path: '/api/multipass/console/agent/message',
@@ -10,6 +20,8 @@ export async function sendConsoleAgentMessage({ apiBase, wallet, message, agentI
       agentId: String(agentId ?? 'agent-manager').trim() || 'agent-manager',
       tokenId: String(tokenId ?? agentId ?? 'agent-manager').trim() || 'agent-manager',
       agentName: String(agentName ?? '').trim() || null,
+      participants: Array.isArray(participants) ? participants : [],
+      roomName: String(roomName ?? '').trim() || null,
       message: String(message ?? '').trim(),
     },
     fetchImpl,
