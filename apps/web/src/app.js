@@ -23,6 +23,7 @@ import { createAgentCarousel, createClaritySections, createFragmentTrustMap, cre
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
 const PUBLIC_AGENTS_PATH = '/multipass/agents';
 const MULTIPASS_CONSOLE_PATH = '/multipass/console';
+const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = 'multipass.console.agentNameOverrides';
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
@@ -43,6 +44,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
+  const consoleMockState = getInitialConsoleMockState();
+  const consoleAgentNameOverrides = consoleMockState?.consoleAgentNameOverrides ?? loadConsoleAgentNameOverrides();
 
   let state = {
     pageKind: getInitialPageKind(),
@@ -78,13 +81,15 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     groupActivationRequestId: 0,
     looperAllowlist: createInitialLooperAllowlistState(),
     looperMint: createInitialLooperMintState(),
-    consoleWalletStatus: null,
-    consoleWalletError: null,
-    consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
-    consoleSelectedAgentId: null,
-    consoleParticipantAgentIds: [],
-    consoleAgentThread: createInitialConsoleAgentThreadState(),
-    walletSnapshot: activeWalletClient.getSnapshot(),
+    consoleAgentNameOverrides,
+    consoleWalletStatus: consoleMockState?.consoleWalletStatus ?? null,
+    consoleWalletError: consoleMockState?.consoleWalletError ?? null,
+    consoleOwnedAgents: consoleMockState?.consoleOwnedAgents ?? createInitialConsoleOwnedAgentsState(),
+    consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
+    consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
+    consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
+    consoleMockMode: consoleMockState?.mode ?? null,
+    walletSnapshot: consoleMockState?.walletSnapshot ?? activeWalletClient.getSnapshot(),
   };
   const loadInitialDemo = loadDemo ?? (() => defaultLoadDemo({ fetchImpl }));
 
@@ -103,7 +108,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         resolveLiveAgent(resolverInput);
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
-      } else if (state.pageKind === 'console' && state.walletSnapshot.connected && state.walletSnapshot.address) {
+      } else if (state.pageKind === 'console' && !state.consoleMockMode && state.walletSnapshot.connected && state.walletSnapshot.address) {
         await refreshConsoleOwnedAgents({ walletSnapshot: state.walletSnapshot });
       } else if (state.pageKind === 'looper_mint' && state.looperMint.enabled && state.looperMint.config?.contractAddress) {
         refreshLooperMint({ silent: true });
@@ -675,6 +680,54 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  function updateConsoleAgentName(event) {
+    event?.preventDefault?.();
+    const activeAgent = getActiveConsoleAgent(state);
+    if (!activeAgent?.tokenId) return;
+    const formData = createFormData(event?.currentTarget);
+    applyConsoleAgentNameOverride(activeAgent, normalizeConsoleAgentName(formData.get('console_agent_name')));
+  }
+
+  function resetConsoleAgentName() {
+    const activeAgent = getActiveConsoleAgent(state);
+    if (!activeAgent?.tokenId) return;
+    applyConsoleAgentNameOverride(activeAgent, null);
+  }
+
+  function applyConsoleAgentNameOverride(activeAgent, requestedName) {
+    const tokenId = String(activeAgent?.tokenId ?? '').trim();
+    if (!tokenId) return;
+    const canonicalName = getCanonicalConsoleAgentName(activeAgent) ?? `Agent #${tokenId}`;
+    const nextName = requestedName && requestedName !== canonicalName ? requestedName : null;
+    const nextOverrides = {
+      ...sanitizeConsoleAgentNameOverrides(state.consoleAgentNameOverrides),
+    };
+    if (nextName) nextOverrides[tokenId] = nextName;
+    else delete nextOverrides[tokenId];
+    persistConsoleAgentNameOverrides(nextOverrides);
+
+    const nextAgents = applyConsoleAgentNameOverrides(getConsoleDisplayAgents(state), nextOverrides);
+    const nextState = {
+      ...state,
+      consoleAgentNameOverrides: nextOverrides,
+      consoleOwnedAgents: {
+        ...state.consoleOwnedAgents,
+        agents: nextAgents,
+      },
+    };
+    const renamedAgent = nextAgents.find((agent) => String(agent?.tokenId ?? '') === tokenId) ?? activeAgent;
+    state = {
+      ...nextState,
+      consoleAgentThread: renameConsoleAgentThread(nextState.consoleAgentThread, {
+        tokenId,
+        previousNames: [activeAgent.name, canonicalName],
+        nextName: renamedAgent.name ?? canonicalName,
+        participants: getConsoleRoomParticipants(nextState),
+      }),
+    };
+    render(root, state, handlers);
+  }
+
   async function refreshConsoleOwnedAgents({ walletSnapshot = activeWalletClient.getSnapshot(), skipLoadingState = false } = {}) {
     if (!walletSnapshot.connected || !walletSnapshot.address) {
       state = {
@@ -703,7 +756,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
 
     try {
-      const agents = await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl);
+      const agents = applyConsoleAgentNameOverrides(
+        await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl),
+        state.consoleAgentNameOverrides,
+      );
       const selectedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
       const participantAgentIds = resolveConsoleParticipantAgentIds(agents, state.consoleParticipantAgentIds, selectedAgentId);
       state = {
@@ -1374,7 +1430,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1593,6 +1649,155 @@ function createInitialConsoleAgentThreadState() {
   };
 }
 
+function getInitialConsoleMockState() {
+  if (typeof window === 'undefined') return null;
+  const locationUrl = new URL(window.location.href);
+  if (!isMultipassConsoleRoute(locationUrl)) return null;
+  const mock = String(locationUrl.searchParams.get('mock') ?? '').trim().toLowerCase();
+  if (mock !== 'looper') return null;
+
+  const walletAddress = '0x8f8A4F4F22f533C4bA5411b2a3A0C95f91A84B91';
+  const walletLabel = shortenAddress(walletAddress);
+  const agentNameOverrides = {
+    '000': 'bendr',
+    ...loadConsoleAgentNameOverrides(),
+  };
+  const agents = applyConsoleAgentNameOverrides(createLooperConsoleMockAgents(), agentNameOverrides);
+  const selectedAgentId = String(agents[0]?.tokenId ?? '').trim() || null;
+  const participant = {
+    participantId: selectedAgentId,
+    agentId: selectedAgentId,
+    tokenId: selectedAgentId,
+    displayName: agents[0]?.name ?? 'bendr',
+    role: agents[0]?.role ?? 'Looper operator',
+  };
+
+  return {
+    mode: 'looper',
+    consoleAgentNameOverrides: agentNameOverrides,
+    walletSnapshot: {
+      ready: true,
+      configured: true,
+      connected: true,
+      address: walletAddress,
+      label: walletLabel,
+      walletClientType: 'base_account',
+    },
+    consoleWalletStatus: 'connected',
+    consoleWalletError: null,
+    consoleOwnedAgents: {
+      status: 'loaded',
+      error: null,
+      agents,
+    },
+    consoleSelectedAgentId: selectedAgentId,
+    consoleParticipantAgentIds: selectedAgentId ? [selectedAgentId] : [],
+    consoleAgentThread: {
+      status: 'received',
+      error: null,
+      transport: 'xmtp_local',
+      memoryProvider: 'sibyl_memory',
+      inferenceProvider: 'bankr_router',
+      roomName: `${agents[0]?.name ?? 'bendr'} room`,
+      participants: [participant],
+      recalledMission: `Wallet ${walletLabel} recalled. Last preference: one tight nightly briefing, no public replies, and review-only actions.`,
+      sessionReset: false,
+      messages: [
+        {
+          role: 'human',
+          text: 'Watch holder chat, Base flow, and anything that needs my approval before morning.',
+          transport: 'console',
+        },
+        {
+          role: 'agent',
+          senderLabel: agents[0]?.name ?? 'bendr',
+          text: 'Loaded prior memory. I will keep it tight: no public replies, no spend, and no action without review.',
+          transport: 'xmtp_local',
+        },
+        {
+          role: 'agent',
+          senderLabel: agents[0]?.name ?? 'bendr',
+          text: 'Two holder questions and one draft follow-up are queued for your pass.',
+          transport: 'xmtp_local',
+        },
+      ],
+      proposals: [
+        {
+          status: 'review_only',
+          title: 'Review holder follow-up',
+          action: 'Prepare one concise reply draft and hold it for approval.',
+          risk: 'No public post or onchain action will happen without approval.',
+        },
+      ],
+      savedMemory: [
+        { text: 'Preference: one tight nightly briefing.', tags: ['preference'] },
+        { text: 'Constraint: no public replies or onchain actions without approval.', tags: ['constraint', 'risk'] },
+        { text: 'Watchlist: holder chat, Base flow, and collection mentions.', tags: ['watchlist', 'mission'] },
+      ],
+      recalledMemory: [
+        { text: 'Previous room state: bundle holder questions into one operator briefing.', tags: ['history'] },
+      ],
+      missions: [
+        {
+          id: 'mission_looper_ops',
+          title: 'Looper room watch',
+          status: 'active',
+          summary: 'Watch holder chat, Base flow, and anything that needs approval before morning.',
+        },
+      ],
+    },
+  };
+}
+
+function createLooperConsoleMockAgents() {
+  return [
+    {
+      tokenId: '000',
+      name: 'Looper #000',
+      canonicalName: 'Looper #000',
+      role: 'Looper operator',
+      credScore: 71,
+      credLabel: 'Cred 71',
+      helixaId: '8453:000',
+      proofCount: 4,
+      routeCount: 2,
+      standardsCount: 2,
+      verified: true,
+      state: 'Review room loaded',
+      image: '/multipass/loopers-console-pfp.png',
+      href: '/multipass/?agent=000',
+    },
+    {
+      tokenId: '812',
+      name: 'Signal Clerk',
+      role: 'Inbox watcher',
+      credScore: 64,
+      credLabel: 'Cred 64',
+      helixaId: '8453:812',
+      proofCount: 3,
+      routeCount: 1,
+      standardsCount: 2,
+      verified: true,
+      state: 'Standby',
+      href: '/multipass/?agent=812',
+    },
+    {
+      tokenId: '944',
+      name: 'Treasury Scout',
+      role: 'Wallet watcher',
+      credScore: 68,
+      credLabel: 'Cred 68',
+      helixaId: '8453:944',
+      proofCount: 2,
+      routeCount: 2,
+      standardsCount: 1,
+      verified: true,
+      state: 'Standby',
+      href: '/multipass/?agent=944',
+    },
+  ];
+}
+
 function createInitialConsoleOwnedAgentsState() {
   return {
     status: 'idle',
@@ -1603,6 +1808,27 @@ function createInitialConsoleOwnedAgentsState() {
 
 function getConsoleDisplayAgents(state = {}) {
   return Array.isArray(state.consoleOwnedAgents?.['agents']) ? state.consoleOwnedAgents['agents'] : [];
+}
+
+function getCanonicalConsoleAgentName(agent = {}) {
+  const canonicalName = String(agent?.canonicalName ?? agent?.name ?? '').trim();
+  return canonicalName || null;
+}
+
+function applyConsoleAgentNameOverrides(agents = [], overrides = {}) {
+  const normalizedOverrides = sanitizeConsoleAgentNameOverrides(overrides);
+  return (Array.isArray(agents) ? agents : [])
+    .filter(Boolean)
+    .map((agent) => {
+      const tokenId = String(agent?.tokenId ?? '').trim();
+      const canonicalName = getCanonicalConsoleAgentName(agent) ?? (tokenId ? `Agent #${tokenId}` : 'Onchain agent');
+      const overrideName = tokenId ? normalizedOverrides[tokenId] : null;
+      return {
+        ...agent,
+        canonicalName,
+        name: overrideName ?? canonicalName,
+      };
+    });
 }
 
 function getActiveConsoleAgent(state = {}) {
@@ -1658,6 +1884,42 @@ function createConsoleRoomName(participants = []) {
   return `${names[0]} + ${names.length - 1} room`;
 }
 
+function renameConsoleAgentThread(thread = {}, { tokenId, previousNames = [], nextName, participants = [] } = {}) {
+  const normalizedTokenId = String(tokenId ?? '').trim();
+  const normalizedName = normalizeConsoleAgentName(nextName) ?? nextName;
+  if (!normalizedTokenId || !normalizedName) return thread;
+  const namesToReplace = new Set(previousNames.map((value) => String(value ?? '').trim()).filter(Boolean));
+  const baseParticipants = Array.isArray(thread?.participants) && thread.participants.length
+    ? thread.participants
+    : participants;
+  const nextParticipants = (Array.isArray(baseParticipants) ? baseParticipants : []).map((participant) => {
+    const participantTokenId = String(participant?.tokenId ?? participant?.participantId ?? participant?.agentId ?? '').trim();
+    if (participantTokenId !== normalizedTokenId) return participant;
+    return {
+      ...participant,
+      displayName: normalizedName,
+    };
+  });
+  const nextMessages = (Array.isArray(thread?.messages) ? thread.messages : []).map((message) => {
+    if (message?.role !== 'agent') return message;
+    const participantId = String(message?.participantId ?? '').trim();
+    const senderLabel = String(message?.senderLabel ?? '').trim();
+    if (participantId === normalizedTokenId || namesToReplace.has(senderLabel)) {
+      return {
+        ...message,
+        senderLabel: normalizedName,
+      };
+    }
+    return message;
+  });
+  return {
+    ...thread,
+    participants: nextParticipants,
+    roomName: nextParticipants.length ? createConsoleRoomName(nextParticipants) : thread?.roomName,
+    messages: nextMessages,
+  };
+}
+
 function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
   const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'Cred tier, public proof, route health, and mission changes';
   const constraint = savedMemory.find((entry) => entry.tags?.includes?.('constraint') || entry.tags?.includes?.('risk'))?.text || 'review-only proposals';
@@ -1668,6 +1930,45 @@ function createConsoleRecallSummary({ wallet, message, missions = [], savedMemor
 
 function trimSentenceEnd(value) {
   return String(value ?? '').trim().replace(/[.!?]+$/u, '');
+}
+
+function normalizeConsoleAgentName(value) {
+  const name = String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  return name || null;
+}
+
+function sanitizeConsoleAgentNameOverrides(overrides = {}) {
+  if (!overrides || typeof overrides !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(overrides)
+      .map(([tokenId, name]) => {
+        const normalizedTokenId = String(tokenId ?? '').trim();
+        const normalizedName = normalizeConsoleAgentName(name);
+        return normalizedTokenId && normalizedName ? [normalizedTokenId, normalizedName] : null;
+      })
+      .filter(Boolean),
+  );
+}
+
+function loadConsoleAgentNameOverrides() {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    return sanitizeConsoleAgentNameOverrides(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+function persistConsoleAgentNameOverrides(overrides = {}) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const next = sanitizeConsoleAgentNameOverrides(overrides);
+  if (Object.keys(next).length) {
+    window.localStorage.setItem(CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY, JSON.stringify(next));
+  } else {
+    window.localStorage.removeItem(CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY);
+  }
 }
 
 const defaultLooperMintClient = {
@@ -1819,17 +2120,23 @@ function syncMultipassHomeUrl() {
   window.history.replaceState(null, '', '/multipass/');
 }
 
-function renderRecordHeader(metaLabel = 'Portable Agent Identities') {
+function renderRecordHeader(metaLabel = 'Portable Agent Identities', options = {}) {
+  const metaHtml = metaLabel ? `<span class="header-meta">${escapeHtml(metaLabel)}</span>` : '';
+  const primaryAction = options?.primaryAction;
+  const primaryActionHtml = primaryAction
+    ? `<button class="header-action-button" type="button" data-action="${escapeAttribute(primaryAction.action ?? 'connect-console-wallet')}" ${primaryAction.disabled ? 'disabled' : ''}>${escapeHtml(primaryAction.label ?? 'Action')}</button>`
+    : '';
   return `
     <header class="record-header">
       <div class="brand">
         <a class="brand-logo-link" href="/multipass/" aria-label="Go to Multipass home"><span class="brand-logo-frame"><img class="brand-logo" src="/multipass/helixa-logo.png" alt="" aria-hidden="true"></span></a>
         <span class="brand-stack">
           <span class="brand-wordmark">Multipass</span>
-          <span class="header-meta">${escapeHtml(metaLabel)}</span>
+          ${metaHtml}
         </span>
       </div>
       <div class="header-actions">
+        ${primaryActionHtml}
         <button class="site-menu-button" type="button" aria-label="Open Multipass navigation" aria-expanded="false" aria-controls="site-menu" data-action="toggle-site-menu">
           <span aria-hidden="true"></span>
           <span aria-hidden="true"></span>
@@ -2559,9 +2866,10 @@ function renderProductHome(root, state, handlers = {}) {
 function renderMultipassConsolePage(root, state, handlers = {}) {
   const agents = getConsoleDisplayAgents(state);
   const snapshot = createMultipassConsoleSnapshot({ data: state.data, state, agents });
+  const headerWalletAction = createConsoleHeaderWalletAction(state);
   root.innerHTML = `
     <div class="record-shell multipass-console-shell">
-      ${renderRecordHeader('Multipass Console')}
+      ${renderRecordHeader(null, { primaryAction: headerWalletAction })}
       ${renderMultipassConsole(snapshot)}
     </div>
   `;
@@ -2579,6 +2887,24 @@ function renderLooperAllowlistPage(root, state, handlers = {}) {
   `;
 
   bindProductHomeEvents(root, handlers, state);
+}
+
+function createConsoleHeaderWalletAction(state = {}) {
+  const wallet = state.walletSnapshot ?? {};
+  const connecting = state.consoleWalletStatus === 'connecting';
+  const connected = Boolean(wallet.connected && wallet.address);
+  const unavailable = wallet.configured === false;
+  const ready = wallet.ready !== false;
+
+  return {
+    action: 'connect-console-wallet',
+    disabled: connecting || unavailable || !ready,
+    label: connecting
+      ? 'Connecting...'
+      : connected
+        ? (wallet.label ?? shortenAddress(wallet.address))
+        : 'Connect wallet',
+  };
 }
 
 function renderLooperMintPage(root, state, handlers = {}) {
@@ -3048,6 +3374,8 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelectorAll('[data-action="toggle-console-agent-room"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.toggleConsoleAgentRoom?.(event));
   });
+  root.querySelector('[data-action="update-console-agent-name"]')?.addEventListener('submit', (event) => handlers.updateConsoleAgentName?.(event));
+  root.querySelector('[data-action="reset-console-agent-name"]')?.addEventListener('click', () => handlers.resetConsoleAgentName?.());
   root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
   root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());

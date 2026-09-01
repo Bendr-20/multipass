@@ -1731,7 +1731,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.ok(consolePage);
   assert.equal(document.title, 'Multipass Console');
   assert.equal(document.querySelector('meta[property="og:title"]')?.getAttribute('content'), 'Multipass Console');
-  assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Multipass Console');
+  assert.equal(root.querySelector('.brand-stack .header-meta'), null);
   assert.match(consolePage.textContent, /review-only/i);
   assert.ok(consolePage.querySelector('.console-basic-shell'));
   assert.equal(consolePage.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
@@ -1740,21 +1740,26 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(consolePage.querySelector('.console-trust-rail'), null);
   assert.ok(consolePage.querySelector('.console-identity-card'));
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
+  assert.ok(consolePage.querySelector('.console-thread-toolbar'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
-  assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
+  assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
   assert.match(consolePage.textContent, /Selected room/);
-  assert.match(consolePage.textContent, /Sibyl recall/);
-  assert.match(consolePage.textContent, /Connect wallet/);
+  assert.match(consolePage.textContent, /Operator room/);
+  assert.match(consolePage.textContent, /Room notes/);
   assert.match(consolePage.textContent, /Proof/);
   assert.match(consolePage.textContent, /Routes/);
   assert.match(consolePage.textContent, /Standards/);
   assert.match(consolePage.textContent, /My agents/i);
   assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
   assert.match(consolePage.textContent, /No recalled memory yet/);
+  assert.doesNotMatch(consolePage.textContent, /Agent dossier|Agent Workspace/);
+  assert.doesNotMatch(consolePage.textContent, /\bConnect wallet\b/);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
-  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Wallet required/);
+  assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Use the header button to load your agents\./);
+  assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.equal(root.querySelector('.live-resolver'), null);
@@ -1789,10 +1794,11 @@ test('dedicated Console route connects wallet and shows the active identity', as
   await flushAsyncEvents(20);
 
   assert.deepEqual(calls, [['connect']]);
-  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
+  assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x27E3...91Ea');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
-  assert.match(root.querySelector('.console-session-panel')?.textContent ?? '', /Pick an agent/);
+  assert.match(root.querySelector('.console-session-panel')?.textContent ?? '', /open its room/i);
   assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Bendr 2\.0/);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
@@ -1861,12 +1867,12 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.deepEqual(calls[0].participants.map((participant) => participant.tokenId), ['7']);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Wallet Seven/);
-  assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
+  assert.match(root.querySelector('.console-thread-proposal')?.textContent ?? '', /Review watchlist briefing/);
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Wallet Seven/);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
   root.querySelector('[data-action="reset-console-session"]').click();
   await flushAsyncEvents();
-  assert.match(root.querySelector('.console-thread-recall')?.textContent ?? '', /Session recall/);
+  assert.match(root.querySelector('.console-thread-activity')?.textContent ?? '', /Session recall/);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Wallet 0x27E3\.\.\.91Ea recalled/);
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /tokens\.\./);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /review-only/);
@@ -1900,10 +1906,68 @@ test('dedicated Console route accepts Base smart wallet identity snapshots', asy
   await new Promise((resolve) => setTimeout(resolve, 0));
   await flushAsyncEvents(20);
 
-  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x709D...44aE');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x709D\.\.\.44aE/);
   assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Wallet Seven/);
   assert.equal(root.querySelector('[data-action="connect-looper-mint-wallet"]'), null);
+});
+
+test('dedicated Console route can render a looper mock room without live ownership fetches', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console?mock=looper');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => {
+      throw new Error('Looper mock route should not fetch live ownership data during initial render.');
+    },
+  }).start();
+
+  const consolePage = root.querySelector('.multipass-console');
+  assert.ok(consolePage);
+  assert.match(consolePage.textContent, /bendr/);
+  assert.match(consolePage.textContent, /Looper #000/);
+  assert.match(consolePage.textContent, /one tight nightly briefing/i);
+  assert.match(consolePage.textContent, /Review holder follow-up/i);
+  assert.match(consolePage.textContent, /no public replies/i);
+  assert.match(consolePage.textContent, /0x8f8A\.\.\.4B91/);
+  assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x8f8A...4B91');
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
+  assert.equal(root.querySelector('[data-action="update-console-agent-name"] input[name="console_agent_name"]')?.value, 'bendr');
+  assert.equal(root.querySelector('[data-action="reset-console-agent-name"]')?.disabled, false);
+  assert.doesNotMatch(consolePage.textContent, /\b(?:demo|fixture)\b/i);
+});
+
+test('dedicated Console route lets the operator rename the active agent inside the console', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console?mock=looper');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    fetchImpl: async () => {
+      throw new Error('Looper mock route should not fetch live ownership data during rename.');
+    },
+  }).start();
+
+  const form = root.querySelector('[data-action="update-console-agent-name"]');
+  const input = form?.querySelector('input[name="console_agent_name"]');
+  assert.ok(form);
+  assert.ok(input);
+
+  input.value = 'nightshift';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /nightshift/);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #000/);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /#nightshift room/);
+  assert.equal(JSON.parse(window.localStorage.getItem('multipass.console.agentNameOverrides') ?? '{}')['000'], 'nightshift');
+
+  root.querySelector('[data-action="reset-console-agent-name"]')?.click();
+  await flushAsyncEvents();
+
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #000/);
+  assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /nightshift/);
+  assert.equal(root.querySelector('[data-action="update-console-agent-name"] input[name="console_agent_name"]')?.value, 'Looper #000');
 });
 
 test('dedicated Console route loads static Multipass data instead of saved slug API data', async () => {

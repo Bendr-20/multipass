@@ -2,6 +2,7 @@ import { renderConsoleAgentThread } from './console-agent-thread.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
+const DEFAULT_CONSOLE_PORTRAIT = '/multipass/loopers-console-pfp.png';
 
 export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {}) {
   const wallet = state.walletSnapshot ?? {};
@@ -26,6 +27,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
   const activeScore = normalizeCredScore(activeAgent?.credScore);
   const activeCred = activeAgent?.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
+  const verifiedLabel = activeAgent?.verified ? 'Verified AgentDNA' : (activeAgent?.tokenId ? 'Verification pending' : 'Awaiting selection');
   const activeAgentLabel = activeAgent?.name
     ?? (walletConnected
       ? agentRoster.status === 'loading'
@@ -42,9 +44,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
 
   return {
     title: 'Multipass Console',
-    kicker: 'Agent Workspace',
     headline: 'Multipass Console',
-    lead: 'A simple wallet-owned chat workspace for Helixa agents, with XMTP rooms, Sibyl memory, and review-only approvals.',
     safetyNote: CONSOLE_SAFETY_NOTE,
     session: {
       wallet: {
@@ -71,13 +71,27 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       status,
     },
     identityCard: {
-      label: 'Selected agent',
       name: activeAgentLabel,
-      role: activeAgent?.role ?? 'Onchain agent',
-      image: activeAgent?.image ?? '/multipass/og-bendr-profile-capture.png',
-      walletLabel: walletConnected ? connectedWallet : 'Wallet required',
+      role: activeAgent?.canonicalName && activeAgent.canonicalName !== activeAgent.name
+        ? activeAgent.canonicalName
+        : (activeAgent?.role ?? 'Onchain agent'),
+      image: activeAgent?.image ?? DEFAULT_CONSOLE_PORTRAIT,
+      walletLabel: walletConnected ? connectedWallet : null,
       roomName: agentThread.roomName,
       participants: agentThread.participants,
+      summary: createIdentitySummary({ activeAgent, activeCred, roomParticipantCount: roomParticipants.length, proposalCount }),
+      rename: createAgentRenameControl(activeAgent),
+      badges: [activeCred, verifiedLabel, formatTransportLabel(agentThread.transport)].filter(Boolean),
+      dossier: createIdentityDossier({
+        activeAgent,
+        walletConnected,
+        walletLabel: connectedWallet,
+        roomName: agentThread.roomName,
+        roomParticipantCount: roomParticipants.length,
+        memoryCount: memoryEntries.length,
+        proposalCount,
+        verifiedLabel,
+      }),
       stats: [
         { label: 'Cred', value: activeCred },
         { label: 'Proof', value: Number.isFinite(activeAgent?.proofCount) ? `${activeAgent.proofCount}` : '0' },
@@ -101,6 +115,15 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       title: agentThread.sessionReset ? 'Session recall' : 'Sibyl recall',
       body: agentThread.recalledMission || (memoryEntries.length ? 'Recent memory is loaded for this wallet and selected agent.' : 'No recalled memory yet for this wallet-agent pair.'),
     },
+    threadContextItems: createThreadContextItems({
+      activeAgent,
+      activeCred,
+      memoryCount: memoryEntries.length,
+      proposalCount,
+      participantCount: roomParticipants.length,
+      thread: agentThread,
+      verifiedLabel,
+    }),
     agents: activeAgents.slice(0, 8).map((agent) => ({
       tokenId: agent.tokenId ?? '',
       name: agent.name ?? 'Onchain agent',
@@ -122,10 +145,10 @@ export function renderMultipassConsole(snapshot = {}) {
         <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
           <section class="console-dashboard-header console-sidebar-header" aria-label="Workspace">
             <div class="console-sidebar-brand">
-              <p class="eyebrow">${escapeHtml(snapshot.kicker ?? 'Agent Workspace')}</p>
               <h1>${escapeHtml(snapshot.headline ?? 'Multipass Console')}</h1>
             </div>
           </section>
+          ${renderIdentityCard(snapshot.identityCard)}
           ${renderSessionPanel(snapshot.session)}
           <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">
             <div class="console-panel-heading">
@@ -141,11 +164,10 @@ export function renderMultipassConsole(snapshot = {}) {
         </aside>
 
         <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
-          ${renderIdentityCard(snapshot.identityCard)}
           ${renderConsoleAgentThread({
             ...snapshot.agentThread,
             recall: snapshot.recall,
-            contextItems: [],
+            contextItems: snapshot.threadContextItems,
           })}
         </section>
       </section>
@@ -191,7 +213,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
       : thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
       : !connected
-        ? 'Connect a wallet to open a room.'
+        ? 'Use the header button to open a room.'
       : loadingAgents
         ? 'Loading wallet-owned agents.'
       : rosterError
@@ -206,24 +228,19 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
 
 function renderSessionPanel(session = {}) {
   const wallet = session.wallet ?? {};
-  const connecting = wallet.status === 'connecting';
   const connected = Boolean(wallet.connected);
-  const unavailable = Boolean(wallet.unavailable);
-  const ready = wallet.ready !== false;
-  const buttonLabel = connecting
-    ? 'Connecting...'
-    : connected
-      ? 'Reconnect'
-      : 'Connect wallet';
+  const walletLabel = connected ? wallet.label : null;
+  const sessionNote = connected
+    ? (session.selectionHint ?? '')
+    : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Use the header button to load your agents.');
 
   return `
-    <section class="console-panel console-session-panel console-wallet-panel" aria-label="Wallet login">
+    <section class="console-panel console-session-panel console-wallet-panel" aria-label="Console session">
       <div class="console-panel-heading">
-        <p class="card-label">Login</p>
-        <h2>${connected ? 'Wallet connected' : 'Connect wallet'}</h2>
+        <p class="card-label">Session</p>
+        <h2>Active agent</h2>
       </div>
       <div class="console-session-actions">
-        <button type="button" data-action="connect-console-wallet" ${connecting || unavailable || !ready ? 'disabled' : ''}>${escapeHtml(buttonLabel)}</button>
         <label class="console-agent-selector">
           <span>Active agent</span>
           <select name="console_agent" data-action="select-console-agent" ${session.selectionEnabled ? '' : 'disabled'}>
@@ -231,8 +248,8 @@ function renderSessionPanel(session = {}) {
           </select>
         </label>
       </div>
-      <p class="console-wallet-label">${escapeHtml(connected ? wallet.label : 'Wallet required')}</p>
-      <p class="console-session-note">${escapeHtml(session.selectionHint ?? '')}</p>
+      ${walletLabel ? `<p class="console-wallet-label">${escapeHtml(walletLabel)}</p>` : ''}
+      ${sessionNote ? `<p class="console-session-note">${escapeHtml(sessionNote)}</p>` : ''}
       ${wallet.error ? `<p class="console-wallet-error">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
   `;
@@ -241,23 +258,58 @@ function renderSessionPanel(session = {}) {
 function renderIdentityCard(card = {}) {
   return `
     <section class="console-visual-card console-identity-card" aria-label="Selected agent">
+      <div class="console-agent-portrait">
+        <img src="${escapeAttribute(card.image ?? DEFAULT_CONSOLE_PORTRAIT)}" alt="${escapeAttribute(card.name ?? 'Agent profile')}" loading="lazy">
+      </div>
       <div class="console-card-head">
-        <p class="card-label">Selected agent</p>
-        <span>${escapeHtml(card.walletLabel ?? 'Wallet required')}</span>
+        ${card.label ? `<p class="card-label">${escapeHtml(card.label)}</p>` : ''}
+        ${card.walletLabel ? `<span>${escapeHtml(card.walletLabel)}</span>` : ''}
       </div>
-      <div class="console-identity-overview">
-        <div class="console-agent-portrait">
-          <img src="${escapeAttribute(card.image ?? '/multipass/og-bendr-profile-capture.png')}" alt="${escapeAttribute(card.name ?? 'Agent profile')}" loading="lazy">
-        </div>
-        <div class="console-identity-body">
-          <span>${escapeHtml(card.role ?? 'Onchain agent')}</span>
-          <strong>${escapeHtml(card.name ?? 'Select an agent')}</strong>
-          <small>${escapeHtml(card.roomName ?? 'Selected room')}</small>
-        </div>
+      <div class="console-identity-body">
+        <span>${escapeHtml(card.role ?? 'Onchain agent')}</span>
+        <strong>${escapeHtml(card.name ?? 'Select an agent')}</strong>
+        <small>${escapeHtml(card.roomName ?? 'Selected room')}</small>
+        ${card.summary ? `<p>${escapeHtml(card.summary)}</p>` : ''}
       </div>
+      ${card.rename ? `
+        <form class="console-identity-rename" data-action="update-console-agent-name" aria-label="Update console agent name">
+          <label>
+            <span>Console name</span>
+            <input
+              name="console_agent_name"
+              value="${escapeAttribute(card.rename.value ?? '')}"
+              placeholder="${escapeAttribute(card.rename.placeholder ?? 'Selected agent')}"
+              ${card.rename.enabled ? '' : 'disabled'}
+            >
+          </label>
+          <div class="console-identity-rename-actions">
+            <button type="submit" ${card.rename.enabled ? '' : 'disabled'}>Update name</button>
+            <button type="button" data-action="reset-console-agent-name" ${card.rename.resettable ? '' : 'disabled'}>Use live name</button>
+          </div>
+          <small>${escapeHtml(card.rename.hint ?? 'Console-only name.')}</small>
+        </form>
+      ` : ''}
+      ${(card.badges ?? []).length ? `
+        <div class="console-identity-badges">
+          ${(card.badges ?? []).map((badge) => `<span>${escapeHtml(badge)}</span>`).join('')}
+        </div>
+      ` : ''}
       <div class="console-identity-stats">
         ${(card.stats ?? []).map(renderMiniStat).join('')}
       </div>
+      ${(card.dossier ?? []).length ? `
+        <div class="console-identity-dossier">
+          ${(card.dossier ?? []).map(renderIdentityDossierEntry).join('')}
+        </div>
+      ` : ''}
+      ${card.participants?.length > 1 ? `
+        <div class="console-identity-members">
+          <span class="console-identity-members-label">${escapeHtml(card.participants.length === 1 ? 'Room participant' : 'Room participants')}</span>
+          <div class="console-identity-members-list">
+            ${(card.participants ?? []).map(renderIdentityParticipant).join('')}
+          </div>
+        </div>
+      ` : ''}
     </section>
   `;
 }
@@ -297,9 +349,19 @@ function renderSuiteCheck(check = {}) {
 
 function renderMiniStat(card = {}) {
   return `
-    <article class="console-mini-stat">
+    <article class="console-mini-stat console-identity-fact">
       <span>${escapeHtml(card.label ?? '')}</span>
       <strong>${escapeHtml(card.value ?? '')}</strong>
+    </article>
+  `;
+}
+
+function renderIdentityDossierEntry(entry = {}) {
+  return `
+    <article class="console-identity-dossier-entry console-identity-fact">
+      <span>${escapeHtml(entry.label ?? '')}</span>
+      <strong>${escapeHtml(entry.value ?? '')}</strong>
+      <p>${escapeHtml(entry.body ?? '')}</p>
     </article>
   `;
 }
@@ -333,8 +395,8 @@ function renderAgentRoster(snapshot = {}) {
   if (agents.length) return agents.map(renderAgentCard).join('');
 
   const status = snapshot.agentRoster?.status ?? 'idle';
-  let title = 'Connect a wallet';
-  let body = 'Owned agents appear here after login.';
+  let title = 'No agents loaded';
+  let body = 'Use the header button to load the agents tied to this operator.';
   if (status === 'loading') {
     title = 'Loading owned agents';
     body = 'Checking the live Helixa directory for agents owned by this wallet.';
@@ -359,26 +421,30 @@ function renderAgentRoster(snapshot = {}) {
 function renderAgentCard(agent = {}) {
   const openLink = agent.href ? `<a href="${escapeAttribute(agent.href)}">View profile</a>` : '<span>Profile pending</span>';
   const selected = Boolean(agent.selected);
+  const subtitle = agent.canonicalName && agent.canonicalName !== agent.name
+    ? agent.canonicalName
+    : (agent.role ?? 'Agent profile');
   return `
     <article class="console-agent-card ${selected ? 'selected' : ''}">
       <div class="console-agent-card-head">
-        <div>
+        <span class="console-agent-card-avatar" aria-hidden="true">${escapeHtml(initialsForLabel(agent.name ?? 'Onchain agent'))}</span>
+        <div class="console-agent-card-copy">
           <strong>${escapeHtml(agent.name ?? 'Onchain agent')}</strong>
-          <span>${escapeHtml(agent.role ?? 'Agent profile')}</span>
+          <span>${escapeHtml(subtitle)}</span>
         </div>
         <div class="console-agent-card-flags">
-          ${selected ? '<span>Selected</span>' : ''}
+          <span>${escapeHtml(selected ? 'Live' : agent.state ?? 'Ready')}</span>
         </div>
       </div>
-      <dl>
-        <div><dt>Token</dt><dd>${escapeHtml(agent.tokenId ?? 'Unknown')}</dd></div>
-        <div><dt>Cred</dt><dd>${escapeHtml(agent.cred ?? 'Cred pending')}</dd></div>
-        <div><dt>State</dt><dd>${escapeHtml(agent.state ?? 'Review needed')}</dd></div>
-      </dl>
-      <div class="console-agent-card-actions">
-        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Chatting' : 'Chat'}</button>
+      <div class="console-agent-card-meta">
+        <span>#${escapeHtml(agent.tokenId ?? 'Unknown')}</span>
+        <span>${escapeHtml(agent.cred ?? 'Cred pending')}</span>
+        <span>${escapeHtml(agent.state ?? 'Review needed')}</span>
       </div>
-      ${openLink}
+      <div class="console-agent-card-actions">
+        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Room live' : 'Open room'}</button>
+        ${openLink}
+      </div>
     </article>
   `;
 }
@@ -462,20 +528,111 @@ function createSuiteChecks({
   ];
 }
 
+function createIdentitySummary({ activeAgent = null, activeCred = 'Cred pending', roomParticipantCount = 0, proposalCount = 0 } = {}) {
+  if (!activeAgent?.tokenId) return 'Load a real agent and open a review-only room.';
+  const verified = activeAgent.verified ? 'verified' : 'unverified';
+  const roomLabel = roomParticipantCount > 1 ? `${roomParticipantCount}-agent room` : 'direct room';
+  const proposalLabel = proposalCount ? `${proposalCount} queued` : 'no queued proposals';
+  return `${activeCred}. ${verified}. ${roomLabel}. ${proposalLabel}.`;
+}
+
+function createIdentityDossier({
+  activeAgent = null,
+  walletConnected = false,
+  walletLabel = 'Wallet required',
+  roomName = 'Selected room',
+  roomParticipantCount = 0,
+  memoryCount = 0,
+  proposalCount = 0,
+  verifiedLabel = 'Verification pending',
+} = {}) {
+  const roomBody = roomParticipantCount > 1
+    ? `${roomParticipantCount} wallet-owned agents are sharing this thread.`
+    : 'This room is bound to one selected wallet-owned agent.';
+  const memoryBody = memoryCount
+    ? `${memoryCount} recalled memory item${memoryCount === 1 ? '' : 's'} are shaping the conversation.`
+    : 'No recalled memory yet. The first mission will establish the thread.';
+  return [
+    {
+      label: 'Identity',
+      value: activeAgent?.tokenId ? `Agent #${activeAgent.tokenId}` : 'No agent loaded',
+      body: activeAgent?.helixaId
+        ? `${verifiedLabel}. AgentDNA ${activeAgent.helixaId}.`
+        : (activeAgent?.name ? verifiedLabel : 'Use the header button to load a wallet-owned Helixa identity.'),
+    },
+    {
+      label: 'Voice',
+      value: activeAgent?.role ?? 'Review-only operator',
+      body: activeAgent?.tokenId
+        ? 'Brief-first, memory-backed, and constrained to approval before any outside action.'
+        : 'The Console should feel like a character relationship, not a dashboard.',
+    },
+    {
+      label: 'Room',
+      value: roomName,
+      body: roomBody,
+    },
+    {
+      label: 'Operator',
+      value: walletConnected ? walletLabel : 'Waiting to load',
+      body: proposalCount
+        ? `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for operator review.`
+        : memoryBody,
+    },
+  ];
+}
+
+function createThreadContextItems({
+  activeAgent = null,
+  activeCred = 'Cred pending',
+  memoryCount = 0,
+  proposalCount = 0,
+  participantCount = 0,
+  thread = {},
+  verifiedLabel = 'Verification pending',
+} = {}) {
+  return [
+    {
+      label: 'Identity',
+      value: activeAgent?.tokenId ? `${activeAgent.name ?? 'Agent'} · #${activeAgent.tokenId}` : 'No agent selected',
+      body: verifiedLabel,
+      className: activeAgent?.tokenId ? 'ready' : 'open',
+    },
+    {
+      label: 'Trust',
+      value: activeAgent?.tokenId ? `${activeCred} · ${Number.isFinite(activeAgent?.proofCount) ? activeAgent.proofCount : 0} proof` : 'Awaiting trust context',
+      body: Number.isFinite(activeAgent?.routeCount) ? `${activeAgent.routeCount} public route${activeAgent.routeCount === 1 ? '' : 's'}.` : 'No routes loaded.',
+      className: activeAgent?.tokenId ? 'ready' : 'open',
+    },
+    {
+      label: 'Memory',
+      value: memoryCount ? `${memoryCount} recalled` : formatMemoryProviderLabel(thread.memoryProvider),
+      body: memoryCount ? 'Recent operator memory is already shaping the room.' : 'Sibyl is ready to pin mission and preference memory.',
+      className: 'ready',
+    },
+    {
+      label: 'Mode',
+      value: proposalCount ? `${proposalCount} queued proposal${proposalCount === 1 ? '' : 's'}` : 'Review-only',
+      body: participantCount > 1 ? `${participantCount} agents can collaborate, but nothing executes without approval.` : 'Single-agent room with explicit approval gates.',
+      className: 'ready',
+    },
+  ];
+}
+
 function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idle', activeAgentCount = 0 } = {}) {
-  if (!walletConnected) return 'Connect wallet first.';
+  if (!walletConnected) return 'Use the header button first.';
   if (agentRosterStatus === 'loading') return 'Loading wallet-owned agents.';
   if (agentRosterStatus === 'error') return 'Wallet-owned agent lookup failed.';
   if (activeAgentCount === 0) return 'This wallet does not own a live Helixa agent record yet.';
-  return 'Pick an agent to view details and open its chat.';
+  return 'Pick an agent to open its room and start the thread.';
 }
 
 function createNextAction({ walletConnected = false, activeAgentCount = 0, proposalCount = 0, hasMessages = false, roomParticipantCount = 0 } = {}) {
-  if (!walletConnected) return { title: 'Connect wallet', body: 'Link the controlling wallet before the room can load an agent.' };
+  if (!walletConnected) return { title: 'Wallet required', body: 'Use the top-right wallet control before the room can load an agent.' };
   if (activeAgentCount === 0) return { title: 'No owned agents', body: 'This wallet needs a live Helixa agent record before chat can start.' };
   if (proposalCount > 0) return { title: 'Review queue', body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for approval.` };
-  if (hasMessages) return { title: 'Keep chatting', body: 'The room is live. Keep the thread moving.' };
-  return { title: 'Start live chat', body: 'Pick an owned agent and send the first mission.' };
+  if (hasMessages) return { title: 'Keep the room live', body: 'The thread is active. Keep the operator conversation moving.' };
+  return { title: 'Open a room', body: 'Pick an owned agent and send the first mission.' };
 }
 
 function selectActiveAgent(agents = [], selectedAgentId = null) {
@@ -488,8 +645,11 @@ function selectActiveAgent(agents = [], selectedAgentId = null) {
 
 function buildAgentOptionLabel(agent = {}) {
   const name = String(agent.name ?? agent.tokenId ?? 'Agent').trim();
+  const identity = agent.canonicalName && agent.canonicalName !== name
+    ? `${name} · ${agent.canonicalName}`
+    : name;
   const cred = agent.credLabel ?? (agent.credScore === null || agent.credScore === undefined ? 'Cred pending' : `Cred ${agent.credScore}`);
-  return `${name} · ${cred}`;
+  return `${identity} · ${cred}`;
 }
 
 function normalizeCredScore(value) {
@@ -539,6 +699,21 @@ function createRoomParticipants({ agents = [], activeAgent = null, participantId
     .filter(Boolean);
   if (participants.length) return participants;
   return activeAgent ? [activeAgent] : [];
+}
+
+function createAgentRenameControl(activeAgent = null) {
+  if (!activeAgent?.tokenId) return null;
+  const canonicalName = String(activeAgent.canonicalName ?? activeAgent.name ?? '').trim() || `Agent #${activeAgent.tokenId}`;
+  const currentName = String(activeAgent.name ?? canonicalName).trim() || canonicalName;
+  return {
+    enabled: true,
+    value: currentName,
+    placeholder: canonicalName,
+    resettable: currentName !== canonicalName,
+    hint: currentName !== canonicalName
+      ? `Live identity: ${canonicalName}`
+      : 'Console-only alias for this selected agent.',
+  };
 }
 
 function deriveRoomName(participants = []) {

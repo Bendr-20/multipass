@@ -62,10 +62,7 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   });
 
   assert.equal(snapshot.title, 'Multipass Console');
-  assert.match(snapshot.lead, /simple wallet-owned chat workspace/i);
-  assert.match(snapshot.lead, /Sibyl memory/i);
-  assert.match(snapshot.lead, /review-only approvals/i);
-  assert.equal(snapshot.session.nextAction.title, 'Start live chat');
+  assert.equal(snapshot.session.nextAction.title, 'Open a room');
   assert.match(snapshot.session.nextAction.body, /first mission/i);
   assert.equal(snapshot.session.status.find((item) => item.label === 'Wallet')?.value, '0x1234...5678');
   assert.equal(snapshot.session.status.find((item) => item.label === 'Agent')?.value, 'Bendr 2.0');
@@ -76,9 +73,14 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.session.selectionEnabled, true);
   assert.equal(snapshot.session.options.length, 2);
   assert.equal(snapshot.session.activeAgentId, '1');
-  assert.match(snapshot.session.selectionHint, /Pick an agent/i);
-  assert.equal(snapshot.identityCard.label, 'Selected agent');
+  assert.match(snapshot.session.selectionHint, /open its room/i);
+  assert.equal(snapshot.kicker, undefined);
+  assert.equal(snapshot.identityCard.label, undefined);
   assert.equal(snapshot.identityCard.name, 'Bendr 2.0');
+  assert.equal(snapshot.identityCard.rename?.value, 'Bendr 2.0');
+  assert.equal(snapshot.identityCard.rename?.resettable, false);
+  assert.equal(snapshot.identityCard.badges.length, 3);
+  assert.equal(snapshot.identityCard.dossier.length, 4);
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Proof')?.value, '2');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Routes')?.value, '1');
@@ -89,7 +91,8 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.agentThread.agentName, 'Bendr 2.0');
   assert.equal(snapshot.agents.length, 2);
   assert.equal(snapshot.agents[0].selected, true);
-  assert.doesNotMatch(`${snapshot.headline} ${snapshot.lead} ${snapshot.agents.map((agent) => agent.name).join(' ')}`, /looper|legendary/i);
+  assert.equal(snapshot.lead, undefined);
+  assert.doesNotMatch(`${snapshot.headline} ${snapshot.agents.map((agent) => agent.name).join(' ')}`, /looper|legendary/i);
 });
 
 test('Multipass Console renderer includes memory missions and runtime checks as reviewed proposals', () => {
@@ -105,35 +108,46 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.equal(root.querySelector('.console-trust-rail'), null);
   assert.ok(root.querySelector('.console-identity-card'));
+  assert.ok(root.querySelector('[data-action="update-console-agent-name"]'));
   assert.ok(root.querySelector('.console-thread-shell-header'));
+  assert.ok(root.querySelector('.console-thread-toolbar'));
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
-  assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/og-bendr-profile-capture.png"]'));
+  assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
+  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[1]?.classList.contains('console-identity-card'), true);
+  assert.equal(root.querySelector('.console-sidebar-header .lead'), null);
+  assert.equal(root.querySelector('.console-sidebar-header .eyebrow'), null);
   assert.match(text, /Multipass Console/);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
-  assert.match(text, /Connect wallet/);
   assert.match(text, /Active agent/);
-  assert.match(text, /Selected agent/);
+  assert.match(text, /Console name/);
   assert.match(text, /Bendr 2\.0 room/);
+  assert.match(text, /Operator room/);
   assert.match(text, /Today/);
-  assert.match(text, /Sibyl recall/);
+  assert.match(text, /Room notes/);
   assert.match(text, /Memory/);
   assert.match(text, /Send/);
   assert.match(text, /Reset chat/);
-  assert.match(text, /Bankr-ready|Bankr gateway/);
   assert.match(text, /Sibyl memory/);
-  assert.match(text, /Live chat|XMTP ready|XMTP room/);
+  assert.match(text, /live chat|XMTP ready|XMTP room/i);
   assert.match(text, /Review-only/);
   assert.match(text, /recall/i);
   assert.match(text, /My agents/);
   assert.match(text, /The Console only loads real Helixa agents owned by the connected wallet/);
+  assert.doesNotMatch(text, /Agent dossier|Agent Workspace/);
+  assert.doesNotMatch(text, /\bConnect wallet\b/);
+  assert.doesNotMatch(text, /A quieter operator surface for wallet-owned agents|review proposals without the dashboard clutter/i);
   assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching|signals feed/i);
-  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]'), null);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Wallet required/);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Use the header button to load your agents\./);
+  assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.match(text, /Review-only\. Nothing executes without your approval/i);
+  assert.match(text, /Cred 80\. verified\. direct room\. no queued proposals\./i);
+  assert.equal(root.querySelector('.console-thread-room-state'), null);
+  assert.equal(root.querySelector('.console-thread-status'), null);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|Legendary|custody transferred|credentials released|tool authority granted|private credentials available/i);
 });
 
@@ -172,6 +186,9 @@ test('Multipass Console renderer includes agent runtime messages and review-only
           { text: 'Watchlist preference: NVDAx and Base agent tokens.', tags: ['watchlist'] },
           { text: 'Constraint: review-only proposals.', tags: ['constraint'] },
         ],
+        missions: [
+          { id: 'mission_watchlist', title: 'Active watchlist', status: 'active', summary: 'Watch NVDAx and Base agent tokens.' },
+        ],
       },
     },
   });
@@ -183,15 +200,26 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.console-thread-shell-meta')?.textContent ?? '', /3 messages, 1 queued/);
+  assert.ok(root.querySelector('.console-thread-toolbar'));
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Quigbot/);
+  assert.match(root.querySelector('.console-identity-members-list')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
   assert.match(text, /Quigbot/);
   assert.match(text, /Review watchlist briefing/);
   assert.match(text, /No transaction authority/);
-  assert.match(text, /Queued proposals/);
-  assert.match(text, /Sibyl memory/);
+  assert.match(text, /Room notes/);
+  assert.match(text, /Memory loaded/);
+  assert.match(text, /Mission active/);
+  assert.match(text, /Review queue/);
+  assert.match(text, /2 pinned/);
+  assert.match(text, /2 memory cues ready/);
+  assert.match(text, /2 agents in room/);
+  assert.equal(root.querySelector('.console-proposal-list'), null);
+  assert.match(root.querySelector('.console-thread-proposal')?.textContent ?? '', /Review gate/);
+  assert.match(root.querySelector('.console-thread-context-summary')?.textContent ?? '', /Room notes/);
+  assert.equal(root.querySelector('.console-thread-quickfacts'), null);
 });
 
 test('Multipass Console renderer shows fresh-session recall after client reset', () => {
@@ -216,9 +244,10 @@ test('Multipass Console renderer shows fresh-session recall after client reset',
   const root = render(renderMultipassConsole(snapshot));
   const text = root.textContent;
 
+  assert.match(text, /Room notes/);
   assert.match(text, /Session recall/);
   assert.match(text, /I remember this wallet/);
   assert.match(text, /review-only proposals/);
   assert.equal(root.querySelector('.console-signal-grid'), null);
-  assert.match(root.querySelector('.console-thread-recall')?.textContent ?? '', /Session recall/);
+  assert.match(root.querySelector('.console-thread-activity')?.textContent ?? '', /Session recall/);
 });
