@@ -1732,13 +1732,12 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(document.title, 'Multipass Console');
   assert.equal(document.querySelector('meta[property="og:title"]')?.getAttribute('content'), 'Multipass Console');
   assert.equal(root.querySelector('.brand-stack .header-meta')?.textContent, 'Multipass Console');
-  assert.match(consolePage.textContent, /open a wallet-owned room/i);
   assert.match(consolePage.textContent, /review-only/i);
-  assert.ok(consolePage.querySelector('.console-trust-stage'));
-  assert.equal(consolePage.querySelector('.console-trust-stage')?.getAttribute('aria-label'), 'Agent manager suite');
-  assert.equal(consolePage.querySelectorAll('.console-status-strip div').length, 4);
+  assert.ok(consolePage.querySelector('.console-basic-shell'));
+  assert.equal(consolePage.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
+  assert.equal(consolePage.querySelectorAll('.console-status-strip div').length, 0);
   assert.equal(consolePage.querySelectorAll('.console-flow-panel li').length, 0);
-  assert.ok(consolePage.querySelector('.console-trust-rail'));
+  assert.equal(consolePage.querySelector('.console-trust-rail'), null);
   assert.ok(consolePage.querySelector('.console-identity-card'));
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
@@ -1749,19 +1748,18 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /Proof/);
   assert.match(consolePage.textContent, /Routes/);
   assert.match(consolePage.textContent, /Standards/);
-  assert.match(consolePage.textContent, /Wallet-owned agents/i);
+  assert.match(consolePage.textContent, /My agents/i);
   assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
-  assert.match(consolePage.textContent, /Room context/);
   assert.match(consolePage.textContent, /No recalled memory yet/);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Required/);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Wallet required/);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
-  assert.ok(root.querySelector('.live-resolver'));
+  assert.equal(root.querySelector('.live-resolver'), null);
   assert.doesNotMatch(consolePage.textContent, /Loopers|NFT dashboard|Legendary/i);
-  assert.match(consolePage.textContent, /every action still waits for you/i);
+  assert.match(consolePage.textContent, /Nothing executes without your approval/i);
   assert.doesNotMatch(consolePage.textContent, /custody transferred|credentials released|tool authority granted|trade placed/i);
 });
 
@@ -1794,7 +1792,7 @@ test('dedicated Console route connects wallet and shows the active identity', as
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent, 'Reconnect');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
-  assert.match(root.querySelector('.console-session-panel')?.textContent ?? '', /Pick a primary owned agent/);
+  assert.match(root.querySelector('.console-session-panel')?.textContent ?? '', /Pick an agent/);
   assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Bendr 2\.0/);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
@@ -1845,7 +1843,7 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
     },
   }).start();
 
-  root.querySelector('[data-action="toggle-console-agent-room"][data-token-id="7"]')?.click();
+  root.querySelector('[data-action="activate-console-room"][data-token-id="7"]')?.click();
   await flushAsyncEvents();
 
   const form = root.querySelector('[data-action="send-console-agent-message"]');
@@ -1855,12 +1853,12 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].wallet, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
-  assert.equal(calls[0].agentId, '1');
-  assert.equal(calls[0].tokenId, '1');
-  assert.equal(calls[0].agentName, 'Bendr 2.0');
+  assert.equal(calls[0].agentId, '7');
+  assert.equal(calls[0].tokenId, '7');
+  assert.equal(calls[0].agentName, 'Wallet Seven');
   assert.equal(calls[0].message, 'Watch NVDAx and Base agent tokens.');
-  assert.equal(calls[0].roomName, 'Bendr 2.0 + 1 room');
-  assert.deepEqual(calls[0].participants.map((participant) => participant.tokenId), ['1', '7']);
+  assert.equal(calls[0].roomName, 'Wallet Seven room');
+  assert.deepEqual(calls[0].participants.map((participant) => participant.tokenId), ['7']);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Wallet Seven/);
   assert.match(root.querySelector('.console-proposal-list')?.textContent ?? '', /Review watchlist briefing/);
@@ -1868,7 +1866,7 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
   root.querySelector('[data-action="reset-console-session"]').click();
   await flushAsyncEvents();
-  assert.match(root.querySelector('.console-recall-panel')?.textContent ?? '', /Session recall/);
+  assert.match(root.querySelector('.console-thread-recall')?.textContent ?? '', /Session recall/);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Wallet 0x27E3\.\.\.91Ea recalled/);
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /tokens\.\./);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /review-only/);

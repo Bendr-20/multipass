@@ -71,7 +71,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       status,
     },
     identityCard: {
-      label: 'Active room',
+      label: 'Selected agent',
       name: activeAgentLabel,
       role: activeAgent?.role ?? 'Onchain agent',
       image: activeAgent?.image ?? '/multipass/og-bendr-profile-capture.png',
@@ -118,26 +118,19 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
 export function renderMultipassConsole(snapshot = {}) {
   return `
     <main class="multipass-console" aria-label="Multipass Console">
-      <section class="console-workspace-grid console-trust-stage" aria-label="Agent manager suite">
-        <aside class="console-workspace-sidebar" aria-label="Workspace sidebar">
+      <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
+        <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
           <section class="console-dashboard-header console-sidebar-header" aria-label="Workspace">
             <div class="console-sidebar-brand">
               <p class="eyebrow">${escapeHtml(snapshot.kicker ?? 'Agent Workspace')}</p>
               <h1>${escapeHtml(snapshot.headline ?? 'Multipass Console')}</h1>
-              <p class="lead">${escapeHtml(snapshot.lead ?? '')}</p>
-            </div>
-            <div class="console-sidebar-header-meta">
-              <span class="console-sidebar-badge">Review only</span>
-              <span class="console-sidebar-room">${escapeHtml(snapshot.agentThread?.roomName ?? 'Selected agent room')}</span>
-              <p class="console-safety-note">${escapeHtml(snapshot.safetyNote ?? CONSOLE_SAFETY_NOTE)}</p>
             </div>
           </section>
           ${renderSessionPanel(snapshot.session)}
           <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">
             <div class="console-panel-heading">
-              <p class="card-label">Rooms</p>
-              <h2>Owned agents</h2>
-              <p>Pick the primary room, then add or remove other wallet-owned agents from the same chat.</p>
+              <p class="card-label">Agents</p>
+              <h2>My agents</h2>
             </div>
             <div class="console-agent-list">
               ${renderAgentRoster(snapshot)}
@@ -145,22 +138,14 @@ export function renderMultipassConsole(snapshot = {}) {
             <p class="console-agent-note">The Console only loads real Helixa agents owned by the connected wallet.</p>
             ${snapshot.agentRoster?.error ? `<p class="console-agent-error">${escapeHtml(snapshot.agentRoster.error)}</p>` : ''}
           </section>
-          ${renderIdentityCard(snapshot.identityCard)}
-          ${renderSuitePanel(snapshot)}
-          <section class="console-panel console-recall-panel" aria-label="Sibyl recall">
-            <div class="console-panel-heading">
-              <p class="card-label">Pinned memory</p>
-              <h2>${escapeHtml(snapshot.recall?.title ?? 'Sibyl recall')}</h2>
-              <p>${escapeHtml(snapshot.recall?.body ?? '')}</p>
-            </div>
-          </section>
         </aside>
 
-        <section class="console-workspace-main" aria-label="Live chat workspace">
+        <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
+          ${renderIdentityCard(snapshot.identityCard)}
           ${renderConsoleAgentThread({
             ...snapshot.agentThread,
             recall: snapshot.recall,
-            contextItems: snapshot.suiteChecks,
+            contextItems: [],
           })}
         </section>
       </section>
@@ -232,25 +217,21 @@ function renderSessionPanel(session = {}) {
       : 'Connect wallet';
 
   return `
-    <section class="console-panel console-session-panel console-wallet-panel" aria-label="Manager session">
+    <section class="console-panel console-session-panel console-wallet-panel" aria-label="Wallet login">
       <div class="console-panel-heading">
-        <p class="card-label">Session</p>
-        <h2>Open a wallet-owned room</h2>
-        <p>${escapeHtml(session.nextAction?.body ?? 'Connect your wallet to begin.')}</p>
+        <p class="card-label">Login</p>
+        <h2>${connected ? 'Wallet connected' : 'Connect wallet'}</h2>
       </div>
-      <strong class="console-session-callout">${escapeHtml(session.nextAction?.title ?? 'Connect wallet')}</strong>
-      <dl class="console-status-strip">
-        ${(session.status ?? []).map(renderStatusItem).join('')}
-      </dl>
       <div class="console-session-actions">
         <button type="button" data-action="connect-console-wallet" ${connecting || unavailable || !ready ? 'disabled' : ''}>${escapeHtml(buttonLabel)}</button>
         <label class="console-agent-selector">
-          <span>Select primary agent</span>
+          <span>Active agent</span>
           <select name="console_agent" data-action="select-console-agent" ${session.selectionEnabled ? '' : 'disabled'}>
             ${renderAgentOptions(session)}
           </select>
         </label>
       </div>
+      <p class="console-wallet-label">${escapeHtml(connected ? wallet.label : 'Wallet required')}</p>
       <p class="console-session-note">${escapeHtml(session.selectionHint ?? '')}</p>
       ${wallet.error ? `<p class="console-wallet-error">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
@@ -258,11 +239,10 @@ function renderSessionPanel(session = {}) {
 }
 
 function renderIdentityCard(card = {}) {
-  const participants = Array.isArray(card.participants) ? card.participants.filter(Boolean) : [];
   return `
     <section class="console-visual-card console-identity-card" aria-label="Selected agent">
       <div class="console-card-head">
-        <p class="card-label">${escapeHtml(card.label ?? 'Selected agent')}</p>
+        <p class="card-label">Selected agent</p>
         <span>${escapeHtml(card.walletLabel ?? 'Wallet required')}</span>
       </div>
       <div class="console-identity-overview">
@@ -278,14 +258,6 @@ function renderIdentityCard(card = {}) {
       <div class="console-identity-stats">
         ${(card.stats ?? []).map(renderMiniStat).join('')}
       </div>
-      ${participants.length ? `
-        <div class="console-identity-members">
-          <span class="console-identity-members-label">In this room</span>
-          <div class="console-identity-members-list">
-            ${participants.map(renderIdentityParticipant).join('')}
-          </div>
-        </div>
-      ` : ''}
     </section>
   `;
 }
@@ -362,7 +334,7 @@ function renderAgentRoster(snapshot = {}) {
 
   const status = snapshot.agentRoster?.status ?? 'idle';
   let title = 'Connect a wallet';
-  let body = 'The Console only loads real Helixa agents owned by the connected wallet.';
+  let body = 'Owned agents appear here after login.';
   if (status === 'loading') {
     title = 'Loading owned agents';
     body = 'Checking the live Helixa directory for agents owned by this wallet.';
@@ -387,17 +359,15 @@ function renderAgentRoster(snapshot = {}) {
 function renderAgentCard(agent = {}) {
   const openLink = agent.href ? `<a href="${escapeAttribute(agent.href)}">View profile</a>` : '<span>Profile pending</span>';
   const selected = Boolean(agent.selected);
-  const inRoom = Boolean(agent.inRoom);
   return `
-    <article class="console-agent-card ${selected ? 'selected' : ''} ${inRoom ? 'in-room' : ''}">
+    <article class="console-agent-card ${selected ? 'selected' : ''}">
       <div class="console-agent-card-head">
         <div>
           <strong>${escapeHtml(agent.name ?? 'Onchain agent')}</strong>
           <span>${escapeHtml(agent.role ?? 'Agent profile')}</span>
         </div>
         <div class="console-agent-card-flags">
-          ${selected ? '<span>Primary</span>' : ''}
-          ${inRoom && !selected ? '<span>In room</span>' : ''}
+          ${selected ? '<span>Selected</span>' : ''}
         </div>
       </div>
       <dl>
@@ -406,8 +376,7 @@ function renderAgentCard(agent = {}) {
         <div><dt>State</dt><dd>${escapeHtml(agent.state ?? 'Review needed')}</dd></div>
       </dl>
       <div class="console-agent-card-actions">
-        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Primary room' : 'Make primary'}</button>
-        <button type="button" data-action="toggle-console-agent-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Primary agent' : (inRoom ? 'Remove from room' : 'Add to room')}</button>
+        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Chatting' : 'Chat'}</button>
       </div>
       ${openLink}
     </article>
@@ -498,16 +467,15 @@ function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idl
   if (agentRosterStatus === 'loading') return 'Loading wallet-owned agents.';
   if (agentRosterStatus === 'error') return 'Wallet-owned agent lookup failed.';
   if (activeAgentCount === 0) return 'This wallet does not own a live Helixa agent record yet.';
-  return 'Pick a primary agent, then add other wallet-owned agents.';
+  return 'Pick an agent to view details and open its chat.';
 }
 
 function createNextAction({ walletConnected = false, activeAgentCount = 0, proposalCount = 0, hasMessages = false, roomParticipantCount = 0 } = {}) {
   if (!walletConnected) return { title: 'Connect wallet', body: 'Link the controlling wallet before the room can load an agent.' };
   if (activeAgentCount === 0) return { title: 'No owned agents', body: 'This wallet needs a live Helixa agent record before chat can start.' };
   if (proposalCount > 0) return { title: 'Review queue', body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for approval.` };
-  if (roomParticipantCount > 1 && !hasMessages) return { title: 'Start room chat', body: 'Multiple agents are in the room. Send the first message and let them answer together.' };
   if (hasMessages) return { title: 'Keep chatting', body: 'The room is live. Keep the thread moving.' };
-  return { title: 'Start live chat', body: 'Pick a primary owned agent and send the first mission.' };
+  return { title: 'Start live chat', body: 'Pick an owned agent and send the first mission.' };
 }
 
 function selectActiveAgent(agents = [], selectedAgentId = null) {

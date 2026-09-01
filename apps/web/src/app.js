@@ -775,20 +775,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function toggleConsoleAgentRoom(event) {
     const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
     if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
-    const currentIds = new Set(resolveConsoleParticipantAgentIds(
-      getConsoleDisplayAgents(state),
-      state.consoleParticipantAgentIds,
-      state.consoleSelectedAgentId,
-    ));
-    if (currentIds.has(tokenId)) currentIds.delete(tokenId);
-    else currentIds.add(tokenId);
     const participantAgentIds = resolveConsoleParticipantAgentIds(
       getConsoleDisplayAgents(state),
-      [...currentIds],
-      state.consoleSelectedAgentId,
+      [tokenId],
+      tokenId,
     );
     state = {
       ...state,
+      consoleSelectedAgentId: tokenId,
       consoleParticipantAgentIds: participantAgentIds,
       consoleAgentThread: createInitialConsoleAgentThreadState(),
     };
@@ -1651,16 +1645,8 @@ function resolveConsoleSelectedAgentId(agents = [], selectedAgentId = null) {
 function resolveConsoleParticipantAgentIds(agents = [], participantAgentIds = [], selectedAgentId = null) {
   const validAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
   if (!validAgents.length) return [];
-  const validTokenIds = new Set(validAgents.map((agent) => String(agent?.tokenId ?? '').trim()).filter(Boolean));
   const selectedId = resolveConsoleSelectedAgentId(validAgents, selectedAgentId);
-  const ordered = [];
-  if (selectedId && validTokenIds.has(selectedId)) ordered.push(selectedId);
-  for (const tokenId of Array.isArray(participantAgentIds) ? participantAgentIds : []) {
-    const normalized = String(tokenId ?? '').trim();
-    if (!normalized || normalized === selectedId || !validTokenIds.has(normalized) || ordered.includes(normalized)) continue;
-    ordered.push(normalized);
-  }
-  return ordered;
+  return selectedId ? [selectedId] : [];
 }
 
 function createConsoleRoomName(participants = []) {
@@ -2577,8 +2563,6 @@ function renderMultipassConsolePage(root, state, handlers = {}) {
     <div class="record-shell multipass-console-shell">
       ${renderRecordHeader('Multipass Console')}
       ${renderMultipassConsole(snapshot)}
-      ${renderLiveResolver(state, { showResetButton: false, showGroupActivationButton: true })}
-      ${state.groupActivationExpanded ? renderGroupActivationSection(state.groupActivation) : ''}
     </div>
   `;
 
