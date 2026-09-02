@@ -8,6 +8,7 @@ const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 test('mobile layout does not squeeze fragment cards into narrow desktop columns', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
 
   assert.equal(css.includes('grid-template-columns: repeat(5, minmax(0, 1fr));'), false);
   assert.match(css, /\.fragment-cards\s*{[^}]*minmax\(min\(280px, 100%\), 1fr\)/s);
@@ -15,12 +16,12 @@ test('mobile layout does not squeeze fragment cards into narrow desktop columns'
   assert.match(css, /\.fragment-card p\s*{[^}]*overflow-wrap:\s*anywhere;/s);
   assert.match(css, /\.fragment-card dd\s*{[^}]*overflow-wrap:\s*anywhere;/s);
   assert.match(css, /\.fragment-card dd \+ small\s*{[^}]*overflow-wrap:\s*anywhere;/s);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-cards\s*{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-value\s*{[\s\S]*display:\s*block;/);
-  assert.doesNotMatch(css, /@media \(max-width: 700px\)[\s\S]*\.fragment-value\s*{[\s\S]*display:\s*none;/);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);/);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*scroll-snap-type:\s*x proximity;/);
-  assert.doesNotMatch(css, /@media \(max-width: 700px\)[\s\S]*\.card-track\s*{[\s\S]*grid-auto-columns: minmax\(280px, 88vw\);/);
+  assert.match(mobileBlock, /\.fragment-cards\s*{[^}]*grid-template-columns: minmax\(0, 1fr\);/s);
+  assert.match(mobileBlock, /\.fragment-value\s*{[^}]*display:\s*block;/s);
+  assert.doesNotMatch(mobileBlock, /\.fragment-value\s*{[^}]*display:\s*none;/s);
+  assert.match(mobileBlock, /\.card-track\s*{[^}]*grid-auto-columns:\s*minmax\(0, min\(320px, 82vw\)\);/s);
+  assert.match(mobileBlock, /\.card-track\s*{[^}]*scroll-snap-type:\s*x proximity;/s);
+  assert.doesNotMatch(mobileBlock, /\.card-track\s*{[^}]*grid-auto-columns: minmax\(280px, 88vw\);/s);
 });
 
 

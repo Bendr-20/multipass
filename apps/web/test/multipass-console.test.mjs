@@ -81,10 +81,9 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.identityCard.rename?.resettable, false);
   assert.equal(snapshot.identityCard.badges.length, 3);
   assert.equal(snapshot.identityCard.dossier.length, 4);
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Token')?.value, '#1');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
-  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Proof')?.value, '2');
-  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Routes')?.value, '1');
-  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Standards')?.value, '1');
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Mode')?.value, 'Review-only');
   assert.equal(snapshot.suiteChecks.length, 6);
   assert.equal(snapshot.suiteChecks.find((item) => item.label === 'Selected agent')?.value, '#1');
   assert.equal(snapshot.suiteChecks.find((item) => item.label === 'Cred')?.value, 'Cred 80');
@@ -104,6 +103,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.ok(root.querySelector('.console-dashboard-header'));
   assert.ok(root.querySelector('.console-basic-shell'));
   assert.ok(root.querySelector('.console-wallet-panel'));
+  assert.equal(root.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
+  assert.match(root.querySelector('.console-sidebar-drawer summary')?.textContent ?? '', /Console name|Identity profile|My agents|Active agent/);
   assert.equal(root.querySelectorAll('.console-status-strip div').length, 0);
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.equal(root.querySelector('.console-trust-rail'), null);
@@ -123,8 +124,9 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Console name/);
   assert.match(text, /Bendr 2\.0 room/);
   assert.match(text, /Operator room/);
+  assert.match(text, /Direct thread/);
   assert.match(text, /Today/);
-  assert.match(text, /Room notes/);
+  assert.match(text, /Thread note/);
   assert.match(text, /Memory/);
   assert.match(text, /Send/);
   assert.match(text, /Reset chat/);
@@ -145,7 +147,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Use the header button to load your agents\./);
   assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.match(text, /Review-only\. Nothing executes without your approval/i);
-  assert.match(text, /Cred 80\. verified\. direct room\. no queued proposals\./i);
+  assert.match(text, /Lead agent in a direct thread\. Cred 80\. review-only\./i);
+  assert.doesNotMatch(text, /Direct line to Quigley|mouthy night-shift/i);
   assert.equal(root.querySelector('.console-thread-room-state'), null);
   assert.equal(root.querySelector('.console-thread-status'), null);
   assert.doesNotMatch(text, /Loopers|NFT dashboard|Legendary|custody transferred|credentials released|tool authority granted|private credentials available/i);
@@ -204,6 +207,8 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Quigbot/);
   assert.match(root.querySelector('.console-identity-members-list')?.textContent ?? '', /Bendr 2\.0/);
+  assert.match(root.querySelectorAll('.console-sidebar-drawer summary')[1]?.textContent ?? '', /Identity profile/);
+  assert.match(root.querySelectorAll('.console-sidebar-drawer summary')[2]?.textContent ?? '', /Participants/);
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
   assert.match(text, /Quigbot/);

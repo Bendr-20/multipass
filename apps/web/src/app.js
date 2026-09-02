@@ -1658,6 +1658,7 @@ function getInitialConsoleMockState() {
 
   const walletAddress = '0x8f8A4F4F22f533C4bA5411b2a3A0C95f91A84B91';
   const walletLabel = shortenAddress(walletAddress);
+  const quigleyPfp = '/multipass/quigley-pfp-square.jpg';
   const agentNameOverrides = {
     '000': 'bendr',
     ...loadConsoleAgentNameOverrides(),
@@ -1669,7 +1670,8 @@ function getInitialConsoleMockState() {
     agentId: selectedAgentId,
     tokenId: selectedAgentId,
     displayName: agents[0]?.name ?? 'bendr',
-    role: agents[0]?.role ?? 'Looper operator',
+    role: agents[0]?.role ?? 'Bendr Looper agent',
+    avatarUrl: agents[0]?.image ?? null,
   };
 
   return {
@@ -1698,51 +1700,69 @@ function getInitialConsoleMockState() {
       transport: 'xmtp_local',
       memoryProvider: 'sibyl_memory',
       inferenceProvider: 'bankr_router',
-      roomName: `${agents[0]?.name ?? 'bendr'} room`,
+      title: `Quigley <> ${agents[0]?.name ?? 'bendr'}`,
+      roomName: `${agents[0]?.name ?? 'bendr'} desk`,
       participants: [participant],
-      recalledMission: `Wallet ${walletLabel} recalled. Last preference: one tight nightly briefing, no public replies, and review-only actions.`,
+      recalledMission: `Wallet ${walletLabel} recalled. Last preference: blunt market reads, vault first, and no public moves without review.`,
       sessionReset: false,
       messages: [
         {
           role: 'human',
-          text: 'Watch holder chat, Base flow, and anything that needs my approval before morning.',
+          senderLabel: 'Quigley',
+          avatarUrl: quigleyPfp,
+          text: 'Give me the real read. How are the markets and how is our vault looking tonight?',
           transport: 'console',
         },
         {
           role: 'agent',
           senderLabel: agents[0]?.name ?? 'bendr',
-          text: 'Loaded prior memory. I will keep it tight: no public replies, no spend, and no action without review.',
+          avatarUrl: agents[0]?.image ?? null,
+          text: 'Markets are jumpy, loud, and full of tourists confusing panic for insight. Nothing is broken, but I would not chase anything just because it is yelling.',
           transport: 'xmtp_local',
         },
         {
           role: 'agent',
           senderLabel: agents[0]?.name ?? 'bendr',
-          text: 'Two holder questions and one draft follow-up are queued for your pass.',
+          avatarUrl: agents[0]?.image ?? null,
+          text: 'Vault looks clean. No weird drains, no surprise approvals, and no reason to do something stupid before morning.',
+          transport: 'xmtp_local',
+        },
+        {
+          role: 'human',
+          senderLabel: 'Quigley',
+          avatarUrl: quigleyPfp,
+          text: 'So what actually matters before I wake up?',
+          transport: 'console',
+        },
+        {
+          role: 'agent',
+          senderLabel: agents[0]?.name ?? 'bendr',
+          avatarUrl: agents[0]?.image ?? null,
+          text: 'Three things: keep eyes on momentum names, watch for any vault movement that is not ours, and ignore the fake alpha merchants unless they bring receipts.',
           transport: 'xmtp_local',
         },
       ],
       proposals: [
         {
           status: 'review_only',
-          title: 'Review holder follow-up',
-          action: 'Prepare one concise reply draft and hold it for approval.',
-          risk: 'No public post or onchain action will happen without approval.',
+          title: 'Queue the morning markets brief',
+          action: 'Prepare one short markets and vault note for review before any spend, trade, or public post.',
+          risk: 'No trade, transfer, or public reply will happen without approval.',
         },
       ],
       savedMemory: [
-        { text: 'Preference: one tight nightly briefing.', tags: ['preference'] },
-        { text: 'Constraint: no public replies or onchain actions without approval.', tags: ['constraint', 'risk'] },
-        { text: 'Watchlist: holder chat, Base flow, and collection mentions.', tags: ['watchlist', 'mission'] },
+        { text: 'Preference: blunt answers, no padded commentary.', tags: ['preference', 'voice'] },
+        { text: 'Constraint: no public replies, spend, or onchain action without approval.', tags: ['constraint', 'risk'] },
       ],
       recalledMemory: [
-        { text: 'Previous room state: bundle holder questions into one operator briefing.', tags: ['history'] },
+        { text: 'Previous desk rule: vault health outranks market noise.', tags: ['history', 'priority'] },
       ],
       missions: [
         {
           id: 'mission_looper_ops',
-          title: 'Looper room watch',
+          title: 'Markets watch',
           status: 'active',
-          summary: 'Watch holder chat, Base flow, and anything that needs approval before morning.',
+          summary: 'Watch markets, vault health, and anything real enough to deserve an operator wake-up.',
         },
       ],
     },
@@ -1755,7 +1775,7 @@ function createLooperConsoleMockAgents() {
       tokenId: '000',
       name: 'Looper #000',
       canonicalName: 'Looper #000',
-      role: 'Looper operator',
+      role: 'Bendr Looper agent',
       credScore: 71,
       credLabel: 'Cred 71',
       helixaId: '8453:000',
@@ -1765,6 +1785,22 @@ function createLooperConsoleMockAgents() {
       verified: true,
       state: 'Review room loaded',
       image: '/multipass/loopers-console-pfp.png',
+      presenceLabel: 'Markets + vault desk',
+      logline: 'Blunt looper tracking the markets, guarding the vault, and filtering noise before it becomes your problem.',
+      temperament: 'Dry and spicy',
+      temperamentBody: 'Protective of the vault, impatient with fake urgency, and happier giving a sharp answer than a polite one.',
+      identityBody: 'Verified AgentDNA 8453:000. Wallet-bound looper identity running the night desk.',
+      mandateBody: 'Track market drift, vault health, and anything serious enough to escalate before morning.',
+      operatorLabel: 'Review gate',
+      operatorBody: 'Brief first. No spend, no post, no theatrics without operator approval.',
+      profileLane: 'Markets + vault',
+      watchLabel: 'Markets + vault',
+      watchBody: 'Blunt read on market drift, vault integrity, and any move worth waking the operator for.',
+      identityBadges: ['Spicy', 'Vault first', 'Review-only'],
+      threadContextItems: [
+        { label: 'Watch', value: 'Markets + vault' },
+        { label: 'Tone', value: 'Blunt, spicy, review-only' },
+      ],
       href: '/multipass/?agent=000',
     },
     {

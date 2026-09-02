@@ -1739,16 +1739,17 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(consolePage.querySelectorAll('.console-flow-panel li').length, 0);
   assert.equal(consolePage.querySelector('.console-trust-rail'), null);
   assert.ok(consolePage.querySelector('.console-identity-card'));
+  assert.equal(consolePage.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
   assert.ok(consolePage.querySelector('.console-thread-toolbar'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
   assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
-  assert.match(consolePage.textContent, /Selected room/);
+  assert.match(consolePage.textContent, /Direct operator line/);
   assert.match(consolePage.textContent, /Operator room/);
-  assert.match(consolePage.textContent, /Room notes/);
-  assert.match(consolePage.textContent, /Proof/);
-  assert.match(consolePage.textContent, /Routes/);
-  assert.match(consolePage.textContent, /Standards/);
+  assert.match(consolePage.textContent, /Thread note/);
+  assert.match(consolePage.textContent, /Token/);
+  assert.match(consolePage.textContent, /Cred/);
+  assert.match(consolePage.textContent, /Mode/);
   assert.match(consolePage.textContent, /My agents/i);
   assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
   assert.match(consolePage.textContent, /No recalled memory yet/);
@@ -1926,15 +1927,17 @@ test('dedicated Console route can render a looper mock room without live ownersh
   assert.ok(consolePage);
   assert.match(consolePage.textContent, /bendr/);
   assert.match(consolePage.textContent, /Looper #000/);
-  assert.match(consolePage.textContent, /one tight nightly briefing/i);
-  assert.match(consolePage.textContent, /Review holder follow-up/i);
-  assert.match(consolePage.textContent, /no public replies/i);
+  assert.match(consolePage.textContent, /blunt market reads, vault first/i);
+  assert.match(consolePage.textContent, /Queue the morning markets brief/i);
+  assert.match(consolePage.textContent, /How are the markets and how is our vault looking tonight/i);
+  assert.match(consolePage.textContent, /Vault looks clean/i);
   assert.match(consolePage.textContent, /0x8f8A\.\.\.4B91/);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
   assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x8f8A...4B91');
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
   assert.equal(root.querySelector('[data-action="update-console-agent-name"] input[name="console_agent_name"]')?.value, 'bendr');
   assert.equal(root.querySelector('[data-action="reset-console-agent-name"]')?.disabled, false);
+  assert.doesNotMatch(consolePage.textContent, /Direct line to Quigley|mouthy night-shift/i);
   assert.doesNotMatch(consolePage.textContent, /\b(?:demo|fixture)\b/i);
 });
 
@@ -1959,7 +1962,8 @@ test('dedicated Console route lets the operator rename the active agent inside t
 
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /nightshift/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #000/);
-  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /#nightshift room/);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /nightshift/);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Direct thread/);
   assert.equal(JSON.parse(window.localStorage.getItem('multipass.console.agentNameOverrides') ?? '{}')['000'], 'nightshift');
 
   root.querySelector('[data-action="reset-console-agent-name"]')?.click();

@@ -16,6 +16,8 @@ export function renderConsoleAgentThread(thread = {}) {
   const disabled = Boolean(thread.disabled || sending);
   const agentName = thread.agentName ?? 'Selected agent';
   const roomName = String(thread.roomName ?? '').trim() || `${agentName} room`;
+  const threadTitle = String(thread.title ?? '').trim() || agentName;
+  const roomLabel = String(thread.metaLabel ?? '').trim() || (participants.length > 1 ? `#${roomName}` : 'Direct thread');
   const roomSummary = createRoomSummary(messages, proposals);
   const participantSummary = createParticipantSummary(participants);
   const recall = thread.recall ?? null;
@@ -23,10 +25,11 @@ export function renderConsoleAgentThread(thread = {}) {
   const linkStatus = disabled ? 'Standby' : 'Channel open';
   const contextSummary = createContextSummary(contextItems);
   const roomNotes = [
-    participants.length > 1 ? `${participants.length} agents in room.` : 'One agent in room.',
+    participants.length > 1 ? `${participants.length} agents in room.` : null,
     memoryCueCount ? `${memoryCueCount} memory cue${memoryCueCount === 1 ? '' : 's'} loaded.` : 'Sibyl memory standing by.',
     contextSummary,
   ].filter(Boolean).join(' ');
+  const noteLabel = thread.contextLabel ?? (participants.length > 1 ? 'Room notes' : 'Thread note');
   const timeline = createTimeline({
     messages,
     proposals,
@@ -42,15 +45,19 @@ export function renderConsoleAgentThread(thread = {}) {
         <div class="console-thread-shell-heading">
           <p class="card-label">Operator room</p>
           <div class="console-thread-chat-head">
-            <div class="console-thread-avatar console-thread-avatar-chat" aria-hidden="true">${escapeHtml(initialsForLabel(agentName))}</div>
+            ${renderAvatar({
+              label: agentName,
+              imageUrl: thread.agentAvatarUrl ?? participants[0]?.avatarUrl ?? null,
+              className: 'console-thread-avatar-chat',
+            })}
             <div class="console-thread-chat-copy">
-              <h2>${escapeHtml(agentName)}</h2>
+              <h2>${escapeHtml(threadTitle)}</h2>
               <p>${escapeHtml(thread.summary ?? 'Live chat ready.')}</p>
             </div>
           </div>
         </div>
         <div class="console-thread-shell-meta" aria-label="Room summary">
-          <strong>${escapeHtml(`#${roomName}`)}</strong>
+          <strong>${escapeHtml(roomLabel)}</strong>
           <span>${escapeHtml(`${linkStatus} · ${roomSummary}`)}</span>
         </div>
       </header>
@@ -65,7 +72,7 @@ export function renderConsoleAgentThread(thread = {}) {
         ` : ''}
         ${roomNotes ? `
           <div class="console-thread-context-summary">
-            <span>Room notes</span>
+            <span>${escapeHtml(noteLabel)}</span>
             <p>${escapeHtml(roomNotes)}</p>
           </div>
         ` : ''}
@@ -107,12 +114,14 @@ function renderTimelineItem(item = {}, agentName = 'Selected agent') {
 
 function renderThreadMessage(message = {}, agentName = 'Selected agent') {
   const role = message.role === 'human'
-    ? 'You'
+    ? (String(message.senderLabel ?? '').trim() || 'You')
     : (String(message.senderLabel ?? '').trim() || agentName);
-  const avatar = message.role === 'human' ? 'OP' : initialsForLabel(role);
   return `
     <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}">
-      <div class="console-thread-avatar" aria-hidden="true">${escapeHtml(avatar)}</div>
+      ${renderAvatar({
+        label: role,
+        imageUrl: message.avatarUrl ?? null,
+      })}
       <div class="console-thread-entry">
         <span class="console-thread-meta">
           <strong class="console-thread-role">${escapeHtml(role)}</strong>
@@ -162,10 +171,26 @@ function renderParticipantPill(participant = {}) {
   const label = String(participant.displayName ?? participant.agentName ?? participant.participantId ?? 'Agent').trim() || 'Agent';
   return `
     <span class="console-thread-member-pill">
-      <strong>${escapeHtml(initialsForLabel(label))}</strong>
+      <strong class="console-thread-member-avatar">
+        ${participant.avatarUrl
+          ? `<img src="${escapeAttribute(participant.avatarUrl)}" alt="" loading="lazy" />`
+          : escapeHtml(initialsForLabel(label))}
+      </strong>
       <span>${escapeHtml(label)}</span>
     </span>
   `;
+}
+
+function renderAvatar({ label = 'Agent', imageUrl = null, className = '' } = {}) {
+  const classes = ['console-thread-avatar', className].filter(Boolean).join(' ');
+  if (imageUrl) {
+    return `
+      <div class="${escapeAttribute(classes)}" aria-hidden="true">
+        <img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy">
+      </div>
+    `;
+  }
+  return `<div class="${escapeAttribute(classes)}" aria-hidden="true">${escapeHtml(initialsForLabel(label))}</div>`;
 }
 
 function createTimeline({

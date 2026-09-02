@@ -4995,6 +4995,7 @@ h1 {
 .console-thread-avatar {
   display: grid;
   place-items: center;
+  overflow: hidden;
   width: 40px;
   height: 40px;
   border-radius: 12px;
@@ -5005,6 +5006,14 @@ h1 {
   font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.04em;
+}
+
+.console-thread-avatar img,
+.console-thread-member-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .console-thread-entry {
@@ -6686,7 +6695,7 @@ h1 {
 .console-trust-rail,
 .console-recall-panel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .console-agent-list {
@@ -6787,12 +6796,14 @@ h1 {
 
 .console-identity-card {
   min-height: 0;
+  gap: 10px;
 }
 
 .console-agent-portrait {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 18px;
+  width: min(100%, 252px);
+  justify-self: center;
+  aspect-ratio: 0.9;
+  border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(244, 239, 231, 0.1);
   background: rgba(248, 243, 236, 0.06);
@@ -6803,23 +6814,24 @@ h1 {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center top;
+  object-position: center 16%;
+  transform: scale(1.16);
 }
 
 .console-identity-body {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .console-identity-body > p {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: rgba(244, 239, 231, 0.72);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .console-identity-body > strong {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.04;
 }
 
@@ -6831,8 +6843,8 @@ h1 {
 .console-identity-rename {
   display: grid;
   gap: 10px;
-  padding: 12px 0 14px;
-  border-top: 1px solid rgba(244, 239, 231, 0.08);
+  padding: 0;
+  border-top: 0;
 }
 
 .console-identity-rename label {
@@ -6937,6 +6949,15 @@ h1 {
   line-height: 1.1;
 }
 
+.console-identity-dossier-entry {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.console-identity-dossier-entry strong {
+  text-align: left;
+}
+
 .console-identity-dossier-entry span,
 .console-identity-dossier-entry p {
   margin: 0;
@@ -6994,6 +7015,109 @@ h1 {
   padding: 10px;
   border: 1px solid var(--soft-line);
   border-radius: 12px;
+}
+
+.console-sidebar-drawer {
+  border: 1px solid rgba(244, 239, 231, 0.08);
+  border-radius: 16px;
+  background: rgba(248, 243, 236, 0.04);
+  overflow: hidden;
+}
+
+.console-sidebar-drawer summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+}
+
+.console-sidebar-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.console-sidebar-drawer summary::marker {
+  content: '';
+}
+
+.console-sidebar-drawer-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.console-sidebar-drawer-copy strong {
+  color: #f8f3ec;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.console-sidebar-drawer-copy small,
+.console-sidebar-drawer-label {
+  color: rgba(244, 239, 231, 0.58);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-sidebar-drawer-copy small {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.console-sidebar-drawer-affordance {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.console-sidebar-drawer-stat {
+  display: inline-flex;
+  align-items: center;
+  max-width: 112px;
+  padding: 6px 9px;
+  border: 1px solid rgba(244, 239, 231, 0.1);
+  border-radius: 999px;
+  background: rgba(248, 243, 236, 0.05);
+  color: #f8f3ec;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.console-sidebar-drawer-chevron {
+  width: 9px;
+  height: 9px;
+  border-right: 1.5px solid rgba(244, 239, 231, 0.58);
+  border-bottom: 1.5px solid rgba(244, 239, 231, 0.58);
+  transform: rotate(45deg);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.console-sidebar-drawer summary:hover .console-sidebar-drawer-chevron,
+.console-sidebar-drawer summary:focus-visible .console-sidebar-drawer-chevron {
+  border-color: rgba(248, 243, 236, 0.9);
+}
+
+.console-sidebar-drawer[open] .console-sidebar-drawer-chevron {
+  transform: rotate(225deg);
+}
+
+.console-sidebar-drawer-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+  border-top: 1px solid rgba(244, 239, 231, 0.06);
 }
 
 .console-workspace-main {
@@ -7128,6 +7252,7 @@ h1 {
 .console-thread-member-pill strong {
   display: grid;
   place-items: center;
+  overflow: hidden;
   width: 22px;
   height: 22px;
   border-radius: 999px;
@@ -7165,7 +7290,8 @@ h1 {
 }
 
 .console-thread-messages {
-  gap: 0;
+  display: grid;
+  gap: 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -7175,8 +7301,11 @@ h1 {
 
 .console-thread-message {
   align-items: start;
-  padding: 12px 0;
-  border-bottom-color: rgba(244, 239, 231, 0.06);
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-bottom: 0;
+  background: transparent;
 }
 
 .console-thread-activity,
@@ -7199,38 +7328,43 @@ h1 {
 .console-thread-activity-entry,
 .console-thread-proposal-entry {
   padding: 12px 14px;
-  border: 1px solid rgba(244, 239, 231, 0.06);
-  border-radius: 14px;
+  border: 1px solid rgba(244, 239, 231, 0.07);
+  border-radius: 16px;
+}
+
+.console-thread-message .console-thread-entry {
+  background:
+    linear-gradient(180deg, rgba(21, 28, 39, 0.92), rgba(15, 21, 31, 0.96)),
+    rgba(248, 243, 236, 0.02);
+  box-shadow: none;
 }
 
 .console-thread-message.agent .console-thread-entry {
   max-width: min(78%, 720px);
-  padding: 12px 14px;
-  border: 0;
-  border-radius: 0 16px 16px 16px;
-  background: #f3ede3;
-  box-shadow: inset 0 0 0 1px rgba(25, 27, 28, 0.06);
+  border-radius: 16px;
 }
 
 .console-thread-message.human {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   justify-items: end;
 }
 
 .console-thread-message.human .console-thread-avatar {
-  display: none;
+  order: 2;
+  border-radius: 999px;
 }
 
 .console-thread-message.human .console-thread-entry {
+  order: 1;
   max-width: min(72%, 560px);
-  background: rgba(93, 126, 176, 0.22);
+  border-radius: 16px;
   text-align: left;
 }
 
 .console-thread-message.agent .console-thread-role,
 .console-thread-message.agent .console-thread-meta small,
 .console-thread-message.agent p {
-  color: var(--ink);
+  color: #f8f3ec;
 }
 
 .console-thread-message.human .console-thread-role,
@@ -7439,7 +7573,7 @@ h1 {
   }
 
   .console-agent-portrait {
-    width: 100%;
+    width: min(100%, 280px);
     height: auto;
     max-width: none;
   }
