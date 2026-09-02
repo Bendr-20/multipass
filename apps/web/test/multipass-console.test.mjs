@@ -114,8 +114,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
-  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[0]?.classList.contains('console-identity-card'), true);
-  assert.equal(root.querySelector('.console-sidebar-header'), null);
+  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[1]?.classList.contains('console-identity-card'), true);
+  assert.match(root.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
   assert.match(text, /Active agent/);
   assert.match(text, /Console name/);
@@ -133,14 +133,15 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /My agents/);
   assert.match(text, /The Console only loads real Helixa agents owned by the connected wallet/);
   assert.doesNotMatch(text, /Agent dossier|Agent Workspace/);
-  assert.doesNotMatch(text, /\bConnect wallet\b/);
+  assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
   assert.doesNotMatch(text, /A quieter operator surface for wallet-owned agents|review proposals without the dashboard clutter/i);
   assert.doesNotMatch(text, /Tokenized equities|Vaults|Agent assets|What it&#39;s watching|What it's watching|signals feed/i);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]'), null);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Use the header button to load your agents\./);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Connect wallet to load your agents\./);
+  assert.doesNotMatch(text, /Use the header button|Use the top-right wallet control/i);
   assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.match(text, /Review-only\. Nothing executes without your approval/i);
   assert.match(text, /Lead agent in a direct thread\. Cred 80\. review-only\./i);

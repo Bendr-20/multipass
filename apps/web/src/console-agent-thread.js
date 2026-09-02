@@ -7,7 +7,7 @@ export function renderConsoleAgentThread(thread = {}) {
       role: 'agent',
       text: thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
-        : (thread.summary ?? 'Use the header button to start.'),
+        : (thread.summary ?? 'Connect wallet to start.'),
       transport: thread.transport ?? 'xmtp_local',
       senderLabel: participants[0]?.displayName ?? thread.agentName ?? 'Selected agent',
     }];

@@ -1740,7 +1740,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(consolePage.querySelector('.console-trust-rail'), null);
   assert.ok(consolePage.querySelector('.console-identity-card'));
   assert.equal(consolePage.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
-  assert.equal(consolePage.querySelector('.console-sidebar-header'), null);
+  assert.match(consolePage.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
   assert.ok(consolePage.querySelector('.console-thread-toolbar'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
@@ -1754,12 +1754,13 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /The Console only loads real Helixa agents owned by the connected wallet/i);
   assert.match(consolePage.textContent, /No recalled memory yet/);
   assert.doesNotMatch(consolePage.textContent, /Agent dossier|Agent Workspace/);
-  assert.doesNotMatch(consolePage.textContent, /\bConnect wallet\b/);
+  assert.equal(consolePage.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
   assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Use the header button to load your agents\./);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Connect wallet to load your agents\./);
+  assert.doesNotMatch(consolePage.textContent, /Use the header button|Use the top-right wallet control/i);
   assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);

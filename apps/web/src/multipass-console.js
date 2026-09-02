@@ -147,6 +147,11 @@ export function renderMultipassConsole(snapshot = {}) {
     <main class="multipass-console" aria-label="Multipass Console">
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
         <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
+          <header class="console-dashboard-header console-sidebar-header">
+            <div class="console-sidebar-brand">
+              <h1>Multipass Console</h1>
+            </div>
+          </header>
           ${renderIdentityCard(snapshot.identityCard)}
           ${renderSessionPanel(snapshot.session)}
           <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">
@@ -221,7 +226,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
       : thread.sessionReset && thread.recalledMission
         ? thread.recalledMission
       : !connected
-        ? 'Use the header button to open a room.'
+        ? 'Connect wallet to open a room.'
       : loadingAgents
         ? 'Loading wallet-owned agents.'
       : rosterError
@@ -240,7 +245,7 @@ function renderSessionPanel(session = {}) {
   const walletLabel = connected ? wallet.label : null;
   const sessionNote = connected
     ? (session.selectionHint ?? '')
-    : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Use the header button to load your agents.');
+    : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Connect wallet to load your agents.');
 
   return `
     <section class="console-panel console-session-panel console-wallet-panel" aria-label="Console session">
@@ -441,7 +446,7 @@ function renderAgentRoster(snapshot = {}) {
 
   const status = snapshot.agentRoster?.status ?? 'idle';
   let title = 'No agents loaded';
-  let body = 'Use the header button to load the agents tied to this operator.';
+  let body = 'Connect wallet to load the agents tied to this operator.';
   if (status === 'loading') {
     title = 'Loading owned agents';
     body = 'Checking the live Helixa directory for agents owned by this wallet.';
@@ -623,7 +628,7 @@ function createIdentityDossier({
   const identityBody = activeAgent?.identityBody
     ?? (activeAgent?.helixaId
       ? `${verifiedLabel}. AgentDNA ${activeAgent.helixaId}.`
-      : (activeAgent?.name ? verifiedLabel : 'Use the header button to load a wallet-owned Helixa identity.'));
+      : (activeAgent?.name ? verifiedLabel : 'Connect wallet to load a wallet-owned Helixa identity.'));
   const temperamentValue = activeAgent?.temperament ?? activeAgent?.role ?? 'Review-only operator';
   const temperamentBody = activeAgent?.temperamentBody
     ?? (activeAgent?.tokenId
@@ -723,7 +728,7 @@ function createIdentityStats({ activeAgent = null, activeCred = 'Cred pending', 
 }
 
 function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idle', activeAgentCount = 0 } = {}) {
-  if (!walletConnected) return 'Use the header button first.';
+  if (!walletConnected) return 'Connect wallet first.';
   if (agentRosterStatus === 'loading') return 'Loading wallet-owned agents.';
   if (agentRosterStatus === 'error') return 'Wallet-owned agent lookup failed.';
   if (activeAgentCount === 0) return 'This wallet does not own a live Helixa agent record yet.';
@@ -731,7 +736,7 @@ function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idl
 }
 
 function createNextAction({ walletConnected = false, activeAgentCount = 0, proposalCount = 0, hasMessages = false, roomParticipantCount = 0 } = {}) {
-  if (!walletConnected) return { title: 'Wallet required', body: 'Use the top-right wallet control before the room can load an agent.' };
+  if (!walletConnected) return { title: 'Wallet required', body: 'Connect wallet before the room can load an agent.' };
   if (activeAgentCount === 0) return { title: 'No owned agents', body: 'This wallet needs a live Helixa agent record before chat can start.' };
   if (proposalCount > 0) return { title: 'Review queue', body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for approval.` };
   if (hasMessages) return { title: 'Keep the room live', body: 'The thread is active. Keep the operator conversation moving.' };
