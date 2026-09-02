@@ -90,7 +90,8 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
   };
 }
 
-async function createNodeXmtpAgentClient({
+export async function createNodeXmtpAgentClient({
+  client: providedClient,
   walletKey,
   env = 'production',
   dbPath = null,
@@ -101,17 +102,15 @@ async function createNodeXmtpAgentClient({
   appVersion = 'multipass-console',
   now = () => new Date().toISOString(),
 } = {}) {
-  const { Client } = await import('@xmtp/node-sdk');
-  const signer = createEoaSigner(walletKey);
-  const client = await Client.create(signer, {
+  const client = providedClient ?? await createXmtpNodeClient({
+    walletKey,
     env,
     dbPath,
-    ...(dbEncryptionKey ? { dbEncryptionKey } : {}),
-    ...(historySyncUrl ? { historySyncUrl } : {}),
-    ...(apiUrl ? { apiUrl } : {}),
-    ...(gatewayHost ? { gatewayHost } : {}),
+    dbEncryptionKey,
+    historySyncUrl,
+    apiUrl,
+    gatewayHost,
     appVersion,
-    useSingleConnection: true,
   });
   const rooms = new Map();
 
@@ -126,6 +125,7 @@ async function createNodeXmtpAgentClient({
         rooms,
         client,
         threadId,
+        conversationId: input.conversationId,
         roomName,
         wallet: input.wallet,
         participants: input.participants,
@@ -138,10 +138,10 @@ async function createNodeXmtpAgentClient({
           fallbackId: `xmtp_${room.messages.length + index}`,
           sentAt: now(),
           transport: 'xmtp_group',
-          conversationId: room.group.id,
+          conversationId: room.conversation.id,
         });
         if (!normalized) continue;
-        const xmtpMessageId = await room.group.sendText(
+        const xmtpMessageId = await room.conversation.sendText(
           buildOutboundText(normalized),
           normalized.id ? { idempotencyKey: normalized.id } : undefined,
         );
@@ -157,7 +157,7 @@ async function createNodeXmtpAgentClient({
 
       return {
         threadId,
-        conversationId: room.group.id,
+        conversationId: room.conversation.id,
         roomName: room.roomName,
         transport: 'xmtp_group',
         adapter: 'xmtp_node_sdk',
@@ -171,13 +171,37 @@ async function createNodeXmtpAgentClient({
       const room = rooms.get(threadId);
       return {
         threadId,
-        conversationId: room?.group?.id ?? null,
+        conversationId: room?.conversation?.id ?? null,
         roomName: room?.roomName ?? normalizeRoomName(input.roomName),
         participants: [...(room?.participants ?? [])],
         messages: [...(room?.messages ?? [])],
       };
     },
   };
+}
+
+export async function createXmtpNodeClient({
+  walletKey,
+  env = 'production',
+  dbPath = null,
+  dbEncryptionKey = null,
+  historySyncUrl = null,
+  apiUrl = null,
+  gatewayHost = null,
+  appVersion = 'multipass-console',
+} = {}) {
+  const { Client } = await import('@xmtp/node-sdk');
+  const signer = createEoaSigner(walletKey);
+  return Client.create(signer, {
+    env,
+    dbPath,
+    ...(dbEncryptionKey ? { dbEncryptionKey: normalizeDbEncryptionKey(dbEncryptionKey) } : {}),
+    ...(historySyncUrl ? { historySyncUrl } : {}),
+    ...(apiUrl ? { apiUrl } : {}),
+    ...(gatewayHost ? { gatewayHost } : {}),
+    appVersion,
+    useSingleConnection: true,
+  });
 }
 
 function createEoaSigner(privateKey) {
@@ -195,7 +219,7 @@ function createEoaSigner(privateKey) {
   };
 }
 
-async function ensureRoom({ rooms, client, threadId, roomName, wallet, participants } = {}) {
+async function ensureRoom({ rooms, client, threadId, conversationId, roomName, wallet, participants } = {}) {
   const existing = rooms.get(threadId);
   if (existing) {
     existing.roomName = roomName;
@@ -203,19 +227,35 @@ async function ensureRoom({ rooms, client, threadId, roomName, wallet, participa
     return existing;
   }
 
+  if (conversationId) {
+    await client.conversations.sync?.();
+    const conversation = await client.conversations.getConversationById(conversationId);
+    if (!conversation) {
+      throw new Error(`XMTP conversation not found: ${conversationId}`);
+    }
+    const room = {
+      conversation,
+      roomName,
+      participants: mergeParticipants([], participants),
+      messages: [],
+    };
+    rooms.set(threadId, room);
+    return room;
+  }
+
   const identifiers = buildMemberIdentifiers(wallet);
-  let group;
+  let conversation;
   try {
-    group = identifiers.length
+    conversation = identifiers.length
       ? await client.conversations.createGroupWithIdentifiers(identifiers, { name: roomName })
       : client.conversations.createGroupOptimistic({ name: roomName });
   } catch (error) {
     if (!identifiers.length) throw error;
-    group = client.conversations.createGroupOptimistic({ name: roomName });
+    conversation = client.conversations.createGroupOptimistic({ name: roomName });
   }
 
   const room = {
-    group,
+    conversation,
     roomName,
     participants: mergeParticipants([], participants),
     messages: [],
@@ -289,6 +329,18 @@ function normalizeHexPrivateKey(value) {
     throw new TypeError('MULTIPASS_XMTP_WALLET_KEY must be a 32-byte hex private key.');
   }
   return key;
+}
+
+export function normalizeDbEncryptionKey(value) {
+  if (value == null) return value;
+  if (value instanceof Uint8Array) return value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^(0x)?[a-fA-F0-9]{64}$/.test(text)) {
+    const hex = text.startsWith('0x') ? text.slice(2) : text;
+    return Buffer.from(hex, 'hex');
+  }
+  return Buffer.from(text, 'utf8');
 }
 
 function requireThreadId(value) {

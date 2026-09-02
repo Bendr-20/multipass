@@ -123,6 +123,30 @@ MULTIPASS_LOOPERS_ALLOWLIST_PATH=/var/lib/helixa/multipass-loopers-allowlist.jso
 
 The live `multipass-api.service` reads `/etc/default/multipass-api`, so this value can be staged there before restart. The service user must be able to write the containing directory.
 
+## Console XMTP worker
+
+The browser Console can call `POST /api/multipass/console/agent/message` directly. For wallet-native XMTP chat, run the worker as a separate long-lived process:
+
+```bash
+MULTIPASS_XMTP_WALLET_KEY=0x... \
+MULTIPASS_XMTP_DB_ENCRYPTION_KEY=0x... \
+MULTIPASS_XMTP_AGENT_ID=81 \
+MULTIPASS_XMTP_AGENT_NAME=Quigbot \
+pnpm --filter @helixa/multipass-api xmtp:worker
+```
+
+The worker listens for inbound XMTP text messages, resolves the sender wallet from the conversation member identity, passes the turn through the existing Console runtime, stores recall in Sibyl, and sends only the agent response back into the same XMTP conversation. Incoming human messages are stored with their XMTP message ID but are not re-sent.
+
+Optional production environment:
+
+```bash
+MULTIPASS_XMTP_ENV=production
+MULTIPASS_XMTP_DB_PATH=/var/lib/helixa/multipass-xmtp.db3
+MULTIPASS_XMTP_APP_VERSION=multipass-console-worker
+MULTIPASS_AGENT_BANKR_LLM_ENABLED=true
+MULTIPASS_AGENT_LLM_MODEL=...
+```
+
 Mint handoff: this JSON allowlist is the collection/admin source, not the final onchain gate. Before a Looper mint, snapshot the normalized addresses, generate a Merkle tree, set the Merkle root in the mint contract, and serve the frozen proof snapshot separately:
 
 ```bash

@@ -31,6 +31,15 @@ test('parseServerOptions returns safe defaults', () => {
     bankrLlmKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleXmtpEnabled: false,
+    consoleXmtpEnv: 'production',
+    consoleXmtpWalletKey: null,
+    consoleXmtpDbPath: null,
+    consoleXmtpDbEncryptionKey: null,
+    consoleXmtpHistorySyncUrl: null,
+    consoleXmtpApiUrl: null,
+    consoleXmtpGatewayHost: null,
+    consoleXmtpAppVersion: 'multipass-console',
   });
 });
 
@@ -62,6 +71,15 @@ test('CLI flags override environment values', () => {
       bankrLlmKey: null,
       bankrLlmModel: null,
       consoleAgentBankrLlmEnabled: false,
+      consoleXmtpEnabled: false,
+      consoleXmtpEnv: 'production',
+      consoleXmtpWalletKey: null,
+      consoleXmtpDbPath: null,
+      consoleXmtpDbEncryptionKey: null,
+      consoleXmtpHistorySyncUrl: null,
+      consoleXmtpApiUrl: null,
+      consoleXmtpGatewayHost: null,
+      consoleXmtpAppVersion: 'multipass-console',
     },
   );
 });
@@ -93,6 +111,15 @@ test('parseServerOptions accepts claim management security env', () => {
     bankrLlmKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleXmtpEnabled: false,
+    consoleXmtpEnv: 'production',
+    consoleXmtpWalletKey: null,
+    consoleXmtpDbPath: null,
+    consoleXmtpDbEncryptionKey: null,
+    consoleXmtpHistorySyncUrl: null,
+    consoleXmtpApiUrl: null,
+    consoleXmtpGatewayHost: null,
+    consoleXmtpAppVersion: 'multipass-console',
   });
 });
 

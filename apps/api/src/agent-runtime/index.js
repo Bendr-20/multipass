@@ -40,6 +40,8 @@ export function createConsoleAgentRuntime({
         transport: xmtpClient.transport ?? 'xmtp_local',
         senderLabel: 'You',
         participantId: room.operatorId,
+        conversationId: input.conversationId,
+        xmtpMessageId: input.inboundMessageId,
       });
 
       const extractedMemories = extractDurableMemoryFromMessage(message);
@@ -73,18 +75,24 @@ export function createConsoleAgentRuntime({
         }));
       }
 
+      const shouldPublishHumanMessage = input.publishHumanMessage !== false;
+      const messagesToPublish = shouldPublishHumanMessage ? [userMessage, ...agentMessages] : agentMessages;
       const publishedRoom = await xmtpClient.publishRoomMessages({
         threadId,
+        conversationId: room.conversationId,
         roomName: room.name,
         wallet,
         participants: room.participants,
-        messages: [userMessage, ...agentMessages],
+        messages: messagesToPublish,
       });
-      const publishedMessages = publishedRoom.messages.slice(-(1 + agentMessages.length));
+      const publishedMessages = publishedRoom.messages.slice(-messagesToPublish.length);
+      const threadBatch = shouldPublishHumanMessage
+        ? publishedMessages
+        : [userMessage, ...publishedMessages];
 
       const threadMessages = await memoryClient.appendThread({
         namespace,
-        messages: publishedMessages.slice(-MAX_THREAD_HISTORY),
+        messages: threadBatch.slice(-MAX_THREAD_HISTORY),
       });
 
       return {
@@ -223,10 +231,13 @@ function createRoomState(input = {}, profile = {}) {
   const participants = normalizeParticipants(input, profile);
   const primaryParticipant = participants.find((participant) => participant.agentId === profile.agentId) ?? participants[0];
   const roomId = `room_${participants.map((participant) => participant.participantId).join('_')}`;
+  const threadId = String(input.threadId ?? '').trim() || `xmtp:${roomId}`;
+  const conversationId = String(input.conversationId ?? '').trim() || null;
   return {
     id: roomId,
     name: String(input.roomName ?? `${primaryParticipant?.displayName ?? profile.displayName} ops`).trim() || 'Multipass room',
-    threadId: `xmtp:${roomId}`,
+    threadId,
+    conversationId,
     operatorId: requireWallet(input.wallet),
     primaryParticipantId: primaryParticipant?.participantId ?? profile.agentId,
     participants,
