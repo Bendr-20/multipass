@@ -125,3 +125,11 @@ test('profile-first layout and drawers have dedicated responsive selectors', asy
   assert.match(css, /\.profile-detail-drawer-body\s*\{/s);
   assert.match(mobileBlock, /\.multipass-profile-page\s*\{[^}]*grid-template-columns:\s*1fr;/s);
 });
+
+test('console portrait keeps the full Looper image visible in the sidebar card', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-agent-portrait\s*\{[^}]*aspect-ratio:\s*1;/s);
+  assert.match(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center bottom;[^}]*transform:\s*none;/s);
+  assert.doesNotMatch(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*cover;[^}]*transform:\s*scale/s);
+});

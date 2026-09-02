@@ -6802,7 +6802,7 @@ h1 {
 .console-agent-portrait {
   width: min(100%, 252px);
   justify-self: center;
-  aspect-ratio: 0.9;
+  aspect-ratio: 1;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(244, 239, 231, 0.1);
@@ -6813,9 +6813,9 @@ h1 {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 16%;
-  transform: scale(1.16);
+  object-fit: contain;
+  object-position: center bottom;
+  transform: none;
 }
 
 .console-identity-body {
