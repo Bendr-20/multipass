@@ -1,9 +1,9 @@
-import { createPublicClient, encodeFunctionData, formatEther, getAddress, http, isAddress, parseAbi, toHex } from 'viem';
+import { createPublicClient, decodeEventLog, encodeFunctionData, formatEther, getAddress, http, isAddress, parseAbi, toHex } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 
 import { getLooperAllowlistProof, normalizeLooperAllowlistAddress } from './looper-allowlist.js';
 
-export const LOOPERS_REHEARSAL_CONTRACT = '0x0a1C0bEd3E25E94046cB5e546164412dB20d4f2b';
+export const LOOPERS_REHEARSAL_CONTRACT = '0xd195ADC09A654d6A87319f9c6a2b3169b5A5ce16';
 export const LOOPERS_MAINNET_TREASURY = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
 
 export const LOOPERS_MINT_ABI = parseAbi([
@@ -20,8 +20,11 @@ export const LOOPERS_MINT_ABI = parseAbi([
   'function remainingPublicSupply() view returns (uint256)',
   'function allowlistMintedByWallet(address) view returns (uint256)',
   'function mintedByWallet(address) view returns (uint256)',
+  'function erc8004Registry() view returns (address)',
+  'function erc8004AgentBaseURI() view returns (string)',
   'function allowlistMint(uint256 quantity, bytes32[] proof) payable',
   'function publicMint(uint256 quantity) payable',
+  'event ERC8004Bound(uint256 indexed looperTokenId, uint256 indexed identityTokenId, address indexed holder, string agentURI)',
 ]);
 
 const SALE_STATES = ['not_started', 'allowlist', 'public', 'ended'];
@@ -102,6 +105,10 @@ export async function loadLooperMintContractState({
     read(publicClient, config, 'allowlistMintedByWallet', [normalizedAddress]),
     read(publicClient, config, 'mintedByWallet', [normalizedAddress]),
   ] : [Promise.resolve(null), Promise.resolve(null)];
+  const adapterCalls = [
+    readOptional(publicClient, config, 'erc8004Registry'),
+    readOptional(publicClient, config, 'erc8004AgentBaseURI'),
+  ];
 
   const [
     name,
@@ -117,7 +124,9 @@ export async function loadLooperMintContractState({
     remainingPublicSupply,
     allowlistMintedByWallet,
     mintedByWallet,
-  ] = await Promise.all([...baseCalls, ...walletCalls]);
+    erc8004Registry,
+    erc8004AgentBaseURI,
+  ] = await Promise.all([...baseCalls, ...walletCalls, ...adapterCalls]);
 
   const saleState = normalizeSaleState(saleStateValue);
   const proof = normalizedAddress && saleState === 'allowlist'
@@ -141,6 +150,8 @@ export async function loadLooperMintContractState({
     remainingPublicSupply,
     allowlistMintedByWallet,
     mintedByWallet,
+    erc8004Registry,
+    erc8004AgentBaseURI,
     proof,
   });
 }
@@ -203,6 +214,7 @@ export async function mintLoopers({
     status: receipt.status,
     blockNumber: receipt.blockNumber?.toString?.() ?? null,
     quantity: mintQuantity,
+    erc8004Bindings: extractErc8004Bindings(receipt.logs, config),
   };
 }
 
@@ -251,6 +263,8 @@ export function getMintPhasePrice(state = {}) {
 function normalizeLooperMintState(input) {
   const allowlistMinted = bigintOrNull(input.allowlistMintedByWallet);
   const minted = bigintOrNull(input.mintedByWallet);
+  const erc8004Registry = normalizeOptionalAddress(input.erc8004Registry);
+  const erc8004AgentBaseURI = String(input.erc8004AgentBaseURI ?? '');
   return {
     enabled: true,
     config: input.config,
@@ -270,6 +284,9 @@ function normalizeLooperMintState(input) {
     mintedByWallet: minted,
     allowlistRemainingForWallet: allowlistMinted === null ? null : maxBigInt(0n, 3n - allowlistMinted),
     publicRemainingForWallet: minted === null ? null : maxBigInt(0n, 10n - minted),
+    erc8004Registry,
+    erc8004AgentBaseURI,
+    erc8004BindingActive: Boolean(erc8004Registry && erc8004AgentBaseURI),
     proof: input.proof,
   };
 }
@@ -316,8 +333,46 @@ function read(publicClient, config, functionName, args = []) {
   });
 }
 
+async function readOptional(publicClient, config, functionName, args = []) {
+  try {
+    return await read(publicClient, config, functionName, args);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSaleState(value) {
   return SALE_STATES[Number(value)] ?? 'unknown';
+}
+
+function extractErc8004Bindings(logs = [], config = {}) {
+  const bindings = [];
+  for (const log of logs) {
+    if (!sameAddress(log?.address, config.contractAddress)) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: LOOPERS_MINT_ABI,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName !== 'ERC8004Bound') continue;
+      bindings.push({
+        looperTokenId: Number(decoded.args.looperTokenId),
+        identityTokenId: Number(decoded.args.identityTokenId),
+        holder: normalizeOptionalAddress(decoded.args.holder),
+        agentURI: String(decoded.args.agentURI ?? ''),
+      });
+    } catch {
+      // Ignore unrelated logs.
+    }
+  }
+  return bindings.sort((left, right) => left.looperTokenId - right.looperTokenId);
+}
+
+function sameAddress(left, right) {
+  const normalizedLeft = normalizeOptionalAddress(left);
+  const normalizedRight = normalizeOptionalAddress(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
 }
 
 function normalizeOptionalAddress(value) {

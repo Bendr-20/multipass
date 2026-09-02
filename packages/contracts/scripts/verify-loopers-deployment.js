@@ -22,6 +22,7 @@ const artifact = await compileLoopers();
 const provider = new ethers.JsonRpcProvider(rpcUrl, Number(config.chain_id));
 const network = await provider.getNetwork();
 assertEqual(String(network.chainId), String(config.chain_id), 'chain id');
+const creatorToken = normalizeCreatorTokenConfig(config.creator_token);
 
 const contract = new ethers.Contract(deployment.address, artifact.abi, provider);
 const checks = [];
@@ -36,6 +37,14 @@ await check('PUBLIC_WALLET_LIMIT', contract.PUBLIC_WALLET_LIMIT(), 10n);
 await check('MAX_ROYALTY_BPS', contract.MAX_ROYALTY_BPS(), 500n);
 await check('supports ERC-8048', contract.supportsInterface('0xdf670be1'), true);
 await check('Base ERC-7930 chain identifier', contract.baseChainIdentifier(), '0x000100000202210500');
+await check('transferValidator', contract.getTransferValidator(), creatorToken.transferValidator ?? ethers.ZeroAddress);
+if (typeof creatorToken.autoApproveTransfersFromValidator === 'boolean') {
+  await check(
+    'autoApproveTransfersFromValidator',
+    contract.autoApproveTransfersFromValidator(),
+    creatorToken.autoApproveTransfersFromValidator
+  );
+}
 
 const royalty = await contract.royaltyInfo(1, ethers.parseEther('1'));
 assertAddressEqual(royalty[0], config.treasury, 'royalty receiver');
@@ -47,7 +56,7 @@ if (config.sale?.allowlist_start && onchainAllowlistStart !== 0n) {
   const expected = normalizeSaleConfig(config.sale);
   assertEqual(onchainAllowlistStart.toString(), expected.allowlistStart.toString(), 'allowlistStart');
   checks.push('allowlistStart');
-  await check('publicStart', contract.publicStart(), expected.allowlistStart + 86_400n);
+  await check('publicStart', contract.publicStart(), expected.publicStart ?? (expected.allowlistStart + 86_400n));
   await check('saleEnd', contract.saleEnd(), expected.allowlistStart + 630_427n);
   await check('allowlistPriceWei', contract.allowlistPriceWei(), expected.allowlistPriceWei);
   await check('publicPriceWei', contract.publicPriceWei(), expected.publicPriceWei);
@@ -61,6 +70,12 @@ if (config.erc6551?.registry || config.erc6551?.implementation) {
   await check('erc6551Registry', contract.erc6551Registry(), erc6551.registry);
   await check('erc6551Implementation', contract.erc6551Implementation(), erc6551.implementation);
   await check('erc6551Salt', contract.erc6551Salt(), erc6551.salt);
+}
+
+if (config.erc8004?.registry || config.erc8004?.agent_base_uri) {
+  const erc8004 = normalizeERC8004Config(config.erc8004);
+  await check('erc8004Registry', contract.erc8004Registry(), erc8004.registry);
+  await check('erc8004AgentBaseURI', contract.erc8004AgentBaseURI(), erc8004.agentBaseURI);
 }
 
 console.log(JSON.stringify({
@@ -136,10 +151,34 @@ function normalizeERC6551Config(erc6551 = {}) {
 function normalizeSaleConfig(sale = {}) {
   return {
     allowlistStart: parseSaleStart(sale.allowlist_start),
+    publicStart: sale.public_start == null ? null : parseSaleStart(sale.public_start),
     allowlistPriceWei: parseWei(sale.allowlist_price_wei, 'sale.allowlist_price_wei'),
     publicPriceWei: parseWei(sale.public_price_wei, 'sale.public_price_wei'),
     merkleRoot: sale.merkle_root,
   };
+}
+
+function normalizeCreatorTokenConfig(creatorToken = {}) {
+  const transferValidator = creatorToken.transfer_validator == null ? null : creatorToken.transfer_validator;
+  if (transferValidator !== null && !ethers.isAddress(transferValidator)) {
+    throw new Error('creator_token.transfer_validator must be an EVM address or null');
+  }
+  const autoApprove = creatorToken.auto_approve_transfers_from_validator;
+  if (autoApprove !== undefined && typeof autoApprove !== 'boolean') {
+    throw new Error('creator_token.auto_approve_transfers_from_validator must be boolean when provided');
+  }
+  return {
+    transferValidator,
+    autoApproveTransfersFromValidator: autoApprove,
+  };
+}
+
+function normalizeERC8004Config(erc8004 = {}) {
+  if (!ethers.isAddress(erc8004.registry)) throw new Error('erc8004.registry must be an EVM address');
+  if (!erc8004.agent_base_uri || typeof erc8004.agent_base_uri !== 'string') {
+    throw new Error('erc8004.agent_base_uri must be a non-empty string');
+  }
+  return { registry: erc8004.registry, agentBaseURI: erc8004.agent_base_uri };
 }
 
 function parseSaleStart(value) {

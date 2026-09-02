@@ -52,7 +52,10 @@ const deployment = {
   ],
   transactions: {
     deploy: deployTx?.hash ?? null,
+    set_transfer_validator: null,
+    set_transfer_validator_auto_approval: null,
     set_erc6551_config: null,
+    set_erc8004_config: null,
     configure_sale: null,
   },
 };
@@ -61,11 +64,30 @@ if (args.configureSale) {
   if (wallet.address.toLowerCase() !== config.owner.toLowerCase()) {
     throw new Error('--configure-sale requires the deployer key to match config.owner');
   }
+  if (config.creator_token?.transfer_validator || typeof config.creator_token?.auto_approve_transfers_from_validator === 'boolean') {
+    const creatorToken = normalizeCreatorTokenConfig(config.creator_token);
+    if (creatorToken.transferValidator !== null) {
+      const tx = await contract.setTransferValidator(creatorToken.transferValidator);
+      await tx.wait();
+      deployment.transactions.set_transfer_validator = tx.hash;
+    }
+    if (typeof creatorToken.autoApproveTransfersFromValidator === 'boolean') {
+      const tx = await contract.setAutomaticApprovalOfTransfersFromValidator(creatorToken.autoApproveTransfersFromValidator);
+      await tx.wait();
+      deployment.transactions.set_transfer_validator_auto_approval = tx.hash;
+    }
+  }
   if (config.erc6551?.registry || config.erc6551?.implementation) {
     const erc6551 = normalizeERC6551Config(config.erc6551);
     const tx = await contract.setERC6551Config(erc6551.registry, erc6551.implementation, erc6551.salt);
     await tx.wait();
     deployment.transactions.set_erc6551_config = tx.hash;
+  }
+  if (config.erc8004?.registry || config.erc8004?.agent_base_uri) {
+    const erc8004 = normalizeERC8004Config(config.erc8004);
+    const tx = await contract.setERC8004Config(erc8004.registry, erc8004.agentBaseURI);
+    await tx.wait();
+    deployment.transactions.set_erc8004_config = tx.hash;
   }
   const sale = normalizeSaleConfig(config.sale);
   const tx = await contract.setSaleConfig(
@@ -87,7 +109,10 @@ console.log(JSON.stringify({
   chain_id: deployment.chain_id,
   address: deployment.address,
   deploy_tx: deployment.transactions.deploy,
+  set_transfer_validator_tx: deployment.transactions.set_transfer_validator,
+  set_transfer_validator_auto_approval_tx: deployment.transactions.set_transfer_validator_auto_approval,
   set_erc6551_config_tx: deployment.transactions.set_erc6551_config,
+  set_erc8004_config_tx: deployment.transactions.set_erc8004_config,
   configure_sale_tx: deployment.transactions.configure_sale,
   deployment: outputPath,
 }, null, 2));
@@ -136,8 +161,25 @@ function validateConfig(config, { requireSale = false } = {}) {
   if (!config.placeholder_token_uri || typeof config.placeholder_token_uri !== 'string') {
     throw new Error('Config placeholder_token_uri is required');
   }
+  if (config.creator_token) normalizeCreatorTokenConfig(config.creator_token);
   if (config.erc6551?.registry || config.erc6551?.implementation) normalizeERC6551Config(config.erc6551);
+  if (config.erc8004?.registry || config.erc8004?.agent_base_uri) normalizeERC8004Config(config.erc8004);
   if (requireSale) normalizeSaleConfig(config.sale);
+}
+
+function normalizeCreatorTokenConfig(creatorToken = {}) {
+  const transferValidator = creatorToken.transfer_validator == null ? null : creatorToken.transfer_validator;
+  if (transferValidator !== null && !ethers.isAddress(transferValidator)) {
+    throw new Error('creator_token.transfer_validator must be an EVM address or null');
+  }
+  const autoApprove = creatorToken.auto_approve_transfers_from_validator;
+  if (autoApprove !== undefined && typeof autoApprove !== 'boolean') {
+    throw new Error('creator_token.auto_approve_transfers_from_validator must be boolean when provided');
+  }
+  return {
+    transferValidator,
+    autoApproveTransfersFromValidator: autoApprove,
+  };
 }
 
 function normalizeERC6551Config(erc6551 = {}) {
@@ -158,6 +200,14 @@ function normalizeSaleConfig(sale = {}) {
     throw new Error('Sale prices must be positive and allowlist must be <= public');
   }
   return { allowlistStart, allowlistPriceWei, publicPriceWei, merkleRoot };
+}
+
+function normalizeERC8004Config(erc8004 = {}) {
+  if (!ethers.isAddress(erc8004.registry)) throw new Error('erc8004.registry must be an EVM address');
+  if (!erc8004.agent_base_uri || typeof erc8004.agent_base_uri !== 'string') {
+    throw new Error('erc8004.agent_base_uri must be a non-empty string');
+  }
+  return { registry: erc8004.registry, agentBaseURI: erc8004.agent_base_uri };
 }
 
 function parseSaleStart(value) {

@@ -600,7 +600,17 @@ function createWalletClientFixture({ snapshot, connect, signMessage, request } =
   };
 }
 
-function sampleLooperMintState({ address, saleState = 'allowlist', proof = { status: 'loaded', eligible: true, proof: ['0x1234'] }, allowlistMintedByWallet = 1n, mintedByWallet = 1n, remainingPublicSupply = 7439n } = {}) {
+function sampleLooperMintState({
+  address,
+  saleState = 'allowlist',
+  proof = { status: 'loaded', eligible: true, proof: ['0x1234'] },
+  allowlistMintedByWallet = 1n,
+  mintedByWallet = 1n,
+  remainingPublicSupply = 7439n,
+  erc8004BindingActive = true,
+  erc8004Registry = '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+  erc8004AgentBaseURI = 'https://api.helixa.xyz/api/loopers/agents/',
+} = {}) {
   return {
     enabled: true,
     config: { mode: 'rehearsal', label: 'Base Sepolia rehearsal' },
@@ -620,6 +630,9 @@ function sampleLooperMintState({ address, saleState = 'allowlist', proof = { sta
     mintedByWallet,
     allowlistRemainingForWallet: 3n - allowlistMintedByWallet,
     publicRemainingForWallet: 10n - mintedByWallet,
+    erc8004Registry: erc8004BindingActive ? erc8004Registry : null,
+    erc8004AgentBaseURI: erc8004BindingActive ? erc8004AgentBaseURI : '',
+    erc8004BindingActive,
     proof,
   };
 }
@@ -1056,9 +1069,11 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(panel.querySelector('.looper-mint-heading'), null);
   assert.match(panel.querySelector('.looper-mint-refresh-button')?.textContent ?? '', /Refresh/i);
   assert.doesNotMatch(panel.textContent, /Base Sepolia rehearsal|Rehearsal mint/i);
+  assert.match(panel.textContent, /Adapter8004/);
+  assert.match(panel.textContent, /Active/);
   assert.match(panel.textContent, /Allowlist/);
-  assert.match(panel.textContent, /Allowlist eligible/);
-  assert.match(panel.textContent, /Remaining discounted mints: 2/);
+  assert.match(panel.textContent, /Allowlist eligible\. Adapter8004 bind is active/i);
+  assert.match(panel.textContent, /remaining discounted mints: 2/i);
   assert.match(panel.textContent, /0.000001 ETH/);
   assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.textContent, 'Mint allowlist');
   assert.equal(loadCalls.length, 1);
@@ -1181,7 +1196,7 @@ test('standalone Looper allowlist can still register while stale mint params are
   assert.match(root.querySelector('.looper-allowlist-status.success')?.textContent ?? '', /registered for the Looper allowlist/i);
 });
 
-test('standalone Looper mint panel sends ineligible allowlist wallets to public countdown', async () => {
+test('standalone Looper mint panel keeps ineligible allowlist wallets on standby copy without a public timestamp', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const walletClient = createWalletClientFixture({
@@ -1203,7 +1218,7 @@ test('standalone Looper mint panel sends ineligible allowlist wallets to public 
 
   const panel = root.querySelector('.looper-mint-panel');
   assert.match(panel.textContent, /not on the current allowlist snapshot/i);
-  assert.match(panel.textContent, /Public mint opens/i);
+  assert.match(panel.textContent, /Public mint is not live yet/i);
   assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.disabled, true);
   assert.equal(panel.querySelector('.looper-mint-note.error')?.textContent ?? '', '');
 });
@@ -1233,6 +1248,32 @@ test('standalone Looper mint panel disables impossible wallet-cap quantities', a
   assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.disabled, true);
 });
 
+test('standalone Looper mint panel blocks mint when Adapter8004 is not configured on the contract', async () => {
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
+  const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address,
+      label: '0x27E3...91Ea',
+    },
+  });
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState({ address, erc8004BindingActive: false }),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), walletClient, looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  assert.match(panel.textContent, /Adapter8004 is not configured on this mint contract yet/i);
+  assert.match(panel.textContent, /Adapter pending/i);
+  assert.equal(panel.querySelector('[data-action="mint-loopers"] button[type="submit"]')?.disabled, true);
+});
+
 test('standalone Looper mint form submits quantity through contract client', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia&api=https%3A%2F%2Fhelixa.xyz%2Fmultipass-api');
   const address = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
@@ -1248,7 +1289,16 @@ test('standalone Looper mint form submits quantity through contract client', asy
     loadState: async () => sampleLooperMintState({ address }),
     mint: async (input) => {
       mintCalls.push(input);
-      return { hash: '0xabc123', status: 'success', blockNumber: '123', quantity: input.quantity };
+      return {
+        hash: '0xabc123',
+        status: 'success',
+        blockNumber: '123',
+        quantity: input.quantity,
+        erc8004Bindings: [
+          { looperTokenId: 1, identityTokenId: 0, holder: address, agentURI: 'https://api.helixa.xyz/api/loopers/agents/1' },
+          { looperTokenId: 2, identityTokenId: 1, holder: address, agentURI: 'https://api.helixa.xyz/api/loopers/agents/2' },
+        ],
+      };
     },
   };
 
@@ -1264,6 +1314,9 @@ test('standalone Looper mint form submits quantity through contract client', asy
   assert.equal(mintCalls[0].quantity, 2);
   assert.equal(mintCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
   assert.equal(mintCalls[0].walletClient, walletClient);
+  assert.match(root.textContent, /Mint \+ Adapter8004 bind confirmed/i);
+  assert.match(root.textContent, /Looper #1 -> ERC-8004 #0/);
+  assert.match(root.textContent, /Looper #2 -> ERC-8004 #1/);
 });
 
 test('group activation stays hidden behind the Activate Swarm button on the homepage', async () => {
@@ -2873,6 +2926,8 @@ test('activated page avoids custody and binding overclaims', async () => {
   await Promise.resolve();
   await Promise.resolve();
 
+  assert.match(root.textContent, /mint-time ERC-8004 binding/i);
+  assert.match(root.textContent, /read-only/i);
   assert.doesNotMatch(root.textContent, /bind to existing ERC-8004/i);
   assert.doesNotMatch(root.textContent, /transfer ownership/i);
   assert.doesNotMatch(root.textContent, /move tools/i);

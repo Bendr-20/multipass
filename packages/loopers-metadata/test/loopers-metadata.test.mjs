@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFile as execFileCallback } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import test from 'node:test';
 
 import {
@@ -11,6 +14,8 @@ import {
   validateLooperMetadataBundle,
   writeLooperMetadataBundle,
 } from '../src/index.js';
+
+const execFile = promisify(execFileCallback);
 
 test('compileLooperMetadataItems canonicalizes HashLips filename values through the export manifest', () => {
   const bundle = compileLooperMetadataItems([hashlipsItem()], {
@@ -79,6 +84,132 @@ test('compileLooperMetadataItems rejects held-object and patch-artifact collisio
   );
 });
 
+test('compileLooperMetadataItems derives class affinities from personality matrix biases when explicit affinities are absent', () => {
+  const bundle = compileLooperMetadataItems([
+    {
+      dna: 'derived-affinity-dna',
+      name: 'Looper #1',
+      description: 'HashLips output',
+      image: 'ipfs://example/1.png',
+      edition: 1,
+      date: 1770000000000,
+      attributes: [
+        { trait_type: 'Background', value: 'Agent Diff Border' },
+        { trait_type: 'Outfit', value: 'OpenClaw Hoodie' },
+      ],
+      compiler: 'HashLips Art Engine',
+    },
+  ], {
+    personalityMatrix: {
+      version: 'derived-affinity-fixture',
+      traits: [
+        {
+          key: 'Background::Agent Diff Border',
+          id: 'bg-1',
+          layer: 'Background',
+          trait: 'Agent Diff Border',
+          archetype: 'debug discipline',
+          narrative_seed: 'came up inside agent diff border',
+          voice: 'dry and technical',
+          values: 'checklists',
+          mission_bias: 'fix the broken thing',
+          quirk: 'defaults to debug discipline',
+          risk_delta: -1,
+          autonomy_delta: 1,
+          biases: {
+            class_bias: 'mechanic',
+            secondary_bias: 'skeptic',
+            specialization_bias: 'debugging',
+            capability_bias: 'debugging',
+          },
+          field_authority: {
+            class_bias: 4,
+            secondary_bias: 2,
+            capability_bias: 1,
+          },
+        },
+        {
+          key: 'Outfit::OpenClaw Hoodie',
+          id: 'outfit-1',
+          layer: 'Outfit',
+          trait: 'OpenClaw Hoodie',
+          archetype: 'operator systems',
+          narrative_seed: 'came up inside openclaw hoodie',
+          voice: 'direct and utility-first',
+          values: 'routing discipline',
+          mission_bias: 'operate like an agent operator in public',
+          quirk: 'defaults to agent operator behavior',
+          risk_delta: 0,
+          autonomy_delta: 1,
+          biases: {
+            class_bias: 'operator',
+            secondary_bias: 'sentinel',
+            specialization_bias: 'tool-routing',
+            capability_bias: 'orchestration',
+          },
+          field_authority: {
+            class_bias: 3,
+            secondary_bias: 1,
+            capability_bias: 4,
+          },
+        },
+      ],
+    },
+    classModel: {
+      version: 'derived-affinity-class-model',
+      classes: {
+        ceo_operator: {
+          label: 'CEO / Operator',
+          common_read: 'operator',
+          first_missions: ['route a task'],
+        },
+        builder_engineer: {
+          label: 'Builder / Engineer',
+          common_read: 'builder',
+          first_missions: ['wire a tool'],
+        },
+        researcher_archivist: {
+          label: 'Researcher / Archivist',
+          common_read: 'researcher',
+          first_missions: ['collect sources'],
+        },
+        mercenary_fixer: {
+          label: 'Mercenary / Fixer',
+          common_read: 'fixer',
+          first_missions: ['triage a failure'],
+        },
+      },
+      layer_influence: {
+        Background: 3,
+        Outfit: 5,
+      },
+      trait_affinities: {},
+    },
+    exportManifest: {
+      exported: [
+        {
+          layer: 'Background',
+          trait: 'Agent Diff Border',
+          path: 'layers/Background/Agent Diff Border#1.png',
+        },
+        {
+          layer: 'Outfit',
+          trait: 'OpenClaw Hoodie',
+          path: 'layers/Outfit/OpenClaw Hoodie#1.png',
+        },
+      ],
+    },
+    imageBaseUri: 'ar://images',
+    codexBaseUri: 'ar://metadata/codex',
+    externalUrlBase: 'https://helixa.xyz/multipass/loopers',
+    generatedAt: '2026-08-27T00:00:00.000Z',
+  });
+
+  assert.equal(bundle.token_metadata[0].agent_class, 'Builder / Engineer');
+  assert.equal(bundle.token_metadata[0].secondary_class, null);
+  assert.equal(bundle.token_metadata[0].specialization, 'tool routing');
+});
+
 test('compileLooperMetadataFromDirs writes token metadata and Agent Codex output', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'loopers-metadata-'));
   const jsonDir = path.join(dir, 'hashlips-json');
@@ -107,6 +238,12 @@ test('compileLooperMetadataFromDirs writes token metadata and Agent Codex output
   assert.equal(token.name, 'Looper #1');
   assert.equal(codex.token_id, 1);
   assert.equal(manifest.count, 1);
+});
+
+test('build-loopers-metadata CLI tolerates the pnpm argument separator', async () => {
+  const scriptPath = fileURLToPath(new URL('../scripts/build-loopers-metadata.js', import.meta.url));
+  const result = await execFile(process.execPath, [scriptPath, '--', '--help']);
+  assert.match(result.stdout, /Usage:/);
 });
 
 function hashlipsItem() {

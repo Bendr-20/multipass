@@ -48,6 +48,12 @@ Use `packages/loopers-metadata/` after HashLips generation:
 3. Write final marketplace token JSON under `metadata/` and richer Agent Codex JSON under `codex/`.
 4. Upload only the validated final images, token JSON, and Agent Codex JSON to Arweave.
 
+For local smoke generation on this box, pin the HashLips runtime instead of using the system Node 22 lane:
+
+```sh
+npx -p node@14.18.2 -p npm@6 -c 'node index.js'
+```
+
 The compiler uses the HashLips export manifest to canonicalize display names that HashLips sanitizes for filenames, such as `Right Facing Trucker Cap` back to `Right-Facing Trucker Cap` and numbered overlay filenames back to clean overlay names.
 
 Example:
@@ -65,7 +71,7 @@ pnpm loopers:metadata -- \
   --expected-count 7777
 ```
 
-The compiler fails final mode unless every non-`None` approved trait has class affinities. Use `--allow-incomplete-class-affinities` only for local draft QA.
+The compiler fails final mode unless every non-`None` approved trait resolves to class affinities. Explicit entries in `agent-class-model.json` win, and any remaining approved traits are derived from the trait personality matrix bias fields. Use `--allow-incomplete-class-affinities` only for local draft QA.
 
 ## Naming
 

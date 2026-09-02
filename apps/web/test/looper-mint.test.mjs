@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { encodeAbiParameters, encodeEventTopics } from 'viem';
 
 import {
+  LOOPERS_MINT_ABI,
+  LOOPERS_REHEARSAL_CONTRACT,
   formatEthFromWei,
   getLooperMintConfigFromLocation,
   loadLooperMintContractState,
@@ -31,7 +34,7 @@ test('getLooperMintConfigFromLocation enables Base Sepolia rehearsal from query 
   assert.equal(config.enabled, true);
   assert.equal(config.mode, 'rehearsal');
   assert.equal(config.chainId, 84532);
-  assert.equal(config.contractAddress, '0x0a1C0bEd3E25E94046cB5e546164412dB20d4f2b');
+  assert.equal(config.contractAddress, '0xd195ADC09A654d6A87319f9c6a2b3169b5A5ce16');
 });
 
 test('normalizeMintQuantity accepts only expected mint quantities', () => {
@@ -65,12 +68,14 @@ test('loadLooperMintContractState reads contract facts and allowlist proof', asy
   assert.equal(state.address, ADDRESS);
   assert.equal(state.allowlistRemainingForWallet, 2n);
   assert.equal(state.publicRemainingForWallet, 9n);
+  assert.equal(state.erc8004BindingActive, true);
+  assert.equal(state.erc8004Registry, '0x8004A818BFB912233c491871b3d84c89A494BD9e');
   assert.equal(state.proof.eligible, true);
   assert.deepEqual(state.proof.proof, [PROOF]);
   assert.equal(calls[0], `/multipass-api/api/loopers/allowlist/proof?address=${encodeURIComponent(ADDRESS)}`);
 });
 
-test('mintLoopers switches chain and sends allowlist mint transaction', async () => {
+test('mintLoopers switches chain, sends allowlist mint transaction, and returns Adapter8004 bindings from the receipt', async () => {
   const config = getLooperMintConfigFromLocation('https://helixa.xyz/mint?mint=sepolia');
   const publicClient = createPublicClientFixture();
   const requests = [];
@@ -95,6 +100,12 @@ test('mintLoopers switches chain and sends allowlist mint transaction', async ()
   });
 
   assert.equal(result.hash, '0xmint');
+  assert.deepEqual(result.erc8004Bindings, [{
+    looperTokenId: 1,
+    identityTokenId: 0,
+    holder: ADDRESS,
+    agentURI: 'https://api.helixa.xyz/api/loopers/agents/1',
+  }]);
   assert.deepEqual(requests.map((payload) => payload.method), ['eth_chainId', 'wallet_switchEthereumChain', 'eth_sendTransaction']);
   const transaction = requests.at(-1).params[0];
   assert.equal(transaction.from, ADDRESS);
@@ -182,6 +193,7 @@ test('mintLoopers reports reverted transaction receipts as failures', async () =
 });
 
 function createPublicClientFixture(overrides = {}, options = {}) {
+  const agentURI = 'https://api.helixa.xyz/api/loopers/agents/1';
   return {
     async readContract({ functionName }) {
       const values = {
@@ -198,13 +210,32 @@ function createPublicClientFixture(overrides = {}, options = {}) {
         remainingPublicSupply: 7439n,
         allowlistMintedByWallet: 1n,
         mintedByWallet: 1n,
+        erc8004Registry: '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+        erc8004AgentBaseURI: 'https://api.helixa.xyz/api/loopers/agents/',
         ...overrides,
       };
       if (!(functionName in values)) throw new Error(`Unexpected read ${functionName}`);
       return values[functionName];
     },
     async waitForTransactionReceipt({ hash }) {
-      return { status: options.receiptStatus ?? 'success', blockNumber: 123n, transactionHash: hash };
+      return {
+        status: options.receiptStatus ?? 'success',
+        blockNumber: 123n,
+        transactionHash: hash,
+        logs: options.logs ?? [{
+          address: LOOPERS_REHEARSAL_CONTRACT,
+          topics: encodeEventTopics({
+            abi: LOOPERS_MINT_ABI,
+            eventName: 'ERC8004Bound',
+            args: {
+              looperTokenId: 1n,
+              identityTokenId: 0n,
+              holder: ADDRESS,
+            },
+          }),
+          data: encodeAbiParameters([{ type: 'string' }], [agentURI]),
+        }],
+      };
     },
   };
 }

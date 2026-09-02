@@ -6,12 +6,15 @@
   "scripts": {
     "compile": "node scripts/compile-loopers.js",
     "deploy": "node scripts/deploy-loopers.js",
+    "sale": "node scripts/manage-loopers-sale.js",
     "verify:deployment": "node scripts/verify-loopers-deployment.js",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "5.0.2",
-    "erc721a": "^4.3.0"
+    "@limitbreak/creator-token-standards": "5.0.0",
+    "@limitbreak/permit-c": "1.0.0",
+    "@openzeppelin/contracts": "4.8.3",
+    "erc721a": "4.2.3"
   },
   "devDependencies": {
     "ethers": "^6.15.0",

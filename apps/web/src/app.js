@@ -950,7 +950,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         walletSnapshot: activeWalletClient.getSnapshot(),
         looperMint: {
           ...state.looperMint,
-          status: 'loaded',
+          status: options.silent && currentMint.status === 'minted' ? 'minted' : 'loaded',
           contractState,
           error: null,
         },
@@ -3075,9 +3075,11 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
       </div>
       <div class="looper-mint-grid">
         ${renderLooperMintFact('Contract', config.contractAddress ? shortenAddress(config.contractAddress) : 'Not configured')}
+        ${renderLooperMintFact('Adapter8004', contractState ? (contractState.erc8004BindingActive ? 'Active' : 'Pending') : 'Not loaded')}
         ${renderLooperMintFact('Phase', contractState ? formatSaleState(phase) : loading ? 'Loading' : 'Not loaded')}
-        ${renderLooperMintFact('Allowlist', contractState ? formatMintTimestamp(contractState.allowlistStart) : 'Not loaded')}
-        ${renderLooperMintFact('Public', contractState ? formatMintTimestamp(contractState.publicStart) : 'Not loaded')}
+        ${renderLooperMintFact('8004 registry', contractState?.erc8004Registry ? shortenAddress(contractState.erc8004Registry) : 'Not configured')}
+        ${renderLooperMintFact('Allowlist', contractState ? getLooperMintPhaseStatus(contractState, 'allowlist') : 'Not loaded')}
+        ${renderLooperMintFact('Public', contractState ? getLooperMintPhaseStatus(contractState, 'public') : 'Not loaded')}
         ${renderLooperMintFact('Remaining', contractState ? contractState.remainingPublicSupply.toString() : 'Not loaded')}
         ${renderLooperMintFact('Minted', contractState ? contractState.totalMinted.toString() : 'Not loaded')}
       </div>
@@ -3121,14 +3123,15 @@ function renderLooperMintEligibility(contractState, walletSnapshot = {}, options
   if (options.contractConfigured === false) return '<p class="looper-mint-note">Mint contract is not configured yet.</p>';
   if (!contractState) return '<p class="looper-mint-note">Contract state loads from the configured chain before minting.</p>';
   if (!walletSnapshot.connected || !walletSnapshot.address) return '<p class="looper-mint-note">Connect a wallet to check allowlist eligibility and wallet limits.</p>';
+  if (!contractState.erc8004BindingActive) return '<p class="looper-mint-note">Adapter8004 is not configured on this mint contract yet. Rehearsal mint stays blocked until the bind leg is live.</p>';
   if (contractState.saleState === 'allowlist') {
     const proof = contractState.proof ?? {};
     if (proof.status === 'error') return `<p class="looper-mint-note error">${escapeHtml(proof.error ?? 'Allowlist proof is unavailable.')}</p>`;
-    if (!proof.eligible) return `<p class="looper-mint-note">This wallet is not on the current allowlist snapshot. Public mint opens ${escapeHtml(formatMintTimestamp(contractState.publicStart))}.</p>`;
-    return `<p class="looper-mint-note success">Allowlist eligible. Remaining discounted mints: ${escapeHtml(contractState.allowlistRemainingForWallet?.toString() ?? '0')}.</p>`;
+    if (!proof.eligible) return '<p class="looper-mint-note">This wallet is not on the current allowlist snapshot. Public mint is not live yet.</p>';
+    return `<p class="looper-mint-note success">Allowlist eligible. Adapter8004 bind is active and remaining discounted mints: ${escapeHtml(contractState.allowlistRemainingForWallet?.toString() ?? '0')}.</p>`;
   }
   if (contractState.saleState === 'public') {
-    return `<p class="looper-mint-note success">Public mint active. Remaining wallet mints: ${escapeHtml(contractState.publicRemainingForWallet?.toString() ?? '0')}.</p>`;
+    return `<p class="looper-mint-note success">Public mint active with Adapter8004 bind. Remaining wallet mints: ${escapeHtml(contractState.publicRemainingForWallet?.toString() ?? '0')}.</p>`;
   }
   return `<p class="looper-mint-note">Mint is ${escapeHtml(formatSaleState(contractState.saleState).toLowerCase())}.</p>`;
 }
@@ -3137,6 +3140,7 @@ function getLooperMintAvailability(contractState, quantity, connected, options =
   if (!connected) return { canMint: false, reason: null };
   if (options.contractConfigured === false) return { canMint: false, reason: 'Mint contract is not configured yet.' };
   if (!contractState) return { canMint: false, reason: 'Load contract state before minting.' };
+  if (!contractState.erc8004BindingActive) return { canMint: false, reason: 'Adapter8004 bind is not configured on this contract yet.' };
   if (contractState.remainingPublicSupply !== null && contractState.remainingPublicSupply !== undefined && BigInt(contractState.remainingPublicSupply) <= 0n) {
     return { canMint: false, reason: 'Supply is sold out.' };
   }
@@ -3149,7 +3153,7 @@ function getLooperMintAvailability(contractState, quantity, connected, options =
   }
   if (contractState.saleState === 'allowlist') {
     if (contractState.proof?.status === 'error') return { canMint: false, reason: 'Allowlist proof is unavailable right now.' };
-    if (!contractState.proof?.eligible) return { canMint: false, reason: `Public mint opens ${formatMintTimestamp(contractState.publicStart)}.` };
+    if (!contractState.proof?.eligible) return { canMint: false, reason: 'This wallet is not on the current allowlist snapshot. Public mint is not live yet.' };
     if (contractState.allowlistRemainingForWallet !== null && contractState.allowlistRemainingForWallet !== undefined && BigInt(contractState.allowlistRemainingForWallet) < mintQuantity) {
       return { canMint: false, reason: 'Wallet allowlist mint cap reached for that quantity.' };
     }
@@ -3166,9 +3170,32 @@ function getLooperMintQuantityMax(contractState) {
   return 10;
 }
 
+function getLooperMintPhaseStatus(contractState, phase) {
+  if (!contractState) return 'Not loaded';
+  if (phase === 'allowlist') {
+    if (!contractState.allowlistStart) return 'Not set';
+    if (contractState.saleState === 'not_started') return 'Armed';
+    return 'Live';
+  }
+  if (phase === 'public') {
+    if (!contractState.publicStart) return 'Not set';
+    if (contractState.saleState === 'public') return 'Live';
+    if (contractState.saleState === 'ended') return 'Closed';
+    return 'Standby';
+  }
+  return 'Unknown';
+}
+
 function renderLooperMintStatus(mint, explorerUrl) {
   if (mint.status === 'minted' && mint.tx?.hash) {
     const link = explorerUrl ? `<a href="${escapeAttribute(explorerUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortenAddress(mint.tx.hash))}</a>` : escapeHtml(mint.tx.hash);
+    const bindings = Array.isArray(mint.tx?.erc8004Bindings) ? mint.tx.erc8004Bindings : [];
+    if (bindings.length > 0) {
+      const summary = bindings
+        .map((binding) => `Looper #${binding.looperTokenId} -> ERC-8004 #${binding.identityTokenId}`)
+        .join(' | ');
+      return `<p class="looper-mint-status success" role="status">Mint + Adapter8004 bind confirmed: ${link}. ${escapeHtml(summary)}</p>`;
+    }
     return `<p class="looper-mint-status success" role="status">Mint transaction confirmed: ${link}</p>`;
   }
   if (mint.status === 'error') {
@@ -3181,6 +3208,7 @@ function getLooperMintSubmitLabel(contractState, connected, options = {}) {
   if (!connected) return 'Connect wallet';
   if (options.contractConfigured === false) return 'Not configured';
   if (!contractState) return 'Load contract';
+  if (!contractState.erc8004BindingActive) return 'Adapter pending';
   if (contractState.saleState === 'allowlist') return 'Mint allowlist';
   if (contractState.saleState === 'public') return 'Mint public';
   return formatSaleState(contractState.saleState);
@@ -3812,7 +3840,7 @@ function renderActivationPreviewPanel(state, activationState) {
 function renderActivationSummary(activationState) {
   const resolved = activationState.resolvedId ? `<span>${escapeHtml(activationState.resolvedId)}</span>` : '';
   const futureBindNote = activationState.showFutureBindNote
-    ? '<p class="activation-bind-note">Today, NFT activation creates a new ERC-8004 identity. Binding NFTs to an existing identity is planned for a later adapter release.</p>'
+    ? '<p class="activation-bind-note">Target Looper flow is mint-time ERC-8004 binding so the NFT, registry listing, and agent metadata stay in sync. This public activation view is still read-only and does not claim custody or permission changes.</p>'
     : '';
 
   return `

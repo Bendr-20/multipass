@@ -18,11 +18,11 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 
 - Use ERC-721A-style minting or an equivalent gas-efficient ERC-721 implementation.
 - Main NFT contract should not be upgradeable by default.
-- Use standard marketplace-compatible ERC-721 behavior.
+- Use standard marketplace-compatible ERC-721 behavior by default, with optional ERC-721C validator hooks available if the owner explicitly arms them.
 - Use ERC-2981 royalties.
 - Implement ERC-8048 onchain metadata with ERC-721T reserved keys.
 - Include ERC-6551 token-bound account resolution in the launch rehearsal path.
-- Do not use ERC-721C or forced marketplace enforcement in v1.
+- Do not force ERC-721C validator enforcement in the default v1 posture. The collection should stay freely transferable unless the owner deliberately configures a validator.
 - Do not put Sibyl, Evolution, autonomous spend, tool wallets, or activation memory into the mint contract.
 
 ## Supply
@@ -38,7 +38,7 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 
 - Allowlist phase starts first.
 - Allowlist phase duration: `24 hours`.
-- Public phase starts when the allowlist phase ends.
+- Public phase starts when the allowlist phase ends by default, but the owner can shorten that path before launch or flip public live early once allowlist is open.
 - Total mint window: `7 days, 7 hours, 7 minutes, 7 seconds`.
 - Mint ends when sold out or when the window closes.
 
@@ -79,13 +79,24 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 - The owner can configure the ERC-6551 registry, implementation, and salt for launch.
 - Token-bound account resolution must be rehearsed on Base Sepolia before mainnet.
 
+## Mint-Time ERC-8004 Binding Target
+
+- In addition to ERC-721T/ERC-8048 metadata support, the contract now includes an optional owner-set `Adapter8004` path.
+- When `erc8004Registry` and `erc8004AgentBaseURI` are configured, every minted Looper auto-registers a paired ERC-8004 identity during the mint transaction and transfers that identity NFT to the same holder.
+- The contract records `erc8004BoundByLooper(tokenId)`, `erc8004IdentityTokenIdByLooper(tokenId)`, and `erc8004AgentURI(tokenId)` so the bind is readable onchain.
+- `erc8004AgentBaseURI` should point at the Helixa/Multipass API-controlled agent surface so 8004 registration data and 721T-indexed NFT metadata stay synchronized.
+- Public mint surfaces must still stay honest: if a rehearsal deployment is missing the 8004 config, the UI should block mint instead of implying the bind exists.
+
 ## Owner/Admin Controls
 
 Owner can:
 
 - Pause minting only.
+- Set or clear the optional ERC-721C transfer validator and validator auto-approval behavior.
 - Update Merkle root before allowlist starts.
 - Update prices before mint starts.
+- Shorten `publicStart` after sale config is armed, as long as it stays inside the active sale window.
+- Flip public mint live immediately once the allowlist phase is already open.
 - Update treasury/royalty receiver if needed.
 - Reserve mint up to the 337 cap.
 - Configure ERC-6551 registry/account implementation.
@@ -135,7 +146,7 @@ Reveal offset behavior:
 - Receiver: same fresh Base treasury wallet as primary proceeds.
 - Owner may update royalty receiver if treasury changes.
 - Royalty should be capped at 5% so it cannot later surprise-increase.
-- No ERC-721C or restrictive transfer rules in v1.
+- Default launch posture keeps the validator unset so transfers remain standard ERC-721 behavior until the owner explicitly configures a 721C policy.
 
 ## Public Reads For Mint Site
 

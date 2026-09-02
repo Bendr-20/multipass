@@ -147,6 +147,74 @@ test('ERC-6551 token-bound account config resolves launch account metadata', asy
   await assert.rejects(contract.setERC6551Config(ethers.ZeroAddress, implementation, salt));
 });
 
+test('mint-time ERC-8004 binding registers identities per Looper and transfers them to the holder', async () => {
+  const fixture = await deployFixture();
+  const { compiled, contract, owner, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice] = signers;
+
+  const registryFactory = new ethers.ContractFactory(compiled.mock8004Registry.abi, compiled.mock8004Registry.bytecode, owner);
+  const registry = await registryFactory.deploy();
+  await registry.waitForDeployment();
+
+  const agentBaseURI = 'https://api.helixa.xyz/api/loopers/agents/';
+  await contract.setERC8004Config(await registry.getAddress(), agentBaseURI);
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(2, merkle.proof(alice.address), { value: allowlistPrice * 2n });
+
+  assert.equal(await contract.erc8004Registry(), await registry.getAddress());
+  assert.equal(await contract.erc8004AgentBaseURI(), agentBaseURI);
+  assert.equal(await contract.erc8004BoundByLooper(1), true);
+  assert.equal(await contract.erc8004BoundByLooper(2), true);
+  assert.equal(await contract.erc8004IdentityTokenIdByLooper(1), 0n);
+  assert.equal(await contract.erc8004IdentityTokenIdByLooper(2), 1n);
+  assert.equal(await contract.erc8004AgentURI(1), `${agentBaseURI}1`);
+  assert.equal(await contract.erc8004AgentURI(2), `${agentBaseURI}2`);
+  assert.equal(await registry.ownerOf(0), alice.address);
+  assert.equal(await registry.ownerOf(1), alice.address);
+  assert.equal(await registry.tokenURI(0), `${agentBaseURI}1`);
+  assert.equal(await registry.tokenURI(1), `${agentBaseURI}2`);
+
+  await assert.rejects(contract.connect(alice).setERC8004Config(await registry.getAddress(), agentBaseURI));
+  await assert.rejects(contract.setERC8004Config(await registry.getAddress(), ''));
+  await assert.rejects(contract.setERC8004Config(ethers.ZeroAddress, agentBaseURI));
+
+  await contract.setERC8004Config(ethers.ZeroAddress, '');
+  assert.equal(await contract.erc8004Registry(), ethers.ZeroAddress);
+  assert.equal(await contract.erc8004AgentBaseURI(), '');
+});
+
+test('721C validator support stays opt-in until configured and can enforce transfer policy when armed', async () => {
+  const fixture = await deployFixture();
+  const { compiled, contract, owner, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice, bob] = signers;
+
+  assert.equal(await contract.getTransferValidator(), ethers.ZeroAddress);
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(1, merkle.proof(alice.address), { value: allowlistPrice });
+
+  const validatorFactory = new ethers.ContractFactory(compiled.mockTransferValidator.abi, compiled.mockTransferValidator.bytecode, owner);
+  const validator = await validatorFactory.deploy();
+  await validator.waitForDeployment();
+
+  await contract.setTransferValidator(await validator.getAddress());
+  assert.equal(await contract.getTransferValidator(), await validator.getAddress());
+  assert.equal(await contract.isApprovedForAll(alice.address, await validator.getAddress()), false);
+
+  await contract.setAutomaticApprovalOfTransfersFromValidator(true);
+  assert.equal(await contract.isApprovedForAll(alice.address, await validator.getAddress()), true);
+
+  await validator.setTransfersBlocked(true);
+  await assert.rejects(contract.connect(alice).transferFrom(alice.address, bob.address, 1));
+
+  await validator.setTransfersBlocked(false);
+  await contract.connect(alice).transferFrom(alice.address, bob.address, 1, { gasLimit: 500_000 });
+  assert.equal(await contract.ownerOf(1), bob.address);
+});
+
 test('owner-only controls, royalty cap, withdraw, and public close behave as launch gates expect', async () => {
   const fixture = await deployFixture();
   const { contract, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
@@ -174,6 +242,41 @@ test('owner-only controls, royalty cap, withdraw, and public close behave as lau
   await contract.closePublicSupply({ gasLimit: 500_000 });
   assert.equal(await contract.saleState(), 3n);
   await assert.rejects(contract.connect(bob).publicMint(1, { value: publicPrice }));
+});
+
+test('owner can shorten the public flip path without waiting the full default allowlist window', async () => {
+  const fixture = await deployFixture();
+  const { contract, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice, bob] = signers;
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+
+  const shortenedPublicStart = saleStart + 2n * 60n * 60n;
+  await contract.setPublicStart(shortenedPublicStart);
+  assert.equal(await contract.publicStart(), shortenedPublicStart);
+
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(1, merkle.proof(alice.address), { value: allowlistPrice });
+
+  assert.equal(await contract.saleState(), 1n);
+  await fixture.increaseTo(shortenedPublicStart + 1n);
+  assert.equal(await contract.saleState(), 2n);
+});
+
+test('owner can open public mint immediately once allowlist is live', async () => {
+  const fixture = await deployFixture();
+  const { contract, signers, saleStart, allowlistPrice, publicPrice, merkle } = fixture;
+  const [, alice, bob] = signers;
+
+  await contract.setSaleConfig(saleStart, allowlistPrice, publicPrice, merkle.root);
+  await fixture.increaseTo(saleStart);
+  await contract.connect(alice).allowlistMint(1, merkle.proof(alice.address), { value: allowlistPrice });
+
+  await contract.openPublicMint();
+  assert.equal(await contract.saleState(), 2n);
+
+  await contract.connect(bob).publicMint(1, { value: publicPrice });
+  assert.equal(await contract.mintedByWallet(bob.address), 1n);
 });
 
 async function deployFixture() {
@@ -249,6 +352,90 @@ contract MockERC6551Registry {
 }
 `,
       },
+      'test/MockERC8004IdentityRegistry.sol': {
+        content: `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface IERC721Receiver {
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external returns (bytes4);
+}
+
+contract MockERC8004IdentityRegistry {
+    uint256 public nextTokenId;
+    mapping(uint256 => address) private _owners;
+    mapping(uint256 => string) private _agentURIs;
+
+    function register(string memory agentURI) external returns (uint256 tokenId) {
+        tokenId = nextTokenId++;
+        _owners[tokenId] = msg.sender;
+        _agentURIs[tokenId] = agentURI;
+        if (msg.sender.code.length != 0) {
+            bytes4 accepted = IERC721Receiver(msg.sender).onERC721Received(address(this), address(0), tokenId, "");
+            require(accepted == IERC721Receiver.onERC721Received.selector, "UNSAFE_RECEIVER");
+        }
+    }
+
+    function ownerOf(uint256 tokenId) external view returns (address) {
+        return _owners[tokenId];
+    }
+
+    function tokenURI(uint256 tokenId) external view returns (string memory) {
+        return _agentURIs[tokenId];
+    }
+
+    function transferFrom(address from, address to, uint256 tokenId) external {
+        require(_owners[tokenId] == from, "WRONG_FROM");
+        _owners[tokenId] = to;
+    }
+}
+`,
+      },
+      'test/MockTransferValidator.sol': {
+        content: `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract MockTransferValidator {
+    bool public transfersBlocked;
+    address public lastCollection;
+    uint16 public lastTokenType;
+
+    function setTokenTypeOfCollection(address collection, uint16 tokenType) external {
+        lastCollection = collection;
+        lastTokenType = tokenType;
+    }
+
+    function setTransfersBlocked(bool blocked) external {
+        transfersBlocked = blocked;
+    }
+
+    function applyCollectionTransferPolicy(address, address, address) external view {
+        require(!transfersBlocked, "TRANSFER_BLOCKED");
+    }
+
+    function validateTransfer(address, address, address) external view {
+        require(!transfersBlocked, "TRANSFER_BLOCKED");
+    }
+
+    function validateTransfer(address, address, address, uint256) external view {
+        require(!transfersBlocked, "TRANSFER_BLOCKED");
+    }
+
+    function validateTransfer(address, address, address, uint256, uint256) external view {
+        require(!transfersBlocked, "TRANSFER_BLOCKED");
+    }
+
+    function beforeAuthorizedTransfer(address, address, uint256) external pure {}
+    function afterAuthorizedTransfer(address, uint256) external pure {}
+    function beforeAuthorizedTransfer(address, address) external pure {}
+    function afterAuthorizedTransfer(address) external pure {}
+    function beforeAuthorizedTransfer(address, uint256) external pure {}
+    function beforeAuthorizedTransferWithAmount(address, uint256, uint256) external pure {}
+    function afterAuthorizedTransferWithAmount(address, uint256) external pure {}
+}
+`,
+      },
     },
     settings: {
       optimizer: { enabled: true, runs: 200 },
@@ -267,12 +454,22 @@ contract MockERC6551Registry {
   }
   const contract = output.contracts['src/Loopers.sol'].Loopers;
   const mockRegistry = output.contracts['test/MockERC6551Registry.sol'].MockERC6551Registry;
+  const mock8004Registry = output.contracts['test/MockERC8004IdentityRegistry.sol'].MockERC8004IdentityRegistry;
+  const mockTransferValidator = output.contracts['test/MockTransferValidator.sol'].MockTransferValidator;
   return {
     abi: contract.abi,
     bytecode: `0x${contract.evm.bytecode.object}`,
     mockRegistry: {
       abi: mockRegistry.abi,
       bytecode: `0x${mockRegistry.evm.bytecode.object}`,
+    },
+    mock8004Registry: {
+      abi: mock8004Registry.abi,
+      bytecode: `0x${mock8004Registry.evm.bytecode.object}`,
+    },
+    mockTransferValidator: {
+      abi: mockTransferValidator.abi,
+      bytecode: `0x${mockTransferValidator.evm.bytecode.object}`,
     },
   };
 }

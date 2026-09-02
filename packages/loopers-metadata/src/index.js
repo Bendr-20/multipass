@@ -34,6 +34,49 @@ const HASHLIPS_PRIVATE_PATTERNS = [
   /placeholder/i,
 ];
 
+const CLASS_BIAS_TO_CLASS_KEY = {
+  anomaly: 'seer_signal_hunter',
+  archivist: 'researcher_archivist',
+  broker: 'trader_broker',
+  civilian: 'diplomat_connector',
+  enforcer: 'mercenary_fixer',
+  mechanic: 'builder_engineer',
+  mystic: 'seer_signal_hunter',
+  operator: 'ceo_operator',
+  runner: 'mercenary_fixer',
+  trickster: 'creator_propagandist',
+};
+
+const SECONDARY_BIAS_TO_CLASS_KEY = {
+  clown: 'creator_propagandist',
+  drifter: 'diplomat_connector',
+  ghost: 'researcher_archivist',
+  hustler: 'trader_broker',
+  monarch: 'ceo_operator',
+  oracle: 'seer_signal_hunter',
+  paranoiac: 'seer_signal_hunter',
+  sentinel: 'mercenary_fixer',
+  skeptic: 'researcher_archivist',
+  stray: 'mercenary_fixer',
+  witness: 'researcher_archivist',
+  zealot: 'creator_propagandist',
+};
+
+const CAPABILITY_BIAS_TO_CLASS_KEY = {
+  archiving: 'researcher_archivist',
+  communications: 'diplomat_connector',
+  coordination: 'ceo_operator',
+  debugging: 'builder_engineer',
+  enforcement: 'mercenary_fixer',
+  forecasting: 'seer_signal_hunter',
+  negotiation: 'diplomat_connector',
+  orchestration: 'builder_engineer',
+  'pattern-detection': 'seer_signal_hunter',
+  resilience: 'mercenary_fixer',
+  'social-camouflage': 'creator_propagandist',
+  trading: 'trader_broker',
+};
+
 export class LooperMetadataError extends Error {
   constructor(message, issues = []) {
     super(issues.length ? `${message}\n${issues.map((issue) => `- ${issue}`).join('\n')}` : message);
@@ -128,7 +171,7 @@ export function compileLooperMetadataItems(hashlipsItems, options = {}) {
 
   const atomByKey = createAtomMap(personalityMatrix);
   const classLabels = Object.fromEntries(Object.entries(classModel.classes ?? {}).map(([key, value]) => [key, value.label ?? key]));
-  const affinityMap = classModel.trait_affinities ?? classModel.trait_affinity_examples ?? {};
+  const affinityMap = createTraitAffinityMap(personalityMatrix, classModel);
   const classCompletenessIssues = validateClassAffinityCoverage(atomByKey, affinityMap);
   if (requireCompleteClassAffinities && classCompletenessIssues.length) {
     throw new LooperMetadataError('Class affinity map is incomplete for final Looper metadata', classCompletenessIssues);
@@ -443,6 +486,54 @@ function createAtomMap(personalityMatrix) {
   }
   if (issues.length) throw new LooperMetadataError('Invalid personality matrix', issues);
   return atomByKey;
+}
+
+function createTraitAffinityMap(personalityMatrix, classModel) {
+  return {
+    ...deriveTraitAffinitiesFromPersonalityMatrix(personalityMatrix, classModel),
+    ...(classModel.trait_affinity_examples ?? {}),
+    ...(classModel.trait_affinities ?? {}),
+  };
+}
+
+function deriveTraitAffinitiesFromPersonalityMatrix(personalityMatrix, classModel) {
+  const derived = {};
+  const knownClasses = new Set(Object.keys(classModel.classes ?? {}));
+
+  for (const atom of personalityMatrix.traits ?? []) {
+    if (!atom?.key || atom.trait === 'None') continue;
+    const biases = atom.biases ?? {};
+    const authority = atom.field_authority ?? {};
+    const classes = {};
+
+    addDerivedClassWeight(classes, knownClasses, CLASS_BIAS_TO_CLASS_KEY[biases.class_bias], authority.class_bias);
+    addDerivedClassWeight(classes, knownClasses, SECONDARY_BIAS_TO_CLASS_KEY[biases.secondary_bias], authority.secondary_bias);
+    addDerivedClassWeight(classes, knownClasses, CAPABILITY_BIAS_TO_CLASS_KEY[biases.capability_bias], authority.capability_bias);
+
+    derived[atom.key] = {
+      classes,
+      specialization: normalizeDerivedSpecialization(
+        biases.specialization_bias ?? atom.theme_name ?? atom.archetype ?? atom.role,
+      ),
+    };
+  }
+
+  return derived;
+}
+
+function addDerivedClassWeight(classes, knownClasses, classKey, weight) {
+  if (!classKey || !knownClasses.has(classKey)) return;
+  const numericWeight = Number(weight ?? 0);
+  if (numericWeight <= 0) return;
+  classes[classKey] = (classes[classKey] ?? 0) + numericWeight;
+}
+
+function normalizeDerivedSpecialization(value) {
+  if (!value) return null;
+  return String(value)
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function validateClassAffinityCoverage(atomByKey, affinityMap) {

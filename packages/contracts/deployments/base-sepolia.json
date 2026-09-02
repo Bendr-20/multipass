@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1.0",
+  "network": "base-sepolia",
+  "chain_id": 84532,
+  "contract": "Loopers",
+  "address": "0xd195ADC09A654d6A87319f9c6a2b3169b5A5ce16",
+  "deployer": "0x339559A2d1CD15059365FC7bD36b3047BbA480E0",
+  "owner": "0x339559A2d1CD15059365FC7bD36b3047BbA480E0",
+  "treasury": "0x339559A2d1CD15059365FC7bD36b3047BbA480E0",
+  "constructor_args": [
+    "0x339559A2d1CD15059365FC7bD36b3047BbA480E0",
+    "0x339559A2d1CD15059365FC7bD36b3047BbA480E0",
+    "ar://loopers-rehearsal-placeholder-2026-08-28/metadata.json"
+  ],
+  "transactions": {
+    "deploy": "0xb90eba5d6eba939fe2005ca656ed92e006e2e3c8810c650de38d5773d4305c63",
+    "set_transfer_validator": null,
+    "set_transfer_validator_auto_approval": null,
+    "set_erc6551_config": "0xa3708f188fc65b870c7e919c2194089e31f9a5122f148d6e81c1ed59b84746f7",
+    "set_erc8004_config": "0x5b05378e88cb465dc6b4774a78c7200f655d18548510cbbb997a1ddff32050a7",
+    "configure_sale": "0xa578ea61a203d28c4390ee021f8f346047689e13ceff460a679c534f0e7dd023"
+  }
+}
