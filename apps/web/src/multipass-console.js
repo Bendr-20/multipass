@@ -147,11 +147,6 @@ export function renderMultipassConsole(snapshot = {}) {
     <main class="multipass-console" aria-label="Multipass Console">
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
         <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
-          <section class="console-dashboard-header console-sidebar-header" aria-label="Workspace">
-            <div class="console-sidebar-brand">
-              <h1>${escapeHtml(snapshot.headline ?? 'Multipass Console')}</h1>
-            </div>
-          </section>
           ${renderIdentityCard(snapshot.identityCard)}
           ${renderSessionPanel(snapshot.session)}
           <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">

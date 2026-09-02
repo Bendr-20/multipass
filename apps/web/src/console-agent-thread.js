@@ -43,7 +43,6 @@ export function renderConsoleAgentThread(thread = {}) {
     <section class="console-panel console-agent-thread-panel" aria-label="Live agent chat">
       <header class="console-thread-shell-header">
         <div class="console-thread-shell-heading">
-          <p class="card-label">Operator room</p>
           <div class="console-thread-chat-head">
             ${renderAvatar({
               label: agentName,
@@ -64,7 +63,7 @@ export function renderConsoleAgentThread(thread = {}) {
       <section class="console-thread-toolbar" aria-label="Chat room controls">
         ${participants.length ? `
           <div class="console-thread-members" aria-label="Room participants">
-            <span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>
+            ${participants.length > 1 ? `<span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>` : ''}
             <div class="console-thread-member-list">
               ${participants.map(renderParticipantPill).join('')}
             </div>

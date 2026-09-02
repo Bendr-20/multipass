@@ -100,7 +100,6 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   const text = root.textContent;
 
   assert.ok(root.querySelector('.multipass-console'));
-  assert.ok(root.querySelector('.console-dashboard-header'));
   assert.ok(root.querySelector('.console-basic-shell'));
   assert.ok(root.querySelector('.console-wallet-panel'));
   assert.equal(root.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
@@ -115,15 +114,12 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
   assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
-  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[1]?.classList.contains('console-identity-card'), true);
-  assert.equal(root.querySelector('.console-sidebar-header .lead'), null);
-  assert.equal(root.querySelector('.console-sidebar-header .eyebrow'), null);
-  assert.match(text, /Multipass Console/);
+  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[0]?.classList.contains('console-identity-card'), true);
+  assert.equal(root.querySelector('.console-sidebar-header'), null);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
   assert.match(text, /Active agent/);
   assert.match(text, /Console name/);
   assert.match(text, /Bendr 2\.0 room/);
-  assert.match(text, /Operator room/);
   assert.match(text, /Direct thread/);
   assert.match(text, /Today/);
   assert.match(text, /Thread note/);

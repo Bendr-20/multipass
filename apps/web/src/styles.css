@@ -7127,7 +7127,7 @@ h1 {
 }
 
 .console-agent-thread-panel {
-  gap: 16px;
+  gap: 12px;
   min-height: 680px;
   border-color: rgba(244, 239, 231, 0.08);
   border-radius: 18px;
@@ -7136,27 +7136,27 @@ h1 {
     linear-gradient(180deg, rgba(23, 26, 33, 0.985), rgba(15, 18, 24, 0.992)),
     #11141a;
   box-shadow: inset 0 0 0 1px rgba(244, 239, 231, 0.03);
-  padding: 24px 28px 22px;
+  padding: 18px 24px 20px;
 }
 
 .console-thread-shell-header {
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid rgba(244, 239, 231, 0.08);
 }
 
 .console-thread-chat-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 10px;
   align-items: center;
 }
 
 .console-thread-avatar-chat {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   background:
     linear-gradient(135deg, rgba(92, 118, 162, 0.3), rgba(110, 236, 216, 0.16)),
     rgba(248, 243, 236, 0.08);
@@ -7165,21 +7165,21 @@ h1 {
 
 .console-thread-chat-copy {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .console-thread-chat-copy h2 {
   margin: 0;
   color: #f8f3ec;
-  font-size: 32px;
-  line-height: 0.95;
+  font-size: 28px;
+  line-height: 0.98;
 }
 
 .console-thread-chat-copy p {
   margin: 0;
   color: rgba(244, 239, 231, 0.66);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .console-thread-shell-meta {
@@ -7203,8 +7203,8 @@ h1 {
 
 .console-thread-toolbar {
   display: grid;
-  gap: 10px;
-  padding-bottom: 10px;
+  gap: 8px;
+  padding-bottom: 8px;
   border-bottom: 1px solid rgba(244, 239, 231, 0.06);
 }
 
@@ -7218,7 +7218,7 @@ h1 {
 
 .console-thread-members {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   justify-items: start;
 }
 
@@ -7240,7 +7240,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 10px;
+  padding: 6px 10px;
   border: 1px solid rgba(244, 239, 231, 0.08);
   border-radius: 999px;
   background: rgba(248, 243, 236, 0.04);
@@ -7267,7 +7267,7 @@ h1 {
 
 .console-thread-context-summary {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   padding: 0;
   max-width: 72ch;
 }
@@ -7442,7 +7442,7 @@ h1 {
 }
 
 .console-thread-daybreak-inline {
-  padding: 16px 0 4px;
+  padding: 12px 0 2px;
 }
 
 .console-thread-composer {
@@ -7548,11 +7548,11 @@ h1 {
   }
 
   .console-thread-chat-copy h2 {
-    font-size: 28px;
+    font-size: 24px;
   }
 
   .console-agent-thread-panel {
-    padding: 20px 18px 18px;
+    padding: 16px 16px 18px;
   }
 
   .console-thread-actions {
