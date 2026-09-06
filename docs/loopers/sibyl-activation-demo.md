@@ -33,6 +33,19 @@ Working title: `Looper Memory Activation`
 
 The fresh-session recall moment is the core proof.
 
+## Current Proof Status
+
+The runtime now has a no-fallback cold-start verifier for the hackathon proof:
+
+```bash
+pnpm --filter @helixa/multipass-api sibyl:prove-cold-start -- \
+  --namespace multipass:hackathon-proof:looper-1234:activation-20260906 \
+  --message "Watchlist preference: Sepolia rehearsal, Merkle freeze, and review-only launch moves." \
+  --query Merkle
+```
+
+The command writes memory with one Sibyl-backed store, creates a fresh reader with fallback disabled, searches Sibyl, and exits nonzero unless the saved memory is recalled from `sibyl_memory`. Latest local proof on 2026-09-06 returned `ok:true`, `provider:"sibyl_memory"`, `recalled_count:1`, and `matched:true`.
+
 ## Communication Model
 
 Use XMTP as the human-agent communication rail for the demo.

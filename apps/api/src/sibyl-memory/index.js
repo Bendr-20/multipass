@@ -17,6 +17,7 @@ export function createSibylMemoryStore({
   bridgePath = DEFAULT_SIBYL_BRIDGE_PATH,
   timeoutMs = 15_000,
   fallback = createLocalSibylMemoryStore({ now }),
+  allowFallback = true,
 } = {}) {
   let bridgeDisabled = false;
   let bridgeError = null;
@@ -56,7 +57,8 @@ export function createSibylMemoryStore({
       try {
         const result = await callBridge('append_memory', { namespace, entry });
         return result.entry ?? null;
-      } catch {
+      } catch (error) {
+        if (!allowFallback) throw error;
         return fallback.saveMemory({ namespace, ...entry });
       }
     },
@@ -67,7 +69,8 @@ export function createSibylMemoryStore({
       try {
         const result = await callBridge('read_memory', { namespace, limit });
         return Array.isArray(result.entries) ? result.entries : [];
-      } catch {
+      } catch (error) {
+        if (!allowFallback) throw error;
         return fallback.recallMemory({ namespace, limit });
       }
     },
@@ -79,7 +82,8 @@ export function createSibylMemoryStore({
       try {
         const result = await callBridge('search_memory', { namespace, query, limit });
         return Array.isArray(result.entries) ? result.entries : [];
-      } catch {
+      } catch (error) {
+        if (!allowFallback) throw error;
         return fallback.searchMemory({ namespace, query, limit });
       }
     },
@@ -93,7 +97,8 @@ export function createSibylMemoryStore({
       try {
         const result = await callBridge('append_thread', { namespace, messages });
         return Array.isArray(result.messages) ? result.messages : messages;
-      } catch {
+      } catch (error) {
+        if (!allowFallback) throw error;
         return fallback.appendThread({ namespace, messages });
       }
     },
@@ -104,7 +109,8 @@ export function createSibylMemoryStore({
       try {
         const result = await callBridge('read_thread', { namespace, limit });
         return Array.isArray(result.messages) ? result.messages : [];
-      } catch {
+      } catch (error) {
+        if (!allowFallback) throw error;
         return fallback.loadThread({ namespace, limit });
       }
     },

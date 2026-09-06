@@ -1,6 +1,6 @@
 # Loopers Launch Checklist
 
-Last verified: 2026-09-02 18:32 UTC.
+Last verified: 2026-09-06 19:35 UTC.
 
 This is the execution checklist for shipping Loopers. It tracks what is freshly verified now, what is still blocked, and the exact commands to re-run before each launch move.
 
@@ -18,6 +18,18 @@ This is the execution checklist for shipping Loopers. It tracks what is freshly 
 - [x] Loopers metadata CLI accepts the documented `pnpm loopers:metadata -- ...` invocation again; metadata package tests pass: `6/6`.
 - [x] Approved HashLips smoke generation works again when pinned to Node `14.18.2` via `npx -p node@14.18.2 -p npm@6 -c 'node index.js'`.
 - [x] Final-mode metadata smoke compile passes against fresh approved-export HashLips output and writes bundle output to `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-smoke-20260902`.
+- [x] Allowlist batch import tooling dry-runs by default, rejects invalid/duplicate batch rows, reports already-existing addresses, and previews the post-merge Merkle root before `--apply`.
+- [x] Sibyl cold-start proof command can require the real bridge with fallback disabled; latest local proof saved through `sibyl_memory` and recalled the saved Merkle launch preference with a fresh reader.
+
+## 2026-09-10 Launch Shape
+
+Use a compressed allowlist, not true simultaneous discount/public lanes.
+
+- Open allowlist on 9/10 with the frozen Merkle root.
+- Keep allowlist live for roughly 1-2 hours while monitoring API, proof, mint, and support pressure.
+- Flip public the same day through the owner public-open path once allowlist minting is healthy.
+- Reveal at public open.
+- Do not rewrite the contract to keep allowlist discount minting live after public opens unless the team deliberately accepts a new contract/rehearsal cycle.
 
 ## Active Base Sepolia Rehearsal Snapshot
 
@@ -89,6 +101,7 @@ This is the execution checklist for shipping Loopers. It tracks what is freshly 
 - [ ] Set exact mainnet allowlist/public prices from launch-time ETH/USD.
 - [ ] Upload and verify the placeholder metadata URI.
 - [ ] Freeze and back up the final mainnet Merkle root.
+- [ ] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.
 - [ ] Run the full 7,777 approved-export HashLips generation and final metadata compile, then finish art/metadata validation before Arweave upload.
 - [ ] Swap the mint page from rehearsal config to mainnet config only after the items above are locked.
 - [ ] Run full mainnet smoke with no reveal, no public claim copy drift, and no secret leakage.

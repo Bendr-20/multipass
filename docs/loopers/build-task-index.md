@@ -2,7 +2,7 @@
 
 This is the active implementation board for Loopers. It supersedes older launch plans and is for execution, not reopening locked decisions.
 
-Last updated: 2026-09-02 17:39 UTC.
+Last updated: 2026-09-06 19:35 UTC.
 
 ## Ground Rules
 
@@ -25,6 +25,8 @@ Done on `main`:
 - Deployment/verification scripts and Base Sepolia/mainnet example configs.
 - Public allowlist page live with no on-page Looper preview.
 - Reverted the Looper status/art card in `7356294` because it leaked approved art before reveal.
+- Safe batch import exists for late manual allowlist adds: dry-run manifest first, explicit `--apply` second, then export a new frozen snapshot.
+- Sibyl cold-start verifier exists and can require the real bridge with fallback disabled for hackathon proof.
 
 Fresh verification:
 
@@ -57,6 +59,7 @@ Fresh verification:
 - ERC-721C: optional validator support is wired, but default launch posture keeps it inactive unless deliberately configured.
 - ERC-6551: launch scope, rehearse before mainnet.
 - Sibyl: parallel activation demo, not a mint-contract dependency.
+- Launch shape for 9/10: compressed allowlist first, then same-day public flip; do not attempt true simultaneous allowlist-discount and public lanes without a contract change.
 
 ## Immediate Next Move
 
@@ -242,7 +245,7 @@ Rules:
 2. Prepare final allowlist and mainnet deployment checklist.
 3. Swap to final mainnet owner/treasury/prices only after the above is locked.
 4. Build Cred/activation status layer after the mint path is stable.
-5. Build Sibyl demo in parallel once integration access is ready.
+5. Package Sibyl demo in parallel around the no-fallback cold-start recall proof.
 
 ## Mainnet Gate
 
@@ -254,5 +257,6 @@ No mainnet deploy until:
 - Exact ETH prices are set.
 - Placeholder metadata URI is live and checked.
 - Final allowlist Merkle root is frozen and backed up.
+- Quigley's late address batch has been dry-run, reviewed, applied, exported, backed up, and matched to the mainnet deployment config root.
 - Final art/metadata validator passes before Arweave upload.
 - Mint page handles all required wallet, phase, proof, price, and failure states.

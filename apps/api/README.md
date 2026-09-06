@@ -137,6 +137,17 @@ pnpm --filter @helixa/multipass-api xmtp:worker
 
 The worker listens for inbound XMTP text messages, resolves the sender wallet from the conversation member identity, passes the turn through the existing Console runtime, stores recall in Sibyl, and sends only the agent response back into the same XMTP conversation. Incoming human messages are stored with their XMTP message ID but are not re-sent.
 
+For hackathon proof, run the cold-start verifier with real Sibyl required:
+
+```bash
+pnpm --filter @helixa/multipass-api sibyl:prove-cold-start -- \
+  --namespace multipass:hackathon-proof:looper-1234:activation-20260906 \
+  --message "Watchlist preference: Sepolia rehearsal, Merkle freeze, and review-only launch moves." \
+  --query Merkle
+```
+
+The verifier writes through one Sibyl-backed runtime, creates a fresh reader with fallback disabled, and fails unless the saved memory is recalled from `sibyl_memory`.
+
 Optional production environment:
 
 ```bash
@@ -159,8 +170,12 @@ Operational scripts:
 
 ```bash
 pnpm --filter @helixa/multipass-api loopers:allowlist:backup -- --input /var/lib/helixa/multipass-loopers-allowlist.json
+pnpm --filter @helixa/multipass-api loopers:allowlist:import-batch -- --store /var/lib/helixa/multipass-loopers-allowlist.json --input /secure/path/new-addresses.txt --manifest /secure/path/import-manifest.json
+pnpm --filter @helixa/multipass-api loopers:allowlist:import-batch -- --store /var/lib/helixa/multipass-loopers-allowlist.json --input /secure/path/new-addresses.txt --manifest /secure/path/import-manifest.json --apply
 pnpm --filter @helixa/multipass-api loopers:allowlist:export -- --input /var/lib/helixa/multipass-loopers-allowlist.json --output /tmp/loopers-allowlist-snapshot.json
 ```
+
+Batch import dry-runs by default. It rejects invalid rows and duplicate rows inside the batch, reports addresses that already exist in the store, preserves first-seen order, and previews the post-merge Merkle root in the manifest before `--apply` writes the live store.
 
 The export includes ordered entries, one leaf per normalized address, a Merkle root, and per-wallet proofs. Keep the public page framed as early registration only: no promised mint, timing, price, allocation, or final supply until the collection and contract plan are final.
 

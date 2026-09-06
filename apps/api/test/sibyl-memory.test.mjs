@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import test from 'node:test';
+import { promisify } from 'node:util';
 
 import {
   buildSibylMemoryNamespace,
   createLocalSibylMemoryStore,
+  createSibylMemoryStore,
   extractDurableMemoryFromMessage,
 } from '../src/sibyl-memory/index.js';
 
 const WALLET = '0x1234567890abcdef1234567890abcdef12345678';
+const execFileAsync = promisify(execFile);
 
 test('Sibyl namespace scopes memory by wallet, agent, and activation', () => {
   assert.equal(
@@ -51,4 +55,41 @@ test('durable memory extraction does not treat avoided high-risk entries as a hi
 
   assert.deepEqual(extracted.map((item) => item.tags[0]), ['watchlist', 'constraint']);
   assert.doesNotMatch(extracted.map((item) => item.text).join('\n'), /Risk preference: high risk/);
+});
+
+test('Sibyl memory store can require the real bridge instead of silently falling back', async () => {
+  const memory = createSibylMemoryStore({
+    pythonBin: '/tmp/missing-sibyl-python',
+    allowFallback: false,
+  });
+
+  await assert.rejects(
+    () => memory.saveMemory({
+      namespace: 'multipass:test-wallet:test-agent:test-activation',
+      text: 'Watchlist preference: prove real Sibyl recall.',
+      tags: ['watchlist'],
+    }),
+    /missing-sibyl-python|ENOENT|Sibyl bridge unavailable/i,
+  );
+});
+
+test('prove-sibyl-cold-start script fails when the required bridge is unavailable', async () => {
+  let error;
+  try {
+    await execFileAsync('node', [
+      'apps/api/scripts/prove-sibyl-cold-start.js',
+      '--namespace',
+      'multipass:test-wallet:test-agent:test-activation',
+      '--message',
+      'Watchlist preference: prove real Sibyl recall.',
+      '--query',
+      'watchlist',
+      '--python-bin',
+      '/tmp/missing-sibyl-python',
+    ], { cwd: process.cwd() });
+  } catch (caught) {
+    error = caught;
+  }
+  assert.ok(error);
+  assert.match(error.stderr, /missing-sibyl-python|ENOENT|Sibyl bridge unavailable/i);
 });
