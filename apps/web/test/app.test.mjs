@@ -1804,7 +1804,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
   assert.ok(consolePage.querySelector('.console-thread-toolbar'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
-  assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
+  assert.ok(consolePage.querySelector('.console-agent-portrait img[src="/multipass/loopers-prereveal-placeholder.png"]'));
   assert.match(consolePage.textContent, /Direct operator line/);
   assert.match(consolePage.textContent, /Thread note/);
   assert.match(consolePage.textContent, /Token/);
