@@ -1060,7 +1060,8 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.ok(root.querySelector('.looper-mint-launch'));
   assert.equal(root.querySelector('.looper-allowlist-panel'), null);
   assert.equal(root.querySelector('.looper-mint-art-stack'), null);
-  assert.equal(root.querySelector('.looper-mint-art-card'), null);
+  assert.ok(root.querySelector('.looper-mint-art-card'));
+  assert.equal(root.querySelector('.looper-mint-art-image')?.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
@@ -1133,7 +1134,7 @@ test('standalone Looper mint route renders pending mainnet launch surface withou
   assert.equal(loadCalls.length, 0);
 });
 
-test('standalone Looper mint route starts with simple hero copy and hides pre-reveal art', async () => {
+test('standalone Looper mint route starts with simple hero copy and branded pre-reveal placeholder art', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const looperMintClient = {
     loadState: async () => sampleLooperMintState(),
@@ -1152,12 +1153,18 @@ test('standalone Looper mint route starts with simple hero copy and hides pre-re
   assert.ok(launch);
   assert.equal(launch.children[0], showcase);
   assert.equal(showcase.children[0], heroCopy);
-  assert.equal(showcase.children.length, 1);
+  assert.equal(showcase.children.length, 2);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.equal(heroCopy.querySelector('.looper-mint-signal-row'), null);
   assert.equal(root.querySelector('.looper-mint-art-stack'), null);
-  assert.equal(root.querySelector('.looper-mint-art-card'), null);
+  const artCard = root.querySelector('.looper-mint-art-card');
+  const artImage = root.querySelector('.looper-mint-art-image');
+  assert.ok(artCard);
+  assert.ok(artImage);
+  assert.equal(artImage.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
+  assert.match(artCard.textContent, /Pre-reveal placeholder/i);
+  assert.match(artCard.textContent, /Final art stays hidden until public mint/i);
 });
 
 test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {

@@ -386,6 +386,55 @@ button:focus-visible {
   line-height: 0.88;
 }
 
+.looper-mint-art-card {
+  justify-self: start;
+  width: min(448px, 100%);
+  margin: 0;
+  padding: 14px;
+  border: 2px solid var(--ink);
+  background:
+    linear-gradient(135deg, rgba(255, 241, 77, 0.22), rgba(255, 255, 255, 0) 36%),
+    rgba(255, 250, 241, 0.96);
+  box-shadow: 10px 10px 0 rgba(0, 0, 0, 0.9);
+  transform: rotate(-2deg);
+}
+
+.looper-mint-art-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border: 2px solid var(--ink);
+  background: #0d0d0d;
+}
+
+.looper-mint-art-caption {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: #0f0f0f;
+  text-shadow: none;
+}
+
+.looper-mint-art-label {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px 5px;
+  border: 2px solid var(--ink);
+  background: #fcff4d;
+  box-shadow: 3px 3px 0 #000;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.looper-mint-art-caption strong {
+  font-size: clamp(1rem, 1.8vw, 1.15rem);
+  line-height: 1.15;
+}
+
 .looper-mint-action-column {
   display: grid;
   gap: 14px;
@@ -3974,6 +4023,18 @@ h1 {
 
   .looper-mint-hero-logo {
     width: min(360px, 100%);
+  }
+
+  .looper-mint-art-card {
+    width: min(100%, 380px);
+    padding: 10px;
+    box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.92);
+    transform: rotate(-1deg);
+  }
+
+  .looper-mint-art-caption {
+    gap: 5px;
+    margin-top: 10px;
   }
 
   .looper-mint-action-column .looper-allowlist-panel.compact {

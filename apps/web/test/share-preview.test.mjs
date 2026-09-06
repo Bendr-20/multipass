@@ -16,6 +16,8 @@ const ogSvgPath = join(webRoot, 'public', 'og-preview.svg');
 const ogImagePath = join(webRoot, 'public', 'og-preview.png');
 const looperAllowlistPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview.png');
 const looperAllowlistXPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview-20260826c.jpg');
+const looperPrerevealPlaceholderSvgPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.svg');
+const looperPrerevealPlaceholderPngPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.png');
 const ogSourceCapturePath = join(webRoot, 'public', 'og-bendr-profile-capture.png');
 const shareRoot = join(webRoot, 'public', 'share');
 const STALE_QUIGBOT_AURA_SHARE_JPEG_SHA256 = '038840a1d3474d9c9f5079fe6218634f2cfc111d30d679fd55709a7a8c655262';
@@ -83,6 +85,18 @@ test('Loopers allowlist X preview image exists as a 1200x630 static JPEG asset',
   assert.equal(existsSync(looperAllowlistXPreviewPath), true);
   assert.deepEqual(imageSizeFromFile(looperAllowlistXPreviewPath), { width: 1200, height: 630, type: 'jpeg' });
   assert.ok(statSync(looperAllowlistXPreviewPath).size > 20_000);
+});
+
+test('Loopers pre-reveal placeholder assets exist as reusable public art', async () => {
+  assert.equal(existsSync(looperPrerevealPlaceholderSvgPath), true);
+  assert.equal(existsSync(looperPrerevealPlaceholderPngPath), true);
+  assert.deepEqual(imageSizeFromFile(looperPrerevealPlaceholderPngPath), { width: 1200, height: 1200, type: 'png' });
+  assert.ok(statSync(looperPrerevealPlaceholderPngPath).size > 20_000);
+
+  const svg = await readFile(looperPrerevealPlaceholderSvgPath, 'utf8');
+  assert.match(svg, /Loopers pre-reveal placeholder/i);
+  assert.match(svg, /PRE-REVEAL/);
+  assert.match(svg, /FINAL LOOPERS ART STAYS HIDDEN UNTIL PUBLIC MINT/i);
 });
 
 test('share preview SVG frames the actual Bendr Multipass capture without Intuition tag copy', async () => {

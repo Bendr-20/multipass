@@ -2959,6 +2959,7 @@ function renderLooperMintLaunch(state) {
   return `
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
+      ${renderLooperMintHeroArt()}
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
@@ -2976,6 +2977,24 @@ function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
       <img class="looper-mint-hero-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
       <h1>Mint your Looper.</h1>
     </div>
+  `;
+}
+
+function renderLooperMintHeroArt() {
+  return `
+    <figure class="looper-mint-art-card">
+      <img
+        class="looper-mint-art-image"
+        src="/multipass/loopers-prereveal-placeholder.png"
+        width="1200"
+        height="1200"
+        alt="Loopers pre-reveal placeholder art."
+      />
+      <figcaption class="looper-mint-art-caption">
+        <span class="looper-mint-art-label">Pre-reveal placeholder</span>
+        <strong>Final art stays hidden until public mint.</strong>
+      </figcaption>
+    </figure>
   `;
 }
 
