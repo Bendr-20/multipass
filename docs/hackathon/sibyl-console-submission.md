@@ -82,9 +82,9 @@ Latest local proof on 2026-09-07:
 
 Latest local demo package on 2026-09-07:
 
-- `video`: `/home/ubuntu/.openclaw/workspace/tmp/sibyl-console-demo-20260907T135656591Z/sibyl-console-demo.mp4`
-- `duration`: 130 seconds
-- `voiceover`: ElevenLabs generated with Morgan, American
+- `video`: `/home/ubuntu/.openclaw/workspace/tmp/sibyl-console-demo-20260907T162917194Z/sibyl-console-demo.mp4`
+- `duration`: 85 seconds
+- `voiceover`: ElevenLabs generated with Brian, American
 - `proof provider`: `sibyl_memory`
 - `matched`: `true`
 

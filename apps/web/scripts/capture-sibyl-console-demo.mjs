@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
 import {
+  buildSlideDurationsForAudio,
   cleanupStaleDemoOutputs,
   resolveElevenLabsVoice,
 } from './capture-sibyl-console-demo-utils.mjs';
@@ -215,7 +216,10 @@ async function renderVideo({ screenshots, audioPath }) {
   const listPath = join(outputDir, 'slides.txt');
   const silentPath = join(outputDir, 'sibyl-console-demo-silent.mp4');
   const videoPath = join(outputDir, 'sibyl-console-demo.mp4');
-  const durations = [23, 25, 24, 25, 33];
+  const audioDurationSeconds = audioPath ? await probeMediaDurationSeconds(audioPath) : 0;
+  const durations = audioDurationSeconds
+    ? buildSlideDurationsForAudio({ audioDurationSeconds, slideCount: screenshots.length })
+    : [23, 25, 24, 25, 33];
   const lines = [];
   screenshots.forEach((path, index) => {
     lines.push(`file '${path.replaceAll("'", "'\\''")}'`);
@@ -246,12 +250,10 @@ async function renderVideo({ screenshots, audioPath }) {
     silentPath,
     '-i',
     audioPath,
-    '-filter_complex',
-    '[1:a]apad[a]',
     '-map',
     '0:v',
     '-map',
-    '[a]',
+    '1:a',
     '-c:v',
     'copy',
     '-c:a',
@@ -264,6 +266,19 @@ async function renderVideo({ screenshots, audioPath }) {
     videoPath,
   ], { timeout: 180_000 });
   return videoPath;
+}
+
+async function probeMediaDurationSeconds(path) {
+  const { stdout } = await execFilePromise('ffprobe', [
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'default=nw=1:nk=1',
+    path,
+  ], { timeout: 30_000 });
+  return Number(stdout.trim()) || 0;
 }
 
 function renderTerminalProofHtml(proof) {

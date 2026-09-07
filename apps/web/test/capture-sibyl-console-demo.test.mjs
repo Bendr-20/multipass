@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import {
+  buildSlideDurationsForAudio,
   DEFAULT_ELEVENLABS_VOICE,
   findStaleDemoOutputDirs,
   resolveElevenLabsVoice,
@@ -40,4 +41,17 @@ test('stale output cleanup only targets older Sibyl Console demo packages', () =
   assert.deepEqual(staleDirs, [
     join(tmpRoot, 'sibyl-console-demo-20260907T043739020Z'),
   ]);
+});
+
+test('audio-backed slide durations end close to narration length', () => {
+  const durations = buildSlideDurationsForAudio({
+    audioDurationSeconds: 83.12,
+    slideCount: 5,
+  });
+  const total = durations.reduce((sum, duration) => sum + duration, 0);
+
+  assert.equal(durations.length, 5);
+  assert.ok(total >= 83.12);
+  assert.ok(total < 88);
+  assert.ok(durations.at(-1) < 20);
 });

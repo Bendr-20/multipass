@@ -30,6 +30,17 @@ export function findStaleDemoOutputDirs({ tmpRoot, currentOutputDir, entries }) 
     .sort();
 }
 
+export function buildSlideDurationsForAudio({ audioDurationSeconds, slideCount }) {
+  const count = Math.max(1, Number(slideCount) || 1);
+  const duration = Math.max(1, Number(audioDurationSeconds) || 0);
+  const targetDuration = duration + 1.25;
+  const defaultWeights = [16, 16, 16, 18, 17];
+  const weights = Array.from({ length: count }, (_, index) => defaultWeights[index] ?? 16);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+
+  return weights.map((weight) => Number(((targetDuration * weight) / totalWeight).toFixed(3)));
+}
+
 export async function cleanupStaleDemoOutputs({ tmpRoot, currentOutputDir }) {
   const entries = await readdir(tmpRoot, { withFileTypes: true }).catch((error) => {
     if (error?.code === 'ENOENT') return [];
