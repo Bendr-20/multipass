@@ -1784,7 +1784,7 @@ function createLooperConsoleMockAgents() {
       standardsCount: 2,
       verified: true,
       state: 'Review room loaded',
-      image: '/multipass/loopers-prereveal-placeholder.png',
+      image: '/multipass/loopers-console-pfp.png',
       presenceLabel: 'Markets + vault desk',
       logline: 'Blunt looper tracking the markets, guarding the vault, and filtering noise before it becomes your problem.',
       temperament: 'Dry and spicy',

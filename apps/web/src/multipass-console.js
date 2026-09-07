@@ -2,7 +2,7 @@ import { renderConsoleAgentThread } from './console-agent-thread.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
-const DEFAULT_CONSOLE_PORTRAIT = '/multipass/loopers-prereveal-placeholder.png';
+const DEFAULT_CONSOLE_PORTRAIT = '/multipass/loopers-console-pfp.png';
 
 export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {}) {
   const wallet = state.walletSnapshot ?? {};

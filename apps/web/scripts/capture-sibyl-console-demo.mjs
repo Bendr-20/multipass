@@ -54,6 +54,10 @@ await writeFile(join(outputDir, 'voiceover.txt'), `${narration}\n`);
 
 const devServer = spawn('pnpm', ['exec', 'vite', '--host', '127.0.0.1', '--port', String(port)], {
   cwd: webRoot,
+  env: {
+    ...process.env,
+    MULTIPASS_BASE: '/multipass/',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
@@ -78,12 +82,15 @@ try {
 
     await page.goto(demoUrl, { waitUntil: 'networkidle' });
     await page.waitForSelector('.multipass-console');
+    await waitForImages(page);
     screenshots.push(await screenshot(page, '01-console-open.png'));
 
-    await page.locator('.console-agent-thread-panel').scrollIntoViewIfNeeded();
+    await page.locator('.console-thread-message.human').first().scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
+    await waitForImages(page);
     screenshots.push(await screenshot(page, '02-review-room.png'));
 
+    await page.locator('textarea[name="message"]').scrollIntoViewIfNeeded();
     await page.locator('textarea[name="message"]').evaluate((node) => {
       node.disabled = false;
       node.value = 'Remember: this Looper tracks vault permissions and review-only capital access. Keep risk medium or lower.';
@@ -343,6 +350,17 @@ async function waitForHttp(url, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for ${url}\n${serverOutput}`);
+}
+
+async function waitForImages(page) {
+  await page.waitForFunction(() => {
+    const images = [...document.images];
+    const visibleImages = images.filter((image) => {
+      const rect = image.getBoundingClientRect();
+      return rect.width > 4 && rect.height > 4 && rect.bottom >= 0 && rect.right >= 0 && rect.top <= window.innerHeight && rect.left <= window.innerWidth;
+    });
+    return visibleImages.length > 0 && visibleImages.every((image) => image.complete && image.naturalWidth > 0);
+  }, null, { timeout: 30_000 });
 }
 
 function execFilePromise(file, args, options = {}) {

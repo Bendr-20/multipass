@@ -113,7 +113,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.ok(root.querySelector('.console-thread-toolbar'));
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
-  assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/loopers-prereveal-placeholder.png"]'));
+  assert.ok(root.querySelector('.console-agent-portrait img[src="/multipass/loopers-console-pfp.png"]'));
   assert.equal(root.querySelector('.console-workspace-sidebar')?.children[1]?.classList.contains('console-identity-card'), true);
   assert.match(root.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');

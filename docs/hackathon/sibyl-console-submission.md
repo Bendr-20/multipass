@@ -82,7 +82,7 @@ Latest local proof on 2026-09-07:
 
 Latest local demo package on 2026-09-07:
 
-- `video`: `/home/ubuntu/.openclaw/workspace/tmp/sibyl-console-demo-20260907T043739020Z/sibyl-console-demo.mp4`
+- `video`: `/home/ubuntu/.openclaw/workspace/tmp/sibyl-console-demo-20260907T044521673Z/sibyl-console-demo.mp4`
 - `duration`: 130 seconds
 - `voiceover`: ElevenLabs generated
 - `proof provider`: `sibyl_memory`
