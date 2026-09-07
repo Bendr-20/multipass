@@ -2983,25 +2983,25 @@ function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
 function renderLooperMintHeroArt() {
   const loopers = [
     {
-      src: '/multipass/looper-mint-sample-02.png',
-      variant: 'featured',
-      alt: 'Teal tactical Looper from the 7,777 collection.',
-    },
-    {
       src: '/multipass/looper-mint-sample-01.png',
-      variant: 'left',
+      variant: 'purple',
       alt: 'Purple glitch Looper from the 7,777 collection.',
     },
     {
+      src: '/multipass/looper-mint-sample-02.png',
+      variant: 'teal',
+      alt: 'Teal tactical Looper from the 7,777 collection.',
+    },
+    {
       src: '/multipass/looper-mint-sample-03.png',
-      variant: 'right',
+      variant: 'red',
       alt: 'Red visor Looper from the 7,777 collection.',
     },
   ];
 
   return `
-    <figure class="looper-mint-art-stack" aria-label="Three Loopers from the collection">
-      <div class="looper-mint-art-cards">
+    <figure class="looper-mint-art-gallery" aria-label="Three Loopers from the collection">
+      <div class="looper-mint-art-lineup">
         ${loopers.map((looper) => `
           <span class="looper-mint-art-card looper-mint-art-card-${looper.variant}">
             <img
@@ -3010,15 +3010,12 @@ function renderLooperMintHeroArt() {
               width="1024"
               height="1024"
               alt="${looper.alt}"
-              loading="${looper.variant === 'featured' ? 'eager' : 'lazy'}"
+              loading="eager"
             />
           </span>
         `).join('')}
       </div>
-      <figcaption class="looper-mint-art-caption">
-        <span class="looper-mint-art-label">Collection preview</span>
-        <strong>Three from the 7,777.</strong>
-      </figcaption>
+      <p class="looper-mint-art-tagline">7,777 onchain agents. Yours starts here.</p>
     </figure>
   `;
 }
