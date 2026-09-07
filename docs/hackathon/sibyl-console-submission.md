@@ -109,5 +109,5 @@ Target length: 2-5 minutes.
 - [x] No-fallback Sibyl proof passes with `provider: "sibyl_memory"`.
 - [x] 2-5 minute demo video recorded.
 - [x] Fresh-session recall moment appears in the video.
-- [ ] Two build-in-public posts prepared.
-- [ ] Submission copy avoids promising autonomous trading, returns, yield, or unmanaged capital movement.
+- [x] Two build-in-public posts prepared in [`sibyl-build-in-public-posts.md`](./sibyl-build-in-public-posts.md).
+- [x] Submission copy avoids promising autonomous trading, returns, yield, or unmanaged capital movement.
