@@ -1084,6 +1084,37 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(loadCalls[0].apiBase, 'https://helixa.xyz/multipass-api');
 });
 
+test('standalone Looper mint route uses the approved retro console window hierarchy', async () => {
+  const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
+  const looperMintClient = {
+    loadState: async () => sampleLooperMintState(),
+    mint: async () => {
+      throw new Error('mint should not be called');
+    },
+  };
+
+  await createApp({ root, loadDemo: async () => sampleData(), looperMintClient }).start();
+  await flushAsyncEvents(30);
+
+  const panel = root.querySelector('.looper-mint-panel');
+  assert.ok(panel);
+  assert.equal(panel.querySelectorAll('.looper-mint-window-light').length, 3);
+  assert.equal(panel.querySelector('.looper-mint-window-title')?.textContent.trim(), 'LOOPER MINT v1.0');
+  assert.deepEqual(
+    [...panel.querySelectorAll('.looper-mint-system-grid .looper-mint-fact > span:first-child')].map((node) => node.textContent.trim()),
+    ['Contract', 'Adapter8004', '8004 registry', 'Phase'],
+  );
+  assert.deepEqual(
+    [...panel.querySelectorAll('.looper-mint-stats-grid .looper-mint-fact > span:first-child')].map((node) => node.textContent.trim()),
+    ['Remaining', 'Minted', 'Allowlist'],
+  );
+  assert.equal(panel.querySelectorAll('.looper-mint-stat-icon').length, 3);
+  assert.equal(panel.querySelector('.looper-mint-stat-blue')?.textContent.includes('7439'), true);
+  assert.equal(panel.querySelector('.looper-mint-stat-green')?.textContent.includes('1'), true);
+  assert.equal(panel.querySelector('.looper-mint-stat-yellow')?.textContent.includes('Live'), true);
+  assert.equal(panel.querySelector('.looper-mint-system-grid')?.textContent.includes('Public\n'), false);
+});
+
 test('standalone Looper mint route shows one wallet connect action before connection', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const looperMintClient = {

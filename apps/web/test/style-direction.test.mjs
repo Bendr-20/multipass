@@ -18,6 +18,23 @@ test('visual direction keeps the original warm Multipass palette', async () => {
 });
 
 
+test('Looper mint panel uses the approved hard-edged 16-bit console treatment', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.looper-mint-panel\s*{[^}]*--looper-console-navy:\s*#071b2c;[^}]*border:\s*4px solid #080b0d;[^}]*background:\s*var\(--looper-console-navy\);/s);
+  assert.match(css, /\.looper-mint-console-header\s*{[^}]*display:\s*grid;[^}]*background:\s*var\(--looper-console-navy\);/s);
+  assert.match(css, /\.looper-mint-system-grid\s*{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.looper-mint-stats-grid\s*{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/s);
+  assert.match(css, /\.looper-mint-stat-blue\s*{[^}]*background:\s*#2495e8;/s);
+  assert.match(css, /\.looper-mint-stat-green\s*{[^}]*background:\s*#35c85a;/s);
+  assert.match(css, /\.looper-mint-stat-yellow\s*{[^}]*background:\s*#ffd633;/s);
+  assert.match(css, /\.looper-mint-launch\s*{[^}]*grid-template-columns:\s*minmax\(360px, 0\.8fr\) minmax\(600px, 1\.2fr\);[^}]*width:\s*min\(1280px, 100%\);/s);
+  assert.match(css, /\.looper-mint-stat strong\s*{[^}]*white-space:\s*nowrap;/s);
+  assert.match(css, /\.looper-mint-panel button\s*{[^}]*border-radius:\s*0;/s);
+  assert.match(css, /\.looper-mint-wallet button\s*{[^}]*background:\s*#e31320 !important;/s);
+  assert.match(css, /\.looper-mint-panel[\s\S]*image-rendering:\s*pixelated;/s);
+});
+
 test('share panel is styled as a share card instead of an input form on mobile', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 

@@ -3112,18 +3112,25 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
 
   return `
     <section class="looper-mint-panel" aria-label="Loopers mint">
-      <div class="looper-mint-toolbar">
+      <header class="looper-mint-console-header">
+        <span class="looper-mint-window-lights" aria-hidden="true">
+          <i class="looper-mint-window-light red"></i>
+          <i class="looper-mint-window-light yellow"></i>
+          <i class="looper-mint-window-light green"></i>
+        </span>
+        <strong class="looper-mint-window-title">LOOPER MINT v1.0</strong>
         <button type="button" class="looper-mint-refresh-button" data-action="refresh-looper-mint" ${loading || minting || !contractConfigured ? 'disabled' : ''}>${loading ? 'Refreshing...' : 'Refresh'}</button>
-      </div>
-      <div class="looper-mint-grid">
+      </header>
+      <div class="looper-mint-system-grid">
         ${renderLooperMintFact('Contract', config.contractAddress ? shortenAddress(config.contractAddress) : 'Not configured')}
         ${renderLooperMintFact('Adapter8004', contractState ? (contractState.erc8004BindingActive ? 'Active' : 'Pending') : 'Not loaded')}
-        ${renderLooperMintFact('Phase', contractState ? formatSaleState(phase) : loading ? 'Loading' : 'Not loaded')}
         ${renderLooperMintFact('8004 registry', contractState?.erc8004Registry ? shortenAddress(contractState.erc8004Registry) : 'Not configured')}
-        ${renderLooperMintFact('Allowlist', contractState ? getLooperMintPhaseStatus(contractState, 'allowlist') : 'Not loaded')}
-        ${renderLooperMintFact('Public', contractState ? getLooperMintPhaseStatus(contractState, 'public') : 'Not loaded')}
-        ${renderLooperMintFact('Remaining', contractState ? contractState.remainingPublicSupply.toString() : 'Not loaded')}
-        ${renderLooperMintFact('Minted', contractState ? contractState.totalMinted.toString() : 'Not loaded')}
+        ${renderLooperMintFact('Phase', contractState ? formatSaleState(phase) : loading ? 'Loading' : 'Not loaded')}
+      </div>
+      <div class="looper-mint-stats-grid">
+        ${renderLooperMintFact('Remaining', contractState ? contractState.remainingPublicSupply.toString() : 'Not loaded', { tone: 'blue', icon: 'coin' })}
+        ${renderLooperMintFact('Minted', contractState ? contractState.totalMinted.toString() : 'Not loaded', { tone: 'green', icon: 'agent' })}
+        ${renderLooperMintFact('Allowlist', contractState ? getLooperMintPhaseStatus(contractState, 'allowlist') : 'Not loaded', { tone: 'yellow', icon: 'star' })}
       </div>
       <div class="looper-mint-wallet">
         <div>
@@ -3152,11 +3159,15 @@ function renderLooperMintPanel(mint = createInitialLooperMintState(), options = 
   `;
 }
 
-function renderLooperMintFact(label, value) {
+function renderLooperMintFact(label, value, options = {}) {
+  const tone = ['blue', 'green', 'yellow'].includes(options.tone) ? ` looper-mint-stat looper-mint-stat-${options.tone}` : '';
+  const icons = { coin: '◉', agent: '▣', star: '★' };
+  const icon = icons[options.icon] ?? '';
   return `
-    <div class="looper-mint-fact">
+    <div class="looper-mint-fact${tone}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
+      ${icon ? `<span class="looper-mint-stat-icon" aria-hidden="true">${icon}</span>` : ''}
     </div>
   `;
 }
