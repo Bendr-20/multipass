@@ -1059,10 +1059,10 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   const panel = root.querySelector('.looper-mint-panel');
   assert.ok(root.querySelector('.looper-mint-launch'));
   assert.equal(root.querySelector('.looper-allowlist-panel'), null);
-  assert.equal(root.querySelector('.looper-mint-art-stack'), null);
-  assert.ok(root.querySelector('.looper-mint-art-card'));
-  assert.equal(root.querySelector('.looper-mint-art-image')?.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
-  assert.equal(root.querySelectorAll('.looper-mint-teaser-strip img').length, 3);
+  assert.ok(root.querySelector('.looper-mint-art-stack'));
+  assert.equal(root.querySelectorAll('.looper-mint-art-card').length, 3);
+  assert.equal(root.querySelector('.looper-mint-art-card-featured .looper-mint-art-image')?.getAttribute('src'), '/multipass/looper-mint-sample-02.png');
+  assert.equal(root.querySelector('.looper-mint-teaser-strip'), null);
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
@@ -1166,7 +1166,7 @@ test('standalone Looper mint route renders pending mainnet launch surface withou
   assert.equal(loadCalls.length, 0);
 });
 
-test('standalone Looper mint route starts with simple hero copy and branded pre-reveal placeholder art', async () => {
+test('standalone Looper mint route starts with simple hero copy and a three-Looper collection hero', async () => {
   const root = setupDom('https://helixa.xyz/mint?mint=sepolia');
   const looperMintClient = {
     loadState: async () => sampleLooperMintState(),
@@ -1185,26 +1185,26 @@ test('standalone Looper mint route starts with simple hero copy and branded pre-
   assert.ok(launch);
   assert.equal(launch.children[0], showcase);
   assert.equal(showcase.children[0], heroCopy);
-  assert.equal(showcase.children.length, 3);
+  assert.equal(showcase.children.length, 2);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.equal(heroCopy.querySelector('.looper-mint-signal-row'), null);
-  assert.equal(root.querySelector('.looper-mint-art-stack'), null);
-  const artCard = root.querySelector('.looper-mint-art-card');
-  const artImage = root.querySelector('.looper-mint-art-image');
-  assert.ok(artCard);
-  assert.ok(artImage);
-  assert.equal(artImage.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
-  assert.match(artCard.textContent, /Classified/i);
-  assert.match(artCard.textContent, /Reveal pending/i);
+  const artStack = root.querySelector('.looper-mint-art-stack');
+  assert.ok(artStack);
+  assert.equal(root.querySelectorAll('.looper-mint-art-card').length, 3);
   assert.deepEqual(
-    [...root.querySelectorAll('.looper-mint-teaser-strip img')].map((img) => img.getAttribute('src')),
+    [...artStack.querySelectorAll('.looper-mint-art-image')].map((img) => img.getAttribute('src')),
     [
-      '/multipass/looper-mint-sample-01.png',
       '/multipass/looper-mint-sample-02.png',
+      '/multipass/looper-mint-sample-01.png',
       '/multipass/looper-mint-sample-03.png',
     ],
   );
+  assert.equal(artStack.querySelector('.looper-mint-art-card-featured img')?.getAttribute('src'), '/multipass/looper-mint-sample-02.png');
+  assert.match(artStack.textContent, /Collection preview/i);
+  assert.match(artStack.textContent, /Three from the 7,777/i);
+  assert.equal(root.querySelector('.looper-mint-teaser-strip'), null);
+  assert.equal(root.querySelector('img[src="/multipass/loopers-prereveal-placeholder.png"]'), null);
 });
 
 test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {

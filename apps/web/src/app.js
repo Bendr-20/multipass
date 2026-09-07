@@ -2960,7 +2960,6 @@ function renderLooperMintLaunch(state) {
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
       ${renderLooperMintHeroArt()}
-      ${renderLooperMintTeasers()}
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
@@ -2982,42 +2981,45 @@ function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
 }
 
 function renderLooperMintHeroArt() {
-  return `
-    <figure class="looper-mint-art-card">
-      <img
-        class="looper-mint-art-image"
-        src="/multipass/loopers-prereveal-placeholder.png"
-        width="1200"
-        height="1200"
-        alt="Loopers pre-reveal placeholder art."
-      />
-      <figcaption class="looper-mint-art-caption">
-        <span class="looper-mint-art-label">Classified</span>
-        <strong>Reveal pending.</strong>
-      </figcaption>
-    </figure>
-  `;
-}
-
-function renderLooperMintTeasers() {
-  const teasers = [
-    '/multipass/looper-mint-sample-01.png',
-    '/multipass/looper-mint-sample-02.png',
-    '/multipass/looper-mint-sample-03.png',
+  const loopers = [
+    {
+      src: '/multipass/looper-mint-sample-02.png',
+      variant: 'featured',
+      alt: 'Teal tactical Looper from the 7,777 collection.',
+    },
+    {
+      src: '/multipass/looper-mint-sample-01.png',
+      variant: 'left',
+      alt: 'Purple glitch Looper from the 7,777 collection.',
+    },
+    {
+      src: '/multipass/looper-mint-sample-03.png',
+      variant: 'right',
+      alt: 'Red visor Looper from the 7,777 collection.',
+    },
   ];
 
   return `
-    <div class="looper-mint-teaser-strip" aria-label="Loopers teaser art">
-      ${teasers.map((src, index) => `
-        <img
-          src="${src}"
-          width="1024"
-          height="1024"
-          alt="Loopers teaser art ${index + 1}"
-          loading="lazy"
-        />
-      `).join('')}
-    </div>
+    <figure class="looper-mint-art-stack" aria-label="Three Loopers from the collection">
+      <div class="looper-mint-art-cards">
+        ${loopers.map((looper) => `
+          <span class="looper-mint-art-card looper-mint-art-card-${looper.variant}">
+            <img
+              class="looper-mint-art-image"
+              src="${looper.src}"
+              width="1024"
+              height="1024"
+              alt="${looper.alt}"
+              loading="${looper.variant === 'featured' ? 'eager' : 'lazy'}"
+            />
+          </span>
+        `).join('')}
+      </div>
+      <figcaption class="looper-mint-art-caption">
+        <span class="looper-mint-art-label">Collection preview</span>
+        <strong>Three from the 7,777.</strong>
+      </figcaption>
+    </figure>
   `;
 }
 
