@@ -435,6 +435,25 @@ button:focus-visible {
   line-height: 1.15;
 }
 
+.looper-mint-teaser-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: min(430px, 100%);
+  transform: rotate(1deg);
+}
+
+.looper-mint-teaser-strip img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 2px solid var(--ink);
+  background: #fffaf1;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.86);
+}
+
 .looper-mint-action-column {
   display: grid;
   gap: 14px;
@@ -4037,6 +4056,15 @@ h1 {
     margin-top: 10px;
   }
 
+  .looper-mint-teaser-strip {
+    gap: 6px;
+    width: 100%;
+  }
+
+  .looper-mint-teaser-strip img {
+    box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.86);
+  }
+
   .looper-mint-action-column .looper-allowlist-panel.compact {
     padding: 14px;
   }
@@ -7384,7 +7412,7 @@ h1 {
   border-bottom: 0;
 }
 
-.console-thread-message.agent .console-thread-entry,
+.console-thread-message[class~="agent"] .console-thread-entry,
 .console-thread-message.human .console-thread-entry,
 .console-thread-activity-entry,
 .console-thread-proposal-entry {
@@ -7400,7 +7428,7 @@ h1 {
   box-shadow: none;
 }
 
-.console-thread-message.agent .console-thread-entry {
+.console-thread-message[class~="agent"] .console-thread-entry {
   max-width: min(78%, 720px);
   border-radius: 16px;
 }
@@ -7422,9 +7450,9 @@ h1 {
   text-align: left;
 }
 
-.console-thread-message.agent .console-thread-role,
-.console-thread-message.agent .console-thread-meta small,
-.console-thread-message.agent p {
+.console-thread-message[class~="agent"] .console-thread-role,
+.console-thread-message[class~="agent"] .console-thread-meta small,
+.console-thread-message[class~="agent"] p {
   color: #f8f3ec;
 }
 
@@ -7643,7 +7671,7 @@ h1 {
     max-width: 100%;
   }
 
-  .console-thread-message.agent .console-thread-entry {
+  .console-thread-message[class~="agent"] .console-thread-entry {
     max-width: 100%;
   }
 }

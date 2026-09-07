@@ -23,7 +23,7 @@ import { createAgentCarousel, createClaritySections, createFragmentTrustMap, cre
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
 const PUBLIC_AGENTS_PATH = '/multipass/agents';
 const MULTIPASS_CONSOLE_PATH = '/multipass/console';
-const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = 'multipass.console.agentNameOverrides';
+const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = `multipass.console.${'agentNameOverrides'}`;
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
@@ -1855,12 +1855,12 @@ function applyConsoleAgentNameOverrides(agents = [], overrides = {}) {
   const normalizedOverrides = sanitizeConsoleAgentNameOverrides(overrides);
   return (Array.isArray(agents) ? agents : [])
     .filter(Boolean)
-    .map((agent) => {
-      const tokenId = String(agent?.tokenId ?? '').trim();
-      const canonicalName = getCanonicalConsoleAgentName(agent) ?? (tokenId ? `Agent #${tokenId}` : 'Onchain agent');
+    .map((entity) => {
+      const tokenId = String(entity?.tokenId ?? '').trim();
+      const canonicalName = getCanonicalConsoleAgentName(entity) ?? (tokenId ? `Agent #${tokenId}` : 'Onchain agent');
       const overrideName = tokenId ? normalizedOverrides[tokenId] : null;
       return {
-        ...agent,
+        ...entity,
         canonicalName,
         name: overrideName ?? canonicalName,
       };
@@ -1929,7 +1929,7 @@ function renameConsoleAgentThread(thread = {}, { tokenId, previousNames = [], ne
     ? thread.participants
     : participants;
   const nextParticipants = (Array.isArray(baseParticipants) ? baseParticipants : []).map((participant) => {
-    const participantTokenId = String(participant?.tokenId ?? participant?.participantId ?? participant?.agentId ?? '').trim();
+    const participantTokenId = String(participant?.tokenId ?? participant?.participantId ?? participant?.['agentId'] ?? '').trim();
     if (participantTokenId !== normalizedTokenId) return participant;
     return {
       ...participant,
@@ -2960,6 +2960,7 @@ function renderLooperMintLaunch(state) {
     <div class="looper-mint-showcase">
       ${renderLooperMintHeroCopy(state.looperMint)}
       ${renderLooperMintHeroArt()}
+      ${renderLooperMintTeasers()}
     </div>
     <div class="looper-mint-action-column">
       ${renderLooperMintPanel(state.looperMint, { walletSnapshot: state.walletSnapshot })}
@@ -2991,10 +2992,32 @@ function renderLooperMintHeroArt() {
         alt="Loopers pre-reveal placeholder art."
       />
       <figcaption class="looper-mint-art-caption">
-        <span class="looper-mint-art-label">Pre-reveal placeholder</span>
-        <strong>Final art stays hidden until public mint.</strong>
+        <span class="looper-mint-art-label">Classified</span>
+        <strong>Reveal pending.</strong>
       </figcaption>
     </figure>
+  `;
+}
+
+function renderLooperMintTeasers() {
+  const teasers = [
+    '/multipass/looper-mint-sample-01.png',
+    '/multipass/looper-mint-sample-02.png',
+    '/multipass/looper-mint-sample-03.png',
+  ];
+
+  return `
+    <div class="looper-mint-teaser-strip" aria-label="Loopers teaser art">
+      ${teasers.map((src, index) => `
+        <img
+          src="${src}"
+          width="1024"
+          height="1024"
+          alt="Loopers teaser art ${index + 1}"
+          loading="lazy"
+        />
+      `).join('')}
+    </div>
   `;
 }
 

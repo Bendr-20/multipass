@@ -18,6 +18,11 @@ const looperAllowlistPreviewPath = join(webRoot, 'public', 'loopers-allowlist-pr
 const looperAllowlistXPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview-20260826c.jpg');
 const looperPrerevealPlaceholderSvgPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.svg');
 const looperPrerevealPlaceholderPngPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.png');
+const looperMintSamplePaths = [
+  join(webRoot, 'public', 'looper-mint-sample-01.png'),
+  join(webRoot, 'public', 'looper-mint-sample-02.png'),
+  join(webRoot, 'public', 'looper-mint-sample-03.png'),
+];
 const ogSourceCapturePath = join(webRoot, 'public', 'og-bendr-profile-capture.png');
 const shareRoot = join(webRoot, 'public', 'share');
 const STALE_QUIGBOT_AURA_SHARE_JPEG_SHA256 = '038840a1d3474d9c9f5079fe6218634f2cfc111d30d679fd55709a7a8c655262';
@@ -95,8 +100,16 @@ test('Loopers pre-reveal placeholder assets exist as reusable public art', async
 
   const svg = await readFile(looperPrerevealPlaceholderSvgPath, 'utf8');
   assert.match(svg, /Loopers pre-reveal placeholder/i);
-  assert.match(svg, /PRE-REVEAL/);
-  assert.match(svg, /FINAL LOOPERS ART STAYS HIDDEN UNTIL PUBLIC MINT/i);
+  assert.match(svg, /Classified Loopers dossier placeholder/i);
+  assert.match(svg, /loopers-prereveal-placeholder\.png/);
+});
+
+test('Loopers mint teaser images exist as square public PNG assets', () => {
+  for (const samplePath of looperMintSamplePaths) {
+    assert.equal(existsSync(samplePath), true);
+    assert.deepEqual(imageSizeFromFile(samplePath), { width: 1024, height: 1024, type: 'png' });
+    assert.ok(statSync(samplePath).size > 20_000);
+  }
 });
 
 test('share preview SVG frames the actual Bendr Multipass capture without Intuition tag copy', async () => {

@@ -1062,6 +1062,7 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(root.querySelector('.looper-mint-art-stack'), null);
   assert.ok(root.querySelector('.looper-mint-art-card'));
   assert.equal(root.querySelector('.looper-mint-art-image')?.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
+  assert.equal(root.querySelectorAll('.looper-mint-teaser-strip img').length, 3);
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
@@ -1153,7 +1154,7 @@ test('standalone Looper mint route starts with simple hero copy and branded pre-
   assert.ok(launch);
   assert.equal(launch.children[0], showcase);
   assert.equal(showcase.children[0], heroCopy);
-  assert.equal(showcase.children.length, 2);
+  assert.equal(showcase.children.length, 3);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.equal(heroCopy.querySelector('.looper-mint-signal-row'), null);
@@ -1163,8 +1164,16 @@ test('standalone Looper mint route starts with simple hero copy and branded pre-
   assert.ok(artCard);
   assert.ok(artImage);
   assert.equal(artImage.getAttribute('src'), '/multipass/loopers-prereveal-placeholder.png');
-  assert.match(artCard.textContent, /Pre-reveal placeholder/i);
-  assert.match(artCard.textContent, /Final art stays hidden until public mint/i);
+  assert.match(artCard.textContent, /Classified/i);
+  assert.match(artCard.textContent, /Reveal pending/i);
+  assert.deepEqual(
+    [...root.querySelectorAll('.looper-mint-teaser-strip img')].map((img) => img.getAttribute('src')),
+    [
+      '/multipass/looper-mint-sample-01.png',
+      '/multipass/looper-mint-sample-02.png',
+      '/multipass/looper-mint-sample-03.png',
+    ],
+  );
 });
 
 test('standalone Looper allowlist can still register while stale mint params are ignored', async () => {
