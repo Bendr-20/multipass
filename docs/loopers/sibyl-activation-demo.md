@@ -44,7 +44,9 @@ pnpm --filter @helixa/multipass-api sibyl:prove-cold-start -- \
   --query Merkle
 ```
 
-The command writes memory with one Sibyl-backed store, creates a fresh reader with fallback disabled, searches Sibyl, and exits nonzero unless the saved memory is recalled from `sibyl_memory`. Latest local proof on 2026-09-06 returned `ok:true`, `provider:"sibyl_memory"`, `recalled_count:1`, and `matched:true`.
+The command writes memory with one Sibyl-backed store, creates a fresh reader with fallback disabled, searches Sibyl, and exits nonzero unless the saved memory is recalled from `sibyl_memory`. Latest local proof on 2026-09-07 returned `ok:true`, `provider:"sibyl_memory"`, `recalled_count:1`, and `matched:true`.
+
+The judge-facing runbook is now in [`../hackathon/sibyl-console-submission.md`](../hackathon/sibyl-console-submission.md).
 
 ## Communication Model
 

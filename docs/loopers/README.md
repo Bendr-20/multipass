@@ -20,7 +20,8 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - Allowlist registration/API code: `apps/web/src/looper-allowlist.js`, `apps/api/src/allowlist-store.js`, `apps/api/src/allowlist-snapshot.js`
 - Hidden Sepolia mint page implementation: `apps/web/src/looper-mint.js` behind `?mint=sepolia`
 - Metadata compiler/validator: `packages/loopers-metadata/`
-- Sibyl activation demo implementation: not built yet
+- Sibyl activation demo proof: `apps/api/src/sibyl-memory/`, `apps/api/scripts/prove-sibyl-cold-start.js`, `apps/api/test/sibyl-memory.test.mjs`, `apps/api/test/console-agent-runtime.test.mjs`
+- Multipass Console implementation: `apps/web/src/multipass-console.js`, `apps/web/src/console-agent-thread.js`, `apps/web/src/console-agent-api.js`
 
 ## Naming Rules
 

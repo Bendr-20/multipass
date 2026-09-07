@@ -39,9 +39,10 @@ infra                 Deployment notes
 - [V0 scope](docs/v0-scope.md)
 - [Roadmap](docs/roadmap.md)
 - [Schemas](docs/schemas/README.md)
+- [Console + Sibyl hackathon submission](docs/hackathon/sibyl-console-submission.md)
 - [Security](SECURITY.md)
 - [Infrastructure](infra/README.md)
 
 ## Status
 
-V0 public web/API foundation is live for Multipass profiles, activation records, public fragments, agent cards, standards metadata, x402 metadata, receipt fragments, and manager-gated profile edits. Multipass-native contracts, custody transfer execution, private marketplaces, and runtime handoff remain roadmap items.
+V0 public web/API foundation is live for Multipass profiles, activation records, public fragments, agent cards, standards metadata, x402 metadata, receipt fragments, and manager-gated profile edits. Multipass Console now has a demo-scoped Looper agent runtime with Sibyl memory proof, local XMTP-style thread transport, review-only proposals, and explicit Bankr Gateway opt-in. Multipass-native custody transfer execution, private marketplaces, and production runtime handoff remain roadmap items.

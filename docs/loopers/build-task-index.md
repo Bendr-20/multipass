@@ -2,7 +2,7 @@
 
 This is the active implementation board for Loopers. It supersedes older launch plans and is for execution, not reopening locked decisions.
 
-Last updated: 2026-09-06 19:35 UTC.
+Last updated: 2026-09-07 04:05 UTC.
 
 ## Ground Rules
 
@@ -27,6 +27,7 @@ Done on `main`:
 - Reverted the Looper status/art card in `7356294` because it leaked approved art before reveal.
 - Safe batch import exists for late manual allowlist adds: dry-run manifest first, explicit `--apply` second, then export a new frozen snapshot.
 - Sibyl cold-start verifier exists and can require the real bridge with fallback disabled for hackathon proof.
+- Multipass Console agent runtime exists with Sibyl-backed memory namespace wiring, review-only proposal output, local XMTP-style thread transport, multi-agent room support, and explicit Bankr LLM Gateway opt-in.
 
 Fresh verification:
 
@@ -216,20 +217,29 @@ Rules:
 
 ### 6. Sibyl Activation Demo
 
-Status: demo spec exists; implementation not built.
+Status: partial implementation exists and is ready to package for hackathon review.
 
 Source:
 
 - `docs/loopers/sibyl-activation-demo.md`
+- `docs/hackathon/sibyl-console-submission.md`
+- `apps/api/src/sibyl-memory/`
+- `apps/api/src/agent-runtime/`
+- `apps/api/scripts/prove-sibyl-cold-start.js`
+- `apps/api/test/sibyl-memory.test.mjs`
+- `apps/api/test/console-agent-runtime.test.mjs`
+- `apps/api/test/xmtp-worker.test.mjs`
+- `apps/web/src/multipass-console.js`
+- `apps/web/test/multipass-console.test.mjs`
 
 Next tasks:
 
-- Confirm Sibyl API/integration path.
-- Confirm XMTP SDK/inbox integration path.
-- Choose a non-leaking demo fixture.
-- Build activate + name flow.
-- Add XMTP-backed agent thread inside Multipass Console.
-- Add Sibyl memory save, recall, and search.
+- Package the current proof into a judge-facing README and demo video script.
+- Capture a fresh Console demo run with the browser UI and a fresh Sibyl recall proof.
+- Decide whether to show local XMTP-style transport only or enable the live XMTP worker for the recording.
+- Decide whether to keep Bankr LLM Gateway disabled for deterministic judging or enable it for a live hosted-agent clip.
+- Choose a final non-leaking demo Looper fixture.
+- Tighten activation/name flow copy if it appears in the recording.
 - Capture a fresh-session recall demo.
 - Keep public Looper history token-scoped and private operator memory wallet-scoped.
 
