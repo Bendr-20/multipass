@@ -64,6 +64,14 @@ Expected shape:
 
 If the local Sibyl bridge is unavailable, the cold-start proof should fail instead of silently using local fallback.
 
+Generate the local demo package:
+
+```bash
+pnpm --filter @helixa/multipass-web capture:sibyl-console-demo
+```
+
+The capture script starts the local Console mock, screenshots the review-only Looper room, runs the no-fallback Sibyl proof, renders a terminal proof frame, and exports an MP4. If `ELEVENLABS_API_KEY` is present in the environment or local ElevenLabs config, it adds voiceover audio.
+
 Latest local proof on 2026-09-07:
 
 - `ok: true`
@@ -71,6 +79,14 @@ Latest local proof on 2026-09-07:
 - `namespace: "multipass:hackathon-proof:looper-1234:activation-20260907-0406"`
 - `recalled_count: 1`
 - `matched: true`
+
+Latest local demo package on 2026-09-07:
+
+- `video`: `/home/ubuntu/.openclaw/workspace/tmp/sibyl-console-demo-20260907T043739020Z/sibyl-console-demo.mp4`
+- `duration`: 130 seconds
+- `voiceover`: ElevenLabs generated
+- `proof provider`: `sibyl_memory`
+- `matched`: `true`
 
 ## Demo Video Script
 
@@ -91,7 +107,7 @@ Target length: 2-5 minutes.
 - [x] README points judges to this document.
 - [x] Focused tests pass.
 - [x] No-fallback Sibyl proof passes with `provider: "sibyl_memory"`.
-- [ ] 2-5 minute demo video recorded.
-- [ ] Fresh-session recall moment appears in the video.
+- [x] 2-5 minute demo video recorded.
+- [x] Fresh-session recall moment appears in the video.
 - [ ] Two build-in-public posts prepared.
 - [ ] Submission copy avoids promising autonomous trading, returns, yield, or unmanaged capital movement.

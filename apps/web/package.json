@@ -8,6 +8,7 @@
     "build": "vite build && node scripts/write-allowlist-entry.mjs",
     "generate:allowlist-preview": "node scripts/render-allowlist-preview.mjs",
     "smoke:looper-mint-browser": "CHROMIUM_PATH=/snap/bin/chromium node scripts/smoke-looper-mint-browser.mjs",
+    "capture:sibyl-console-demo": "CHROMIUM_PATH=/snap/bin/chromium node scripts/capture-sibyl-console-demo.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "node --test test/*.test.mjs"
   },
