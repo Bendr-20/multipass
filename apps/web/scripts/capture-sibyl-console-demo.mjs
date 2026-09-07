@@ -6,16 +6,22 @@ import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright-core';
 
+import {
+  cleanupStaleDemoOutputs,
+  resolveElevenLabsVoice,
+} from './capture-sibyl-console-demo-utils.mjs';
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(scriptDir, '..');
 const repoRoot = resolve(webRoot, '..', '..');
 const workspaceRoot = resolve(repoRoot, '..', '.openclaw', 'workspace');
+const tmpRoot = resolve(workspaceRoot, 'tmp');
 const timestamp = new Date().toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
-const outputDir = resolve(workspaceRoot, 'tmp', `sibyl-console-demo-${timestamp}`);
+const outputDir = resolve(tmpRoot, `sibyl-console-demo-${timestamp}`);
 const port = Number(process.env.SIBYL_CONSOLE_DEMO_PORT || 4183);
 const demoUrl = `http://127.0.0.1:${port}/multipass/console?mock=looper`;
 const chromiumPath = process.env.CHROMIUM_PATH || '/snap/bin/chromium';
-const voiceId = process.env.ELEVENLABS_VOICE_ID || 'JBFqnCBsd6RMkjVDRZzb';
+const voice = resolveElevenLabsVoice(process.env);
 
 const narration = `Loopers are not NFTs waiting to become agents.
 They are agent identities that happen to be NFTs.
@@ -120,6 +126,7 @@ const audioPath = await generateVoiceover().catch(async (error) => {
 });
 
 const videoPath = await renderVideo({ screenshots, audioPath });
+const cleanedOutputDirs = await cleanupStaleDemoOutputs({ tmpRoot, currentOutputDir: outputDir });
 
 console.log(JSON.stringify({
   ok: true,
@@ -127,6 +134,8 @@ console.log(JSON.stringify({
   outputDir,
   videoPath,
   audioPath,
+  voice,
+  cleanedOutputDirs,
   screenshots,
   proof: {
     ok: proof.ok,
@@ -166,7 +175,8 @@ async function generateVoiceover() {
   if (!apiKey) return null;
   const audioPath = join(outputDir, 'voiceover.mp3');
   const payloadPath = join(outputDir, 'elevenlabs-payload.json');
-  await writeFile(payloadPath, JSON.stringify({
+  await writeFile(join(outputDir, 'elevenlabs-voice.json'), `${JSON.stringify(voice, null, 2)}\n`);
+  const payload = {
     text: narration,
     model_id: 'eleven_multilingual_v2',
     voice_settings: {
@@ -175,23 +185,22 @@ async function generateVoiceover() {
       style: 0.18,
       use_speaker_boost: true,
     },
-  }));
-  await execFilePromise('curl', [
-    '-sS',
-    '-X',
-    'POST',
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-    '-H',
-    'accept: audio/mpeg',
-    '-H',
-    'content-type: application/json',
-    '-H',
-    `xi-api-key: ${apiKey}`,
-    '--data-binary',
-    `@${payloadPath}`,
-    '-o',
-    audioPath,
-  ], { timeout: 180_000 });
+  };
+  await writeFile(payloadPath, JSON.stringify(payload));
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}`, {
+    method: 'POST',
+    headers: {
+      accept: 'audio/mpeg',
+      'content-type': 'application/json',
+      'xi-api-key': apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`ElevenLabs voiceover failed with HTTP ${response.status}: ${body.slice(0, 500)}`);
+  }
+  await writeFile(audioPath, Buffer.from(await response.arrayBuffer()));
   return audioPath;
 }
 
