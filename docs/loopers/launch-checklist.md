@@ -1,6 +1,6 @@
 # Loopers Launch Checklist
 
-Last verified: 2026-09-06 19:35 UTC.
+Last verified: 2026-09-08 00:08 UTC.
 
 This is the execution checklist for shipping Loopers. It tracks what is freshly verified now, what is still blocked, and the exact commands to re-run before each launch move.
 
@@ -18,6 +18,15 @@ This is the execution checklist for shipping Loopers. It tracks what is freshly 
 - [x] Loopers metadata CLI accepts the documented `pnpm loopers:metadata -- ...` invocation again; metadata package tests pass: `6/6`.
 - [x] Approved HashLips smoke generation works again when pinned to Node `14.18.2` via `npx -p node@14.18.2 -p npm@6 -c 'node index.js'`.
 - [x] Final-mode metadata smoke compile passes against fresh approved-export HashLips output and writes bundle output to `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-smoke-20260902`.
+- [x] Full approved-export HashLips render produced `7777` PNGs plus HashLips JSON under `/home/ubuntu/.openclaw/workspace/tmp/hashlips_art_engine/build/`.
+- [x] Deterministic collision repair rerendered `44` held-object/source-artifact conflicts by setting source layer `Patch Artifact` to `None`.
+- [x] Full metadata compile produced `7777` token metadata JSON files and `7777` Agent Codex JSON files under `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/`.
+- [x] Full generated JSON collision scan returned `badCount: 0`.
+- [x] Full bundle preflight passed with `pnpm loopers:verify-bundle` and wrote `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/preflight-report.json`.
+- [x] Private QA sample report/review page generated with `pnpm loopers:select-qa`.
+- [x] Current live allowlist export reproduced 24,346 entries and Merkle root `0xc221be679e91b1cd6d81af3fb5a8975d328eb7e42b936b4a1bb3e21b48c7e230`.
+- [x] Live proof API returns a Bendr eligible proof against that same root.
+- [x] Public-safe placeholder metadata is ready at `artifacts/loopers-placeholder-mainnet/metadata.json`; live placeholder image returns `200` as PNG.
 - [x] Allowlist batch import tooling dry-runs by default, rejects invalid/duplicate batch rows, reports already-existing addresses, and previews the post-merge Merkle root before `--apply`.
 - [x] Sibyl cold-start proof command can require the real bridge with fallback disabled; latest local proof saved through `sibyl_memory` and recalled the saved Merkle launch preference with a fresh reader.
 
@@ -102,7 +111,8 @@ Use a compressed allowlist, not true simultaneous discount/public lanes.
 - [ ] Upload and verify the placeholder metadata URI.
 - [ ] Freeze and back up the final mainnet Merkle root.
 - [ ] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.
-- [ ] Run the full 7,777 approved-export HashLips generation and final metadata compile, then finish art/metadata validation before Arweave upload.
+- [ ] Inspect/sign off the private QA sample review page.
+- [ ] Upload final images to Arweave, rerun metadata with the real image base URI, then upload final metadata/Codex only after the new preflight is clean.
 - [ ] Swap the mint page from rehearsal config to mainnet config only after the items above are locked.
 - [ ] Run full mainnet smoke with no reveal, no public claim copy drift, and no secret leakage.
 

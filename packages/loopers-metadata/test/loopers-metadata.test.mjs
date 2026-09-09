@@ -36,6 +36,8 @@ test('compileLooperMetadataItems canonicalizes HashLips filename values through 
   assert.equal(token.agent_class, 'Builder / Engineer');
   assert.equal(token.secondary_class, 'CEO / Operator');
   assert.equal(token.attributes.some((attribute) => attribute.trait_type === 'Head Layer' && attribute.value === 'Right-Facing Trucker Cap'), true);
+  assert.equal(token.attributes.some((attribute) => attribute.trait_type === 'Artifact' && attribute.value === 'None'), true);
+  assert.equal(token.attributes.some((attribute) => attribute.trait_type === 'Patch Artifact'), false);
   assert.equal(token.attributes.some((attribute) => attribute.trait_type === 'Overlay' && attribute.value === 'Acid Rainbow Burst'), true);
   assert.equal(JSON.stringify(token).includes('Multipass Looper'), false);
 

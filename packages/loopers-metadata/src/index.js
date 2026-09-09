@@ -6,6 +6,10 @@ export const LOOPERS_METADATA_SCHEMA_VERSION = '0.1.0';
 export const DEFAULT_TRAIT_CODEX_VERSION = 'looper-trait-personality-matrix-v01';
 export const DEFAULT_COLLECTION_NAME = 'Loopers';
 
+const PUBLIC_TRAIT_TYPE_BY_LAYER = {
+  'Patch Artifact': 'Artifact',
+};
+
 const REQUIRED_TOKEN_FIELDS = [
   'name',
   'description',
@@ -213,7 +217,7 @@ export function compileLooperMetadataItems(hashlipsItems, options = {}) {
       external_url: externalUrl,
       attributes: [
         ...selectedTraits.map((trait) => ({
-          trait_type: trait.layer,
+          trait_type: publicTraitType(trait.layer),
           value: trait.trait,
         })),
         { trait_type: 'Agent Class', value: classProfile.agent_class },
@@ -583,6 +587,10 @@ function validateSelectedTraits(selectedTraits, atomByKey) {
     issues.push(`Held Object '${heldObject}' cannot combine with Patch Artifact '${patchArtifact}'`);
   }
   return issues;
+}
+
+function publicTraitType(layer) {
+  return PUBLIC_TRAIT_TYPE_BY_LAYER[layer] ?? layer;
 }
 
 function scoreClassProfile(selectedTraits, affinityMap, classModel, classLabels) {

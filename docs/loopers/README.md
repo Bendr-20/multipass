@@ -8,6 +8,7 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - [Deployment Verification](./deployment-verification.md)
 - [Mint Site Requirements](./mint-site-requirements.md)
 - [Metadata And Reveal Checklist](./metadata-reveal-checklist.md)
+- [Launch Day Runbook](./launch-day-runbook.md)
 - [Sibyl Activation Demo](./sibyl-activation-demo.md)
 - [Build Task Index](./build-task-index.md)
 

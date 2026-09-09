@@ -46,7 +46,9 @@ Use `packages/loopers-metadata/` after HashLips generation:
 1. Run HashLips against the approved export to produce `build/images` and `build/json`.
 2. Feed HashLips `build/json`, the approved export manifest, the trait personality matrix, and the agent class model into `pnpm loopers:metadata`.
 3. Write final marketplace token JSON under `metadata/` and richer Agent Codex JSON under `codex/`.
-4. Upload only the validated final images, token JSON, and Agent Codex JSON to Arweave.
+4. Run `pnpm loopers:verify-bundle` against the finished images, token JSON, and Agent Codex JSON.
+5. Run `pnpm loopers:select-qa` and inspect the private QA sample page before upload.
+6. Upload only the validated final images, token JSON, and Agent Codex JSON to Arweave.
 
 For local smoke generation on this box, pin the HashLips runtime instead of using the system Node 22 lane:
 
@@ -55,6 +57,8 @@ npx -p node@14.18.2 -p npm@6 -c 'node index.js'
 ```
 
 The compiler uses the HashLips export manifest to canonicalize display names that HashLips sanitizes for filenames, such as `Right Facing Trucker Cap` back to `Right-Facing Trucker Cap` and numbered overlay filenames back to clean overlay names.
+
+Important: staging labels such as `ar://loopers-full-images-20260904` and `ar://loopers-full-codex-20260904` are not launch-ready unless they are replaced by real Arweave upload IDs or deliberately configured permanent names. Upload final images first, then re-run metadata with the real image base URI before uploading final token metadata and Codex files.
 
 Example:
 

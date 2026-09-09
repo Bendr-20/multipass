@@ -1,0 +1,20 @@
+{
+  "name": "Loopers",
+  "description": "Loopers are pre-reveal agent seeds for Multipass activation. Final art, traits, and Agent Codex metadata reveal when public mint opens.",
+  "image": "https://helixa.xyz/multipass/loopers-prereveal-placeholder.png",
+  "external_url": "https://helixa.xyz/multipass/loopers",
+  "attributes": [
+    {
+      "trait_type": "Reveal Status",
+      "value": "Pre-Reveal"
+    },
+    {
+      "trait_type": "Collection",
+      "value": "Loopers"
+    },
+    {
+      "trait_type": "Activation",
+      "value": "Pending"
+    }
+  ]
+}

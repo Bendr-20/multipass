@@ -2,7 +2,7 @@
 
 This is the active implementation board for Loopers. It supersedes older launch plans and is for execution, not reopening locked decisions.
 
-Last updated: 2026-09-07 04:05 UTC.
+Last updated: 2026-09-08 00:08 UTC.
 
 ## Ground Rules
 
@@ -28,6 +28,8 @@ Done on `main`:
 - Safe batch import exists for late manual allowlist adds: dry-run manifest first, explicit `--apply` second, then export a new frozen snapshot.
 - Sibyl cold-start verifier exists and can require the real bridge with fallback disabled for hackathon proof.
 - Multipass Console agent runtime exists with Sibyl-backed memory namespace wiring, review-only proposal output, local XMTP-style thread transport, multi-agent room support, and explicit Bankr LLM Gateway opt-in.
+- Full approved-export HashLips collection render exists at `/home/ubuntu/.openclaw/workspace/tmp/hashlips_art_engine/build/`.
+- Full metadata/Codex compile output exists at `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/`.
 
 Fresh verification:
 
@@ -40,6 +42,15 @@ Fresh verification:
 - `verify:deployment` now accepts an explicit `sale.public_start` override so it stays usable after owner-driven public flips.
 - Read-only verification and live rehearsal both passed after syncing local Sepolia config with the current onchain sale state.
 - Browser-side mint smoke passed through the injected-wallet harness: UI showed `Mint + Adapter8004 bind confirmed` for tx `0x1a234925012ffcc6745428337a14466dc89c1616f64f482b5cae850238ca3d8f`, with screenshot proof at `/home/ubuntu/.openclaw/workspace/tmpshots/loopers-browser-mint-smoke-20260902T173747533Z.png`.
+- Full HashLips render produced `7777` PNGs plus HashLips JSON under `/home/ubuntu/.openclaw/workspace/tmp/hashlips_art_engine/build/`.
+- Deterministic collision repair rerendered `44` held-object/source-artifact conflicts by setting source layer `Patch Artifact` to `None`.
+- Full metadata compile produced `7777` token metadata JSON files and `7777` Agent Codex JSON files under `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/`.
+- Full generated JSON collision scan returned `badCount: 0`.
+- `pnpm loopers:verify-bundle` passed against the full output and wrote `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/preflight-report.json`.
+- `pnpm loopers:select-qa` generated a private 92-token QA sample report and local HTML review page.
+- Current allowlist root reproduced from `/var/lib/helixa/multipass-loopers-allowlist.json`: 24,346 entries, root `0xc221be679e91b1cd6d81af3fb5a8975d328eb7e42b936b4a1bb3e21b48c7e230`.
+- Live proof API returned an eligible proof for Bendr wallet against that same root.
+- Public-safe placeholder metadata is ready at `artifacts/loopers-placeholder-mainnet/metadata.json`; placeholder image is live at `https://helixa.xyz/multipass/loopers-prereveal-placeholder.png`.
 
 ## Locked Launch Decisions
 
@@ -168,18 +179,19 @@ Rules:
 
 ### 4. Metadata And Reveal
 
-Status: compiler/validator package exists, the documented CLI path is fixed, derived class-affinity coverage now fills the approved trait set, and an 8-token approved-export smoke passes when HashLips is pinned to Node 14. The remaining work is the full 7,777 generation plus reveal rehearsal and Arweave QA.
+Status: full `7777` approved-export HashLips render exists, collision repair has been applied, full token metadata and Agent Codex JSON have been compiled, bundle preflight passed, private QA samples are selected, and the generated JSON collision scan returned `badCount: 0`. The remaining work is human/private visual QA signoff, real Arweave upload IDs, placeholder-to-final reveal rehearsal, and Arweave upload QA.
 
 Source:
 
 - `docs/loopers/metadata-reveal-checklist.md`
+- `docs/loopers/launch-day-runbook.md`
 - `packages/loopers-metadata/`
 
 Next tasks:
 
-- Create rehearsal placeholder metadata and upload/check it.
-- Run HashLips final generation from the approved export.
-- Run `pnpm loopers:metadata` against HashLips `build/json` and `build/images`.
+- Upload/check placeholder metadata from `artifacts/loopers-placeholder-mainnet/metadata.json`.
+- Inspect the private QA sample review page locally.
+- Upload final images to Arweave after QA, then rerun metadata compile with the real image base URI.
 - Rehearse placeholder-to-final reveal on Base Sepolia.
 - Record reveal offset, final base URI, and sample `tokenURI` outputs.
 - Upload final art/metadata to Arweave only after validation passes.
