@@ -22,6 +22,7 @@ This is not a mint-contract feature. Loopers minting and Sibyl activation are se
 - `apps/api/src/sibyl-memory/` wraps the Sibyl bridge and can require the real bridge by setting `allowFallback: false`.
 - `apps/api/scripts/prove-sibyl-cold-start.js` writes memory, creates a fresh reader, searches Sibyl, and exits nonzero unless the exact saved memory is recalled.
 - `apps/api/src/agent-runtime/` binds wallet, agent ID, activation ID, thread ID, inference provider, and Sibyl namespace into a runtime profile.
+- `multipass-xmtp-worker.service` runs the production XMTP worker for Bendr 2.0, resolves inbound sender wallets, and routes messages through the Console runtime.
 - `apps/api/test/console-agent-runtime.test.mjs` proves memory extraction, recall across turns, review-only proposals, multi-agent rooms, and explicit Bankr Gateway opt-in.
 - `apps/web/src/multipass-console.js` renders the Console surface with agent selection, Sibyl memory state, room/thread UI, review queue, missions, and connected wallet state.
 
@@ -79,6 +80,14 @@ Latest local proof on 2026-09-07:
 - `namespace: "multipass:hackathon-proof:looper-1234:activation-20260907-0406"`
 - `recalled_count: 1`
 - `matched: true`
+
+Latest live XMTP probe on 2026-09-09:
+
+- `worker`: `multipass-xmtp-worker.service`
+- `agent`: `Bendr 2.0`
+- `agent address`: `0xd31fcdb0432d3c9bf9d98643f69c7edd690e48e8`
+- `env`: `production`
+- `probe`: throwaway XMTP client sent one review-only test message and received the Bendr 2.0 acknowledgement through the same XMTP conversation
 
 Latest local demo package on 2026-09-07:
 
