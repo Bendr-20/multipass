@@ -11,8 +11,9 @@ This is the shortest safe path for launch day. It assumes the current local prep
 - Bundle preflight report: `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/preflight-report.json`.
 - Private QA sample report: `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/qa-samples.json`.
 - Private QA sample review page: `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/qa-samples.html`.
-- Current allowlist snapshot export: `/home/ubuntu/.openclaw/workspace/tmp/loopers-current-allowlist-snapshot-20260908T0018Z.json`.
-- Current reproduced allowlist root: `0xc221be679e91b1cd6d81af3fb5a8975d328eb7e42b936b4a1bb3e21b48c7e230`.
+- Locked allowlist store: `/var/lib/helixa/multipass-loopers-allowlist.json` with `27002` entries.
+- Locked allowlist snapshot: `/var/lib/helixa/multipass-loopers-allowlist-snapshot-20260910T2016Z.json`.
+- Locked allowlist root: `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80`.
 - Public-safe placeholder metadata file: `artifacts/loopers-placeholder-mainnet/metadata.json`.
 - Public-safe placeholder image is live at `https://helixa.xyz/multipass/loopers-prereveal-placeholder.png`.
 
@@ -24,6 +25,22 @@ This is the shortest safe path for launch day. It assumes the current local prep
 - Do not change the final Merkle root after deploying sale config unless the team deliberately accepts a new config transaction before sale starts.
 - Do not expose mint controls on `/allowlist`; mint belongs on `/mint`.
 - Do not remove or rename the meme/brand-coded Looper trait values during launch prep. Quigley approved keeping them as intentional collection content; the public metadata category for the old source `Patch Artifact` layer is `Artifact`, and QA should focus on render defects, metadata correctness, and upload/reveal safety unless he changes that decision.
+- Do not withdraw mainnet mint proceeds until reveal, marketplace/tokenURI smoke checks, support checks, and the agreed stability window pass. Keeping ETH in the contract preserves the simplest operational refund path if launch fails badly.
+
+## Refund Contingency
+
+The current contract has owner `withdraw()` but no buyer-initiated refund function. Refunds are therefore an operational fallback, not an automatic contract feature.
+
+If launch goes badly:
+
+1. Pause minting.
+2. Do not withdraw proceeds.
+3. Export mint events with buyer, token IDs, quantity, ETH paid, block/log order, and tx hash.
+4. Reconcile the export against contract balance and marketplace-visible token state.
+5. Manually refund buyers from the retained contract proceeds after the team approves the refund list.
+6. Publish or retain an auditable refund report, depending on the support/comms plan.
+
+Do not add burn/refund contract logic this late unless a real launch blocker forces a new contract cycle.
 
 ## Re-Run Local Preflight
 
@@ -57,7 +74,20 @@ Inspect the private HTML review page locally only. Do not post sample art in pub
 
 ## Freeze Allowlist
 
-If no late-address batch is needed, export the current final snapshot:
+Current locked state:
+
+- Pre-lock backup: `/var/lib/helixa/backups/loopers-allowlist/20260910T201554Z-multipass-loopers-allowlist.json`.
+- Applied batch manifest: `/home/ubuntu/.openclaw/workspace/tmp/loopers-allowlist-batches/2026-09-10-quigley-plus-based-cartel/apply-manifest.json`.
+- Post-apply dry-run: `27002` old count, `2675` batch count, `0` added, `2675` skipped existing.
+- Proof API snapshot path: `/var/lib/helixa/multipass-loopers-allowlist-snapshot-20260910T2016Z.json`.
+
+If no late-address batch is needed, use the current final snapshot:
+
+```sh
+/var/lib/helixa/multipass-loopers-allowlist-snapshot-20260910T2016Z.json
+```
+
+If another late-address batch is needed, export the current final snapshot after applying:
 
 ```sh
 pnpm --filter @helixa/multipass-api loopers:allowlist:export -- \
@@ -142,14 +172,14 @@ Expected result:
 - ERC-6551 registry and implementation must be rechecked on Base mainnet before deploy.
 - Exact allowlist/public prices should be set from launch-time ETH/USD, targeting about `$10` allowlist and `$20` public.
 - Placeholder token URI must be the real uploaded placeholder metadata URI.
-- Merkle root must be the final frozen snapshot root.
+- Merkle root must be the final frozen snapshot root: `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80`.
 
 ## Launch Sequence
 
 1. Verify owner/admin and treasury/royalty address twice.
 2. Verify deployer has enough Base ETH for deploy, config, reveal, public flip, and emergency pause.
 3. Upload and check placeholder metadata.
-4. Freeze allowlist and record final Merkle root.
+4. Confirm locked allowlist root `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80` is still the intended final root.
 5. Set exact allowlist and public prices.
 6. Prepare `packages/contracts/config/base-mainnet.local.json` from the example using only final values.
 7. Deploy Loopers to Base mainnet with sale config.
@@ -161,6 +191,7 @@ Expected result:
 13. Flip public once allowlist minting is healthy.
 14. Reveal at public open with the final metadata base URI and recorded reveal offset.
 15. Verify sample `tokenURI` outputs, image URLs, Codex URLs, ERC-6551 account reads, ERC-8004 binds, royalties, and Basescan display.
+16. Hold proceeds in the contract until reveal/support smoke checks and the agreed stability window pass.
 
 ## Final Smoke Commands
 

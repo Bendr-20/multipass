@@ -1,6 +1,6 @@
 # Loopers Launch Checklist
 
-Last verified: 2026-09-09 04:30 UTC.
+Last verified: 2026-09-10 20:18 UTC.
 
 This is the execution checklist for shipping Loopers. It tracks what is freshly verified now, what is still blocked, and the exact commands to re-run before each launch move.
 
@@ -25,8 +25,8 @@ This is the execution checklist for shipping Loopers. It tracks what is freshly 
 - [x] Full bundle preflight passed with `pnpm loopers:verify-bundle` and wrote `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/preflight-report.json`.
 - [x] Private QA sample report/review page generated with `pnpm loopers:select-qa`.
 - [x] Art QA accepted by Quigley on 2026-09-09: keep the current generated collection as-is, do not regenerate to recover lost traits, and do not remove the intentionally approved brand/meme/world traits.
-- [x] Current live allowlist export reproduced 24,346 entries and Merkle root `0xc221be679e91b1cd6d81af3fb5a8975d328eb7e42b936b4a1bb3e21b48c7e230`.
-- [x] Live proof API returns a Bendr eligible proof against that same root.
+- [x] Mainnet allowlist was locked on 2026-09-10 with 27,002 entries and Merkle root `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80`.
+- [x] Live proof API returns eligible proofs against that locked root for staged manual/Pantheon and holder-source addresses.
 - [x] Public-safe placeholder metadata is ready at `artifacts/loopers-placeholder-mainnet/metadata.json`; live placeholder image returns `200` as PNG.
 - [x] Allowlist batch import tooling dry-runs by default, rejects invalid/duplicate batch rows, reports already-existing addresses, and previews the post-merge Merkle root before `--apply`.
 - [x] Sibyl cold-start proof command can require the real bridge with fallback disabled; latest local proof saved through `sibyl_memory` and recalled the saved Merkle launch preference with a fresh reader.
@@ -41,6 +41,7 @@ Use a compressed allowlist, not true simultaneous discount/public lanes.
 - Keep allowlist live for roughly 1-2 hours while monitoring API, proof, mint, and support pressure.
 - Flip public the same day through the owner public-open path once allowlist minting is healthy.
 - Reveal at public open.
+- Hold mint proceeds in the contract until reveal, marketplace/tokenURI smoke checks, support checks, and the agreed stability window pass; this keeps the operational refund path open if launch fails badly.
 - Do not rewrite the contract to keep allowlist discount minting live after public opens unless the team deliberately accepts a new contract/rehearsal cycle.
 
 ## Active Base Sepolia Rehearsal Snapshot
@@ -112,8 +113,8 @@ Use a compressed allowlist, not true simultaneous discount/public lanes.
 - [ ] Verify the final treasury/royalty receiver twice.
 - [ ] Set exact mainnet allowlist/public prices from launch-time ETH/USD.
 - [ ] Upload and verify the placeholder metadata URI.
-- [ ] Freeze and back up the final mainnet Merkle root.
-- [ ] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.
+- [x] Freeze and back up the final mainnet Merkle root.
+- [x] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.
 - [x] Inspect/sign off the private QA sample review page.
 - [ ] Upload final images to Arweave, rerun metadata with the real image base URI, then upload final metadata/Codex only after the new preflight is clean.
 - [ ] Swap the mint page from rehearsal config to mainnet config only after the items above are locked.
