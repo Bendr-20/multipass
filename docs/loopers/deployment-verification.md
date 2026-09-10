@@ -145,7 +145,7 @@ Do not deploy mainnet until:
 
 - Fresh owner/admin address is verified twice.
 - Treasury/royalty receiver address is verified twice.
-- Exact ETH prices are set from launch-time ETH/USD.
+- Exact ETH prices are set: allowlist `0.0037` ETH (`3700000000000000` wei), public `0.0077` ETH (`7700000000000000` wei).
 - Placeholder Arweave URI is live and checked.
 - Final allowlist Merkle root is frozen and backed up.
 - Base Sepolia rehearsal has passed from the actual admin wallet path.

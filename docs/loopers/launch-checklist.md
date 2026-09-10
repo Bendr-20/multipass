@@ -111,7 +111,8 @@ Use a compressed allowlist, not true simultaneous discount/public lanes.
 
 - [ ] Verify the final owner/admin wallet twice.
 - [ ] Verify the final treasury/royalty receiver twice.
-- [ ] Set exact mainnet allowlist/public prices from launch-time ETH/USD.
+- [x] Set exact mainnet allowlist/public prices: allowlist `0.0037` ETH (`3700000000000000` wei), public `0.0077` ETH (`7700000000000000` wei).
+- [x] Recheck Base ERC-6551 registry and implementation code before deploy prep.
 - [ ] Upload and verify the placeholder metadata URI.
 - [x] Freeze and back up the final mainnet Merkle root.
 - [x] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.

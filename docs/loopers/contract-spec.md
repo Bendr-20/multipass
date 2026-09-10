@@ -45,9 +45,8 @@ The NFT contract is the permanent root asset. Future logic belongs in external m
 ## Pricing
 
 - Payment asset: ETH on Base.
-- Public target: about `$20`.
-- Allowlist target: about `$10`, 50% discount.
-- Exact ETH-denominated prices are set before mint based on ETH/USD near launch.
+- Public price: `0.0077` ETH (`7700000000000000` wei).
+- Allowlist price: `0.0037` ETH (`3700000000000000` wei).
 - Store fixed `publicPriceWei` and `allowlistPriceWei` in contract.
 - No live oracle pricing.
 - Avoid price changes after mint starts unless something extreme happens.

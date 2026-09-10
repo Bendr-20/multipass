@@ -169,8 +169,9 @@ Expected result:
 - Intended treasury/proceeds/royalty receiver: `0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE`.
 - ERC-8004 registry: `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`.
 - ERC-8004 agent base URI: `https://api.helixa.xyz/api/loopers/agents/`.
-- ERC-6551 registry and implementation must be rechecked on Base mainnet before deploy.
-- Exact allowlist/public prices should be set from launch-time ETH/USD, targeting about `$10` allowlist and `$20` public.
+- ERC-6551 registry and implementation checked on Base mainnet: registry `0x000000006551c19487814612e58FE06813775758`, implementation `0x02101dfB77FDE026414827Fdc604ddAF224F0921`.
+- Locked allowlist price: `0.0037` ETH (`3700000000000000` wei).
+- Locked public price: `0.0077` ETH (`7700000000000000` wei).
 - Placeholder token URI must be the real uploaded placeholder metadata URI.
 - Merkle root must be the final frozen snapshot root: `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80`.
 
@@ -180,7 +181,7 @@ Expected result:
 2. Verify deployer has enough Base ETH for deploy, config, reveal, public flip, and emergency pause.
 3. Upload and check placeholder metadata.
 4. Confirm locked allowlist root `0x24341b4d6325c0aae2dcada50a7f2d0b4b478ce9f78b285f8a55517824719a80` is still the intended final root.
-5. Set exact allowlist and public prices.
+5. Confirm locked allowlist/public prices: `0.0037` ETH and `0.0077` ETH.
 6. Prepare `packages/contracts/config/base-mainnet.local.json` from the example using only final values.
 7. Deploy Loopers to Base mainnet with sale config.
 8. Run deployment verification against the mainnet deployment artifact.
