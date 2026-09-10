@@ -22,6 +22,7 @@ test('root web:build script emits assets under /multipass/', () => {
 test('Loopers build script emits a static mint route entry', () => {
   assert.match(allowlistEntryScript, /join\(distRoot, 'mint', 'index\.html'\)/);
   assert.match(allowlistEntryScript, /Mint Loopers on Base\./);
+  assert.match(allowlistEntryScript, /loopers-mint-preview-20260910a\.jpg/);
 });
 
 test('web build emits a static Console route entry', () => {

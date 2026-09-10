@@ -14,6 +14,7 @@ const LOOPERS_DESCRIPTION = 'something new is coming...';
 const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
 const LOOPERS_SOCIAL_URL = 'https://helixa.xyz/allowlist?x=20260826c';
 const LOOPERS_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-allowlist-preview-20260826c.jpg';
+const LOOPERS_MINT_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-mint-preview-20260910a.jpg';
 
 const html = await readFile(sourcePath, 'utf8');
 const allowlistHtml = html
@@ -39,7 +40,8 @@ await writeFile(outputPath, allowlistHtml);
 await mkdir(dirname(mintOutputPath), { recursive: true });
 await writeFile(mintOutputPath, allowlistHtml
   .replaceAll(LOOPERS_DESCRIPTION, LOOPERS_MINT_DESCRIPTION)
-  .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint'));
+  .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint')
+  .replaceAll(LOOPERS_PREVIEW_IMAGE, LOOPERS_MINT_PREVIEW_IMAGE));
 
 await mkdir(dirname(consoleOutputPath), { recursive: true });
 await writeFile(consoleOutputPath, html

@@ -2250,12 +2250,21 @@ function updateDocumentMetadataForPage(state) {
 
   document.title = 'Loopers';
   const isMint = state.pageKind === 'looper_mint';
+  const previewImage = isMint
+    ? 'https://helixa.xyz/multipass/loopers-mint-preview-20260910a.jpg'
+    : 'https://helixa.xyz/multipass/loopers-allowlist-preview-20260826c.jpg';
   setDocumentMeta('name', 'description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
   setDocumentMeta('property', 'og:url', isMint ? 'https://helixa.xyz/mint' : 'https://helixa.xyz/allowlist?x=20260826c');
   setDocumentMeta('property', 'og:title', 'Loopers');
   setDocumentMeta('property', 'og:description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
+  setDocumentMeta('property', 'og:image', previewImage);
+  setDocumentMeta('property', 'og:image:secure_url', previewImage);
+  setDocumentMeta('property', 'og:image:alt', 'Loopers preview');
   setDocumentMeta('name', 'twitter:title', 'Loopers');
   setDocumentMeta('name', 'twitter:description', isMint ? 'Mint Loopers on Base.' : 'something new is coming...');
+  setDocumentMeta('name', 'twitter:image', previewImage);
+  setDocumentMeta('name', 'twitter:image:src', previewImage);
+  setDocumentMeta('name', 'twitter:image:alt', 'Loopers preview');
 }
 
 function setDocumentMeta(attributeName, attributeValue, content) {
@@ -2968,12 +2977,9 @@ function renderLooperMintLaunch(state) {
 }
 
 function renderLooperMintHeroCopy(mint = createInitialLooperMintState()) {
-  const config = mint.config ?? {};
-  const chainLabel = config.mode === 'rehearsal' ? 'Sepolia rehearsal' : 'Base mainnet';
-
   return `
     <div class="looper-mint-hero-copy">
-      <p class="looper-mint-kicker">${escapeHtml(chainLabel)}</p>
+      <p class="looper-mint-kicker">Base mint</p>
       <img class="looper-mint-hero-logo" src="/multipass/loopers-logo.png" width="2002" height="480" alt="Loopers" />
       <h1>Mint your Looper.</h1>
     </div>
@@ -2985,7 +2991,7 @@ function renderLooperMintHeroArt() {
     {
       src: '/multipass/looper-mint-sample-01.png',
       variant: 'purple',
-      alt: 'Purple glitch Looper from the 7,777 collection.',
+      alt: 'Purple laptop Looper from the 7,777 collection.',
     },
     {
       src: '/multipass/looper-mint-sample-02.png',
@@ -3175,7 +3181,7 @@ function renderLooperMintEligibility(contractState, walletSnapshot = {}, options
   if (options.contractConfigured === false) return '<p class="looper-mint-note">Mint contract is not configured yet.</p>';
   if (!contractState) return '<p class="looper-mint-note">Contract state loads from the configured chain before minting.</p>';
   if (!walletSnapshot.connected || !walletSnapshot.address) return '<p class="looper-mint-note">Connect a wallet to check allowlist eligibility and wallet limits.</p>';
-  if (!contractState.erc8004BindingActive) return '<p class="looper-mint-note">Adapter8004 is not configured on this mint contract yet. Rehearsal mint stays blocked until the bind leg is live.</p>';
+  if (!contractState.erc8004BindingActive) return '<p class="looper-mint-note">Adapter8004 is not configured on this mint contract yet. Mint stays blocked until the bind leg is live.</p>';
   if (contractState.saleState === 'allowlist') {
     const proof = contractState.proof ?? {};
     if (proof.status === 'error') return `<p class="looper-mint-note error">${escapeHtml(proof.error ?? 'Allowlist proof is unavailable.')}</p>`;

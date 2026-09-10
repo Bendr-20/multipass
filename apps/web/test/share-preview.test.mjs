@@ -16,6 +16,7 @@ const ogSvgPath = join(webRoot, 'public', 'og-preview.svg');
 const ogImagePath = join(webRoot, 'public', 'og-preview.png');
 const looperAllowlistPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview.png');
 const looperAllowlistXPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview-20260826c.jpg');
+const looperMintPreviewPath = join(webRoot, 'public', 'loopers-mint-preview-20260910a.jpg');
 const looperPrerevealPlaceholderSvgPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.svg');
 const looperPrerevealPlaceholderPngPath = join(webRoot, 'public', 'loopers-prereveal-placeholder.png');
 const looperMintSamplePaths = [
@@ -90,6 +91,12 @@ test('Loopers allowlist X preview image exists as a 1200x630 static JPEG asset',
   assert.equal(existsSync(looperAllowlistXPreviewPath), true);
   assert.deepEqual(imageSizeFromFile(looperAllowlistXPreviewPath), { width: 1200, height: 630, type: 'jpeg' });
   assert.ok(statSync(looperAllowlistXPreviewPath).size > 20_000);
+});
+
+test('Loopers mint preview image exists as a 1200x630 static JPEG logo card', () => {
+  assert.equal(existsSync(looperMintPreviewPath), true);
+  assert.deepEqual(imageSizeFromFile(looperMintPreviewPath), { width: 1200, height: 630, type: 'jpeg' });
+  assert.ok(statSync(looperMintPreviewPath).size > 20_000);
 });
 
 test('Loopers pre-reveal placeholder assets exist as reusable public art', async () => {

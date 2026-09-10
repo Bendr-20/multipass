@@ -1066,6 +1066,7 @@ test('standalone Looper mint route renders rehearsal mint state from contract cl
   assert.equal(root.querySelector('.looper-mint-art-tagline')?.textContent.trim(), '7,777 onchain agents. Yours starts here.');
   assert.equal(root.querySelector('.looper-mint-teaser-strip'), null);
   assert.match(root.querySelector('.looper-mint-hero-copy')?.textContent ?? '', /Mint your Looper/i);
+  assert.doesNotMatch(root.textContent, /Sepolia|testnet|rehearsal/i);
   assert.equal(root.querySelector('.looper-mint-status-strip'), null);
   assert.equal(root.querySelector('.looper-mint-hero-lead'), null);
   assert.ok(panel);
