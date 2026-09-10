@@ -18,6 +18,7 @@ export const PRIVY_CONNECT_WALLET_LIST = [
   PRIVY_BASE_ACCOUNT_WALLET_ID,
   'coinbase_wallet',
   'metamask',
+  'detected_ethereum_wallets',
   'rainbow',
   'wallet_connect',
   'wallet_connect_qr',

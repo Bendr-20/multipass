@@ -137,6 +137,7 @@ test('Privy connect wallet list includes Base, Coinbase, and fallback wallet opt
     PRIVY_BASE_ACCOUNT_WALLET_ID,
     'coinbase_wallet',
     'metamask',
+    'detected_ethereum_wallets',
     'rainbow',
     'wallet_connect',
     'wallet_connect_qr',
@@ -144,6 +145,7 @@ test('Privy connect wallet list includes Base, Coinbase, and fallback wallet opt
   assert.equal(PRIVY_CONNECT_WALLET_LIST[0], PRIVY_BASE_ACCOUNT_WALLET_ID);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('base_account'), true);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('coinbase_wallet'), true);
+  assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('detected_ethereum_wallets'), true);
 });
 
 test('Privy external wallet config keeps Coinbase smart wallets enabled', () => {
