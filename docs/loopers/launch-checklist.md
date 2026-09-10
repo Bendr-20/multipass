@@ -1,6 +1,6 @@
 # Loopers Launch Checklist
 
-Last verified: 2026-09-08 00:08 UTC.
+Last verified: 2026-09-09 04:30 UTC.
 
 This is the execution checklist for shipping Loopers. It tracks what is freshly verified now, what is still blocked, and the exact commands to re-run before each launch move.
 
@@ -24,11 +24,14 @@ This is the execution checklist for shipping Loopers. It tracks what is freshly 
 - [x] Full generated JSON collision scan returned `badCount: 0`.
 - [x] Full bundle preflight passed with `pnpm loopers:verify-bundle` and wrote `/home/ubuntu/.openclaw/workspace/tmp/loopers-metadata-full-20260904/preflight-report.json`.
 - [x] Private QA sample report/review page generated with `pnpm loopers:select-qa`.
+- [x] Art QA accepted by Quigley on 2026-09-09: keep the current generated collection as-is, do not regenerate to recover lost traits, and do not remove the intentionally approved brand/meme/world traits.
 - [x] Current live allowlist export reproduced 24,346 entries and Merkle root `0xc221be679e91b1cd6d81af3fb5a8975d328eb7e42b936b4a1bb3e21b48c7e230`.
 - [x] Live proof API returns a Bendr eligible proof against that same root.
 - [x] Public-safe placeholder metadata is ready at `artifacts/loopers-placeholder-mainnet/metadata.json`; live placeholder image returns `200` as PNG.
 - [x] Allowlist batch import tooling dry-runs by default, rejects invalid/duplicate batch rows, reports already-existing addresses, and previews the post-merge Merkle root before `--apply`.
 - [x] Sibyl cold-start proof command can require the real bridge with fallback disabled; latest local proof saved through `sibyl_memory` and recalled the saved Merkle launch preference with a fresh reader.
+- [x] Lightweight rare-Artifact bounty settlement flow is documented and covered by `packages/loopers-metadata/test/loopers-bounties.test.mjs`.
+- [x] Telegram-first Loopers NFT activity watcher is documented and covered by `apps/api/test/loopers-activity-bot.test.mjs`.
 
 ## 2026-09-10 Launch Shape
 
@@ -111,9 +114,10 @@ Use a compressed allowlist, not true simultaneous discount/public lanes.
 - [ ] Upload and verify the placeholder metadata URI.
 - [ ] Freeze and back up the final mainnet Merkle root.
 - [ ] Dry-run Quigley's extra address batch, review the import manifest, then apply and export a fresh final snapshot.
-- [ ] Inspect/sign off the private QA sample review page.
+- [x] Inspect/sign off the private QA sample review page.
 - [ ] Upload final images to Arweave, rerun metadata with the real image base URI, then upload final metadata/Codex only after the new preflight is clean.
 - [ ] Swap the mint page from rehearsal config to mainnet config only after the items above are locked.
+- [ ] Configure and smoke test the Telegram activity bot after the mainnet contract address and destination chat are final.
 - [ ] Run full mainnet smoke with no reveal, no public claim copy drift, and no secret leakage.
 
 ## Commands

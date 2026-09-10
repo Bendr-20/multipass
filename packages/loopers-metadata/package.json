@@ -11,6 +11,7 @@
   "scripts": {
     "build": "node scripts/build-loopers-metadata.js",
     "select:qa": "node scripts/select-loopers-qa-samples.js",
+    "settle:bounties": "node scripts/settle-loopers-bounties.js",
     "verify:arweave-handoff": "node scripts/verify-arweave-handoff.js",
     "verify:bundle": "node scripts/verify-loopers-bundle.js",
     "test": "node --test test/*.test.mjs"
