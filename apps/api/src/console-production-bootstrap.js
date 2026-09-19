@@ -6,6 +6,7 @@ import {
   createLoopersPublicClients,
 } from './loopers-owned-agents.js';
 import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
+import { createLooperPersonaLoader } from './looper-persona.js';
 import { createSibylMemoryStore } from './sibyl-memory/index.js';
 import {
   createDeferredXmtpAgentClient,
@@ -20,6 +21,7 @@ const DEFAULT_FACTORIES = {
   createConsoleAgentRuntime,
   createDeferredXmtpAgentClient,
   createLooperRuntimeRegistry,
+  createLooperPersonaLoader,
   createLoopersOwnedAgentLoader,
   createLoopersPublicClients,
   createNodeXmtpAgentClient,
@@ -44,10 +46,20 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       ? { metadataBaseUrl: options.loopersOwnedMetadataBaseUrl }
       : {}),
   });
-  const authorizeLooper = (input) => factories.authorizeLooperControl({
-    ...input,
-    publicClients,
+  const personaLoader = factories.createLooperPersonaLoader({
+    fetchImpl: options.fetchImpl ?? fetch,
+    ...(options.loopersOwnedMetadataBaseUrl
+      ? { metadataBaseUrl: options.loopersOwnedMetadataBaseUrl }
+      : {}),
   });
+  const authorizeLooper = async (input) => {
+    const identity = await factories.authorizeLooperControl({
+      ...input,
+      publicClients,
+    });
+    const persona = await personaLoader({ tokenId: identity.tokenId });
+    return persona ? { ...identity, persona } : identity;
+  };
   const runtimeRegistry = factories.createLooperRuntimeRegistry();
   const memoryClient = factories.createSibylMemoryStore();
   const llmClient = options.consoleAgentBankrLlmEnabled === true

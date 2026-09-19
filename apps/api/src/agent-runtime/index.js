@@ -193,6 +193,7 @@ export function createRuntimeProfile(input = {}) {
   const displayName = String(input.agentName ?? input.displayName ?? (tokenId === 'unknown' ? 'Selected agent' : `Agent #${tokenId}`)).trim();
   const tokenContract = String(canonicalIdentity?.contract ?? input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim();
   const chainId = Number(canonicalIdentity?.chainId ?? 8453);
+  const persona = normalizeRuntimePersona(canonicalIdentity?.persona, tokenId);
   return {
     activationId,
     agentId,
@@ -214,6 +215,7 @@ export function createRuntimeProfile(input = {}) {
       provider: 'bankr_llm_gateway',
       status: 'server_side_only',
     },
+    ...(persona ? { persona } : {}),
     memoryNamespace: canonicalIdentity
       ? buildSibylMemoryNamespace({
         chainId,
@@ -375,6 +377,28 @@ function createParticipantProfile(profile = {}, participant = {}, room = {}) {
       roomId: room.id ?? null,
     },
   };
+}
+
+function normalizeRuntimePersona(value, tokenId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const limits = {
+    canonicalName: 120,
+    description: 500,
+    agentClass: 120,
+    secondaryClass: 120,
+    specialization: 160,
+    riskProfile: 120,
+    autonomy: 120,
+    voice: 300,
+    firstMission: 300,
+    codexVersion: 160,
+  };
+  const persona = { tokenId: String(tokenId ?? '').trim() };
+  for (const [field, maxLength] of Object.entries(limits)) {
+    const text = String(value[field] ?? '').replace(/\s+/gu, ' ').trim().slice(0, maxLength);
+    if (text) persona[field] = text;
+  }
+  return Object.keys(persona).length > 1 ? persona : null;
 }
 
 function requireWallet(value) {

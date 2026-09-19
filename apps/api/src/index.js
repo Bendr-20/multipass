@@ -530,7 +530,7 @@ async function handleConsoleAgentMessage(request, context) {
     activationId: activation.key,
     agentName: activation.runtimeName,
     wallet: session.wallet,
-    canonicalIdentity: identity,
+    canonicalIdentity: activation.identity,
     canonicalConversationId: activation.conversationId,
     message,
   });

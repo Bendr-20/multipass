@@ -30,6 +30,8 @@ function createFactoryHarness(events = []) {
   const runtime = { id: 'console-runtime', async handleMessage() {} };
   const worker = { async stop() { events.push('worker.stop'); } };
   const ownedAgentLoader = async () => [];
+  const persona = { canonicalName: 'Looper #617', voice: 'measured signal hunting' };
+  const personaLoader = async () => persona;
   const llmClient = { provider: 'fake_bankr' };
   const calls = {};
 
@@ -44,6 +46,8 @@ function createFactoryHarness(events = []) {
       runtime,
       worker,
       ownedAgentLoader,
+      persona,
+      personaLoader,
       llmClient,
     },
     calls,
@@ -57,6 +61,11 @@ function createFactoryHarness(events = []) {
         count('ownedAgentLoader');
         calls.ownedAgentLoader = input;
         return ownedAgentLoader;
+      },
+      createLooperPersonaLoader(input) {
+        count('personaLoader');
+        calls.personaLoader = input;
+        return personaLoader;
       },
       authorizeLooperControl(input) {
         count('authorizeLooperControl');
@@ -115,6 +124,7 @@ test('enabled production bootstrap creates one shared Console/XMTP object graph'
 
   assert.equal(countOf(harness, 'publicClients'), 1);
   assert.equal(countOf(harness, 'ownedAgentLoader'), 1);
+  assert.equal(countOf(harness, 'personaLoader'), 1);
   assert.equal(countOf(harness, 'runtimeRegistry'), 1);
   assert.equal(countOf(harness, 'memoryClient'), 1);
   assert.equal(countOf(harness, 'nodeClient'), 1);
@@ -142,9 +152,10 @@ test('enabled production bootstrap creates one shared Console/XMTP object graph'
   assert.strictEqual(bootstrap.runtime, harness.objects.runtime);
   assert.strictEqual(bootstrap.worker, harness.objects.worker);
 
-  await bootstrap.authorizeLooper({ tokenId: '617', wallet: '0x1234567890abcdef1234567890abcdef12345678' });
+  const authorized = await bootstrap.authorizeLooper({ tokenId: '617', wallet: '0x1234567890abcdef1234567890abcdef12345678' });
   assert.equal(countOf(harness, 'authorizeLooperControl'), 1);
   assert.strictEqual(harness.calls.authorizeLooperControl.publicClients, harness.objects.publicClients);
+  assert.deepEqual(authorized.persona, harness.objects.persona);
 });
 
 test('production bootstrap stays XMTP-disabled by default and starts no Node client or worker', async () => {

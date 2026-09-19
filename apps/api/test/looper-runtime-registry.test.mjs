@@ -29,6 +29,21 @@ test('runtime activation reuses canonical ERC-8004 identity and persists a holde
   assert.equal(createLooperRuntimeKey(identity), 'eip155:8453:0x1649cd37f4748807b4882fc48765ba0b2affa94a:617:erc8004:87069');
 });
 
+test('runtime activation preserves a bounded canonical persona snapshot', () => {
+  const registry = createLooperRuntimeRegistry();
+  const persona = {
+    tokenId: '617',
+    canonicalName: 'Looper #617',
+    agentClass: 'Trader / Broker',
+    voice: 'signal hunter',
+  };
+  const activated = registry.activate({ identity: { ...identity, persona }, runtimeName: 'Bendr Looper' });
+  persona.voice = 'mutated outside registry';
+
+  assert.equal(activated.identity.persona.canonicalName, 'Looper #617');
+  assert.equal(registry.get(identity).identity.persona.voice, 'signal hunter');
+});
+
 test('runtime activation requires controller authorization and rejects unsafe names', () => {
   const registry = createLooperRuntimeRegistry();
   assert.throws(() => registry.activate({ identity: { ...identity, controllerVerified: false } }), /controller/i);

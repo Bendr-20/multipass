@@ -124,6 +124,7 @@ function normalizeIdentity(identity = {}) {
   if (!/^\d+$/.test(tokenId) || BigInt(tokenId) <= 0n) throw new TypeError('Looper token ID is invalid.');
   if (!/^\d+$/.test(erc8004AgentId) || BigInt(erc8004AgentId) <= 0n) throw new TypeError('ERC-8004 identity is invalid.');
   if (!/^0x[a-f0-9]{40}$/.test(owner)) throw new TypeError('Looper owner wallet is invalid.');
+  const persona = normalizePersonaSnapshot(identity.persona, tokenId);
   return {
     chainId,
     contract,
@@ -131,7 +132,30 @@ function normalizeIdentity(identity = {}) {
     erc8004AgentId,
     owner,
     controllerVerified: identity.controllerVerified === true,
+    ...(persona ? { persona } : {}),
   };
+}
+
+function normalizePersonaSnapshot(value, tokenId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const limits = {
+    canonicalName: 120,
+    description: 500,
+    agentClass: 120,
+    secondaryClass: 120,
+    specialization: 160,
+    riskProfile: 120,
+    autonomy: 120,
+    voice: 300,
+    firstMission: 300,
+    codexVersion: 160,
+  };
+  const persona = { tokenId };
+  for (const [field, maxLength] of Object.entries(limits)) {
+    const text = String(value[field] ?? '').replace(/\s+/gu, ' ').trim().slice(0, maxLength);
+    if (text) persona[field] = text;
+  }
+  return Object.keys(persona).length > 1 ? persona : null;
 }
 
 function normalizeRuntimeName(value) {
