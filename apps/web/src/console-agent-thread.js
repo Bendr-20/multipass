@@ -82,6 +82,10 @@ export function renderConsoleAgentThread(thread = {}) {
               <p>${escapeHtml(roomNotes)}</p>
             </div>
           ` : ''}
+          <div class="console-thread-local-actions">
+            <p>Hide the messages already shown on this browser. XMTP history stays intact.</p>
+            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Hide chat locally</button>
+          </div>
         </section>
       </details>
       <div class="console-thread-daybreak" aria-hidden="true"><span>Today</span></div>
@@ -105,8 +109,10 @@ export function renderConsoleAgentThread(thread = {}) {
           <textarea id="console-agent-message" name="message" rows="4" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}>${escapeHtml(thread.draft ?? '')}</textarea>
           <div class="console-thread-actions">
             <small class="console-thread-actions-note">Review-only. Nothing executes without your approval.</small>
-            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Clear local chat</button>
-            <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : (thread.retryAvailable ? 'Retry' : 'Send')}</button>
+            <button class="console-send-button" type="submit" aria-label="${thread.retryAvailable ? 'Retry message' : 'Send message'}" ${disabled ? 'disabled' : ''}>
+              <span>${sending ? 'Sending...' : (thread.retryAvailable ? 'Retry' : 'Send')}</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z"/></svg>
+            </button>
           </div>
         </div>
       </form>
@@ -410,7 +416,7 @@ function createParticipantSummary(participants = []) {
 
 function initialsForLabel(value) {
   const normalized = String(value ?? '').trim();
-  if (/^0x[0-9a-f]+$/iu.test(normalized)) return '0X';
+  if (/^0x/iu.test(normalized)) return '0X';
   const parts = String(value ?? '')
     .trim()
     .split(/\s+/)

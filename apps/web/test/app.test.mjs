@@ -2052,6 +2052,16 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
     walletClient,
     fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
     claimApi: {
+      activateConsoleAgent: async ({ tokenId }) => ({
+        thread: {
+          transport: 'xmtp_local',
+          roomName: `Looper #${tokenId} room`,
+          participants: [{ tokenId, displayName: `Looper #${tokenId}` }],
+          messages: tokenId === '812'
+            ? [{ id: 'hidden-812', role: 'agent', senderLabel: 'Looper #812', text: 'Saved through the hosted worker.', transport: 'xmtp_local' }]
+            : [],
+        },
+      }),
       sendConsoleAgentMessage: async (input) => {
         calls.push(input);
         return {
@@ -2061,7 +2071,7 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
             participants: [{ tokenId: '812', displayName: 'Looper #812' }],
             messages: [
               { role: 'human', text: input.message, transport: 'xmtp_local' },
-              { role: 'agent', senderLabel: 'Looper #617', text: 'Saved through the hosted worker.', transport: 'xmtp_local', inferenceProvider: 'fake_bankr' },
+              { id: 'hidden-812', role: 'agent', senderLabel: 'Looper #617', text: 'Saved through the hosted worker.', transport: 'xmtp_local', inferenceProvider: 'fake_bankr' },
               { role: 'agent', senderLabel: 'Looper #812', text: 'Joined the room and will monitor the same mission.', transport: 'xmtp_local', inferenceProvider: 'fake_bankr' },
             ],
           },
@@ -2098,12 +2108,21 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.match(root.querySelector('.console-thread-proposal')?.textContent ?? '', /Review watchlist briefing/);
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Looper #812/);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
-  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.textContent, 'Clear local chat');
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.textContent.trim(), 'Hide chat locally');
   root.querySelector('[data-action="reset-console-session"]').click();
   await flushAsyncEvents();
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Session recall|Wallet 0x27E3\.\.\.91Ea recalled/);
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker|Review watchlist briefing/);
   assert.equal(root.querySelector('.console-proposal-list'), null);
+
+  const selector = root.querySelector('[data-action="select-console-agent"]');
+  selector.value = '617';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents();
+  selector.value = '812';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents();
+  assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
 });
 
 test('dedicated Console verifies XMTP registration before the first live room send', async () => {
@@ -2328,7 +2347,7 @@ test('dedicated Console preserves a failed mission draft and sanitizes provider 
 
   assert.equal(root.querySelector('textarea[name="message"]')?.value, 'Keep this exact mission draft.');
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /transport failed|try again/i);
-  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.textContent, 'Retry');
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.textContent.trim(), 'Retry');
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /BANKR_API_KEY|\/srv\/private\.js|secret/);
 });
 
@@ -6178,7 +6197,7 @@ test('Console owner profile resolution is non-blocking and late stale results ar
 
   assert.equal(lookups, 1);
   assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Looper #617/);
-  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', new RegExp(firstWallet, 'i'));
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /0x27E3\.\.\.91Ea \(you\)/i);
 
   walletClient.setSnapshot({ connected: false, address: null, label: null }, { notify: true });
   await flushAsyncEvents();

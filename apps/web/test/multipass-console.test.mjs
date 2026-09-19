@@ -68,7 +68,7 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.session.status.find((item) => item.label === 'Agent')?.value, 'Bendr 2.0');
   assert.equal(snapshot.session.status.find((item) => item.label === 'Chat')?.value, 'live chat');
   assert.equal(snapshot.session.status.find((item) => item.label === 'Memory')?.value, 'Standby');
-  assert.equal(snapshot.session.wallet.label, '0x1234...5678');
+  assert.equal(snapshot.session.wallet.label, '0x1234...5678 (you)');
   assert.equal(snapshot.session.wallet.connected, true);
   assert.equal(snapshot.session.selectionEnabled, true);
   assert.equal(snapshot.session.options.length, 2);
@@ -133,7 +133,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Thread note/);
   assert.match(text, /Memory/);
   assert.match(text, /Send/);
-  assert.match(text, /Clear local chat/);
+  assert.match(text, /Hide chat locally/);
   assert.match(text, /Memory standby|Sibyl memory standing by/);
   assert.doesNotMatch(root.querySelector('.console-proof-rail')?.textContent ?? '', /Bankr-ready|Sibyl-ready/);
   assert.match(text, /live chat|XMTP ready|XMTP room/i);
@@ -350,7 +350,10 @@ test('Multipass Console keeps compact identity secondary and names local clearin
   assert.match(identity?.textContent ?? '', /Token #1/);
   assert.match(identity?.textContent ?? '', /ERC-8004 #87069/);
   assert.equal([...identity?.querySelectorAll('details') ?? []].every((detail) => !detail.open), true);
-  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.textContent, 'Clear local chat');
+  assert.equal(root.querySelector('[data-action="reset-console-session"]')?.textContent.trim(), 'Hide chat locally');
+  assert.ok(root.querySelector('.console-thread-secondary-details [data-action="reset-console-session"]'));
+  assert.equal(root.querySelector('.console-thread-composer [data-action="reset-console-session"]'), null);
+  assert.ok(root.querySelector('.console-send-button svg'));
   assert.doesNotMatch(root.textContent, /fresh-session|Session recall/i);
 });
 
@@ -607,7 +610,7 @@ test('Console decorates messages from current roles and rejects stale or unsafe 
     },
   });
   assert.deepEqual(snapshot.agentThread.messages.map(({ senderLabel, avatarUrl }) => ({ senderLabel, avatarUrl })), [
-    { senderLabel: 'quigley.eth', avatarUrl: 'https://example.test/quigley.png' },
+    { senderLabel: 'quigley.eth (you)', avatarUrl: 'https://example.test/quigley.png' },
     { senderLabel: 'Bendr 2.0', avatarUrl: 'https://example.test/looper.png' },
   ]);
 
@@ -621,10 +624,10 @@ test('Console decorates messages from current roles and rejects stale or unsafe 
   assert.ok(agentAvatar?.querySelector('.console-thread-avatar-fallback'));
 });
 
-test('Console uses deterministic wallet initials when no ENS avatar exists', () => {
+test('Console truncates the wallet and marks it as you when ENS is unavailable', () => {
   const [agent] = sampleAgents();
   const wallet = '0x1234567890abcdef1234567890abcdef12345678';
-  const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+  const snapshot = createMultipassConsoleSnapshot({
     agents: [agent],
     state: {
       walletSnapshot: { connected: true, address: wallet },
@@ -632,6 +635,10 @@ test('Console uses deterministic wallet initials when no ENS avatar exists', () 
       consoleSelectedAgentId: '1',
       consoleAgentThread: { messages: [{ role: 'human', text: 'Hello' }] },
     },
-  })));
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  assert.equal(snapshot.agentThread.messages[0].senderLabel, '0x1234...5678 (you)');
+  assert.match(root.querySelector('.console-multipass-drawer')?.textContent ?? '', /Owner.*0x1234\.\.\.5678 \(you\)/s);
+  assert.doesNotMatch(root.textContent, /0x1234567890abcdef1234567890abcdef12345678/i);
   assert.equal(root.querySelector('.console-thread-message.human .console-thread-avatar-fallback')?.textContent, '0X');
 });

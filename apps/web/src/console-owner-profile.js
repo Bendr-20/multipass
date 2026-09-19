@@ -22,7 +22,10 @@ export function safeConsoleAvatarUrl(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return null;
   try {
-    const url = raw.startsWith('/') ? new URL(raw, 'https://helixa.xyz') : new URL(raw);
+    const source = raw.startsWith('ipfs://')
+      ? `https://ipfs.io/ipfs/${raw.slice('ipfs://'.length).replace(/^ipfs\//u, '')}`
+      : raw;
+    const url = source.startsWith('/') ? new URL(source, 'https://helixa.xyz') : new URL(source);
     return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
   } catch {
     return null;
@@ -48,7 +51,14 @@ export async function resolveConsoleOwnerProfile(address, {
   }
 
   const lookup = resolveProfile();
-  if (useDefaultClient) DEFAULT_PROFILE_CACHE.set(normalizedAddress, lookup);
+  if (useDefaultClient) {
+    DEFAULT_PROFILE_CACHE.set(normalizedAddress, lookup);
+    lookup.then((profile) => {
+      if (!profile?.ensName && DEFAULT_PROFILE_CACHE.get(normalizedAddress) === lookup) {
+        DEFAULT_PROFILE_CACHE.delete(normalizedAddress);
+      }
+    }, () => DEFAULT_PROFILE_CACHE.delete(normalizedAddress));
+  }
   return lookup;
 
   async function resolveProfile() {

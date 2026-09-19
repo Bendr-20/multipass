@@ -9024,10 +9024,63 @@ h1 {
 .console-basic-sidebar .console-sidebar-drawer-label,
 .console-basic-sidebar .console-session-status-grid dt,
 .console-basic-sidebar .console-session-note,
+.console-basic-sidebar .console-agent-selector span,
 .console-basic-sidebar .console-agent-card-copy span,
 .console-basic-sidebar .console-agent-card-meta span,
 .console-basic-sidebar .console-agent-note {
-  color: rgba(244, 239, 231, 0.72);
+  color: rgba(244, 239, 231, 0.82);
+}
+
+.console-send-button {
+  display: inline-flex;
+  min-width: 108px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-color: rgba(110, 236, 216, 0.62) !important;
+  background: #6eecd8 !important;
+  color: #10131a !important;
+  box-shadow: 0 10px 24px rgba(26, 201, 174, 0.18);
+}
+
+.console-send-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.console-thread-local-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(244, 239, 231, 0.08);
+}
+
+.console-thread-local-actions p {
+  margin: 0;
+  color: rgba(244, 239, 231, 0.62);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.console-thread-local-actions button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(244, 239, 231, 0.14);
+  border-radius: 8px;
+  background: rgba(248, 243, 236, 0.06);
+  color: rgba(244, 239, 231, 0.78);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.console-thread-local-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .console-identity-card-compact .console-card-head span {
@@ -9037,6 +9090,19 @@ h1 {
 }
 
 @media (max-width: 560px) {
+  .console-thread-local-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .console-thread-local-actions button {
+    width: 100%;
+  }
+
+  .console-send-button {
+    min-width: 112px;
+  }
+
   .console-thread-messages {
     height: clamp(220px, 46dvh, 420px);
     min-height: 220px;

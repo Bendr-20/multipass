@@ -13,8 +13,11 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const activeAgents = Array.isArray(agents) ? agents.filter(Boolean).map(normalizeConsoleAgent) : [];
   const activeAgent = selectActiveAgent(activeAgents, state.consoleSelectedAgentId);
   const ownerProfile = state.consoleOwnerProfile ?? null;
+  const ownerProfileLabel = String(ownerProfile?.ensName ?? ownerProfile?.displayName ?? '').trim();
   const ownerDisplayName = walletConnected
-    ? (String(ownerProfile?.displayName ?? '').trim() || String(wallet.address ?? '').trim())
+    ? `${ownerProfileLabel && ownerProfileLabel.toLowerCase() !== String(wallet.address ?? '').trim().toLowerCase()
+      ? ownerProfileLabel
+      : shortenAddress(wallet.address)} (you)`
     : null;
   const roomParticipants = decorateConsoleParticipants(createRoomParticipants({
     agents: activeAgents,
@@ -74,7 +77,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         connected: walletConnected,
         unavailable: wallet.configured === false,
         ready: wallet.ready !== false,
-        label: walletConnected ? (wallet.label ?? connectedWallet) : connectedWallet,
+        label: walletConnected ? ownerDisplayName : connectedWallet,
         status: state.consoleWalletStatus ?? null,
         error: state.consoleWalletError ?? null,
       },

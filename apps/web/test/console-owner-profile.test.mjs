@@ -34,6 +34,7 @@ test('Console owner profile falls back to the full checksum wallet on no-name or
 test('Console avatar URLs accept only HTTPS', () => {
   assert.equal(safeConsoleAvatarUrl('https://example.test/a.png'), 'https://example.test/a.png');
   assert.equal(safeConsoleAvatarUrl('/multipass/looper.png'), 'https://helixa.xyz/multipass/looper.png');
+  assert.equal(safeConsoleAvatarUrl('ipfs://bafybeigdyrzt/avatar.png'), 'https://ipfs.io/ipfs/bafybeigdyrzt/avatar.png');
   for (const value of ['http://example.test/a.png', 'https://user:pass@example.test/a.png', 'data:image/png;base64,abc', 'javascript:alert(1)', 'not a url', '', null]) {
     assert.equal(safeConsoleAvatarUrl(value), null);
   }

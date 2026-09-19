@@ -37,6 +37,7 @@ const PUBLIC_AGENTS_PATH = '/multipass/agents';
 const MULTIPASS_CONSOLE_PATH = '/multipass/console';
 const MULTIPASS_RUNTIME_PATH = '/multipass/runtime';
 const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = `multipass.console.${'agentNameOverrides'}`;
+const CONSOLE_HIDDEN_MESSAGES_STORAGE_KEY = 'multipass.console.hiddenMessages.v1';
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
@@ -817,17 +818,22 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         result = await sendMessage();
       }
       if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+      const visibleMessages = filterConsoleHiddenMessages(
+        result.thread?.messages,
+        state.consoleAuthenticatedWallet,
+        activeConsoleAgent.tokenId,
+      );
       state = {
         ...state,
         consoleScrollRequest: Number(state.consoleScrollRequest ?? 0) + 1,
         consoleAgentThread: {
-          status: 'received',
+          status: visibleMessages.length ? 'received' : 'idle',
           error: null,
           errorKind: null,
           retryAvailable: false,
           operationStatus: null,
           draft: '',
-          messages: result.thread?.messages ?? [],
+          messages: visibleMessages,
           proposals: result.proposals ?? [],
           ...(Array.isArray(result.memory?.saved) ? { savedMemory: result.memory.saved } : {}),
           ...(Array.isArray(result.memory?.recalled) ? { recalledMemory: result.memory.recalled } : {}),
@@ -841,7 +847,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           sessionReset: false,
           memoryProvider: result.memory?.provider ?? null,
           transport: result.thread?.transport ?? 'unavailable',
-          inferenceProvider: result.thread?.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
+          inferenceProvider: visibleMessages.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
           executionMode: result.executionMode ?? result.execution_mode ?? null,
         },
       };
@@ -1144,13 +1150,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const activated = await activateConsoleAgentRuntime(normalizedTokenId, agent?.name ?? `Looper #${normalizedTokenId}`);
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
       if (activated?.thread) {
+        const visibleMessages = filterConsoleHiddenMessages(
+          activated.thread.messages,
+          state.consoleAuthenticatedWallet,
+          normalizedTokenId,
+        );
         state = {
           ...state,
           consoleAgentThread: {
             ...createInitialConsoleAgentThreadState(),
-            status: activated.thread.messages?.length ? 'received' : 'idle',
+            status: visibleMessages.length ? 'received' : 'idle',
             operationStatus: null,
-            messages: activated.thread.messages ?? [],
+            messages: visibleMessages,
             proposals: activated.proposals ?? [],
             ...(Array.isArray(activated.memory?.saved) ? { savedMemory: activated.memory.saved } : {}),
             ...(Array.isArray(activated.memory?.recalled) ? { recalledMemory: activated.memory.recalled } : {}),
@@ -1160,7 +1171,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
             conversationId: activated.thread.conversationId ?? null,
             memoryProvider: activated.memory?.provider ?? null,
             transport: activated.thread.transport ?? 'unavailable',
-            inferenceProvider: activated.thread.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
+            inferenceProvider: visibleMessages.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
             executionMode: activated.executionMode ?? activated.execution_mode ?? null,
           },
         };
@@ -1216,6 +1227,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function resetConsoleSession() {
     const walletSnapshot = activeWalletClient.getSnapshot();
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
+    hideConsoleMessagesLocally(
+      currentThread.messages,
+      state.consoleAuthenticatedWallet ?? walletSnapshot.address,
+      state.consoleSelectedAgentId,
+    );
     const roomParticipants = currentThread.participants?.length ? currentThread.participants : getConsoleRoomParticipants(state);
     const roomName = String(currentThread.roomName ?? '').trim() || createConsoleRoomName(roomParticipants);
     state = {
@@ -2460,6 +2476,58 @@ function persistConsoleAgentNameOverrides(overrides = {}) {
   } else {
     window.localStorage.removeItem(CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY);
   }
+}
+
+function getConsoleHiddenMessageStorageId(wallet, tokenId) {
+  const normalizedWallet = normalizeConsoleWallet(wallet);
+  const normalizedTokenId = String(tokenId ?? '').trim();
+  return normalizedWallet && normalizedTokenId ? `${normalizedWallet}:${normalizedTokenId}` : null;
+}
+
+function loadConsoleHiddenMessages() {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CONSOLE_HIDDEN_MESSAGES_STORAGE_KEY) ?? '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed)
+      .map(([key, ids]) => [key, Array.isArray(ids) ? ids.map(String).filter(Boolean).slice(-600) : []])
+      .filter(([, ids]) => ids.length));
+  } catch {
+    return {};
+  }
+}
+
+function persistConsoleHiddenMessages(hiddenMessages = {}) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    if (Object.keys(hiddenMessages).length) {
+      window.localStorage.setItem(CONSOLE_HIDDEN_MESSAGES_STORAGE_KEY, JSON.stringify(hiddenMessages));
+    } else {
+      window.localStorage.removeItem(CONSOLE_HIDDEN_MESSAGES_STORAGE_KEY);
+    }
+  } catch {
+    // Local hiding is best-effort when browser storage is unavailable.
+  }
+}
+
+function hideConsoleMessagesLocally(messages = [], wallet = null, tokenId = null) {
+  const storageId = getConsoleHiddenMessageStorageId(wallet, tokenId);
+  if (!storageId) return;
+  const identities = (Array.isArray(messages) ? messages : [])
+    .map(getConsoleMessageIdentity)
+    .filter(Boolean);
+  if (!identities.length) return;
+  const hiddenMessages = loadConsoleHiddenMessages();
+  hiddenMessages[storageId] = [...new Set([...(hiddenMessages[storageId] ?? []), ...identities])].slice(-600);
+  persistConsoleHiddenMessages(hiddenMessages);
+}
+
+function filterConsoleHiddenMessages(messages = [], wallet = null, tokenId = null) {
+  const list = Array.isArray(messages) ? messages.filter(Boolean) : [];
+  const storageId = getConsoleHiddenMessageStorageId(wallet, tokenId);
+  if (!storageId) return list;
+  const hidden = new Set(loadConsoleHiddenMessages()[storageId] ?? []);
+  return hidden.size ? list.filter((message) => !hidden.has(getConsoleMessageIdentity(message))) : list;
 }
 
 const defaultLooperMintClient = {
