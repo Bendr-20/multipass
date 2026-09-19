@@ -2106,6 +2106,66 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.equal(root.querySelector('.console-proposal-list'), null);
 });
 
+test('dedicated Console verifies XMTP registration before the first live room send', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const order = [];
+  const wallet = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({
+    snapshot: { connected: true, address: wallet, label: '0x27E3...91Ea' },
+  });
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    claimApi: {
+      activateConsoleAgent: async () => ({
+        thread: {
+          transport: 'xmtp_group',
+          conversationId: null,
+          participants: [{ tokenId: '617', displayName: 'Looper #617' }],
+          messages: [],
+        },
+        memory: { provider: 'sibyl_memory', recalled: [] },
+        proposals: [],
+        executionMode: 'review_only',
+      }),
+      ensureXmtpWalletRegistration: async (input) => {
+        order.push('register');
+        assert.equal(input.wallet, wallet);
+        assert.equal(typeof input.signMessage, 'function');
+        return { registered: true, created: false };
+      },
+      sendConsoleAgentMessage: async (input) => {
+        order.push('send');
+        return {
+          thread: {
+            transport: 'xmtp_group',
+            conversationId: 'conversation-617',
+            participants: [{ tokenId: '617', displayName: 'Looper #617' }],
+            messages: [
+              { role: 'human', text: input.message, transport: 'xmtp_group' },
+              { role: 'agent', text: 'Registered and delivered.', transport: 'xmtp_group', inferenceProvider: 'bankr_llm_gateway' },
+            ],
+          },
+          memory: { provider: 'sibyl_memory', saved: [], recalled: [] },
+          proposals: [],
+        };
+      },
+    },
+  }).start();
+  await flushAsyncEvents(30);
+
+  const form = root.querySelector('[data-action="send-console-agent-message"]');
+  form.querySelector('textarea[name="message"]').value = 'What can this Looper do?';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  assert.deepEqual(order, ['register', 'send']);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Registered and delivered/);
+});
+
 test('dedicated Console auto-selects and activates a sole freshly owned Looper', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const activations = [];
@@ -3114,6 +3174,7 @@ test('hamburger menu opens trusted Helixa and CRED links', async () => {
   assert.deepEqual(links, [
     { label: 'Multipass Home', href: '/multipass/' },
     { label: 'Multipass Console', href: '/multipass/console' },
+    { label: 'RUNTIME Submission', href: '/multipass/runtime' },
     { label: 'Register Agent', href: 'https://helixa.xyz/' },
     { label: 'Cred Exchange', href: 'https://cred.exchange/' },
     { label: '$CRED Token', href: 'https://bankr.bot/agents/helixa' },

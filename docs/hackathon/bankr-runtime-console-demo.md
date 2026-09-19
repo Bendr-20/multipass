@@ -71,17 +71,17 @@ V0 for this event is not a new app. It is a focused Console hardening pass:
 - [x] Verify positive Bankr LLM credits.
 - [x] Show Bankr runtime state in Multipass Console.
 - [x] Run a local live Bankr LLM Gateway smoke test through the Console adapter.
-- [ ] Decide whether to enable live Bankr inference for the event server.
-- [ ] Run a live Console message with Bankr gateway enabled in a safe environment.
-- [ ] Record fallback video of the Console flow.
-- [ ] Publish a short judge packet URL with thesis, repo, demo, and safety lines.
-- [ ] Prepare 30-second and 2-minute verbal pitches.
+- [x] Enable live Bankr inference behind the approved production flag.
+- [x] Run a holder-authenticated production Console message through Bankr, XMTP, and Sibyl.
+- [ ] Record and publish the final public demo video.
+- [x] Publish a short judge packet URL with thesis, repo, demo, and safety lines.
+- [x] Prepare 30-second and 2-minute verbal pitches.
 
 ## Sprint 2 XMTP Proof Status
 
-Deterministic injected-client tests now prove the complete secure flow: the signed holder session selects the canonical Looper; hostile wallet/agent/participant/conversation/transport fields are ignored; holder and runtime messages receive XMTP conversation/message IDs; a fresh signed Console session reopens the server-bound conversation and Sibyl history; unrelated wallets receive `403` before XMTP or memory access; and the inbound handler authorizes the conversation + sender, recalls Sibyl, runs inference, publishes the reply, persists the thread, and prevents own/duplicate loops. Fresh verification on 2026-09-17 UTC passed the focused suite (230/230), full workspace suite (753/753), and production web build.
+Deterministic injected-client tests prove the complete secure flow: the signed holder session selects the canonical Looper; caller-supplied wallet, agent, participant, conversation, and transport fields are ignored; a fresh signed Console session reopens the server-bound room and Sibyl history; unrelated wallets receive `403` before transport or memory access; and the inbound handler authorizes the room and sender, recalls Sibyl, runs inference, publishes the reply, persists the thread, and prevents own or duplicate loops.
 
-The live-only blocker is exact: this worktree has no approved production XMTP signer/database configuration, the production worker supervisor still needs to inject/share the API's canonical active-runtime registry and chain authorizer, and this sprint was not allowed to enable production services. No credential was requested, printed, or changed. See [Live XMTP Console Sprint 2](../loopers/live-xmtp-console-sprint-2.md).
+Production proof completed on 2026-09-18 UTC. A holder-signed activation for Looper #2431 / ERC-8004 agent #89144 returned `200`; a live message returned through `bankr_llm_gateway` over XMTP group transport with Sibyl memory and review-only execution. An unrelated signed wallet returned `403`, unauthenticated owned loading returned `401`, and the integrated service stayed clean. The 2026-09-19 submission build passed 764/764 workspace tests, and the owned-Looper index fix then passed its focused 11/11 safety suite plus a real onchain Looper #617 lookup.
 
 ## 30-Second Pitch
 

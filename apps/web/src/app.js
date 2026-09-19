@@ -19,6 +19,7 @@ import {
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
+import { renderRuntimeSubmission } from './runtime-submission.js';
 import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage, shortenAddress } from './wallet-client.js';
 import { getAbsoluteShareUrl, getSafeMultipassSharePath, isSafeMultipassSharePath, renderSavePanel } from './save-panel.js';
@@ -32,6 +33,7 @@ import { createAgentCarousel, createClaritySections, createFragmentTrustMap, cre
 const STATIC_SWARM_PROFILE_PATH = '/multipass/swarm/helixa';
 const PUBLIC_AGENTS_PATH = '/multipass/agents';
 const MULTIPASS_CONSOLE_PATH = '/multipass/console';
+const MULTIPASS_RUNTIME_PATH = '/multipass/runtime';
 const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = `multipass.console.${'agentNameOverrides'}`;
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
@@ -39,6 +41,7 @@ const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multi
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
   { label: 'Multipass Console', href: '/multipass/console' },
+  { label: 'RUNTIME Submission', href: '/multipass/runtime' },
   { label: 'Register Agent', href: 'https://helixa.xyz/' },
   { label: 'Cred Exchange', href: 'https://cred.exchange/' },
   { label: '$CRED Token', href: 'https://bankr.bot/agents/helixa' },
@@ -124,6 +127,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       }
       if (state.data) render(root, state, handlers);
     });
+    if (state.pageKind === 'runtime') {
+      state = { ...state, data: {}, staticData: {} };
+      render(root, state, handlers);
+      return;
+    }
     renderLoading(root);
     try {
       const data = await loadInitialDemo();
@@ -714,6 +722,24 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       await Promise.resolve();
       if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+      const ensureXmtpRegistration = claimApi.ensureXmtpWalletRegistration ?? defaultEnsureXmtpWalletRegistration;
+      const needsFirstRoomRegistration = state.consoleAgentThread?.transport === 'xmtp_group'
+        && !String(state.consoleAgentThread?.conversationId ?? '').trim();
+      if (needsFirstRoomRegistration) {
+        state = {
+          ...state,
+          consoleAgentThread: {
+            ...state.consoleAgentThread,
+            operationStatus: 'setting_up_xmtp',
+          },
+        };
+        render(root, state, handlers);
+        await ensureXmtpRegistration({
+          wallet: walletSnapshot.address,
+          signMessage: (messageToSign) => activeWalletClient.signMessage(messageToSign),
+        });
+        if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+      }
       state = {
         ...state,
         consoleAgentThread: {
@@ -744,7 +770,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           },
         };
         render(root, state, handlers);
-        await (claimApi.ensureXmtpWalletRegistration ?? defaultEnsureXmtpWalletRegistration)({
+        await ensureXmtpRegistration({
           wallet: walletSnapshot.address,
           signMessage: (messageToSign) => activeWalletClient.signMessage(messageToSign),
         });
@@ -1793,6 +1819,7 @@ function getInitialPageKind() {
   if (isLooperMintRoute(locationUrl)) return 'looper_mint';
   if (isLooperAllowlistRoute(locationUrl)) return 'looper_allowlist';
   if (isStaticSwarmProfileRoute(locationUrl)) return 'profile';
+  if (isMultipassRuntimeRoute(locationUrl)) return 'runtime';
   if (isMultipassConsoleRoute(locationUrl)) return 'console';
   if (isPublicAgentsRoute(locationUrl)) return 'agents';
   if (getSavedSlugFromLocation(locationUrl)) return 'profile';
@@ -1806,6 +1833,10 @@ function isPublicAgentsRoute(locationUrl) {
 
 function isMultipassConsoleRoute(locationUrl) {
   return locationUrl.pathname === MULTIPASS_CONSOLE_PATH || locationUrl.pathname === `${MULTIPASS_CONSOLE_PATH}/`;
+}
+
+function isMultipassRuntimeRoute(locationUrl) {
+  return locationUrl.pathname === MULTIPASS_RUNTIME_PATH || locationUrl.pathname === `${MULTIPASS_RUNTIME_PATH}/`;
 }
 
 function isLooperAllowlistRoute(locationUrl) {
@@ -2602,6 +2633,11 @@ function render(root, state, handlers = {}) {
     return;
   }
 
+  if (state.pageKind === 'runtime') {
+    renderRuntimeSubmissionPage(root, state, handlers);
+    return;
+  }
+
   if (state.pageKind === 'looper_allowlist') {
     renderLooperAllowlistPage(root, state, handlers);
     return;
@@ -2627,6 +2663,16 @@ function render(root, state, handlers = {}) {
 
 function updateDocumentMetadataForPage(state) {
   if (typeof document === 'undefined') return;
+  if (state.pageKind === 'runtime') {
+    document.title = 'Loopers Runtime Console | Bankr RUNTIME';
+    setDocumentMeta('name', 'description', 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.');
+    setDocumentMeta('property', 'og:url', 'https://helixa.xyz/multipass/runtime');
+    setDocumentMeta('property', 'og:title', 'Loopers Runtime Console | Bankr RUNTIME');
+    setDocumentMeta('property', 'og:description', 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.');
+    setDocumentMeta('name', 'twitter:title', 'Loopers Runtime Console | Bankr RUNTIME');
+    setDocumentMeta('name', 'twitter:description', 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.');
+    return;
+  }
   if (state.pageKind === 'console') {
     document.title = 'Multipass Console';
     setDocumentMeta('name', 'description', 'Persistent operating console for onchain agents.');
@@ -3307,6 +3353,17 @@ function renderMultipassConsolePage(root, state, handlers = {}) {
     <div class="record-shell multipass-console-shell">
       ${renderRecordHeader(null, { primaryAction: headerWalletAction })}
       ${renderMultipassConsole(snapshot)}
+    </div>
+  `;
+
+  bindProductHomeEvents(root, handlers, state);
+}
+
+function renderRuntimeSubmissionPage(root, state, handlers = {}) {
+  root.innerHTML = `
+    <div class="record-shell runtime-submission-shell">
+      ${renderRecordHeader('Bankr RUNTIME Submission')}
+      ${renderRuntimeSubmission()}
     </div>
   `;
 

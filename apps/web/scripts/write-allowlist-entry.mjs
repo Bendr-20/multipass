@@ -10,6 +10,7 @@ const outputPath = join(distRoot, 'allowlist', 'index.html');
 const mintOutputPath = join(distRoot, 'mint', 'index.html');
 const pauseOutputPath = join(distRoot, 'pause-mint', 'index.html');
 const consoleOutputPath = join(distRoot, 'console', 'index.html');
+const runtimeOutputPath = join(distRoot, 'runtime', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
 const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
@@ -62,3 +63,15 @@ await writeFile(consoleOutputPath, html
   .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/console" />')
   .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Multipass Console" />')
   .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, '<meta name="twitter:description" content="Persistent operating console for onchain agents." />'));
+
+const runtimeTitle = 'Loopers Runtime Console | Bankr RUNTIME';
+const runtimeDescription = 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.';
+await mkdir(dirname(runtimeOutputPath), { recursive: true });
+await writeFile(runtimeOutputPath, html
+  .replace(/<title>[\s\S]*?<\/title>/u, `<title>${runtimeTitle}</title>`)
+  .replace(/<meta name="description" content="[^"]*" \/>/u, `<meta name="description" content="${runtimeDescription}" />`)
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, `<meta property="og:title" content="${runtimeTitle}" />`)
+  .replace(/<meta property="og:description" content="[^"]*" \/>/u, `<meta property="og:description" content="${runtimeDescription}" />`)
+  .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/runtime" />')
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, `<meta name="twitter:title" content="${runtimeTitle}" />`)
+  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, `<meta name="twitter:description" content="${runtimeDescription}" />`));

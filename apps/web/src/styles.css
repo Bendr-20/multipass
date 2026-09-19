@@ -8700,3 +8700,201 @@ h1 {
   gap: 0.75rem;
   flex-wrap: wrap;
 }
+
+.runtime-submission-shell {
+  width: min(1180px, calc(100% - 32px));
+}
+
+.runtime-submission {
+  display: grid;
+  gap: 1rem;
+}
+
+.runtime-submission-hero,
+.runtime-submission-proof,
+.runtime-submission-architecture,
+.runtime-submission-panel,
+.runtime-submission-cta {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 7px 7px 0 var(--ink);
+}
+
+.runtime-submission-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.34fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  padding: clamp(1.5rem, 5vw, 4rem);
+  background: linear-gradient(130deg, rgba(54, 95, 125, 0.13), transparent 54%), var(--paper);
+}
+
+.runtime-submission-hero h1 {
+  max-width: 14ch;
+  margin: 0.55rem 0 1rem;
+  font-size: clamp(2.5rem, 6vw, 5.7rem);
+  line-height: 0.94;
+  letter-spacing: -0.065em;
+}
+
+.runtime-submission-lead {
+  max-width: 740px;
+  margin: 0;
+  color: var(--charcoal);
+  font-size: clamp(1.05rem, 2vw, 1.4rem);
+  line-height: 1.55;
+}
+
+.runtime-submission-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.6rem;
+}
+
+.runtime-submission-identity {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 1.35rem;
+}
+
+.runtime-submission-identity span,
+.runtime-submission-identity small,
+.runtime-submission-identity em {
+  font: 800 0.72rem/1.4 "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.runtime-submission-identity strong {
+  font-size: 1.6rem;
+  line-height: 1.05;
+}
+
+.runtime-submission-identity small,
+.runtime-submission-identity em {
+  color: #c9d2ce;
+  font-style: normal;
+}
+
+.runtime-submission-proof,
+.runtime-submission-architecture,
+.runtime-submission-panel,
+.runtime-submission-cta {
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+
+.runtime-submission-proof h2,
+.runtime-submission-architecture h2,
+.runtime-submission-panel h2,
+.runtime-submission-cta h2 {
+  margin: 0.35rem 0 1rem;
+  font-size: clamp(1.65rem, 3vw, 2.65rem);
+  letter-spacing: -0.04em;
+}
+
+.runtime-proof-grid,
+.runtime-architecture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+}
+
+.runtime-proof-card,
+.runtime-architecture-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  padding: 1rem;
+}
+
+.runtime-proof-card span,
+.runtime-architecture-card > span {
+  color: var(--green);
+  font: 900 0.68rem/1.4 "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.runtime-proof-card h3,
+.runtime-architecture-card h3 {
+  margin: 0.55rem 0;
+  font-size: 1.1rem;
+}
+
+.runtime-proof-card p,
+.runtime-architecture-card p,
+.runtime-submission-panel li,
+.runtime-submission-cta p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.runtime-submission-story-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.runtime-submission-panel ol,
+.runtime-submission-panel ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.runtime-safety-panel {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.runtime-safety-panel .eyebrow,
+.runtime-safety-panel li {
+  color: #d9dedb;
+}
+
+.runtime-submission-cta {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.runtime-submission-cta p {
+  max-width: 740px;
+}
+
+@media (max-width: 760px) {
+  .runtime-submission-shell {
+    width: min(100% - 18px, 1180px);
+    padding-top: 16px;
+  }
+
+  .runtime-submission-hero,
+  .runtime-submission-story-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-submission-hero {
+    gap: 1.25rem;
+    padding: 1.2rem;
+  }
+
+  .runtime-submission-hero h1 {
+    font-size: clamp(2.4rem, 14vw, 4rem);
+  }
+
+  .runtime-submission-cta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtime-submission-cta .homepage-action {
+    justify-content: center;
+  }
+}

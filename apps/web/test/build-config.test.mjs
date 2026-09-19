@@ -47,6 +47,12 @@ test('web build emits a static Console route entry', () => {
   assert.match(allowlistEntryScript, /Persistent operating console for onchain agents\./);
 });
 
+test('web build emits a static Bankr RUNTIME submission route entry', () => {
+  assert.match(allowlistEntryScript, /join\(distRoot, 'runtime', 'index\.html'\)/);
+  assert.match(allowlistEntryScript, /Loopers Runtime Console \| Bankr RUNTIME/);
+  assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/multipass\/runtime/);
+});
+
 test('Privy wallet modal uses the deployed Multipass logo asset', () => {
   assert.match(mainSource, /logo:\s*'https:\/\/helixa\.xyz\/multipass\/helixa-logo\.png'/);
   assert.doesNotMatch(mainSource, /https:\/\/helixa\.xyz\/helixa-logo\.jpg/);
