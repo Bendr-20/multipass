@@ -9030,6 +9030,12 @@ h1 {
   color: rgba(244, 239, 231, 0.72);
 }
 
+.console-identity-card-compact .console-card-head span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 @media (max-width: 560px) {
   .console-thread-messages {
     height: clamp(220px, 46dvh, 420px);

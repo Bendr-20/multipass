@@ -1002,6 +1002,8 @@ function normalizeAddress(value) {
 }
 
 function initialsForLabel(value) {
+  const normalized = String(value ?? '').trim();
+  if (/^0x[0-9a-f]+$/iu.test(normalized)) return '0X';
   const parts = String(value ?? '')
     .trim()
     .split(/\s+/)

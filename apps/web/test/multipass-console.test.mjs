@@ -620,3 +620,18 @@ test('Console decorates messages from current roles and rejects stale or unsafe 
   assert.equal(agentAvatar?.querySelector('img')?.getAttribute('src'), 'https://example.test/looper.png');
   assert.ok(agentAvatar?.querySelector('.console-thread-avatar-fallback'));
 });
+
+test('Console uses deterministic wallet initials when no ENS avatar exists', () => {
+  const [agent] = sampleAgents();
+  const wallet = '0x1234567890abcdef1234567890abcdef12345678';
+  const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: wallet },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1',
+      consoleAgentThread: { messages: [{ role: 'human', text: 'Hello' }] },
+    },
+  })));
+  assert.equal(root.querySelector('.console-thread-message.human .console-thread-avatar-fallback')?.textContent, '0X');
+});
