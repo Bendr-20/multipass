@@ -312,28 +312,41 @@ Expected: backup `index.html` exists and the exact path is retained for rollback
 set -euo pipefail
 backup=$(cat /tmp/multipass-console-polish-backup-path)
 live=/var/www/helixa.xyz/multipass
-rollback() { rsync -a --delete "$backup/" "$live/"; }
+stamp=$(date -u +%s)
+rollback() {
+  rsync -a --delete "$backup/" "$live/"
+  cmp "$backup/index.html" "$live/index.html"
+}
+deploy_complete=0
+on_failure() {
+  rc=$?
+  if [ "$deploy_complete" -ne 1 ]; then rollback || true; fi
+  exit "$rc"
+}
+trap on_failure ERR INT TERM
 rsync -a --delete apps/web/dist/ "$live/"
-if ! curl -fsS --retry 3 --retry-delay 1 -o /tmp/live-console.html https://helixa.xyz/multipass/console; then
-  rollback
-  exit 1
-fi
+cmp apps/web/dist/index.html "$live/index.html"
+curl -fsS --retry 3 --retry-delay 1 -o /tmp/live-console.html "https://helixa.xyz/multipass/console?v=$stamp"
 main_js=$(grep -o 'assets/index-[^" ]*\.js' /tmp/live-console.html | head -1)
 main_css=$(grep -o 'assets/index-[^" ]*\.css' /tmp/live-console.html | head -1)
-if [ -z "$main_js" ] || [ -z "$main_css" ] \
-  || ! curl -fsSI "https://helixa.xyz/multipass/$main_js" | grep -q ' 200 ' \
-  || ! curl -fsSI "https://helixa.xyz/multipass/$main_css" | grep -q ' 200 '; then
-  rollback
-  exit 1
-fi
+test -n "$main_js"
+test -n "$main_css"
+for asset in "$main_js" "$main_css"; do
+  test -s "apps/web/dist/$asset"
+  cmp "apps/web/dist/$asset" "$live/$asset"
+  curl -fsS -o "/tmp/$(basename "$asset")" "https://helixa.xyz/multipass/$asset?v=$stamp"
+  test "$(sha256sum "apps/web/dist/$asset" | awk '{print $1}')" = "$(sha256sum "/tmp/$(basename "$asset")" | awk '{print $1}')"
+done
+deploy_complete=1
+trap - ERR INT TERM
 printf 'backup=%s\njs=%s\ncss=%s\n' "$backup" "$main_js" "$main_css"
 ```
 
-Expected: Console, hashed JS, and hashed CSS all return 200. Any failure restores the backup before exiting. This static-only deployment does not restart services or alter API/nginx configuration.
+Expected: deployed files byte-match the build, cache-busted public JS/CSS hashes match the build, and any failure/interruption restores and verifies the backup before exiting. This static-only deployment does not restart services or alter API/nginx configuration.
 
 - [ ] **Step 3: Repeat the desktop/mobile live visual smoke**
 
-Use 1280×720 and 390×844. If either smoke finds broken layout, unreadable text, broken avatars, missing composer, or horizontal overflow, run `rsync -a --delete "$backup/" /var/www/helixa.xyz/multipass/` before fixing source.
+Reload `backup=$(cat /tmp/multipass-console-polish-backup-path)`, then use 1280×720 and 390×844. If either smoke finds broken layout, unreadable text, broken avatars, missing composer, or horizontal overflow, run `rsync -a --delete "$backup/" /var/www/helixa.xyz/multipass/ && cmp "$backup/index.html" /var/www/helixa.xyz/multipass/index.html` before fixing source.
 
 - [ ] **Step 4: Commit any final verified source changes**
 
@@ -350,13 +363,32 @@ Create a mode-700 temporary helper that reads the authenticated GitHub URL from 
 
 ```bash
 set -euo pipefail
+helper=$(mktemp /tmp/multipass-askpass.XXXXXX)
+trap 'rm -f "$helper"' EXIT
+cat > "$helper" <<'PY'
+#!/usr/bin/env python3
+import configparser, sys
+from urllib.parse import unquote, urlsplit
+cfg = configparser.RawConfigParser()
+cfg.read('/home/ubuntu/helixa/.git/config')
+url = next((cfg.get(section, 'url') for section in cfg.sections()
+            if section.startswith('remote ') and cfg.has_option(section, 'url')
+            and urlsplit(cfg.get(section, 'url')).hostname == 'github.com'
+            and (urlsplit(cfg.get(section, 'url')).username or urlsplit(cfg.get(section, 'url')).password)), '')
+if not url: raise SystemExit(1)
+parts = urlsplit(url)
+username = unquote(parts.username or '')
+password = unquote(parts.password or '')
+prompt = ' '.join(sys.argv[1:]).lower()
+print((username if password else 'x-access-token') if 'username' in prompt else (password or username))
+PY
+chmod 700 "$helper"
 branch=submission/bankr-runtime-clean-2026-09-19
 GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0 git push --set-upstream https://github.com/Bendr-20/multipass.git "$branch"
 local_sha=$(git rev-parse HEAD)
 remote_sha=$(GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0 git ls-remote --heads https://github.com/Bendr-20/multipass.git "$branch" | awk '{print $1}')
 test -n "$remote_sha"
 test "$local_sha" = "$remote_sha"
-rm -f "$helper"
 printf 'local=%s\nremote=%s\n' "$local_sha" "$remote_sha"
 ```
 
