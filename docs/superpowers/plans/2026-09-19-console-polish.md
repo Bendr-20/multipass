@@ -201,8 +201,9 @@ git commit -m "feat: bind owner profile to Console session"
 Prove:
 - `.console-thread-messages` is the dedicated scroll viewport and the composer is its sibling;
 - first room open and successful local send request newest-message scrolling;
-- incoming messages scroll only when the prior viewport is within 48px of bottom;
-- unrelated rerenders and above-bottom readers restore the prior absolute `scrollTop`;
+- ordered message identity prefers `xmtpMessageId`, then `id`, then a deterministic role + sender + text + timestamp fallback;
+- incoming append exists only when the room key is unchanged and the prior ordered identity list is a strict prefix of the next list, and it scrolls only when the prior viewport is within 48px of bottom;
+- replacements, reorders, unrelated rerenders, and above-bottom readers restore the prior absolute `scrollTop`;
 - composer DOM value, focus, `selectionStart`, `selectionEnd`, and `selectionDirection` survive rerenders, while an unfocused composer stays unfocused;
 - image markup contains both image and deterministic initials fallback, rejects unsafe URLs, and the image error handler reveals initials without retrying.
 
@@ -216,7 +217,7 @@ Expected: new assertions FAIL.
 
 - [ ] **Step 3: Implement viewport and interaction restoration**
 
-Add a stable room/conversation key and message identity/count to the snapshot. Immediately before `root.innerHTML`, capture timeline `scrollTop`, `scrollHeight`, `clientHeight`, and the room key plus composer DOM value/focus/selection/direction. After render: reset to newest on room-key change or successful local send; for new incoming messages use `scrollHeight - scrollTop - clientHeight <= 48` to decide newest versus restoring prior absolute `scrollTop`; for unrelated same-room rerenders restore prior `scrollTop`. Restore the textarea value and selection and call `focus({ preventScroll: true })` only if it was previously active. Render avatar image and initials together; bind a one-shot `error` listener that removes/hides the failed image and reveals initials.
+Add a stable room/conversation key and ordered message identities where each key prefers `xmtpMessageId`, then `id`, then `role + senderLabel + text + createdAt/timestamp`. Immediately before `root.innerHTML`, capture that list, timeline `scrollTop`, `scrollHeight`, `clientHeight`, and the room key plus composer DOM value/focus/selection/direction. After render: reset to newest on room-key change or an explicit successful-local-send marker; classify incoming append only when the old identity list is a strict prefix of the new list, then use `scrollHeight - scrollTop - clientHeight <= 48` to decide newest versus restoring prior absolute `scrollTop`; replacements, reorders, and unrelated same-room rerenders restore prior `scrollTop`. Restore the textarea value and selection and call `focus({ preventScroll: true })` only if it was previously active. Render avatar image and initials together; bind a one-shot `error` listener that removes/hides the failed image and reveals initials.
 
 - [ ] **Step 4: Add responsive styles**
 
@@ -255,7 +256,7 @@ Expected: all pass.
 - [ ] **Step 2: Run the complete web test suite**
 
 ```bash
-pnpm --filter @multipass/web test
+pnpm --filter @helixa/multipass-web test
 ```
 
 Expected: all pass.
@@ -263,7 +264,7 @@ Expected: all pass.
 - [ ] **Step 3: Build production assets and inspect diffs**
 
 ```bash
-pnpm --filter @multipass/web build
+pnpm web:build
 git diff --check
 git status --short
 ```
@@ -286,19 +287,53 @@ Expected: no unresolved regression remains.
 ### Task 7: Deploy, smoke-test, and push
 
 **Files:**
-- Deploy built `apps/web/dist` through the repository's existing static deployment path
+- Deploy `apps/web/dist/` to `/var/www/helixa.xyz/multipass/`
+- Backup under `/home/ubuntu/backups/`
 
-- [ ] **Step 1: Create a reversible timestamped backup of the current live static Console**
+Quigley's current request explicitly approves this Console static deployment and GitHub branch push. It does not approve API/service configuration changes, service restarts, onchain writes, or unrelated publication.
 
-Expected: backup path is recorded outside the web root.
+- [ ] **Step 1: Create and verify a reversible timestamped backup**
 
-- [ ] **Step 2: Deploy the verified production build using the existing Multipass static deployment procedure**
+```bash
+set -euo pipefail
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+backup="/home/ubuntu/backups/multipass-web-pre-console-polish-$stamp"
+mkdir -p "$backup"
+rsync -a /var/www/helixa.xyz/multipass/ "$backup/"
+test -s "$backup/index.html"
+printf '%s\n' "$backup" > /tmp/multipass-console-polish-backup-path
+```
 
-Do not replace unrelated API/service configuration.
+Expected: backup `index.html` exists and the exact path is retained for rollback.
 
-- [ ] **Step 3: Verify live assets and Console route**
+- [ ] **Step 2: Deploy with automatic rollback on failed live smoke**
 
-Check `/multipass/console` and its JS/CSS assets return 200, then repeat the desktop/mobile visual smoke for the live route.
+```bash
+set -euo pipefail
+backup=$(cat /tmp/multipass-console-polish-backup-path)
+live=/var/www/helixa.xyz/multipass
+rollback() { rsync -a --delete "$backup/" "$live/"; }
+rsync -a --delete apps/web/dist/ "$live/"
+if ! curl -fsS --retry 3 --retry-delay 1 -o /tmp/live-console.html https://helixa.xyz/multipass/console; then
+  rollback
+  exit 1
+fi
+main_js=$(grep -o 'assets/index-[^" ]*\.js' /tmp/live-console.html | head -1)
+main_css=$(grep -o 'assets/index-[^" ]*\.css' /tmp/live-console.html | head -1)
+if [ -z "$main_js" ] || [ -z "$main_css" ] \
+  || ! curl -fsSI "https://helixa.xyz/multipass/$main_js" | grep -q ' 200 ' \
+  || ! curl -fsSI "https://helixa.xyz/multipass/$main_css" | grep -q ' 200 '; then
+  rollback
+  exit 1
+fi
+printf 'backup=%s\njs=%s\ncss=%s\n' "$backup" "$main_js" "$main_css"
+```
+
+Expected: Console, hashed JS, and hashed CSS all return 200. Any failure restores the backup before exiting. This static-only deployment does not restart services or alter API/nginx configuration.
+
+- [ ] **Step 3: Repeat the desktop/mobile live visual smoke**
+
+Use 1280×720 and 390×844. If either smoke finds broken layout, unreadable text, broken avatars, missing composer, or horizontal overflow, run `rsync -a --delete "$backup/" /var/www/helixa.xyz/multipass/` before fixing source.
 
 - [ ] **Step 4: Commit any final verified source changes**
 
@@ -311,7 +346,21 @@ Skip this commit if all implementation work is already committed and the worktre
 
 - [ ] **Step 5: Push with the existing secret-safe Bendr-20 `GIT_ASKPASS` credential path**
 
-Push `submission/bankr-runtime-clean-2026-09-19`, then prove local HEAD equals the remote branch SHA without printing credentials.
+Create a mode-700 temporary helper that reads the authenticated GitHub URL from `/home/ubuntu/helixa/.git/config` at runtime and returns only the requested username or password to Git. Never print the source URL or credential. Then run:
+
+```bash
+set -euo pipefail
+branch=submission/bankr-runtime-clean-2026-09-19
+GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0 git push --set-upstream https://github.com/Bendr-20/multipass.git "$branch"
+local_sha=$(git rev-parse HEAD)
+remote_sha=$(GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0 git ls-remote --heads https://github.com/Bendr-20/multipass.git "$branch" | awk '{print $1}')
+test -n "$remote_sha"
+test "$local_sha" = "$remote_sha"
+rm -f "$helper"
+printf 'local=%s\nremote=%s\n' "$local_sha" "$remote_sha"
+```
+
+Expected: push succeeds and local/remote SHA match exactly.
 
 - [ ] **Step 6: Report concise evidence**
 
