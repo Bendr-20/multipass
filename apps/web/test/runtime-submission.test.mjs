@@ -59,6 +59,7 @@ test('public RUNTIME route explains the product without wallet or private API ac
   assert.match(packet.textContent, /Review-only/);
   assert.equal(packet.querySelector('form, input, textarea, [data-action="connect-console-wallet"]'), null);
   assert.equal(packet.querySelector('a[href="https://helixa.xyz/multipass/console"]')?.textContent.trim(), 'Open live Console');
+  assert.equal(packet.querySelector('a[href="https://helixa.xyz/multipass/runtime/loopers-runtime-console-demo.mp4"]')?.textContent.trim(), 'Watch visual demo');
   assert.equal(document.title, 'Loopers Runtime Console | Bankr RUNTIME');
   assert.equal(document.querySelector('meta[property="og:url"]')?.content, 'https://helixa.xyz/multipass/runtime');
 });

@@ -13,6 +13,7 @@ export const RUNTIME_SUBMISSION = Object.freeze({
   links: {
     console: 'https://helixa.xyz/multipass/console',
     packet: 'https://helixa.xyz/multipass/runtime',
+    video: 'https://helixa.xyz/multipass/runtime/loopers-runtime-console-demo.mp4',
     repository: 'https://github.com/Bendr-20/multipass',
   },
   proofs: [
@@ -65,7 +66,7 @@ export const RUNTIME_SUBMISSION = Object.freeze({
     { name: 'Judge packet', path: 'apps/web/src/runtime-submission.js', publicUrl: 'https://helixa.xyz/multipass/runtime', status: 'public' },
     { name: 'Live Console', path: 'apps/web/src/multipass-console.js', publicUrl: 'https://helixa.xyz/multipass/console', status: 'public' },
     { name: 'Technical proof', path: 'docs/hackathon/bankr-runtime-console-demo.md', publicUrl: 'https://github.com/Bendr-20/multipass/blob/submission/bankr-runtime-clean-2026-09-19/docs/hackathon/bankr-runtime-console-demo.md', status: 'public after push' },
-    { name: 'Demo video', path: 'external public video host', publicUrl: '', status: 'pending final capture' },
+    { name: 'Demo video', path: 'public visual fallback', publicUrl: 'https://helixa.xyz/multipass/runtime/loopers-runtime-console-demo.mp4', status: 'public visual fallback' },
   ],
 });
 

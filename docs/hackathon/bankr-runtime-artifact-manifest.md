@@ -11,7 +11,7 @@
 | Judge packet | `apps/web/src/runtime-submission.js` | public | https://helixa.xyz/multipass/runtime | `curl -I https://helixa.xyz/multipass/runtime` + route tests |
 | Live Console | `apps/web/src/multipass-console.js` | public | https://helixa.xyz/multipass/console | `curl -I https://helixa.xyz/multipass/console` + desktop/mobile browser smoke |
 | Technical proof | `docs/hackathon/bankr-runtime-console-demo.md` | public after push | https://github.com/Bendr-20/multipass/blob/submission/bankr-runtime-clean-2026-09-19/docs/hackathon/bankr-runtime-console-demo.md | Review against fresh test/build/live evidence |
-| Demo video | `external public video host` | pending final capture | Pending | Public unauthenticated playback before form submission |
+| Demo video | `public visual fallback` | public visual fallback | https://helixa.xyz/multipass/runtime/loopers-runtime-console-demo.mp4 | Public unauthenticated playback before form submission |
 
 ## Public proof summary
 

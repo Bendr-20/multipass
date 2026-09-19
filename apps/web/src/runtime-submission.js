@@ -10,6 +10,7 @@ export function renderRuntimeSubmission(data = RUNTIME_SUBMISSION) {
           <p class="runtime-submission-lead">${escapeHtml(data.summary)}</p>
           <div class="runtime-submission-actions">
             <a class="homepage-action primary" href="${escapeAttribute(data.links.console)}">Open live Console</a>
+            <a class="homepage-action" href="${escapeAttribute(data.links.video)}" target="_blank" rel="noopener noreferrer">Watch visual demo</a>
             <a class="homepage-action" href="${escapeAttribute(data.links.repository)}" target="_blank" rel="noopener noreferrer">View repository</a>
           </div>
         </div>

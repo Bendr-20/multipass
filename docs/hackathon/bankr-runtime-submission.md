@@ -12,7 +12,7 @@
 
 **Repository:** https://github.com/Bendr-20/multipass
 
-**Demo video:** Pending final public upload.
+**Demo video:** https://helixa.xyz/multipass/runtime/loopers-runtime-console-demo.mp4 (46-second silent visual fallback; replace with the narrated capture if it is ready before submission.)
 
 ## 100-word description
 
