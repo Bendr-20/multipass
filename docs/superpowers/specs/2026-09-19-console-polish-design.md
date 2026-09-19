@@ -20,7 +20,7 @@ The drawer must not invent proof. Existing evidence gates remain unchanged, and 
 ### Identity and sidebar copy
 
 - Rename every Console-facing `Console name` field and drawer label to `Agent name`.
-- Give Looper #614 a temporary Cred score of 65, matching Quigbot, only when the live record has no real Cred score. A real score always wins.
+- Give Looper #614 a temporary Cred score of 65, matching Quigbot, only when the live record has no real Cred score. Normalize both `credScore` and `credLabel` together so a stale `Cred pending` label cannot override the fallback. Any real numeric score and its label always win, and no other Looper receives this fallback.
 - Remove `review-only` wording from the identity Temper value/body and its default personality copy. Do not remove the separate runtime safety or execution proof boundary.
 - Replace `Authenticated user` or equivalent owner/operator labels with the resolved ENS name when available, otherwise the full connected owner wallet address.
 - Remove `Agent selection lives under My agents.` from Current room.
@@ -31,14 +31,16 @@ The drawer must not invent proof. Existing evidence gates remain unchanged, and 
 
 - Give the message timeline a bounded responsive height with its own vertical scroll instead of allowing every message to expand the full page.
 - Keep the room header, drawer, and composer outside the scrolling timeline so the input remains reachable.
-- On initial render and after a successful send, position the timeline at the newest message without stealing focus from the composer.
+- Position the timeline at the newest message only when a room first opens, after a successful send, or when a genuinely new message arrives. Do not force-scroll unrelated rerenders, and preserve a reader's position when they have intentionally scrolled away from the bottom.
+- Preserve composer focus, draft text, and textarea selection across full-root rerenders. Auto-scroll must never steal focus from the composer.
 - Preserve mobile page scrolling while confining long conversation history to the message viewport.
 - Agent messages use the selected Looper's canonical image URL.
 - Human messages use the connected owner's ENS avatar when resolvable.
 - Resolve ENS name and avatar on Ethereum mainnet after wallet connection without blocking authentication, roster loading, activation, or send.
-- If ENS lookup or image loading fails, fall back to the full wallet address for the label and deterministic initials for the avatar.
-- Normalize both existing and newly returned messages at render/snapshot time so prior messages receive the correct role-based avatar without rewriting persisted XMTP history.
-- Accept only safe HTTPS image URLs in rendered avatar fields.
+- Guard ENS lookups with the authenticated wallet and Console session generation. Discard a late result after disconnect, address change, or session reset, and clear the prior owner's public profile immediately at that boundary.
+- If ENS lookup fails, fall back to the full wallet address for the label and deterministic initials for the avatar.
+- Normalize both existing and newly returned messages at render/snapshot time so prior messages receive the current role-based avatar without rewriting persisted XMTP history; role-derived avatars override stale message avatar fields.
+- Accept only safe HTTPS image URLs in rendered avatar fields. If an actual image load fails, hide/remove the failed image and reveal the deterministic initials fallback without retry loops.
 
 ## Data flow
 
@@ -54,10 +56,12 @@ ENS failure is cosmetic and must never fail the Console session. No signing mate
 
 - Renderer tests prove the proof rail is a closed expandable drawer and that expansion contains only available Multipass facts and evidence.
 - Tests prove `Agent name` replaces `Console name` and both removed instructional sentences are absent.
-- Tests prove Looper #614 receives Cred 65 only when its real Cred value is missing.
+- Tests prove Looper #614 receives Cred 65 only when both its real score and usable label are missing/pending, that a real score wins, and that non-614 agents never receive the fallback.
 - Tests prove Temper omits `review-only` while the execution safety boundary remains elsewhere.
 - Tests prove owner display prefers ENS and falls back to the full wallet address.
-- Tests prove the message timeline uses a bounded scroll viewport, keeps the composer outside it, and exposes the newest message without breaking mobile page scrolling.
-- Tests prove agent and human messages receive Looper and ENS avatars, with safe fallbacks.
+- Tests prove the message timeline uses a bounded scroll viewport, keeps the composer outside it, scrolls on initial room open/post-send/new-message only, preserves an intentional reading position, and does not break mobile page scrolling.
+- Tests prove root rerenders preserve composer focus, draft, and textarea selection while newest-message scrolling does not steal focus.
+- Tests prove ENS results are discarded after wallet/session changes and cleared at wallet boundaries.
+- Tests prove agent and human messages receive Looper and ENS avatars, unsafe URL schemes are rejected, stale message avatars are overridden by role, and failed image loads reveal deterministic initials.
 - Run focused Console tests, the complete web test suite, production build, syntax checks, and `git diff --check`.
 - Inspect desktop and mobile Console screenshots for drawer density, contrast, avatar cropping, overflow, and composer reachability before deployment.
