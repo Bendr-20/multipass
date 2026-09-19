@@ -1,0 +1,29 @@
+[Unit]
+Description=Loopers OpenSea sales Telegram watcher
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/multipass
+Environment=HOME=/home/ubuntu
+UMask=0077
+EnvironmentFile=/home/ubuntu/.openclaw/workspace/agentdna/helixa-bot/.env
+Environment=LOOPERS_SALES_OPENSEA_CONFIG_PATH=/home/ubuntu/.config/opensea/config.json
+Environment=LOOPERS_SALES_COLLECTION_SLUG=loopers-639312714
+Environment=LOOPERS_SALES_CONTRACT=0x1649cd37f4748807b4882fc48765ba0b2affa94a
+Environment=LOOPERS_SALES_TELEGRAM_CHAT_ID=@theloopers
+Environment=LOOPERS_SALES_STATE_PATH=/var/lib/helixa/loopers-sales-seen.json
+Environment=LOOPERS_SALES_PREMIUM_MULTIPLIER=1.25
+Environment=LOOPERS_SALES_RECONCILE_INTERVAL_MS=30000
+Environment=LOOPERS_SALES_QUIET_MS=8000
+Environment=LOOPERS_SALES_HARD_DEADLINE_MS=30000
+ExecStart=/usr/bin/node apps/api/scripts/run-loopers-sales-bot.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

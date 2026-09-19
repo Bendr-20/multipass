@@ -16,6 +16,9 @@ importers:
       '@xmtp/node-sdk':
         specifier: 6.1.0
         version: 6.1.0
+      lossless-json:
+        specifier: ^4.3.1
+        version: 4.3.1
       viem:
         specifier: ^2.53.1
         version: 2.53.1(bufferutil@4.1.0)(utf-8-validate@6.0.3)(zod@4.4.3)
@@ -2182,6 +2185,9 @@ packages:
 
   lodash@4.18.1:
     resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
+
+  lossless-json@4.3.1:
+    resolution: {integrity: sha512-SqD/Bg3ZfltBJ2Z14hJ/BihnvtV553WO4g9/ePtlp4lrnl9jF3AdIJt53A/Wkg/0Li+LMfxaBqgx1MiFZdQlpQ==}
 
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
@@ -6855,6 +6861,8 @@ snapshots:
       p-locate: 4.1.0
 
   lodash@4.18.1: {}
+
+  lossless-json@4.3.1: {}
 
   lru-cache@10.4.3: {}
 
