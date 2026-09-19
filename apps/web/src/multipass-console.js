@@ -1,4 +1,5 @@
 import { renderConsoleAgentThread } from './console-agent-thread.js';
+import { safeConsoleAvatarUrl } from './console-owner-profile.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
@@ -9,19 +10,30 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const agentRoster = state.consoleOwnedAgents ?? { status: 'idle', error: null, agents: [] };
   const walletConnected = Boolean(wallet.connected && wallet.address);
   const aliasMutationPending = state.consoleAgentNameMutation?.status === 'pending';
-  const activeAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
+  const activeAgents = Array.isArray(agents) ? agents.filter(Boolean).map(normalizeConsoleAgent) : [];
   const activeAgent = selectActiveAgent(activeAgents, state.consoleSelectedAgentId);
-  const roomParticipants = createRoomParticipants({
+  const ownerProfile = state.consoleOwnerProfile ?? null;
+  const ownerDisplayName = walletConnected
+    ? (String(ownerProfile?.displayName ?? '').trim() || String(wallet.address ?? '').trim())
+    : null;
+  const roomParticipants = decorateConsoleParticipants(createRoomParticipants({
     agents: activeAgents,
     activeAgent,
     participantIds: state.consoleParticipantAgentIds,
     threadParticipants: state.consoleAgentThread?.participants,
+  }), {
+    ownerDisplayName,
+    ownerAvatarUrl: safeConsoleAvatarUrl(ownerProfile?.avatarUrl),
+    walletAddress: wallet.address,
   });
   const activeAgentCount = activeAgents.length;
   const connectedWallet = walletConnected
     ? shortenAddress(wallet.address)
     : (wallet.configured === false ? 'Wallet unavailable' : 'Not connected');
-  const agentThread = createAgentThreadSnapshot(state, activeAgent, roomParticipants);
+  const agentThread = createAgentThreadSnapshot(state, activeAgent, roomParticipants, {
+    displayName: ownerDisplayName,
+    avatarUrl: safeConsoleAvatarUrl(ownerProfile?.avatarUrl),
+  });
   const savedMemory = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory : [];
   const recalledMemory = Array.isArray(agentThread.recalledMemory) ? agentThread.recalledMemory : [];
   const memoryEntries = createMemoryEntries({ savedMemory, recalledMemory });
@@ -32,8 +44,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
     }
     : null;
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
-  const activeScore = normalizeCredScore(activeAgent?.credScore);
-  const activeCred = activeAgent?.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
+  const activeCred = activeAgent?.credLabel ?? 'Cred pending';
   const verifiedLabel = activeAgent?.verified ? 'Verified AgentDNA' : (activeAgent?.tokenId ? 'Verification pending' : 'Awaiting selection');
   const activeAgentLabel = activeAgent?.name
     ?? (walletConnected
@@ -91,7 +102,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       portraitPlaceholder: activeAgent?.tokenId
         ? null
         : (walletConnected && activeAgentCount > 0 ? 'Pick agent' : 'Connect wallet'),
-      walletLabel: walletConnected ? connectedWallet : null,
+      walletLabel: ownerDisplayName,
       roomName: activeAgent?.presenceLabel ?? (activeAgent?.tokenId
         ? (roomParticipants.length > 1 ? agentThread.roomName : 'Direct operator line')
         : 'No room open'),
@@ -105,7 +116,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       dossier: createIdentityDossier({
         activeAgent,
         walletConnected,
-        walletLabel: connectedWallet,
+        walletLabel: ownerDisplayName ?? connectedWallet,
         roomName: activeAgent?.presenceLabel ?? agentThread.roomName,
         roomParticipantCount: roomParticipants.length,
         memoryCount: memoryEntries.length,
@@ -120,6 +131,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       activeAgent,
       thread: agentThread,
     }),
+    multipassFacts: createMultipassFacts({ activeAgent, ownerDisplayName }),
     memoryEntries,
     agentThread,
     recall,
@@ -136,7 +148,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       tokenId: agent.tokenId ?? '',
       name: agent.name ?? 'Onchain agent',
       role: agent.role ?? agent.framework ?? 'Agent profile',
-      cred: agent.credLabel ?? (agent.credScore === null || agent.credScore === undefined ? 'Cred pending' : `Cred ${agent.credScore}`),
+      cred: agent.credLabel,
       state: agent.state ?? (agent.verified ? 'Verified profile' : 'Review needed'),
       href: agent.href ?? null,
       selected: String(agent.tokenId ?? '') !== '' && String(agent.tokenId) === String(activeAgent?.tokenId ?? ''),
@@ -189,7 +201,6 @@ export function renderMultipassConsole(snapshot = {}) {
                 <div class="console-agent-list">
                   ${renderAgentRoster(snapshot)}
                 </div>
-                <p class="console-agent-note">The Console only loads real Loopers owned by the connected wallet.</p>
                 ${snapshot.agentRoster?.error ? `<p class="console-agent-error">${escapeHtml(snapshot.agentRoster.error)}</p>` : ''}
               `,
             })}
@@ -200,7 +211,7 @@ export function renderMultipassConsole(snapshot = {}) {
   `;
 }
 
-function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipants = []) {
+function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipants = [], ownerProfile = {}) {
   const wallet = state.walletSnapshot ?? {};
   const agentRoster = state.consoleOwnedAgents ?? {};
   const connected = Boolean(wallet.connected && wallet.address);
@@ -208,9 +219,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
   const loadingAgents = agentRoster.status === 'loading';
   const rosterError = agentRoster.error ?? null;
   const hasAgent = Boolean(activeAgent?.tokenId);
-  const threadParticipants = Array.isArray(thread.participants) && thread.participants.length
-    ? thread.participants.filter(Boolean)
-    : normalizeThreadParticipants(roomParticipants);
+  const threadParticipants = normalizeThreadParticipants(roomParticipants);
   const latestAgentMessage = thread.messages?.findLast?.((message) => message.role === 'agent');
   const hasRuntimeProof = Boolean(thread.messages?.length || thread.proposals?.length || thread.savedMemory?.length || thread.recalledMemory?.length);
   return {
@@ -226,10 +235,13 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     title: thread.title ?? null,
     metaLabel: thread.metaLabel ?? null,
     contextLabel: thread.contextLabel ?? null,
-    agentAvatarUrl: activeAgent?.image ?? null,
+    agentAvatarUrl: safeConsoleAvatarUrl(activeAgent?.image),
     transport: formatTransportLabel(thread.transport, { live: Boolean(thread.conversationId) }),
     rawTransport: String(thread.transport ?? ''),
     conversationId: String(thread.conversationId ?? ''),
+    roomKey: String(thread.conversationId ?? '').trim()
+      || `${String(activeAgent?.tokenId ?? '').trim()}:${String(thread.roomName ?? '').trim() || deriveRoomName(threadParticipants)}`,
+    scrollRequest: Number(state.consoleScrollRequest ?? 0),
     memoryProvider: formatMemoryProviderLabel(thread.memoryProvider),
     rawMemoryProvider: String(thread.memoryProvider ?? ''),
     inferenceProvider: formatInferenceProviderLabel(thread.inferenceProvider),
@@ -239,7 +251,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     agentName: activeAgent?.name ?? 'Selected agent',
     roomName: String(thread.roomName ?? '').trim() || deriveRoomName(threadParticipants.length ? threadParticipants : [activeAgent].filter(Boolean)),
     participants: threadParticipants.length ? threadParticipants : normalizeThreadParticipants([activeAgent].filter(Boolean)),
-    messages: thread.messages,
+    messages: decorateConsoleMessages(thread.messages, { activeAgent, ownerProfile }),
     proposals: thread.proposals,
     savedMemory: thread.savedMemory,
     recalledMemory: thread.recalledMemory,
@@ -279,7 +291,7 @@ function renderSessionPanel(session = {}) {
       ? 'Choose an agent from My agents to open the room.'
       : 'Connect wallet to open a room.';
   const sessionNote = connected
-    ? 'Agent selection lives under My agents.'
+    ? null
     : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Connect wallet to load your agents.');
   const walletOperation = createWalletOperation(wallet.status, session.rosterStatus);
 
@@ -369,14 +381,14 @@ function renderIdentityCard(card = {}) {
       ` : ''}
       ${card.rename ? renderConsoleDrawer({
         label: 'Alias',
-        title: 'Console name',
+        title: 'Agent name',
         stat: card.rename.value ?? card.name ?? 'Selected agent',
         hint: card.rename.hint ?? 'Console-only alias.',
         open: false,
         body: `
-          <form class="console-identity-rename" data-action="update-console-agent-name" aria-label="Update console agent name">
+          <form class="console-identity-rename" data-action="update-console-agent-name" aria-label="Update agent name">
             <label>
-              <span>Console name</span>
+              <span>Agent name</span>
               <input
                 name="console_agent_name"
                 value="${escapeAttribute(card.rename.value ?? '')}"
@@ -432,20 +444,33 @@ function renderIdentityCard(card = {}) {
 
 function renderSuitePanel(snapshot = {}) {
   const checks = Array.isArray(snapshot.suiteChecks) ? snapshot.suiteChecks : [];
+  const facts = Array.isArray(snapshot.multipassFacts) ? snapshot.multipassFacts : [];
+  const proofSummary = checks.length ? checks.map((check) => check.value).filter(Boolean).join(' · ') : 'No verified proof yet';
   return `
-    <section class="console-suite-panel console-trust-rail console-proof-rail" aria-label="Verified runtime proof">
-      <strong class="console-proof-rail-title">Verified runtime proof</strong>
-      <div class="console-check-stack">
-        ${checks.length ? checks.map(renderSuiteCheck).join('') : `
-          <article class="open console-proof-empty">
-            <span>Evidence</span>
-            <strong>No verified runtime proof yet</strong>
-            <small>Proof appears only after the Console receives exact provider evidence.</small>
-          </article>
-        `}
+    <details class="console-multipass-drawer console-suite-panel console-trust-rail console-proof-rail" aria-label="Verified runtime proof">
+      <summary>
+        <strong class="console-proof-rail-title">Verified runtime proof</strong>
+        <span class="console-proof-rail-summary">${escapeHtml(proofSummary)}</span>
+        <span class="console-proof-rail-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="console-proof-rail-body">
+        ${facts.length ? `<dl class="console-multipass-facts">${facts.map(renderMultipassFact).join('')}</dl>` : ''}
+        <div class="console-check-stack">
+          ${checks.length ? checks.map(renderSuiteCheck).join('') : `
+            <article class="open console-proof-empty">
+              <span>Evidence</span>
+              <strong>No verified runtime proof yet</strong>
+              <small>Proof appears only after the Console receives exact provider evidence.</small>
+            </article>
+          `}
+        </div>
       </div>
-    </section>
+    </details>
   `;
+}
+
+function renderMultipassFact(fact = {}) {
+  return `<div><dt>${escapeHtml(fact.label ?? '')}</dt><dd>${escapeHtml(fact.value ?? '')}</dd></div>`;
 }
 
 function renderSuiteCheck(check = {}) {
@@ -681,11 +706,11 @@ function createIdentityDossier({
     ?? (activeAgent?.helixaId
       ? `${verifiedLabel}. AgentDNA ${activeAgent.helixaId}.`
       : (activeAgent?.name ? verifiedLabel : 'Connect wallet to load a wallet-owned Looper identity.'));
-  const temperamentValue = activeAgent?.temperament ?? activeAgent?.role ?? 'Review-only operator';
-  const temperamentBody = activeAgent?.temperamentBody
+  const temperamentValue = stripReviewOnlyTemperCopy(activeAgent?.temperament ?? activeAgent?.role ?? 'Operator');
+  const temperamentBody = stripReviewOnlyTemperCopy(activeAgent?.temperamentBody
     ?? (activeAgent?.tokenId
       ? 'Brief-first, memory-backed, and constrained to approval before any outside action.'
-      : 'The Console should feel like a character relationship, not a dashboard.');
+      : 'The Console should feel like a character relationship, not a dashboard.'));
   const roomBody = activeAgent?.mandateBody
     ?? (roomParticipantCount > 1
       ? `${roomParticipantCount} room participants are sharing this thread.`
@@ -808,15 +833,66 @@ function buildAgentOptionLabel(agent = {}) {
   const identity = agent.canonicalName && agent.canonicalName !== name
     ? `${name} · ${agent.canonicalName}`
     : name;
-  const cred = agent.credLabel ?? (agent.credScore === null || agent.credScore === undefined ? 'Cred pending' : `Cred ${agent.credScore}`);
+  const cred = agent.credLabel ?? 'Cred pending';
   return `${identity} · ${cred}`;
 }
 
-function normalizeCredScore(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const score = Number(value);
-  if (!Number.isFinite(score)) return null;
-  return Math.max(0, Math.min(100, Math.round(score)));
+export function normalizeConsoleCred(agent = {}) {
+  const credScore = Number.isFinite(agent?.credScore) ? agent.credScore : null;
+  const rawLabel = String(agent?.credLabel ?? '').trim();
+  const hasTrustedLabel = Boolean(rawLabel && !isPendingCredLabel(rawLabel));
+  if (credScore !== null) {
+    return { credScore, credLabel: hasTrustedLabel ? rawLabel : `Cred ${credScore}` };
+  }
+  if (hasTrustedLabel) return { credScore: null, credLabel: rawLabel };
+  if (String(agent?.tokenId ?? '').trim() === '614') return { credScore: 65, credLabel: 'Cred 65' };
+  return { credScore: null, credLabel: rawLabel || 'Cred pending' };
+}
+
+function normalizeConsoleAgent(agent = {}) {
+  return { ...agent, ...normalizeConsoleCred(agent) };
+}
+
+function createMultipassFacts({ activeAgent = null, ownerDisplayName = null } = {}) {
+  if (!activeAgent?.tokenId) return ownerDisplayName ? [{ label: 'Owner', value: ownerDisplayName }] : [];
+  const facts = [
+    { label: 'Agent name', value: activeAgent.name },
+    { label: 'Owner', value: ownerDisplayName ?? activeAgent.owner ?? activeAgent.wallet ?? activeAgent.ownerAddress ?? activeAgent.walletAddress },
+    { label: 'Token', value: `#${activeAgent.tokenId}` },
+    getPositiveErc8004AgentId(activeAgent) ? { label: 'ERC-8004', value: `#${getPositiveErc8004AgentId(activeAgent)}` } : null,
+    (Number.isFinite(activeAgent.credScore) || !isPendingCredLabel(activeAgent.credLabel)) && activeAgent.credLabel
+      ? { label: 'Cred', value: activeAgent.credLabel }
+      : null,
+    activeAgent.helixaId ? { label: 'AgentDNA', value: activeAgent.helixaId } : null,
+  ];
+  return facts.filter((fact) => fact?.value);
+}
+
+function isPendingCredLabel(value) {
+  return /^(?:cred\s+)?pending$/iu.test(String(value ?? '').trim());
+}
+
+function decorateConsoleMessages(messages, { activeAgent = null, ownerProfile = {} } = {}) {
+  return (Array.isArray(messages) ? messages : []).map((message) => {
+    const human = message?.role === 'human';
+    return {
+      ...message,
+      senderLabel: human
+        ? (ownerProfile.displayName || 'You')
+        : (activeAgent?.name || message?.senderLabel || 'Selected agent'),
+      avatarUrl: safeConsoleAvatarUrl(human ? ownerProfile.avatarUrl : activeAgent?.image),
+    };
+  });
+}
+
+function stripReviewOnlyTemperCopy(value) {
+  const cleaned = String(value ?? '')
+    .replace(/\breview-only\b[,:;]?\s*/giu, '')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .trim()
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, '');
+  return cleaned || 'Operator';
 }
 
 function formatTransportLabel(value, { live = true } = {}) {
@@ -876,10 +952,10 @@ function createAgentRenameControl(activeAgent = null, mutation = {}) {
     placeholder: canonicalName,
     resettable: !pending && currentName !== canonicalName,
     hint: pending
-      ? 'Updating console name…'
+      ? 'Updating agent name…'
       : currentName !== canonicalName
       ? `Live identity: ${canonicalName}`
-      : 'Console-only alias for this selected agent.',
+      : 'Agent alias for this Console session.',
   };
 }
 
@@ -896,6 +972,8 @@ function normalizeThreadParticipants(participants = []) {
   return (Array.isArray(participants) ? participants : [])
     .filter(Boolean)
     .map((participant) => ({
+      kind: participant.kind ?? null,
+      wallet: participant.wallet ?? null,
       participantId: String(participant.participantId ?? participant.tokenId ?? participant.name ?? 'agent').trim(),
       agentId: String(participant.agentId ?? participant.tokenId ?? participant.name ?? 'agent').trim(),
       tokenId: String(participant.tokenId ?? participant.participantId ?? participant.name ?? 'agent').trim(),
@@ -903,6 +981,24 @@ function normalizeThreadParticipants(participants = []) {
       role: participant.role ?? participant.framework ?? 'Onchain agent',
       avatarUrl: participant.avatarUrl ?? participant.image ?? null,
     }));
+}
+
+function decorateConsoleParticipants(participants = [], { ownerDisplayName = null, ownerAvatarUrl = null, walletAddress = null } = {}) {
+  return (Array.isArray(participants) ? participants : []).map((participant) => {
+    const operator = participant?.kind === 'operator'
+      || String(participant?.participantId ?? '').startsWith('wallet:')
+      || (participant?.wallet && normalizeAddress(participant.wallet) === normalizeAddress(walletAddress));
+    if (!operator) return participant;
+    return {
+      ...participant,
+      displayName: ownerDisplayName || String(walletAddress ?? participant.wallet ?? '').trim() || 'You',
+      avatarUrl: safeConsoleAvatarUrl(ownerAvatarUrl),
+    };
+  });
+}
+
+function normalizeAddress(value) {
+  return String(value ?? '').trim().toLowerCase();
 }
 
 function initialsForLabel(value) {

@@ -8898,3 +8898,143 @@ h1 {
     justify-content: center;
   }
 }
+
+/* Console polish: compact proof drawer, readable sidebar, bounded timeline. */
+.console-proof-rail {
+  gap: 0;
+  padding: 0;
+}
+
+.console-proof-rail > summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.console-proof-rail > summary::-webkit-details-marker { display: none; }
+.console-proof-rail > summary::marker { content: ''; }
+
+.console-proof-rail-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-proof-rail-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid rgba(58, 29, 72, 0.52);
+  border-bottom: 1.5px solid rgba(58, 29, 72, 0.52);
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.console-proof-rail[open] .console-proof-rail-chevron { transform: rotate(225deg); }
+
+.console-proof-rail-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(58, 29, 72, 0.1);
+}
+
+.console-proof-rail .console-check-stack article {
+  min-height: 0;
+}
+
+.console-proof-rail .console-check-stack article::after {
+  display: none;
+}
+
+.console-multipass-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.console-multipass-facts div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(58, 29, 72, 0.1);
+  border-radius: 10px;
+  background: rgba(83, 28, 109, 0.035);
+}
+
+.console-multipass-facts dt,
+.console-multipass-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.console-multipass-facts dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-multipass-facts dd {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.console-thread-messages {
+  height: clamp(260px, 48vh, 560px);
+  min-height: 0;
+  max-height: 560px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+}
+
+.console-thread-avatar-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.console-thread-avatar-fallback[hidden] { display: none; }
+
+.console-basic-sidebar .console-sidebar-drawer-copy strong,
+.console-basic-sidebar .console-sidebar-drawer-stat,
+.console-basic-sidebar .console-session-status-grid dd,
+.console-basic-sidebar .console-agent-card strong,
+.console-basic-sidebar .console-agent-card-actions a,
+.console-basic-sidebar .console-agent-card-actions button {
+  color: #f8f3ec;
+}
+
+.console-basic-sidebar .console-sidebar-drawer-copy small,
+.console-basic-sidebar .console-sidebar-drawer-label,
+.console-basic-sidebar .console-session-status-grid dt,
+.console-basic-sidebar .console-session-note,
+.console-basic-sidebar .console-agent-card-copy span,
+.console-basic-sidebar .console-agent-card-meta span,
+.console-basic-sidebar .console-agent-note {
+  color: rgba(244, 239, 231, 0.72);
+}
+
+@media (max-width: 560px) {
+  .console-thread-messages {
+    height: clamp(220px, 46dvh, 420px);
+    min-height: 220px;
+    max-height: 420px;
+    overscroll-behavior-y: auto;
+  }
+}

@@ -1,3 +1,5 @@
+import { safeConsoleAvatarUrl } from './console-owner-profile.js';
+
 export function renderConsoleAgentThread(thread = {}) {
   const participants = Array.isArray(thread.participants) ? thread.participants.filter(Boolean) : [];
   const contextItems = Array.isArray(thread.contextItems) ? thread.contextItems.filter(Boolean).slice(0, 6) : [];
@@ -92,7 +94,7 @@ export function renderConsoleAgentThread(thread = {}) {
           ${thread.activationRetryAvailable ? `<button type="button" data-action="retry-console-agent-activation" ${thread.roomActivationDisabled ? 'disabled' : ''}>Retry room activation</button>` : ''}
         </div>
       ` : ''}
-      <div class="console-thread-messages">
+      <div class="console-thread-messages" data-console-room-key="${escapeAttribute(thread.roomKey ?? '')}" data-console-scroll-request="${escapeAttribute(thread.scrollRequest ?? 0)}">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>
       <form class="console-thread-composer" data-action="send-console-agent-message">
@@ -145,7 +147,7 @@ function renderThreadMessage(message = {}, agentName = 'Selected agent') {
     ? (String(message.senderLabel ?? '').trim() || 'You')
     : (String(message.senderLabel ?? '').trim() || agentName);
   return `
-    <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}">
+    <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}" data-console-message-identity="${escapeAttribute(getConsoleMessageIdentity(message))}">
       ${renderAvatar({
         label: role,
         imageUrl: message.avatarUrl ?? null,
@@ -196,11 +198,12 @@ function renderThreadActivity(activity = {}) {
 
 function renderParticipantPill(participant = {}) {
   const label = String(participant.displayName ?? participant.agentName ?? participant.participantId ?? 'Agent').trim() || 'Agent';
+  const imageUrl = safeConsoleAvatarUrl(participant.avatarUrl);
   return `
     <span class="console-thread-member-pill">
       <strong class="console-thread-member-avatar">
-        ${participant.avatarUrl
-          ? `<img src="${escapeAttribute(participant.avatarUrl)}" alt="" loading="lazy" />`
+        ${imageUrl
+          ? `<img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy" data-console-avatar-image><span class="console-thread-avatar-fallback" hidden>${escapeHtml(initialsForLabel(label))}</span>`
           : escapeHtml(initialsForLabel(label))}
       </strong>
       <span>${escapeHtml(label)}</span>
@@ -210,14 +213,17 @@ function renderParticipantPill(participant = {}) {
 
 function renderAvatar({ label = 'Agent', imageUrl = null, className = '' } = {}) {
   const classes = ['console-thread-avatar', className].filter(Boolean).join(' ');
-  if (imageUrl) {
+  const safeImageUrl = safeConsoleAvatarUrl(imageUrl);
+  const fallback = escapeHtml(initialsForLabel(label));
+  if (safeImageUrl) {
     return `
       <div class="${escapeAttribute(classes)}" aria-hidden="true">
-        <img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy">
+        <img src="${escapeAttribute(safeImageUrl)}" alt="" loading="lazy" data-console-avatar-image>
+        <span class="console-thread-avatar-fallback" hidden>${fallback}</span>
       </div>
     `;
   }
-  return `<div class="${escapeAttribute(classes)}" aria-hidden="true">${escapeHtml(initialsForLabel(label))}</div>`;
+  return `<div class="${escapeAttribute(classes)}" aria-hidden="true"><span class="console-thread-avatar-fallback">${fallback}</span></div>`;
 }
 
 function createTimeline({
@@ -410,6 +416,19 @@ function initialsForLabel(value) {
     .slice(0, 2);
   if (!parts.length) return 'AG';
   return parts.map((part) => part[0]?.toUpperCase() ?? '').join('') || 'AG';
+}
+
+export function getConsoleMessageIdentity(message = {}) {
+  const xmtpMessageId = String(message?.xmtpMessageId ?? '').trim();
+  if (xmtpMessageId) return `xmtp:${xmtpMessageId}`;
+  const id = String(message?.id ?? '').trim();
+  if (id) return `id:${id}`;
+  return `fallback:${[
+    message?.role,
+    message?.senderLabel ?? message?.sender,
+    message?.text,
+    message?.createdAt ?? message?.timestamp,
+  ].map((value) => String(value ?? '')).join('\u001f')}`;
 }
 
 function escapeHtml(value) {

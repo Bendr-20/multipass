@@ -19,6 +19,8 @@ import {
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
+import { getConsoleMessageIdentity } from './console-agent-thread.js';
+import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
 import { renderRuntimeSubmission } from './runtime-submission.js';
 import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage, shortenAddress } from './wallet-client.js';
@@ -48,7 +50,9 @@ const SITE_MENU_LINKS = [
   { label: 'Docs / API', href: 'https://api.helixa.xyz/' },
 ];
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient } = {}) {
+export { getConsoleMessageIdentity };
+
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -98,7 +102,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleWalletError: consoleMockState?.consoleWalletError ?? null,
     consoleCsrfToken: null,
     consoleAuthenticatedWallet: consoleMockState?.walletSnapshot?.address ?? null,
+    consoleOwnerProfile: null,
     consoleSessionGeneration: 0,
+    consoleScrollRequest: 0,
     consoleActivationRequestId: 0,
     consoleThreadGeneration: 0,
     consoleAgentNameMutation: { status: 'idle', requestId: 0, tokenId: null },
@@ -114,6 +120,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function start() {
     activeWalletClient.subscribe?.(() => {
       const walletSnapshot = activeWalletClient.getSnapshot();
+      if (state.pageKind === 'console' && state.consoleMockMode) return;
       if (state.pageKind === 'console' && !state.consoleMockMode && consoleWalletBoundaryChanged(state, walletSnapshot)) {
         state = clearConsoleSessionState(state, {
           walletSnapshot,
@@ -579,6 +586,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleWalletError: null,
       consoleCsrfToken: null,
       consoleAuthenticatedWallet: null,
+      consoleOwnerProfile: null,
       consoleSessionGeneration: sessionGeneration,
       consoleActivationRequestId: state.consoleActivationRequestId + 1,
       consoleAgentNameMutation: {
@@ -629,6 +637,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleWalletError: null,
         consoleCsrfToken: authenticated.csrfToken,
         consoleAuthenticatedWallet: authenticatingWallet,
+        consoleOwnerProfile: null,
         consoleOwnedAgents: {
           status: 'loading',
           error: null,
@@ -639,6 +648,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
+      void loadConsoleOwnerProfile(currentWallet.address, sessionGeneration, authenticatingWallet);
       await refreshConsoleOwnedAgents({ walletSnapshot: currentWallet, skipLoadingState: true, sessionGeneration });
     } catch (error) {
       if (state.consoleSessionGeneration !== sessionGeneration) return;
@@ -658,6 +668,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleWalletError: getSafeConsoleError(error, { phase: 'connect' }),
       };
       render(root, state, handlers);
+    }
+  }
+
+  async function loadConsoleOwnerProfile(address, sessionGeneration, authenticatedWallet) {
+    try {
+      const profile = await consoleOwnerProfileResolver(address);
+      const currentWallet = activeWalletClient.getSnapshot();
+      if (
+        state.consoleSessionGeneration !== sessionGeneration
+        || normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== authenticatedWallet
+        || !currentWallet.connected
+        || normalizeConsoleWallet(currentWallet.address) !== authenticatedWallet
+      ) return;
+      state = { ...state, consoleOwnerProfile: profile ?? null };
+      render(root, state, handlers);
+    } catch {
+      // ENS is cosmetic. The authenticated full address remains the owner label.
     }
   }
 
@@ -792,6 +819,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
       state = {
         ...state,
+        consoleScrollRequest: Number(state.consoleScrollRequest ?? 0) + 1,
         consoleAgentThread: {
           status: 'received',
           error: null,
@@ -2008,6 +2036,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleWalletError: error,
     consoleCsrfToken: null,
     consoleAuthenticatedWallet: null,
+    consoleOwnerProfile: null,
     consoleSessionGeneration: Number(state.consoleSessionGeneration ?? 0) + 1,
     consoleActivationRequestId: Number(state.consoleActivationRequestId ?? 0) + 1,
     consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
@@ -3349,7 +3378,82 @@ function renderProductHome(root, state, handlers = {}) {
   bindProductHomeEvents(root, handlers, state);
 }
 
+export function captureConsoleInteractionState(root) {
+  const timeline = root?.querySelector?.('.console-thread-messages') ?? null;
+  const composer = root?.querySelector?.('#console-agent-message') ?? null;
+  const documentRef = root?.ownerDocument ?? (typeof document === 'undefined' ? null : document);
+  return {
+    timeline: timeline ? {
+      present: true,
+      roomKey: String(timeline.dataset?.consoleRoomKey ?? ''),
+      scrollRequest: String(timeline.dataset?.consoleScrollRequest ?? '0'),
+      identities: [...timeline.querySelectorAll('[data-console-message-identity]')]
+        .map((entry) => String(entry.dataset?.consoleMessageIdentity ?? '')),
+      scrollTop: Number(timeline.scrollTop ?? 0),
+      scrollHeight: Number(timeline.scrollHeight ?? 0),
+      clientHeight: Number(timeline.clientHeight ?? 0),
+      nearBottom: Number(timeline.scrollHeight ?? 0) - Number(timeline.scrollTop ?? 0) - Number(timeline.clientHeight ?? 0) <= 48,
+    } : { present: false },
+    composer: composer ? {
+      present: true,
+      value: composer.value,
+      focused: documentRef?.activeElement === composer,
+      selectionStart: composer.selectionStart,
+      selectionEnd: composer.selectionEnd,
+      selectionDirection: composer.selectionDirection,
+    } : { present: false },
+  };
+}
+
+export function restoreConsoleInteractionState(root, previous = {}) {
+  const timeline = root?.querySelector?.('.console-thread-messages') ?? null;
+  let successfulLocalSend = false;
+  if (timeline) {
+    const prior = previous.timeline ?? { present: false };
+    const nextRoomKey = String(timeline.dataset?.consoleRoomKey ?? '');
+    const nextScrollRequest = String(timeline.dataset?.consoleScrollRequest ?? '0');
+    const nextIdentities = [...timeline.querySelectorAll('[data-console-message-identity]')]
+      .map((entry) => String(entry.dataset?.consoleMessageIdentity ?? ''));
+    const roomChanged = !prior.present || prior.roomKey !== nextRoomKey;
+    successfulLocalSend = prior.present && prior.scrollRequest !== nextScrollRequest;
+    const strictIncomingAppend = prior.present
+      && prior.roomKey === nextRoomKey
+      && prior.identities.length < nextIdentities.length
+      && prior.identities.every((identity, index) => identity === nextIdentities[index]);
+    if (roomChanged || successfulLocalSend || (strictIncomingAppend && prior.nearBottom)) {
+      timeline.scrollTop = timeline.scrollHeight;
+    } else if (prior.present) {
+      timeline.scrollTop = prior.scrollTop;
+    }
+  }
+
+  const priorComposer = previous.composer ?? { present: false };
+  const composer = root?.querySelector?.('#console-agent-message') ?? null;
+  if (!composer || !priorComposer.present || successfulLocalSend) return;
+  composer.value = priorComposer.value;
+  if (Number.isInteger(priorComposer.selectionStart) && Number.isInteger(priorComposer.selectionEnd)) {
+    const length = composer.value.length;
+    composer.setSelectionRange(
+      Math.min(priorComposer.selectionStart, length),
+      Math.min(priorComposer.selectionEnd, length),
+      priorComposer.selectionDirection ?? 'none',
+    );
+  }
+  if (priorComposer.focused) composer.focus({ preventScroll: true });
+}
+
+export function bindConsoleAvatarFallbacks(root) {
+  for (const image of root?.querySelectorAll?.('[data-console-avatar-image]') ?? []) {
+    image.addEventListener('error', () => {
+      const fallback = image.parentElement?.querySelector?.('.console-thread-avatar-fallback');
+      image.remove();
+      if (fallback) fallback.hidden = false;
+    }, { once: true });
+  }
+}
+
 function renderMultipassConsolePage(root, state, handlers = {}) {
+  const interactionState = captureConsoleInteractionState(root);
   const agents = getConsoleDisplayAgents(state);
   const snapshot = createMultipassConsoleSnapshot({ data: state.data, state, agents });
   const headerWalletAction = createConsoleHeaderWalletAction(state);
@@ -3361,6 +3465,8 @@ function renderMultipassConsolePage(root, state, handlers = {}) {
   `;
 
   bindProductHomeEvents(root, handlers, state);
+  bindConsoleAvatarFallbacks(root);
+  restoreConsoleInteractionState(root, interactionState);
 }
 
 function renderRuntimeSubmissionPage(root, state, handlers = {}) {

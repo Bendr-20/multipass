@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
-import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/multipass-console.js';
+import { createMultipassConsoleSnapshot, normalizeConsoleCred, renderMultipassConsole } from '../src/multipass-console.js';
 
 function sampleData() {
   return {
@@ -101,7 +101,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.ok(root.querySelector('.console-basic-shell'));
   assert.ok(root.querySelector('.console-wallet-panel'));
   assert.equal(root.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
-  assert.match(root.querySelector('.console-sidebar-drawer summary')?.textContent ?? '', /Console name|Identity profile|My agents|Current room/);
+  assert.match(root.querySelector('.console-sidebar-drawer summary')?.textContent ?? '', /Agent name|Identity profile|My agents|Current room/);
   assert.equal(root.querySelectorAll('.console-status-strip div').length, 0);
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.ok(root.querySelector('.console-trust-rail'));
@@ -109,7 +109,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   const proofRail = main?.querySelector(':scope > .console-proof-rail');
   assert.ok(proofRail);
   assert.equal(main?.firstElementChild, proofRail);
-  assert.equal(proofRail.closest('details'), null);
+  assert.equal(proofRail.tagName, 'DETAILS');
+  assert.equal(proofRail.open, false);
   assert.equal(main?.children[1]?.classList.contains('console-agent-thread-panel'), true);
   assert.ok(root.querySelector('.console-identity-card'));
   assert.equal(root.querySelector('[data-action="update-console-agent-name"]'), null);
@@ -139,7 +140,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.match(text, /Review-only/);
   assert.match(text, /recall/i);
   assert.match(text, /My agents/);
-  assert.match(text, /The Console only loads real Loopers owned by the connected wallet/);
+  assert.doesNotMatch(text, /The Console only loads real Loopers owned by the connected wallet/);
   assert.doesNotMatch(text, /Agent dossier|Agent Workspace/);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
   assert.doesNotMatch(text, /A quieter operator surface for wallet-owned agents|review proposals without the dashboard clutter/i);
@@ -296,7 +297,8 @@ test('Multipass Console proof rail renders above chat and only labels exact runt
   assert.match(rail.textContent, /Sibyl recalled 1/);
   assert.match(rail.textContent, /ERC-8004 #87069/);
   assert.match(rail.textContent, /Review-only/);
-  assert.equal(rail.closest('details'), null);
+  assert.equal(rail.tagName, 'DETAILS');
+  assert.equal(rail.open, false);
 });
 
 test('Multipass Console withholds proof labels for readiness strings and incomplete evidence', () => {
@@ -526,4 +528,95 @@ test('Multipass Console keeps participants and technical room context in closed 
   assert.match(details.textContent, /Bendr review room|XMTP room/i);
   assert.equal(header?.querySelector('.console-thread-members'), null);
   assert.equal(header?.querySelector('.console-thread-shell-meta'), null);
+});
+
+test('Console Cred normalization follows numeric label and Looper 614 precedence', () => {
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '1', credScore: 72.5, credLabel: 'Cred pending' }), { credScore: 72.5, credLabel: 'Cred 72.5' });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '1', credScore: null, credLabel: 'Trusted peer' }), { credScore: null, credLabel: 'Trusted peer' });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '614', credScore: null, credLabel: 'Cred pending' }), { credScore: 65, credLabel: 'Cred 65' });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: 614, credScore: undefined, credLabel: '' }), { credScore: 65, credLabel: 'Cred 65' });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '615', credScore: null, credLabel: 'Cred pending' }), { credScore: null, credLabel: 'Cred pending' });
+});
+
+test('Multipass drawer is closed by default and exposes only available public facts and evidence', () => {
+  const [agent] = sampleAgents();
+  agent.image = 'https://example.test/looper.png';
+  agent.erc8004AgentId = 87069;
+  agent.wallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnerProfile: { displayName: 'quigley.eth', avatarUrl: 'https://example.test/quigley.png' },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1',
+      consoleAgentThread: {
+        conversationId: 'conversation-1', transport: 'xmtp_group', inferenceProvider: 'bankr_llm_gateway',
+        messages: [{ role: 'agent', text: 'Ready.', inferenceProvider: 'bankr_llm_gateway' }],
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const drawer = root.querySelector('details.console-multipass-drawer');
+  assert.ok(drawer);
+  assert.equal(drawer.open, false);
+  assert.equal(root.querySelector('.console-basic-main')?.firstElementChild, drawer);
+  assert.match(drawer.querySelector('summary')?.textContent ?? '', /Verified runtime proof.*Bankr gateway.*XMTP live/s);
+  assert.match(drawer.textContent, /Agent name.*Bendr 2\.0/s);
+  assert.match(drawer.textContent, /Owner.*quigley\.eth/s);
+  assert.match(drawer.textContent, /Token.*#1/s);
+  assert.match(drawer.textContent, /ERC-8004.*#87069/s);
+  assert.match(drawer.textContent, /Cred.*Cred 80/s);
+  assert.doesNotMatch(drawer.textContent, /Sibyl/);
+});
+
+test('Console uses Agent name, removes instructions, and keeps safety outside Temper', () => {
+  const [agent] = sampleAgents();
+  agent.temperament = 'Blunt, spicy, review-only';
+  agent.temperamentBody = 'Review-only personality with sharp answers.';
+  const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1',
+    },
+  })));
+  const temper = [...root.querySelectorAll('.console-identity-dossier-entry')].find((entry) => /Temper/.test(entry.textContent));
+  assert.doesNotMatch(temper?.textContent ?? '', /review-only/i);
+  assert.match(root.querySelector('.console-thread-actions-note')?.textContent ?? '', /Nothing executes without your approval/i);
+  assert.match(root.textContent, /Agent name/);
+  assert.doesNotMatch(root.textContent, /Console name/);
+  assert.doesNotMatch(root.textContent, /Agent selection lives under My agents\.|The Console only loads real Loopers owned by the connected wallet\./);
+});
+
+test('Console decorates messages from current roles and rejects stale or unsafe avatars', () => {
+  const [agent] = sampleAgents();
+  agent.image = 'https://example.test/looper.png';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnerProfile: { displayName: 'quigley.eth', avatarUrl: 'https://example.test/quigley.png' },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1',
+      consoleAgentThread: { messages: [
+        { role: 'human', senderLabel: 'Stale holder', avatarUrl: 'javascript:alert(1)', text: 'Hello' },
+        { role: 'agent', senderLabel: 'Stale agent', avatarUrl: 'https://stale.test/a.png', text: 'Ready' },
+      ] },
+    },
+  });
+  assert.deepEqual(snapshot.agentThread.messages.map(({ senderLabel, avatarUrl }) => ({ senderLabel, avatarUrl })), [
+    { senderLabel: 'quigley.eth', avatarUrl: 'https://example.test/quigley.png' },
+    { senderLabel: 'Bendr 2.0', avatarUrl: 'https://example.test/looper.png' },
+  ]);
+
+  snapshot.agentThread.messages[0].avatarUrl = 'data:image/png;base64,bad';
+  const root = render(renderMultipassConsole(snapshot));
+  const humanAvatar = root.querySelector('.console-thread-message.human .console-thread-avatar');
+  assert.equal(humanAvatar?.querySelector('img'), null);
+  assert.match(humanAvatar?.textContent ?? '', /Q/);
+  const agentAvatar = root.querySelector('.console-thread-message.agent .console-thread-avatar');
+  assert.equal(agentAvatar?.querySelector('img')?.getAttribute('src'), 'https://example.test/looper.png');
+  assert.ok(agentAvatar?.querySelector('.console-thread-avatar-fallback'));
 });

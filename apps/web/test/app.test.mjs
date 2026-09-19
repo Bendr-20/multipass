@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { bindConsoleAvatarFallbacks, captureConsoleInteractionState, createApp, getConsoleMessageIdentity, restoreConsoleInteractionState } from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
@@ -1917,7 +1917,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /Cred/);
   assert.match(consolePage.textContent, /Mode/);
   assert.match(consolePage.textContent, /My agents/i);
-  assert.match(consolePage.textContent, /The Console only loads real Loopers owned by the connected wallet/i);
+  assert.doesNotMatch(consolePage.textContent, /The Console only loads real Loopers owned by the connected wallet/i);
   assert.match(consolePage.textContent, /No recalled memory yet/);
   assert.doesNotMatch(consolePage.textContent, /Agent dossier|Agent Workspace/);
   assert.equal(consolePage.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
@@ -6158,4 +6158,148 @@ test('failed route retire keeps route visible with old status', async () => {
   assert.match(root.querySelector('.public-route-card').textContent, /Review required/);
   assert.match(root.querySelector('.public-route-card').textContent, /Primary profile route/);
   assert.equal(root.querySelector('.fragment-manager-panel .resolver-message.error'), null);
+});
+
+test('Console owner profile resolution is non-blocking and late stale results are discarded', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const firstWallet = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: firstWallet, label: 'short label' } });
+  let resolveProfile;
+  const profilePromise = new Promise((resolve) => { resolveProfile = resolve; });
+  let lookups = 0;
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    consoleOwnerProfileResolver: async (address) => { lookups += 1; assert.equal(address, firstWallet); return profilePromise; },
+  }).start();
+  await flushAsyncEvents(20);
+
+  assert.equal(lookups, 1);
+  assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Looper #617/);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', new RegExp(firstWallet, 'i'));
+
+  walletClient.setSnapshot({ connected: false, address: null, label: null }, { notify: true });
+  await flushAsyncEvents();
+  resolveProfile({ address: firstWallet, displayName: 'stale.eth', ensName: 'stale.eth', avatarUrl: 'https://example.test/stale.png' });
+  await flushAsyncEvents();
+  assert.doesNotMatch(root.textContent, /stale\.eth/);
+});
+
+test('Console owner profile applies only to its matching authenticated wallet generation', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const wallet = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: wallet, label: 'short label' } });
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    consoleOwnerProfileResolver: async () => ({ address: wallet, displayName: 'quigley.eth', ensName: 'quigley.eth', avatarUrl: 'https://example.test/quigley.png' }),
+  }).start();
+  await flushAsyncEvents(20);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /quigley\.eth/);
+});
+
+test('Console interaction restoration uses strict-prefix 48px rules and preserves composer selection', () => {
+  const dom = new JSDOM(`<!doctype html><main>
+    <div class="console-thread-messages" data-console-room-key="room-1">
+      <article data-console-message-identity="a"></article><article data-console-message-identity="b"></article>
+    </div>
+    <textarea id="console-agent-message">draft from DOM</textarea>
+  </main>`, { pretendToBeVisual: true });
+  const root = dom.window.document.querySelector('main');
+  const timeline = root.querySelector('.console-thread-messages');
+  Object.defineProperties(timeline, {
+    scrollTop: { value: 352, writable: true, configurable: true },
+    scrollHeight: { value: 800, writable: true, configurable: true },
+    clientHeight: { value: 400, writable: true, configurable: true },
+  });
+  const textarea = root.querySelector('textarea');
+  textarea.focus();
+  textarea.setSelectionRange(3, 8, 'backward');
+  const captured = captureConsoleInteractionState(root);
+  assert.equal(captured.timeline.nearBottom, true);
+
+  root.innerHTML = `<div class="console-thread-messages" data-console-room-key="room-1">
+    <article data-console-message-identity="a"></article><article data-console-message-identity="b"></article><article data-console-message-identity="c"></article>
+  </div><textarea id="console-agent-message"></textarea>`;
+  const nextTimeline = root.querySelector('.console-thread-messages');
+  Object.defineProperties(nextTimeline, {
+    scrollTop: { value: 0, writable: true, configurable: true },
+    scrollHeight: { value: 950, writable: true, configurable: true },
+    clientHeight: { value: 400, writable: true, configurable: true },
+  });
+  restoreConsoleInteractionState(root, captured);
+  assert.equal(nextTimeline.scrollTop, 950);
+  assert.equal(root.querySelector('textarea').value, 'draft from DOM');
+  assert.equal(root.ownerDocument.activeElement, root.querySelector('textarea'));
+  assert.deepEqual([root.querySelector('textarea').selectionStart, root.querySelector('textarea').selectionEnd, root.querySelector('textarea').selectionDirection], [3, 8, 'backward']);
+
+  nextTimeline.scrollTop = 100;
+  const readingHistory = captureConsoleInteractionState(root);
+  root.innerHTML = `<div class="console-thread-messages" data-console-room-key="room-1">
+    <article data-console-message-identity="a"></article><article data-console-message-identity="b"></article><article data-console-message-identity="c"></article><article data-console-message-identity="d"></article>
+  </div><textarea id="console-agent-message"></textarea>`;
+  Object.defineProperties(root.querySelector('.console-thread-messages'), {
+    scrollTop: { value: 0, writable: true, configurable: true },
+    scrollHeight: { value: 1100, writable: true, configurable: true },
+    clientHeight: { value: 400, writable: true, configurable: true },
+  });
+  restoreConsoleInteractionState(root, readingHistory);
+  assert.equal(root.querySelector('.console-thread-messages').scrollTop, 100);
+});
+
+test('Console message identity prefers XMTP then id then deterministic fallback', () => {
+  assert.equal(getConsoleMessageIdentity({ xmtpMessageId: 'xmtp-1', id: 'id-1' }), 'xmtp:xmtp-1');
+  assert.equal(getConsoleMessageIdentity({ id: 'id-1' }), 'id:id-1');
+  assert.equal(
+    getConsoleMessageIdentity({ role: 'agent', senderLabel: 'Looper', text: 'hello', createdAt: '2026-09-19T00:00:00Z' }),
+    'fallback:agent\u001fLooper\u001fhello\u001f2026-09-19T00:00:00Z',
+  );
+});
+
+test('Console scroll restoration advances on room change and explicit local send but not replacement', () => {
+  const dom = new JSDOM('<!doctype html><main></main>', { pretendToBeVisual: true });
+  const root = dom.window.document.querySelector('main');
+  const renderTimeline = ({ room = 'one', request = '0', ids = ['a'], height = 900 } = {}) => {
+    root.innerHTML = `<div class="console-thread-messages" data-console-room-key="${room}" data-console-scroll-request="${request}">${ids.map((id) => `<i data-console-message-identity="${id}"></i>`).join('')}</div><textarea id="console-agent-message"></textarea>`;
+    Object.defineProperties(root.querySelector('.console-thread-messages'), {
+      scrollTop: { value: 0, writable: true, configurable: true },
+      scrollHeight: { value: height, writable: true, configurable: true },
+      clientHeight: { value: 400, writable: true, configurable: true },
+    });
+  };
+
+  renderTimeline();
+  restoreConsoleInteractionState(root, { timeline: { present: false }, composer: { present: false } });
+  assert.equal(root.querySelector('.console-thread-messages').scrollTop, 900);
+
+  root.querySelector('.console-thread-messages').scrollTop = 120;
+  const prior = captureConsoleInteractionState(root);
+  renderTimeline({ room: 'one', ids: ['changed'] });
+  restoreConsoleInteractionState(root, prior);
+  assert.equal(root.querySelector('.console-thread-messages').scrollTop, 120);
+
+  const beforeRoomChange = captureConsoleInteractionState(root);
+  renderTimeline({ room: 'two', ids: ['z'], height: 1000 });
+  restoreConsoleInteractionState(root, beforeRoomChange);
+  assert.equal(root.querySelector('.console-thread-messages').scrollTop, 1000);
+
+  root.querySelector('.console-thread-messages').scrollTop = 50;
+  const beforeSend = captureConsoleInteractionState(root);
+  renderTimeline({ room: 'two', request: '1', ids: ['z', 'sent'], height: 1100 });
+  restoreConsoleInteractionState(root, beforeSend);
+  assert.equal(root.querySelector('.console-thread-messages').scrollTop, 1100);
+});
+
+test('Console avatar image failure removes the image and reveals initials once', () => {
+  const dom = new JSDOM('<!doctype html><main><div><img data-console-avatar-image src="https://example.test/a.png"><span class="console-thread-avatar-fallback" hidden>Q</span></div></main>');
+  const root = dom.window.document.querySelector('main');
+  bindConsoleAvatarFallbacks(root);
+  const image = root.querySelector('img');
+  image.dispatchEvent(new dom.window.Event('error'));
+  assert.equal(root.querySelector('img'), null);
+  assert.equal(root.querySelector('.console-thread-avatar-fallback').hidden, false);
 });
