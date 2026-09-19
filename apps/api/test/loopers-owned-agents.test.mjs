@@ -8,7 +8,7 @@ const WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const OTHER_WALLET = '0x0000000000000000000000000000000000000001';
 const AUTH_COOKIE = { cookie: 'multipass_console=test-session' };
 
-function createOwnershipClient({ incomplete = false, owns617 = false } = {}) {
+function createOwnershipClient({ incomplete = false, owns617 = false, failedTokenId = null } = {}) {
   return {
     async readContract({ functionName, args = [] }) {
       if (functionName === 'balanceOf') return 1n;
@@ -20,8 +20,10 @@ function createOwnershipClient({ incomplete = false, owns617 = false } = {}) {
     },
     async multicall({ contracts }) {
       return contracts.map((contract, index) => {
-        if (incomplete && index === 0) return { status: 'failure', error: new Error('dropped') };
         const tokenId = contract.args[0];
+        if ((incomplete && index === 0) || tokenId === failedTokenId) {
+          return { status: 'failure', error: new Error('dropped') };
+        }
         return { status: 'success', result: tokenId === 617n && owns617 ? WALLET : OTHER_WALLET };
       });
     },
@@ -42,6 +44,47 @@ test('owned Looper scan falls back after an RPC drops a chunk and resolves the c
   assert.equal(agents[0].tokenId, '617');
   assert.equal(agents[0].erc8004AgentId, '87069');
   assert.equal(agents[0].controllerVerified, true);
+});
+
+test('owned Looper scan tolerates permanent ownerOf gaps when the balance is fully reconciled', async () => {
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClients: [createOwnershipClient({ owns617: true, failedTokenId: 616n })],
+    fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper loader uses the public holder index before the bounded ownerOf fallback', async () => {
+  let multicallCalls = 0;
+  const publicClient = {
+    async readContract({ functionName, args = [] }) {
+      if (functionName === 'balanceOf') return 1n;
+      if (functionName === 'totalMinted') return 7_440n;
+      if (functionName === 'ownerOf') return args[0] === 617n ? WALLET : OTHER_WALLET;
+      if (functionName === 'erc8004AgentIdByLooper') return args[0] === 617n ? 87069n : 0n;
+      if (functionName === 'isController') return args[0] === 87069n;
+      throw new Error(`unexpected read ${functionName}`);
+    },
+    async multicall() {
+      multicallCalls += 1;
+      throw new Error('full supply scan should not run');
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    fetchImpl: async (url) => String(url).includes('/instances?')
+      ? new Response(JSON.stringify({ items: [{ id: '617' }], next_page_params: null }))
+      : new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+
+  assert.equal(multicallCalls, 0);
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokenId, '617');
 });
 
 test('owned Looper scan refuses silent empty success when balance and scan disagree', async () => {

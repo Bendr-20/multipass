@@ -7,6 +7,7 @@ export const LOOPERS_MAINNET_CHAIN_ID = 8453;
 const DEFAULT_RPC_URLS = ['https://base.drpc.org', 'https://mainnet.base.org'];
 const DEFAULT_METADATA_BASE_URL = 'https://helixa.xyz/loopers/metadata-hotfix/';
 const DEFAULT_IMAGE_BASE_URL = 'https://helixa.xyz/loopers/images/';
+const DEFAULT_INDEXER_BASE_URL = 'https://base.blockscout.com/api/v2';
 const DEFAULT_OWNER_CHUNK_SIZE = 50;
 const LOOPERS_READ_ABI = [
   {
@@ -66,6 +67,7 @@ export function createLoopersOwnedAgentLoader({
   adapter = LOOPERS_MAINNET_ADAPTER,
   metadataBaseUrl = DEFAULT_METADATA_BASE_URL,
   imageBaseUrl = DEFAULT_IMAGE_BASE_URL,
+  indexerBaseUrl = DEFAULT_INDEXER_BASE_URL,
   ownerChunkSize = DEFAULT_OWNER_CHUNK_SIZE,
 } = {}) {
   const clients = createLoopersPublicClients({ rpcUrl, rpcUrls, publicClient, publicClients });
@@ -78,6 +80,7 @@ export function createLoopersOwnedAgentLoader({
       adapter,
       metadataBaseUrl,
       imageBaseUrl,
+      indexerBaseUrl,
       ownerChunkSize,
     });
   };
@@ -92,6 +95,7 @@ export async function loadOwnedLooperAgents({
   adapter = LOOPERS_MAINNET_ADAPTER,
   metadataBaseUrl = DEFAULT_METADATA_BASE_URL,
   imageBaseUrl = DEFAULT_IMAGE_BASE_URL,
+  indexerBaseUrl = DEFAULT_INDEXER_BASE_URL,
   ownerChunkSize = DEFAULT_OWNER_CHUNK_SIZE,
 } = {}) {
   const owner = normalizeAddress(address);
@@ -111,7 +115,14 @@ export async function loadOwnedLooperAgents({
   ]);
   if (balance === 0n) return [];
 
-  const ownedTokenIds = await findOwnedTokenIdsByOwnerOf({
+  const indexedTokenIds = await findOwnedTokenIdsFromIndexer({
+    owner,
+    contract,
+    expectedBalance: balance,
+    fetchImpl,
+    indexerBaseUrl,
+  });
+  const ownedTokenIds = indexedTokenIds ?? await findOwnedTokenIdsByOwnerOf({
     publicClients: clients,
     contract,
     owner,
@@ -217,19 +228,29 @@ async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expe
 }
 
 async function completeMulticallWithFallback(clients, contracts) {
+  const merged = Array.from({ length: contracts.length }, () => null);
+  let completedResponse = false;
   let lastError = null;
   for (const client of clients) {
     try {
       const results = await client.multicall({ contracts, allowFailure: true });
-      if (Array.isArray(results) && results.length === contracts.length && results.every((result) => result?.status === 'success')) {
-        return results;
+      if (!Array.isArray(results) || results.length !== contracts.length) {
+        lastError = new Error('RPC returned an incomplete ownership chunk.');
+        continue;
       }
-      lastError = new Error('RPC returned an incomplete ownership chunk.');
+      completedResponse = true;
+      results.forEach((result, index) => {
+        if (result?.status === 'success') merged[index] = result;
+      });
+      if (merged.every(Boolean)) break;
     } catch (error) {
       lastError = error;
     }
   }
-  throw new Error(`Looper ownership scan incomplete: ${lastError?.message ?? 'all providers failed'}`);
+  if (!completedResponse) {
+    throw new Error(`Looper ownership scan incomplete: ${lastError?.message ?? 'all providers failed'}`);
+  }
+  return merged.map((result) => result ?? { status: 'failure' });
 }
 
 async function readWithFallback(clients, request) {
@@ -318,6 +339,41 @@ async function hydrateOwnedLooper({ tokenId, owner, authorization, fetchImpl, me
     watchLabel: specialization ?? 'Wallet context',
     watchBody: createWatchBody({ specialization, role }),
   };
+}
+
+async function findOwnedTokenIdsFromIndexer({ owner, contract, expectedBalance, fetchImpl, indexerBaseUrl }) {
+  if (!indexerBaseUrl || typeof fetchImpl !== 'function') return null;
+  const endpoint = `${String(indexerBaseUrl).replace(/\/+$/u, '')}/tokens/${getAddress(contract)}/instances`;
+  const tokenIds = new Set();
+  let nextPageParams = { holder_address_hash: owner };
+
+  for (let page = 0; page < 20 && nextPageParams; page += 1) {
+    const url = new URL(endpoint);
+    for (const [key, value] of Object.entries(nextPageParams)) {
+      if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
+    }
+    const response = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' } }).catch(() => null);
+    if (!response?.ok) return null;
+    const body = await response.json().catch(() => null);
+    if (!Array.isArray(body?.items)) return null;
+    for (const item of body.items) {
+      const indexedContract = item?.token?.address_hash;
+      if (indexedContract && String(indexedContract).toLowerCase() !== String(contract).toLowerCase()) return null;
+      try {
+        tokenIds.add(normalizeTokenId(item?.id).toString());
+      } catch {
+        return null;
+      }
+    }
+    if (tokenIds.size > Number(expectedBalance)) return null;
+    nextPageParams = body.next_page_params && typeof body.next_page_params === 'object'
+      ? { holder_address_hash: owner, ...body.next_page_params }
+      : null;
+  }
+
+  return tokenIds.size === Number(expectedBalance)
+    ? [...tokenIds].sort((left, right) => Number(left) - Number(right))
+    : null;
 }
 
 async function fetchLooperMetadata({ tokenId, fetchImpl, metadataBaseUrl }) {
