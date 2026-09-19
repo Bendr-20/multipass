@@ -20,9 +20,11 @@ import {
   saveSalesStateAtomic,
 } from './loopers-sales/state.js';
 import {
+  LOOPERS_SWEEP_ANIMATION_URL,
   editSaleCard,
   renderSaleCard,
   sendSaleCard,
+  validateSweepAnimationUrl,
 } from './loopers-sales/telegram.js';
 
 const DEFAULT_COLLECTION_SLUG = 'loopers-639312714';
@@ -60,6 +62,7 @@ export function parseLoopersSalesBotOptions(argv = [], env = process.env) {
     reconcileIntervalMs: positiveInteger(env.LOOPERS_SALES_RECONCILE_INTERVAL_MS, DEFAULT_RECONCILE_INTERVAL_MS, 'LOOPERS_SALES_RECONCILE_INTERVAL_MS'),
     quietMs: positiveInteger(env.LOOPERS_SALES_QUIET_MS, DEFAULT_QUIET_MS, 'LOOPERS_SALES_QUIET_MS'),
     hardDeadlineMs: positiveInteger(env.LOOPERS_SALES_HARD_DEADLINE_MS, DEFAULT_HARD_DEADLINE_MS, 'LOOPERS_SALES_HARD_DEADLINE_MS'),
+    sweepAnimationUrl: env.LOOPERS_SALES_SWEEP_ANIMATION_URL || LOOPERS_SWEEP_ANIMATION_URL,
     sendImages: true,
     probe: false,
     help: false,
@@ -77,6 +80,7 @@ export function parseLoopersSalesBotOptions(argv = [], env = process.env) {
     else if (flag === '--opensea-config-path') options.openseaConfigPath = takeValue(argv, index++, flag);
     else if (flag === '--telegram-chat-id') options.telegramChatId = takeValue(argv, index++, flag);
     else if (flag === '--premium-multiplier') options.premiumMultiplier = takeValue(argv, index++, flag);
+    else if (flag === '--sweep-animation-url') options.sweepAnimationUrl = takeValue(argv, index++, flag);
     else if (flag === '--reconcile-interval-ms') options.reconcileIntervalMs = positiveInteger(takeValue(argv, index++, flag), null, flag);
     else if (flag === '--quiet-ms') options.quietMs = positiveInteger(takeValue(argv, index++, flag), null, flag);
     else if (flag === '--hard-deadline-ms') options.hardDeadlineMs = positiveInteger(takeValue(argv, index++, flag), null, flag);
@@ -84,6 +88,9 @@ export function parseLoopersSalesBotOptions(argv = [], env = process.env) {
   }
 
   parseMultiplier(options.premiumMultiplier);
+  if (!validateSweepAnimationUrl(options.sweepAnimationUrl)) {
+    throw new Error('sweep-animation URL must be the approved Loopers sweep animation URL');
+  }
   if (options.hardDeadlineMs < options.quietMs) {
     throw new Error('hard deadline must not be shorter than the quiet deadline');
   }
@@ -180,6 +187,17 @@ function groupForCard(group, options) {
   };
 }
 
+function cardForDelivery(card, sendImages) {
+  if (sendImages) return card;
+  return {
+    ...card,
+    animationUrl: null,
+    imageUrls: [],
+    imageUrl: null,
+    fallbackImageUrl: '',
+  };
+}
+
 export function createLoopersSalesBot(dependencies = {}) {
   const defaultOptions = parseLoopersSalesBotOptions([], dependencies.env ?? {});
   const parsedOptions = dependencies.options
@@ -215,7 +233,7 @@ export function createLoopersSalesBot(dependencies = {}) {
     botToken: options.telegramBotToken,
     chatId: options.telegramChatId,
     ...args,
-    card: options.sendImages ? args.card : { ...args.card, imageUrl: null, fallbackImageUrl: '' },
+    card: args.card,
   }));
   const editCard = dependencies.editCard ?? dependencies.editSaleCard ?? (args => editSaleCard({
     fetchImpl: dependencies.fetchImpl ?? fetch,
@@ -282,12 +300,6 @@ export function createLoopersSalesBot(dependencies = {}) {
     }
 
     const transactionHash = event.transactionHash;
-    if (candidate.deliveredTombstones[transactionHash]) {
-      candidate.seenIds[event.id] = seenAt;
-      log('warn', 'Suppressed late Looper sale because only a delivery tombstone remains', { transactionHash });
-      return { changed: true };
-    }
-
     const delivered = candidate.deliveredTransactions[transactionHash];
     if (delivered) {
       if (delivered.items?.some(item => item.id === event.id)) {
@@ -297,15 +309,21 @@ export function createLoopersSalesBot(dependencies = {}) {
       const items = [...(delivered.items ?? []), event];
       const cardGroup = groupForCard({ transactionHash, items }, options);
       const originalFloor = materializeFloor(delivered.floorSnapshot);
-      const card = renderCard(cardGroup, { floorSnapshot: originalFloor, multiplier });
+      const renderedCard = renderCard(cardGroup, {
+        floorSnapshot: originalFloor,
+        multiplier,
+        sweepAnimationUrl: options.sendImages ? options.sweepAnimationUrl : '',
+      });
+      const card = cardForDelivery(renderedCard, options.sendImages);
       try {
-        await editCard({
+        const editedDelivery = await editCard({
           messageId: delivered.messageId,
           mode: delivered.mode,
           card,
           group: { ...cardGroup, floorSnapshot: delivered.floorSnapshot },
           floorSnapshot: delivered.floorSnapshot,
         });
+        delivered.mode = editedDelivery.mode;
       } catch (error) {
         if (error?.classification?.kind === 'unresolved-edit') {
           delivered.pinned = true;
@@ -325,6 +343,12 @@ export function createLoopersSalesBot(dependencies = {}) {
       delivered.pinned = delivered.unresolvedItems.length > 0;
       delete candidate.retryRecords[event.id];
       candidate.seenIds[event.id] = seenAt;
+      return { changed: true };
+    }
+
+    if (candidate.deliveredTombstones[transactionHash]) {
+      candidate.seenIds[event.id] = seenAt;
+      log('warn', 'Suppressed late Looper sale because only a delivery tombstone remains', { transactionHash });
       return { changed: true };
     }
 
@@ -512,7 +536,12 @@ export function createLoopersSalesBot(dependencies = {}) {
       const group = candidate.pendingGroups[transactionHash];
       const floorSnapshot = materializeFloor(floor, nowSeconds(clock));
       const cardGroup = groupForCard(group, options);
-      const card = renderCard(cardGroup, { floorSnapshot, multiplier });
+      const renderedCard = renderCard(cardGroup, {
+        floorSnapshot,
+        multiplier,
+        sweepAnimationUrl: options.sendImages ? options.sweepAnimationUrl : '',
+      });
+      const card = cardForDelivery(renderedCard, options.sendImages);
       const delivery = await sendCard({ card, group: cardGroup, floorSnapshot });
       const deliveredAt = nowSeconds(clock);
       candidate.deliveredTransactions[transactionHash] = {

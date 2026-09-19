@@ -22,6 +22,7 @@ Options:
   --opensea-config-path <path>  OpenSea API key JSON config
   --telegram-chat-id <id>       Telegram destination
   --premium-multiplier <value>  premium threshold (default: 1.25)
+  --sweep-animation-url <url>   approved Loopers sweep animation URL
   --reconcile-interval-ms <ms>  periodic REST interval
   --quiet-ms <ms>               sweep quiet deadline
   --hard-deadline-ms <ms>       sweep hard deadline
@@ -35,6 +36,7 @@ Environment:
   LOOPERS_SALES_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN
   LOOPERS_SALES_STATE_PATH
   LOOPERS_SALES_PREMIUM_MULTIPLIER
+  LOOPERS_SALES_SWEEP_ANIMATION_URL
 `;
 
 function stringifyStatus(type, detail = {}) {

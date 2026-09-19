@@ -38,6 +38,7 @@ logs/
 *.jpg
 *.jpeg
 *.gif
+!apps/web/public/loopers-sweep.gif
 *.webp
 !apps/web/public/helixa-logo.png
 !apps/web/public/loopers-logo.png

@@ -11,10 +11,28 @@ import {
 import { isTrustedImageUrl } from './normalize.js';
 
 export const LOOPERS_LOGO_URL = 'https://helixa.xyz/multipass/loopers-logo.png';
+export const LOOPERS_SWEEP_ANIMATION_URL = 'https://helixa.xyz/multipass/loopers-sweep.gif';
+
+const MAX_UINT256 = (2n ** 256n) - 1n;
+const CANONICAL_TOKEN_ID_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const MAX_CAPTION_LENGTH = 1024;
 const MAX_TEXT_LENGTH = 4096;
 const MAX_RETRY_ATTEMPTS = 3;
+
+export function buildCanonicalLooperImageUrl(tokenId) {
+  if (typeof tokenId !== 'string' || !CANONICAL_TOKEN_ID_PATTERN.test(tokenId)) return null;
+  try {
+    if (BigInt(tokenId) > MAX_UINT256) return null;
+  } catch {
+    return null;
+  }
+  return `https://helixa.xyz/loopers/images/${tokenId}.png`;
+}
+
+export function validateSweepAnimationUrl(value) {
+  return typeof value === 'string' && value === LOOPERS_SWEEP_ANIMATION_URL;
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -181,14 +199,27 @@ export function renderSaleCard(group, options = {}) {
   if (caption.length > MAX_CAPTION_LENGTH || caption.split('\n').length < 2) caption = conciseCaption;
   const text = fitLines(full.lines, MAX_TEXT_LENGTH);
   const conciseText = fitLines(concise.lines, MAX_TEXT_LENGTH);
-  const candidate = group.items.find((entry) => isTrustedImageUrl(entry.imageUrl))?.imageUrl ?? null;
+  const mediaItem = [...group.items].sort((left, right) => (
+    compareTokenIds(String(left.tokenId), String(right.tokenId))
+  ))[0];
+  const imageUrls = [...new Set([
+    buildCanonicalLooperImageUrl(mediaItem.tokenId),
+    isTrustedImageUrl(mediaItem.imageUrl) ? mediaItem.imageUrl : null,
+  ].filter(Boolean))];
+  const sweepAnimationUrl = options.sweepAnimationUrl === undefined
+    ? LOOPERS_SWEEP_ANIMATION_URL
+    : options.sweepAnimationUrl;
 
   return {
     caption,
     conciseCaption,
     text,
     conciseText,
-    imageUrl: candidate,
+    animationUrl: group.items.length > 1 && validateSweepAnimationUrl(sweepAnimationUrl)
+      ? sweepAnimationUrl
+      : null,
+    imageUrls,
+    imageUrl: imageUrls[0] ?? null,
     fallbackImageUrl: LOOPERS_LOGO_URL,
     premium: full.premium,
   };
@@ -218,7 +249,10 @@ export function classifyTelegramError({ status = 0, description = '', parameters
     detail.includes('wrong file identifier') ||
     detail.includes('wrong type of the web page content') ||
     detail.includes('failed to get http url') ||
-    detail.includes('photo should be uploaded')
+    detail.includes('photo should be uploaded') ||
+    detail.includes('file is too big') ||
+    detail.includes('webpage_media_empty') ||
+    detail.includes('image_process_failed')
   )) return { kind: 'media' };
   if (status === 400 && (
     detail.includes('parse entities') ||
@@ -290,26 +324,58 @@ function messageIdFrom(result) {
 }
 
 export async function sendSaleCard({ fetchImpl = fetch, botToken, chatId, card }) {
-  const photos = [...new Set([card.imageUrl, card.fallbackImageUrl ?? LOOPERS_LOGO_URL].filter(Boolean))];
-  photoFallbacks: for (const photo of photos) {
-    const captions = [...new Set([card.caption, card.conciseCaption].filter(Boolean))];
+  const captions = [...new Set([card.caption, card.conciseCaption].filter(Boolean))];
+  let skipPhotos = false;
+
+  if (validateSweepAnimationUrl(card.animationUrl)) {
     for (let index = 0; index < captions.length; index += 1) {
       const caption = captions[index];
       try {
         const result = await requestWithRetries({
           fetchImpl,
           botToken,
-          method: 'sendPhoto',
-          payload: { chat_id: chatId, photo, caption, parse_mode: 'HTML' },
+          method: 'sendAnimation',
+          payload: { chat_id: chatId, animation: card.animationUrl, caption, parse_mode: 'HTML' },
         });
-        return { messageId: messageIdFrom(result), mode: 'photo' };
+        return { messageId: messageIdFrom(result), mode: 'animation' };
       } catch (error) {
         if (error?.classification?.kind === 'content') {
           if (index < captions.length - 1) continue;
-          break photoFallbacks;
+          skipPhotos = true;
+          break;
         }
         if (error?.classification?.kind === 'media') break;
         throw error;
+      }
+    }
+  }
+
+  const cardImages = Array.isArray(card.imageUrls) ? card.imageUrls : [card.imageUrl];
+  const photos = [...new Set([
+    ...cardImages,
+    card.fallbackImageUrl ?? LOOPERS_LOGO_URL,
+  ].filter((value) => isTrustedImageUrl(value)))];
+
+  photoFallbacks: if (!skipPhotos) {
+    for (const photo of photos) {
+      for (let index = 0; index < captions.length; index += 1) {
+        const caption = captions[index];
+        try {
+          const result = await requestWithRetries({
+            fetchImpl,
+            botToken,
+            method: 'sendPhoto',
+            payload: { chat_id: chatId, photo, caption, parse_mode: 'HTML' },
+          });
+          return { messageId: messageIdFrom(result), mode: 'photo' };
+        } catch (error) {
+          if (error?.classification?.kind === 'content') {
+            if (index < captions.length - 1) continue;
+            break photoFallbacks;
+          }
+          if (error?.classification?.kind === 'media') break;
+          throw error;
+        }
       }
     }
   }
@@ -332,14 +398,44 @@ export async function sendSaleCard({ fetchImpl = fetch, botToken, chatId, card }
 }
 
 export async function editSaleCard({ fetchImpl = fetch, botToken, chatId, messageId, mode, card }) {
-  if (mode !== 'photo' && mode !== 'text') throw new TypeError('Telegram delivery mode must be photo or text');
-  const method = mode === 'photo' ? 'editMessageCaption' : 'editMessageText';
-  const variants = mode === 'photo'
+  if (mode !== 'animation' && mode !== 'photo' && mode !== 'text') {
+    throw new TypeError('Telegram delivery mode must be animation, photo, or text');
+  }
+
+  if (mode === 'photo' && validateSweepAnimationUrl(card.animationUrl)) {
+    const captions = [...new Set([card.caption, card.conciseCaption].filter(Boolean))];
+    let mediaRejected = false;
+    for (let index = 0; index < captions.length; index += 1) {
+      const caption = captions[index];
+      const payload = {
+        chat_id: chatId,
+        message_id: messageId,
+        media: { type: 'animation', media: card.animationUrl, caption, parse_mode: 'HTML' },
+      };
+      try {
+        await requestWithRetries({ fetchImpl, botToken, method: 'editMessageMedia', payload });
+        return { messageId, mode: 'animation' };
+      } catch (error) {
+        if (error?.classification?.kind === 'not-modified') return { messageId, mode: 'animation' };
+        if (error?.classification?.kind === 'content' && index < captions.length - 1) continue;
+        if (error?.classification?.kind === 'media') {
+          mediaRejected = true;
+          break;
+        }
+        throw error;
+      }
+    }
+    if (!mediaRejected) throw new TelegramDeliveryError({ kind: 'content' });
+  }
+
+  const captionMode = mode === 'animation' || mode === 'photo';
+  const method = captionMode ? 'editMessageCaption' : 'editMessageText';
+  const variants = captionMode
     ? [...new Set([card.caption, card.conciseCaption].filter(Boolean))]
     : [...new Set([card.text, card.conciseText].filter(Boolean))];
 
   for (const content of variants) {
-    const payload = mode === 'photo'
+    const payload = captionMode
       ? { chat_id: chatId, message_id: messageId, caption: content, parse_mode: 'HTML' }
       : { chat_id: chatId, message_id: messageId, text: content, parse_mode: 'HTML', disable_web_page_preview: true };
     try {

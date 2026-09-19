@@ -16,6 +16,7 @@ Environment=LOOPERS_SALES_CONTRACT=0x1649cd37f4748807b4882fc48765ba0b2affa94a
 Environment=LOOPERS_SALES_TELEGRAM_CHAT_ID=@theloopers
 Environment=LOOPERS_SALES_STATE_PATH=/var/lib/helixa/loopers-sales-seen.json
 Environment=LOOPERS_SALES_PREMIUM_MULTIPLIER=1.25
+Environment=LOOPERS_SALES_SWEEP_ANIMATION_URL=https://helixa.xyz/multipass/loopers-sweep.gif
 Environment=LOOPERS_SALES_RECONCILE_INTERVAL_MS=30000
 Environment=LOOPERS_SALES_QUIET_MS=8000
 Environment=LOOPERS_SALES_HARD_DEADLINE_MS=30000

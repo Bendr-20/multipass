@@ -10,6 +10,7 @@ import {
   createSerializedQueue,
   parseLoopersSalesBotOptions,
 } from '../src/loopers-sales-bot.js';
+import { LOOPERS_SWEEP_ANIMATION_URL } from '../src/loopers-sales/telegram.js';
 
 const CONTRACT = '0x1649cd37f4748807b4882fc48765ba0b2affa94a';
 const TX = `0x${'a'.repeat(64)}`;
@@ -126,6 +127,7 @@ test('parseLoopersSalesBotOptions provides production defaults and env/flag over
   assert.equal(defaults.quietMs, 8_000);
   assert.equal(defaults.hardDeadlineMs, 30_000);
   assert.equal(defaults.sendImages, true);
+  assert.equal(defaults.sweepAnimationUrl, LOOPERS_SWEEP_ANIMATION_URL);
 
   const configured = parseLoopersSalesBotOptions([
     '--probe', '--state-path', '/tmp/probe.json', '--no-images', '--premium-multiplier', '1.375',
@@ -139,6 +141,23 @@ test('parseLoopersSalesBotOptions provides production defaults and env/flag over
   assert.equal(configured.reconcileIntervalMs, 1234);
   assert.equal(configured.telegramChatId, '-1001');
   assert.equal(parseLoopersSalesBotOptions(['--', '--help'], { HOME: '/h' }).help, true);
+
+  assert.equal(parseLoopersSalesBotOptions([], {
+    HOME: '/h', LOOPERS_SALES_SWEEP_ANIMATION_URL: LOOPERS_SWEEP_ANIMATION_URL,
+  }).sweepAnimationUrl, LOOPERS_SWEEP_ANIMATION_URL);
+  assert.equal(parseLoopersSalesBotOptions([
+    '--sweep-animation-url', LOOPERS_SWEEP_ANIMATION_URL,
+  ], { HOME: '/h' }).sweepAnimationUrl, LOOPERS_SWEEP_ANIMATION_URL);
+  assert.throws(
+    () => parseLoopersSalesBotOptions([], {
+      HOME: '/h', LOOPERS_SALES_SWEEP_ANIMATION_URL: 'https://example.com/not-loopers.gif',
+    }),
+    /sweep-animation URL/i,
+  );
+  assert.throws(
+    () => parseLoopersSalesBotOptions(['--sweep-animation-url', 'javascript:alert(1)'], { HOME: '/h' }),
+    /sweep-animation URL/i,
+  );
 });
 
 test('serialized queue continues after rejection and never deadlocks later work', async () => {
@@ -236,6 +255,44 @@ test('quiet finalization groups a transaction, persists delivery, and prevents d
   await h.bot.stop();
 });
 
+test('rendering receives the configured sweep animation URL for initial and late sale cards', async () => {
+  const renderOptions = [];
+  const renderCard = (group, options) => {
+    renderOptions.push(options);
+    return { caption: group.items.map(item => item.tokenId).join(','), text: 'card' };
+  };
+  const startedAt = Date.now();
+  const initial = harness({
+    options: { quietMs: 5, hardDeadlineMs: 40 },
+    dependencies: {
+      now: () => 1_005_000 + (Date.now() - startedAt),
+      renderCard,
+    },
+  });
+  await initial.bot.start();
+  await initial.bot.ingestStreamEvent(sale('1'));
+  await eventually(() => initial.sent.length === 1);
+  await initial.bot.stop();
+
+  const delivered = {
+    transactionHash: TX, deliveredAt: 1_000, messageId: 42, mode: 'text', items: [sale('1')],
+    floorSnapshot: null, lastCaption: 'old', unresolvedItems: [], pinned: false,
+  };
+  const late = harness({
+    initialState: defaultState({ deliveredTransactions: { [TX]: delivered } }),
+    dependencies: { renderCard },
+  });
+  await late.bot.start();
+  await late.bot.ingestStreamEvent(sale('2'));
+  await late.bot.stop();
+
+  assert.equal(renderOptions.length, 2);
+  for (const options of renderOptions) {
+    assert.deepEqual(Object.keys(options).sort(), ['floorSnapshot', 'multiplier', 'sweepAnimationUrl']);
+    assert.equal(options.sweepAnimationUrl, LOOPERS_SWEEP_ANIMATION_URL);
+  }
+});
+
 test('periodic REST reconciliation repairs a simulated Stream gap', async () => {
   let snapshots = 0;
   const h = harness({
@@ -289,7 +346,10 @@ test('late siblings edit the existing message against the original floor and tom
     transactionHash: TX, deliveredAt: 1_000, messageId: 42, mode: 'text', items: [sale('1')],
     floorSnapshot: originalFloor, lastCaption: 'old', unresolvedItems: [], pinned: false,
   };
-  const h = harness({ initialState: defaultState({ deliveredTransactions: { [TX]: delivered } }) });
+  const h = harness({ initialState: defaultState({
+    deliveredTransactions: { [TX]: delivered },
+    deliveredTombstones: { [TX]: { deliveredAt: 1_000 } },
+  }) });
   await h.bot.start();
   await h.bot.ingestStreamEvent(sale('2'));
   assert.equal(h.edited.length, 1);
@@ -303,6 +363,69 @@ test('late siblings edit the existing message against the original floor and tom
   assert.equal(tombstone.sent.length, 0);
   assert.ok(tombstone.getState().seenIds[`${TX}:3`]);
   await tombstone.bot.stop();
+});
+
+test('late photo-to-animation edits persist the returned Telegram delivery mode', async () => {
+  const delivered = {
+    transactionHash: TX, deliveredAt: 1_000, messageId: 42, mode: 'photo', items: [sale('1')],
+    floorSnapshot: null, lastCaption: 'old', unresolvedItems: [], pinned: false,
+  };
+  const h = harness({
+    initialState: defaultState({
+      deliveredTransactions: { [TX]: delivered },
+      deliveredTombstones: { [TX]: { deliveredAt: 1_000 } },
+    }),
+    dependencies: {
+      renderCard: () => ({ caption: 'sweep', text: 'sweep', animationUrl: LOOPERS_SWEEP_ANIMATION_URL }),
+      editCard: async args => ({ messageId: args.messageId, mode: 'animation' }),
+    },
+  });
+  await h.bot.start();
+  await h.bot.ingestStreamEvent(sale('2'));
+  assert.equal(h.getState().deliveredTransactions[TX].mode, 'animation');
+  await h.bot.stop();
+});
+
+test('--no-images strips all initial media and prevents late photo-to-animation transitions', async () => {
+  const mediaCard = {
+    caption: 'sale',
+    text: 'sale',
+    animationUrl: LOOPERS_SWEEP_ANIMATION_URL,
+    imageUrls: ['https://helixa.xyz/loopers/images/1.png'],
+    imageUrl: 'https://helixa.xyz/loopers/images/1.png',
+    fallbackImageUrl: 'https://helixa.xyz/multipass/loopers-logo.png',
+  };
+  const startedAt = Date.now();
+  const initial = harness({
+    options: { sendImages: false, quietMs: 5, hardDeadlineMs: 40 },
+    dependencies: {
+      now: () => 1_005_000 + (Date.now() - startedAt),
+      renderCard: () => ({ ...mediaCard }),
+    },
+  });
+  await initial.bot.start();
+  await initial.bot.ingestStreamEvent(sale('1'));
+  await eventually(() => initial.sent.length === 1);
+  assert.equal(initial.sent[0].card.animationUrl, null);
+  assert.deepEqual(initial.sent[0].card.imageUrls, []);
+  assert.equal(initial.sent[0].card.imageUrl, null);
+  assert.equal(initial.sent[0].card.fallbackImageUrl, '');
+  await initial.bot.stop();
+
+  const delivered = {
+    transactionHash: TX, deliveredAt: 1_000, messageId: 42, mode: 'photo', items: [sale('1')],
+    floorSnapshot: null, lastCaption: 'old', unresolvedItems: [], pinned: false,
+  };
+  const late = harness({
+    options: { sendImages: false },
+    initialState: defaultState({ deliveredTransactions: { [TX]: delivered } }),
+    dependencies: { renderCard: () => ({ ...mediaCard }) },
+  });
+  await late.bot.start();
+  await late.bot.ingestStreamEvent(sale('2'));
+  assert.equal(late.edited[0].card.animationUrl, null);
+  assert.equal(late.getState().deliveredTransactions[TX].mode, 'photo');
+  await late.bot.stop();
 });
 
 test('unresolved late edits stay pinned and unseen for operational repair', async () => {
@@ -345,6 +468,8 @@ test('runner file exposes help without reading config and package script is regi
   const code = await runner.main({ argv: ['--help'], env: {}, stdout: text => output.push(text) });
   assert.equal(code, 0);
   assert.match(output.join('\n'), /--probe/);
+  assert.match(output.join('\n'), /--sweep-animation-url/);
+  assert.match(output.join('\n'), /LOOPERS_SALES_SWEEP_ANIMATION_URL/);
 });
 
 test('runner handles SIGTERM by stopping the bot before a clean exit', async () => {
