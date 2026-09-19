@@ -4,7 +4,22 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_SIBYL_PYTHON = process.env.MULTIPASS_SIBYL_PYTHON || '/home/ubuntu/.openclaw/sibyl-venv/bin/python';
 const DEFAULT_SIBYL_BRIDGE_PATH = fileURLToPath(new URL('./bridge.py', import.meta.url));
 
-export function buildSibylMemoryNamespace({ wallet, agentId, activationId } = {}) {
+export function buildSibylMemoryNamespace({
+  chainId,
+  tokenContract,
+  tokenId,
+  identityAgentId,
+  wallet,
+  agentId,
+  activationId,
+} = {}) {
+  if (chainId !== undefined || tokenContract || tokenId || identityAgentId) {
+    const normalizedChainId = normalizeNamespacePart(chainId, 'unknown-chain');
+    const normalizedContract = normalizeNamespacePart(tokenContract, 'unknown-contract');
+    const normalizedTokenId = normalizeNamespacePart(tokenId, 'unknown-token');
+    const normalizedIdentity = normalizeNamespacePart(identityAgentId, 'unknown-identity');
+    return `multipass:eip155:${normalizedChainId}:${normalizedContract}:${normalizedTokenId}:erc8004:${normalizedIdentity}`;
+  }
   const normalizedWallet = normalizeNamespacePart(wallet, 'unknown-wallet');
   const normalizedAgent = normalizeNamespacePart(agentId, 'unknown-agent');
   const normalizedActivation = normalizeNamespacePart(activationId, normalizedAgent);

@@ -1,12 +1,21 @@
 import { getActivationState } from './activation.js';
 import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, getWritableApiBaseFromLocation, isCanonicalHelixaFallbackError, loadCanonicalHelixaMultipass, loadJson, loadMultipassDemo, loadSavedMultipassDemo, loadStaticMultipassDemo, shouldUseStaticDemo } from './api.js';
-import { fetchOwnedHelixaAgents, HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
+import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
+import { fetchOwnedLooperAgents } from './loopers-console-agents.js';
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
 import { getMarketplacePresenceEntries } from './marketplace-presence.js';
 import { getCommunicationChannels, getCommunicationContactPolicy } from './communication-channels.js';
-import { sendConsoleAgentMessage as defaultSendConsoleAgentMessage } from './console-agent-api.js';
+import {
+  activateConsoleAgent as defaultActivateConsoleAgent,
+  authenticateConsoleSession as defaultAuthenticateConsoleSession,
+  sendConsoleAgentMessage as defaultSendConsoleAgentMessage,
+} from './console-agent-api.js';
+import {
+  ensureXmtpWalletRegistration as defaultEnsureXmtpWalletRegistration,
+  isXmtpRegistrationRequiredError,
+} from './xmtp-wallet-registration.js';
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
@@ -84,6 +93,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleAgentNameOverrides,
     consoleWalletStatus: consoleMockState?.consoleWalletStatus ?? null,
     consoleWalletError: consoleMockState?.consoleWalletError ?? null,
+    consoleCsrfToken: null,
+    consoleAuthenticatedWallet: consoleMockState?.walletSnapshot?.address ?? null,
+    consoleSessionGeneration: 0,
+    consoleActivationRequestId: 0,
+    consoleThreadGeneration: 0,
+    consoleAgentNameMutation: { status: 'idle', requestId: 0, tokenId: null },
     consoleOwnedAgents: consoleMockState?.consoleOwnedAgents ?? createInitialConsoleOwnedAgentsState(),
     consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
@@ -95,7 +110,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function start() {
     activeWalletClient.subscribe?.(() => {
-      state = { ...state, walletSnapshot: activeWalletClient.getSnapshot() };
+      const walletSnapshot = activeWalletClient.getSnapshot();
+      if (state.pageKind === 'console' && !state.consoleMockMode && consoleWalletBoundaryChanged(state, walletSnapshot)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot,
+          status: walletSnapshot.connected && walletSnapshot.address ? 'wallet_changed' : 'disconnected',
+          error: walletSnapshot.connected && walletSnapshot.address
+            ? 'Wallet changed. Connect again to start a new authenticated Console session.'
+            : null,
+        });
+      } else {
+        state = { ...state, walletSnapshot };
+      }
       if (state.data) render(root, state, handlers);
     });
     renderLoading(root);
@@ -109,7 +135,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
       } else if (state.pageKind === 'console' && !state.consoleMockMode && state.walletSnapshot.connected && state.walletSnapshot.address) {
-        await refreshConsoleOwnedAgents({ walletSnapshot: state.walletSnapshot });
+        await connectConsoleWallet();
       } else if (state.pageKind === 'looper_mint' && state.looperMint.enabled && state.looperMint.config?.contractAddress) {
         refreshLooperMint({ silent: true });
       }
@@ -538,10 +564,24 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function connectConsoleWallet() {
+    const sessionGeneration = state.consoleSessionGeneration + 1;
     state = {
       ...state,
       consoleWalletStatus: 'connecting',
       consoleWalletError: null,
+      consoleCsrfToken: null,
+      consoleAuthenticatedWallet: null,
+      consoleSessionGeneration: sessionGeneration,
+      consoleActivationRequestId: state.consoleActivationRequestId + 1,
+      consoleAgentNameMutation: {
+        status: 'idle',
+        requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1,
+        tokenId: null,
+      },
+      consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+      consoleSelectedAgentId: null,
+      consoleParticipantAgentIds: [],
+      consoleAgentThread: createInitialConsoleAgentThreadState(),
       walletSnapshot: activeWalletClient.getSnapshot(),
     };
     render(root, state, handlers);
@@ -550,14 +590,37 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       let walletSnapshot = activeWalletClient.getSnapshot();
       if (walletSnapshot.configured === false) throw new Error('Wallet login is not configured for this build.');
       if (walletSnapshot.ready === false) throw new Error('Wallet options are still loading.');
-      await activeWalletClient.connect();
+      if (!walletSnapshot.connected || !walletSnapshot.address) await activeWalletClient.connect();
       walletSnapshot = activeWalletClient.getSnapshot();
       if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to use Console wallet identity.');
+      const authenticatingWallet = normalizeConsoleWallet(walletSnapshot.address);
       state = {
         ...state,
         walletSnapshot,
-        consoleWalletStatus: 'connected',
+        consoleWalletStatus: 'signing',
         consoleWalletError: null,
+      };
+      render(root, state, handlers);
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const authenticated = await (claimApi.authenticateConsoleSession ?? defaultAuthenticateConsoleSession)({
+        apiBase,
+        wallet: walletSnapshot.address,
+        signMessage: (message) => activeWalletClient.signMessage(message),
+        fetchImpl,
+      });
+      const currentWallet = activeWalletClient.getSnapshot();
+      if (
+        state.consoleSessionGeneration !== sessionGeneration
+        || !currentWallet.connected
+        || normalizeConsoleWallet(currentWallet.address) !== authenticatingWallet
+      ) return;
+      state = {
+        ...state,
+        walletSnapshot: currentWallet,
+        consoleWalletStatus: 'loading_roster',
+        consoleWalletError: null,
+        consoleCsrfToken: authenticated.csrfToken,
+        consoleAuthenticatedWallet: authenticatingWallet,
         consoleOwnedAgents: {
           status: 'loading',
           error: null,
@@ -568,13 +631,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
-      await refreshConsoleOwnedAgents({ walletSnapshot, skipLoadingState: true });
+      await refreshConsoleOwnedAgents({ walletSnapshot: currentWallet, skipLoadingState: true, sessionGeneration });
     } catch (error) {
+      if (state.consoleSessionGeneration !== sessionGeneration) return;
+      if (isConsoleAuthorizationError(error)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console authorization failed. Connect again and approve the wallet signature.',
+        });
+        render(root, state, handlers);
+        return;
+      }
       state = {
         ...state,
         walletSnapshot: activeWalletClient.getSnapshot(),
-        consoleWalletStatus: 'error',
-        consoleWalletError: getWalletErrorMessage(error),
+        consoleWalletStatus: isConsoleCancellation(error) ? 'cancelled' : 'transport_failed',
+        consoleWalletError: getSafeConsoleError(error, { phase: 'connect' }),
       };
       render(root, state, handlers);
     }
@@ -593,6 +666,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentThread: {
           ...state.consoleAgentThread,
           status: 'error',
+          operationStatus: 'authorization_failed',
+          errorKind: 'authorization',
+          retryAvailable: false,
           error: 'Connect a wallet before messaging an agent.',
         },
       };
@@ -609,6 +685,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentThread: {
           ...state.consoleAgentThread,
           status: 'error',
+          operationStatus: 'authorization_failed',
+          errorKind: 'authorization',
+          retryAvailable: false,
           error: 'No wallet-owned Helixa agent is loaded for this session.',
         },
       };
@@ -622,76 +701,205 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleAgentThread: {
         ...state.consoleAgentThread,
         status: 'sending',
+        operationStatus: 'sending_mission',
+        draft: message,
+        retryAvailable: false,
+        errorKind: null,
         error: null,
       },
     };
     render(root, state, handlers);
 
+    const sendContext = createConsoleAsyncContext(state, activeConsoleAgent.tokenId);
     try {
+      await Promise.resolve();
+      if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+      state = {
+        ...state,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          operationStatus: 'waiting_bankr_sibyl',
+        },
+      };
+      render(root, state, handlers);
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const result = await claimApi.sendConsoleAgentMessage({
+      const sendMessage = () => claimApi.sendConsoleAgentMessage({
         apiBase,
-        wallet: walletSnapshot.address,
-        agentId: activeConsoleAgent.tokenId,
         tokenId: activeConsoleAgent.tokenId,
-        agentName: activeConsoleAgent.name,
-        participants: roomParticipants,
-        roomName,
         message,
+        csrfToken: state.consoleCsrfToken,
         fetchImpl,
       });
+      let result;
+      try {
+        result = await sendMessage();
+      } catch (error) {
+        if (!isXmtpRegistrationRequiredError(error)) throw error;
+        if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+        state = {
+          ...state,
+          consoleAgentThread: {
+            ...state.consoleAgentThread,
+            operationStatus: 'setting_up_xmtp',
+          },
+        };
+        render(root, state, handlers);
+        await (claimApi.ensureXmtpWalletRegistration ?? defaultEnsureXmtpWalletRegistration)({
+          wallet: walletSnapshot.address,
+          signMessage: (messageToSign) => activeWalletClient.signMessage(messageToSign),
+        });
+        if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+        state = {
+          ...state,
+          consoleAgentThread: {
+            ...state.consoleAgentThread,
+            operationStatus: 'waiting_bankr_sibyl',
+          },
+        };
+        render(root, state, handlers);
+        result = await sendMessage();
+      }
+      if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
       state = {
         ...state,
         consoleAgentThread: {
           status: 'received',
           error: null,
+          errorKind: null,
+          retryAvailable: false,
+          operationStatus: null,
+          draft: '',
           messages: result.thread?.messages ?? [],
           proposals: result.proposals ?? [],
-          savedMemory: result.memory?.saved ?? [],
-          recalledMemory: result.memory?.recalled ?? [],
+          ...(Array.isArray(result.memory?.saved) ? { savedMemory: result.memory.saved } : {}),
+          ...(Array.isArray(result.memory?.recalled) ? { recalledMemory: result.memory.recalled } : {}),
           missions: result.missions ?? [],
           participants: result.thread?.participants ?? result.room?.participants ?? roomParticipants,
           roomName: result.thread?.roomName ?? result.room?.name ?? roomName,
           conversationId: result.thread?.conversationId ?? null,
-          recalledMission: createConsoleRecallSummary({
-            wallet: walletSnapshot.address,
-            message,
-            missions: result.missions ?? [],
-            savedMemory: result.memory?.saved ?? [],
-            proposals: result.proposals ?? [],
-          }),
+          recalledMission: Array.isArray(result.memory?.recalled) && result.memory.recalled.length
+            ? (String(result.memory?.recalledMission ?? '').trim() || null)
+            : null,
           sessionReset: false,
-          memoryProvider: result.memory?.provider ?? 'Sibyl-ready',
-          transport: result.thread?.transport ?? 'XMTP-ready',
-          inferenceProvider: result.thread?.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? 'Bankr-ready',
+          memoryProvider: result.memory?.provider ?? null,
+          transport: result.thread?.transport ?? 'unavailable',
+          inferenceProvider: result.thread?.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
+          executionMode: result.executionMode ?? result.execution_mode ?? null,
         },
       };
       render(root, state, handlers);
     } catch (error) {
+      if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
+      if (isConsoleUnauthorized(error)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console session expired. Connect again to continue.',
+        });
+        render(root, state, handlers);
+        return;
+      }
       state = {
         ...state,
         consoleAgentThread: {
           ...state.consoleAgentThread,
           status: 'error',
-          error: getWalletErrorMessage(error),
+          operationStatus: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization_failed' : 'transport_failed'),
+          errorKind: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization' : 'transport'),
+          retryAvailable: !isConsoleCancellation(error),
+          draft: message,
+          error: getSafeConsoleError(error, { phase: 'send' }),
         },
       };
       render(root, state, handlers);
     }
   }
 
-  function updateConsoleAgentName(event) {
+  async function updateConsoleAgentName(event) {
     event?.preventDefault?.();
     const activeAgent = getActiveConsoleAgent(state);
     if (!activeAgent?.tokenId) return;
     const formData = createFormData(event?.currentTarget);
-    applyConsoleAgentNameOverride(activeAgent, normalizeConsoleAgentName(formData.get('console_agent_name')));
+    const requestedName = normalizeConsoleAgentName(formData.get('console_agent_name'));
+    return mutateConsoleAgentName(activeAgent, {
+      runtimeName: requestedName || getCanonicalConsoleAgentName(activeAgent),
+      overrideName: requestedName,
+    });
   }
 
-  function resetConsoleAgentName() {
+  async function resetConsoleAgentName() {
     const activeAgent = getActiveConsoleAgent(state);
     if (!activeAgent?.tokenId) return;
-    applyConsoleAgentNameOverride(activeAgent, null);
+    return mutateConsoleAgentName(activeAgent, {
+      runtimeName: getCanonicalConsoleAgentName(activeAgent),
+      overrideName: null,
+    });
+  }
+
+  async function mutateConsoleAgentName(activeAgent, { runtimeName, overrideName } = {}) {
+    if (state.consoleAgentNameMutation?.status === 'pending') return;
+    const tokenId = String(activeAgent?.tokenId ?? '').trim();
+    if (!tokenId) return;
+    const requestId = Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1;
+    state = {
+      ...state,
+      consoleAgentNameMutation: { status: 'pending', requestId, tokenId },
+    };
+    render(root, state, handlers);
+    const mutationContext = {
+      ...createConsoleAsyncContext(state, tokenId, state.consoleActivationRequestId),
+      agentNameRequestId: requestId,
+    };
+    try {
+      await activateConsoleAgentRuntime(tokenId, runtimeName);
+      if (!isCurrentConsoleAgentNameMutation(state, mutationContext)) return;
+      state = {
+        ...state,
+        consoleAgentNameMutation: { status: 'idle', requestId, tokenId: null },
+      };
+      applyConsoleAgentNameOverride(activeAgent, overrideName);
+    } catch (error) {
+      if (!isCurrentConsoleAgentNameMutation(state, mutationContext)) return;
+      state = {
+        ...state,
+        consoleAgentNameMutation: { status: 'idle', requestId, tokenId: null },
+      };
+      if (isConsoleUnauthorized(error)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console session expired. Connect again to continue.',
+        });
+        render(root, state, handlers);
+        return;
+      }
+      state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, status: 'error', operationStatus: 'activation_failed', errorKind: 'activation', retryAvailable: false, activationRetryAvailable: true, error: getSafeConsoleError(error, { phase: 'activate' }) } };
+      render(root, state, handlers);
+    } finally {
+      if (
+        state.consoleAgentNameMutation?.status === 'pending'
+        && state.consoleAgentNameMutation?.requestId === requestId
+        && String(state.consoleAgentNameMutation?.tokenId ?? '') === tokenId
+      ) {
+        state = {
+          ...state,
+          consoleAgentNameMutation: { status: 'idle', requestId, tokenId: null },
+        };
+        render(root, state, handlers);
+      }
+    }
+  }
+
+  function activateConsoleAgentRuntime(tokenId, runtimeName) {
+    if (state.consoleMockMode) return Promise.resolve({ runtime: { tokenId, runtimeName, status: 'active' } });
+    const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+    return (claimApi.activateConsoleAgent ?? defaultActivateConsoleAgent)({
+      apiBase,
+      tokenId,
+      runtimeName,
+      csrfToken: state.consoleCsrfToken,
+      fetchImpl,
+    });
   }
 
   function applyConsoleAgentNameOverride(activeAgent, requestedName) {
@@ -728,19 +936,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
-  async function refreshConsoleOwnedAgents({ walletSnapshot = activeWalletClient.getSnapshot(), skipLoadingState = false } = {}) {
+  async function refreshConsoleOwnedAgents({ walletSnapshot = activeWalletClient.getSnapshot(), skipLoadingState = false, sessionGeneration = state.consoleSessionGeneration } = {}) {
     if (!walletSnapshot.connected || !walletSnapshot.address) {
-      state = {
-        ...state,
+      state = clearConsoleSessionState(state, {
         walletSnapshot,
-        consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
-        consoleSelectedAgentId: null,
-        consoleParticipantAgentIds: [],
-        consoleAgentThread: createInitialConsoleAgentThreadState(),
-      };
+        status: 'disconnected',
+      });
       render(root, state, handlers);
       return;
     }
+
+    const rosterWallet = normalizeConsoleWallet(walletSnapshot.address);
+    if (rosterWallet !== normalizeConsoleWallet(state.consoleAuthenticatedWallet)) return;
 
     if (!skipLoadingState) {
       state = {
@@ -756,15 +963,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
 
     try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
       const agents = applyConsoleAgentNameOverrides(
-        await fetchOwnedHelixaAgents(walletSnapshot.address, fetchImpl),
+        await fetchOwnedLooperAgents({ apiBase, fetchImpl }),
         state.consoleAgentNameOverrides,
       );
-      const selectedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
+      if (
+        state.consoleSessionGeneration !== sessionGeneration
+        || normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== rosterWallet
+      ) return;
+      const preservedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
+      const selectedAgentId = preservedAgentId ?? (agents.length === 1 ? String(agents[0]?.tokenId ?? '').trim() || null : null);
       const participantAgentIds = resolveConsoleParticipantAgentIds(agents, state.consoleParticipantAgentIds, selectedAgentId);
+      const selectionChanged = selectedAgentId !== state.consoleSelectedAgentId;
       state = {
         ...state,
         walletSnapshot,
+        consoleWalletStatus: 'connected',
         consoleOwnedAgents: {
           status: 'loaded',
           error: null,
@@ -772,18 +987,31 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         },
         consoleSelectedAgentId: selectedAgentId,
         consoleParticipantAgentIds: participantAgentIds,
-        consoleAgentThread: selectedAgentId === state.consoleSelectedAgentId
+        consoleAgentThread: !selectionChanged
           ? state.consoleAgentThread
           : createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
+      if (selectedAgentId && (selectionChanged || state.consoleAgentThread.status === 'idle')) {
+        await selectAndActivateConsoleAgent(selectedAgentId, { resetSelection: false });
+      }
     } catch (error) {
+      if (state.consoleSessionGeneration !== sessionGeneration) return;
+      if (isConsoleUnauthorized(error)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console session expired. Connect again to continue.',
+        });
+        render(root, state, handlers);
+        return;
+      }
       state = {
         ...state,
         walletSnapshot,
         consoleOwnedAgents: {
           status: 'error',
-          error: getWalletErrorMessage(error),
+          error: getSafeConsoleError(error, { phase: 'roster' }),
           agents: [],
         },
         consoleSelectedAgentId: null,
@@ -794,55 +1022,137 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  function selectConsoleAgent(event) {
+  async function selectConsoleAgent(event) {
+    if (state.consoleAgentNameMutation?.status === 'pending') return;
     const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
-    if (tokenId === state.consoleSelectedAgentId) return;
-    const participantAgentIds = resolveConsoleParticipantAgentIds(
-      getConsoleDisplayAgents(state),
-      state.consoleParticipantAgentIds,
-      tokenId,
-    );
-    state = {
-      ...state,
-      consoleSelectedAgentId: tokenId,
-      consoleParticipantAgentIds: participantAgentIds,
-      consoleAgentThread: createInitialConsoleAgentThreadState(),
-    };
-    render(root, state, handlers);
-  }
-
-  function activateConsoleRoom(event) {
-    const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim() || null;
     if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
+    return selectAndActivateConsoleAgent(tokenId);
+  }
+
+  async function retryConsoleAgentActivation() {
+    if (state.consoleAgentNameMutation?.status === 'pending') return;
+    const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
+    if (!tokenId || !state.consoleAgentThread?.activationRetryAvailable) return;
+    return selectAndActivateConsoleAgent(tokenId, { resetSelection: false });
+  }
+
+  async function selectAndActivateConsoleAgent(tokenId, { resetSelection = true } = {}) {
+    const normalizedTokenId = String(tokenId ?? '').trim();
+    if (!normalizedTokenId) return;
+    if (state.consoleAgentNameMutation?.status === 'pending') return;
+    const agent = getConsoleDisplayAgents(state).find((entry) => String(entry?.tokenId ?? '') === normalizedTokenId);
+    if (!agent) return;
     const participantAgentIds = resolveConsoleParticipantAgentIds(
       getConsoleDisplayAgents(state),
       state.consoleParticipantAgentIds,
-      tokenId,
+      normalizedTokenId,
     );
+    const requestId = state.consoleActivationRequestId + 1;
     state = {
       ...state,
-      consoleSelectedAgentId: tokenId,
+      consoleActivationRequestId: requestId,
+      consoleAgentNameMutation: normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()
+        ? {
+          status: 'idle',
+          requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1,
+          tokenId: null,
+        }
+        : state.consoleAgentNameMutation,
+      consoleSelectedAgentId: normalizedTokenId,
       consoleParticipantAgentIds: participantAgentIds,
-      consoleAgentThread: createInitialConsoleAgentThreadState(),
+      consoleAgentThread: {
+        ...(resetSelection ? createInitialConsoleAgentThreadState() : state.consoleAgentThread),
+        status: 'activating',
+        operationStatus: 'setting_up_xmtp',
+        error: null,
+        errorKind: null,
+        retryAvailable: false,
+        activationRetryAvailable: false,
+      },
     };
     render(root, state, handlers);
+    const activationContext = createConsoleAsyncContext(state, normalizedTokenId, requestId);
+    try {
+      await Promise.resolve();
+      if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
+      state = {
+        ...state,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          operationStatus: 'opening_room',
+        },
+      };
+      render(root, state, handlers);
+      const activated = await activateConsoleAgentRuntime(normalizedTokenId, agent?.name ?? `Looper #${normalizedTokenId}`);
+      if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
+      if (activated?.thread) {
+        state = {
+          ...state,
+          consoleAgentThread: {
+            ...createInitialConsoleAgentThreadState(),
+            status: activated.thread.messages?.length ? 'received' : 'idle',
+            operationStatus: null,
+            messages: activated.thread.messages ?? [],
+            proposals: activated.proposals ?? [],
+            ...(Array.isArray(activated.memory?.saved) ? { savedMemory: activated.memory.saved } : {}),
+            ...(Array.isArray(activated.memory?.recalled) ? { recalledMemory: activated.memory.recalled } : {}),
+            missions: activated.missions ?? [],
+            participants: activated.thread.participants ?? activated.room?.participants ?? [],
+            roomName: activated.thread.roomName ?? activated.room?.name ?? null,
+            conversationId: activated.thread.conversationId ?? null,
+            memoryProvider: activated.memory?.provider ?? null,
+            transport: activated.thread.transport ?? 'unavailable',
+            inferenceProvider: activated.thread.messages?.findLast?.((entry) => entry.inferenceProvider)?.inferenceProvider ?? null,
+            executionMode: activated.executionMode ?? activated.execution_mode ?? null,
+          },
+        };
+        render(root, state, handlers);
+      } else {
+        state = {
+          ...state,
+          consoleAgentThread: {
+            ...state.consoleAgentThread,
+            status: 'idle',
+            operationStatus: null,
+          },
+        };
+        render(root, state, handlers);
+      }
+    } catch (error) {
+      if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
+      if (isConsoleUnauthorized(error)) {
+        state = clearConsoleSessionState(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console session expired. Connect again to continue.',
+        });
+        render(root, state, handlers);
+        return;
+      }
+      state = {
+        ...state,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          status: 'error',
+          operationStatus: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization_failed' : 'activation_failed'),
+          errorKind: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization' : 'activation'),
+          retryAvailable: false,
+          activationRetryAvailable: !isConsoleCancellation(error),
+          error: getSafeConsoleError(error, { phase: 'activate' }),
+        },
+      };
+      render(root, state, handlers);
+    }
   }
 
-  function toggleConsoleAgentRoom(event) {
+  async function activateConsoleRoom(event) {
     const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
-    if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
-    const participantAgentIds = resolveConsoleParticipantAgentIds(
-      getConsoleDisplayAgents(state),
-      [tokenId],
-      tokenId,
-    );
-    state = {
-      ...state,
-      consoleSelectedAgentId: tokenId,
-      consoleParticipantAgentIds: participantAgentIds,
-      consoleAgentThread: createInitialConsoleAgentThreadState(),
-    };
-    render(root, state, handlers);
+    return selectConsoleAgent({ currentTarget: { value: tokenId } });
+  }
+
+  async function toggleConsoleAgentRoom(event) {
+    const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
+    return selectConsoleAgent({ currentTarget: { value: tokenId } });
   }
 
   function resetConsoleSession() {
@@ -850,28 +1160,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
     const roomParticipants = currentThread.participants?.length ? currentThread.participants : getConsoleRoomParticipants(state);
     const roomName = String(currentThread.roomName ?? '').trim() || createConsoleRoomName(roomParticipants);
-    const recalledMission = currentThread.recalledMission ?? createConsoleRecallSummary({
-      wallet: walletSnapshot.address,
-      missions: currentThread.missions ?? [],
-      savedMemory: currentThread.savedMemory ?? [],
-      proposals: currentThread.proposals ?? [],
-    });
     state = {
       ...state,
       walletSnapshot,
+      consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
       consoleAgentThread: {
         ...createInitialConsoleAgentThreadState(),
-        status: 'reset',
-        sessionReset: true,
-        recalledMission,
-        savedMemory: currentThread.savedMemory ?? [],
-        recalledMemory: currentThread.recalledMemory ?? [],
-        missions: currentThread.missions ?? [],
+        status: 'idle',
         participants: roomParticipants,
         roomName,
-        transport: currentThread.transport ?? 'xmtp_local',
-        memoryProvider: currentThread.memoryProvider ?? 'sibyl_memory',
-        inferenceProvider: currentThread.inferenceProvider ?? 'local_bankr_adapter',
+        conversationId: currentThread.conversationId ?? null,
+        transport: currentThread.transport ?? 'unavailable',
       },
     };
     render(root, state, handlers);
@@ -1430,7 +1729,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -1605,6 +1904,8 @@ const defaultClaimApi = {
   importMultipassTool,
   refreshMultipassTool,
   logoutMultipassSession,
+  authenticateConsoleSession: defaultAuthenticateConsoleSession,
+  activateConsoleAgent: defaultActivateConsoleAgent,
   sendConsoleAgentMessage: defaultSendConsoleAgentMessage,
 };
 
@@ -1632,21 +1933,122 @@ function createInitialLooperMintState() {
 function createInitialConsoleAgentThreadState() {
   return {
     status: 'idle',
+    operationStatus: null,
     error: null,
+    errorKind: null,
+    retryAvailable: false,
+    activationRetryAvailable: false,
+    draft: '',
     messages: [],
     proposals: [],
-    savedMemory: [],
-    recalledMemory: [],
     missions: [],
     participants: [],
     roomName: null,
     conversationId: null,
     recalledMission: null,
     sessionReset: false,
-    transport: 'xmtp_local',
-    memoryProvider: 'sibyl_memory',
-    inferenceProvider: 'local_bankr_adapter',
+    transport: 'unavailable',
+    memoryProvider: null,
+    inferenceProvider: null,
+    executionMode: null,
   };
+}
+
+function normalizeConsoleWallet(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function consoleWalletBoundaryChanged(state = {}, walletSnapshot = {}) {
+  const authenticatedWallet = normalizeConsoleWallet(state.consoleAuthenticatedWallet);
+  if (!authenticatedWallet) return false;
+  if (!walletSnapshot.connected || !walletSnapshot.address) return true;
+  return normalizeConsoleWallet(walletSnapshot.address) !== authenticatedWallet;
+}
+
+function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = null, error = null } = {}) {
+  return {
+    ...state,
+    walletSnapshot,
+    consoleWalletStatus: status,
+    consoleWalletError: error,
+    consoleCsrfToken: null,
+    consoleAuthenticatedWallet: null,
+    consoleSessionGeneration: Number(state.consoleSessionGeneration ?? 0) + 1,
+    consoleActivationRequestId: Number(state.consoleActivationRequestId ?? 0) + 1,
+    consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
+    consoleAgentNameMutation: {
+      status: 'idle',
+      requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1,
+      tokenId: null,
+    },
+    consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+    consoleSelectedAgentId: null,
+    consoleParticipantAgentIds: [],
+    consoleAgentThread: createInitialConsoleAgentThreadState(),
+  };
+}
+
+function createConsoleAsyncContext(state = {}, tokenId = null, activationRequestId = null) {
+  return {
+    wallet: normalizeConsoleWallet(state.consoleAuthenticatedWallet),
+    sessionGeneration: state.consoleSessionGeneration,
+    tokenId: String(tokenId ?? state.consoleSelectedAgentId ?? '').trim(),
+    activationRequestId,
+    threadGeneration: state.consoleThreadGeneration,
+  };
+}
+
+function isCurrentConsoleAsyncContext(state = {}, context = {}) {
+  if (state.consoleSessionGeneration !== context.sessionGeneration) return false;
+  if (normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== context.wallet) return false;
+  if (String(state.consoleSelectedAgentId ?? '').trim() !== context.tokenId) return false;
+  if (context.activationRequestId !== null && state.consoleActivationRequestId !== context.activationRequestId) return false;
+  if (state.consoleThreadGeneration !== context.threadGeneration) return false;
+  return Boolean(context.wallet && context.tokenId);
+}
+
+function isCurrentConsoleAgentNameMutation(state = {}, context = {}) {
+  return isCurrentConsoleAsyncContext(state, context)
+    && state.consoleAgentNameMutation?.status === 'pending'
+    && state.consoleAgentNameMutation?.requestId === context.agentNameRequestId
+    && String(state.consoleAgentNameMutation?.tokenId ?? '') === context.tokenId;
+}
+
+function getConsoleErrorStatus(error) {
+  const value = Number(error?.details?.status ?? error?.status ?? error?.response?.status);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isConsoleUnauthorized(error) {
+  const status = getConsoleErrorStatus(error);
+  return status === 401 || status === 403;
+}
+
+function isConsoleAuthorizationError(error) {
+  const status = getConsoleErrorStatus(error);
+  return status === 401 || status === 403;
+}
+
+function isConsoleCancellation(error) {
+  const code = error?.code;
+  const message = String(error?.message ?? '').toLowerCase();
+  return code === 4001
+    || code === '4001'
+    || code === 'ACTION_REJECTED'
+    || message.includes('user rejected')
+    || message.includes('rejected the request')
+    || message.includes('cancelled');
+}
+
+function getSafeConsoleError(error, { phase = 'transport' } = {}) {
+  if (isConsoleCancellation(error)) return 'Operation cancelled. Nothing was changed.';
+  if (isConsoleUnauthorized(error)) return 'Console session expired. Connect again to continue.';
+  if (isConsoleAuthorizationError(error)) return 'This wallet is not authorized for that Console operation.';
+  if (phase === 'connect') return 'Could not connect and authenticate the wallet. Try again.';
+  if (phase === 'roster') return 'Could not load wallet-owned Loopers. Try again.';
+  if (phase === 'activate') return 'Could not set up XMTP or open the room. Try again.';
+  if (phase === 'send') return 'Console transport failed. Your draft is preserved; try again.';
+  return 'Console request failed safely. Try again.';
 }
 
 function getInitialConsoleMockState() {
@@ -1871,8 +2273,8 @@ function getActiveConsoleAgent(state = {}) {
   const agents = getConsoleDisplayAgents(state);
   if (!agents.length) return null;
   const selectedId = String(state.consoleSelectedAgentId ?? '').trim();
-  if (!selectedId) return agents[0] ?? null;
-  return agents.find((agent) => String(agent?.tokenId ?? '') === selectedId) ?? agents[0] ?? null;
+  if (!selectedId) return null;
+  return agents.find((agent) => String(agent?.tokenId ?? '') === selectedId) ?? null;
 }
 
 function getConsoleRoomParticipants(state = {}) {
@@ -1893,6 +2295,7 @@ function getConsoleRoomParticipants(state = {}) {
       tokenId: String(agent.tokenId ?? '').trim(),
       displayName: agent.name ?? `Agent #${agent.tokenId ?? ''}`,
       role: agent.role ?? agent.framework ?? 'Onchain agent',
+      avatarUrl: agent.image ?? null,
     }));
 }
 
@@ -1901,7 +2304,7 @@ function resolveConsoleSelectedAgentId(agents = [], selectedAgentId = null) {
   if (!validAgents.length) return null;
   const selectedId = String(selectedAgentId ?? '').trim();
   if (selectedId && validAgents.some((agent) => String(agent?.tokenId ?? '') === selectedId)) return selectedId;
-  return String(validAgents[0]?.tokenId ?? '').trim() || null;
+  return null;
 }
 
 function resolveConsoleParticipantAgentIds(agents = [], participantAgentIds = [], selectedAgentId = null) {
@@ -1954,18 +2357,6 @@ function renameConsoleAgentThread(thread = {}, { tokenId, previousNames = [], ne
     roomName: nextParticipants.length ? createConsoleRoomName(nextParticipants) : thread?.roomName,
     messages: nextMessages,
   };
-}
-
-function createConsoleRecallSummary({ wallet, message, missions = [], savedMemory = [], proposals = [] } = {}) {
-  const activeMission = missions[0]?.summary || message || savedMemory.find((entry) => entry.tags?.includes?.('mission') || entry.tags?.includes?.('watchlist'))?.text || 'Cred tier, public proof, route health, and mission changes';
-  const constraint = savedMemory.find((entry) => entry.tags?.includes?.('constraint') || entry.tags?.includes?.('risk'))?.text || 'review-only proposals';
-  const proposalLine = proposals.length ? `${proposals.length} proposal queued.` : 'No proposal queued.';
-  const walletLine = wallet ? `Wallet ${shortenAddress(wallet)}` : 'Wallet';
-  return `${walletLine} recalled. Mission: ${trimSentenceEnd(activeMission)}. Constraint: ${trimSentenceEnd(constraint)}. ${proposalLine}`;
-}
-
-function trimSentenceEnd(value) {
-  return String(value ?? '').trim().replace(/[.!?]+$/u, '');
 }
 
 function normalizeConsoleAgentName(value) {
@@ -2936,19 +3327,24 @@ function renderLooperAllowlistPage(root, state, handlers = {}) {
 
 function createConsoleHeaderWalletAction(state = {}) {
   const wallet = state.walletSnapshot ?? {};
-  const connecting = state.consoleWalletStatus === 'connecting';
+  const consoleStatus = state.consoleWalletStatus;
+  const busy = consoleStatus === 'connecting' || consoleStatus === 'signing' || consoleStatus === 'loading_roster';
   const connected = Boolean(wallet.connected && wallet.address);
   const unavailable = wallet.configured === false;
   const ready = wallet.ready !== false;
 
   return {
     action: 'connect-console-wallet',
-    disabled: connecting || unavailable || !ready,
-    label: connecting
+    disabled: busy || unavailable || !ready,
+    label: consoleStatus === 'connecting'
       ? 'Connecting...'
-      : connected
-        ? (wallet.label ?? shortenAddress(wallet.address))
-        : 'Connect wallet',
+      : consoleStatus === 'signing'
+        ? 'Sign in wallet...'
+        : consoleStatus === 'loading_roster'
+          ? 'Loading agents...'
+          : connected
+            ? (wallet.label ?? shortenAddress(wallet.address))
+            : 'Connect wallet',
   };
 }
 
@@ -3490,6 +3886,7 @@ function bindProductHomeEvents(root, handlers, state) {
     button.addEventListener('click', () => handlers.connectConsoleWallet?.());
   });
   root.querySelector('[data-action="select-console-agent"]')?.addEventListener('change', (event) => handlers.selectConsoleAgent?.(event));
+  root.querySelector('[data-action="retry-console-agent-activation"]')?.addEventListener('click', () => handlers.retryConsoleAgentActivation?.());
   root.querySelectorAll('[data-action="activate-console-room"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.activateConsoleRoom?.(event));
   });

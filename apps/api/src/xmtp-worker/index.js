@@ -6,13 +6,19 @@ const ETHEREUM_IDENTIFIER_KIND = 0;
 
 export function createConsoleXmtpMessageHandler({
   runtime,
+  runtimeRegistry,
+  authorizeLooper,
   ownInboxId,
   getConversation,
-  defaults = {},
   logger = console,
 } = {}) {
   if (!runtime?.handleMessage) throw new TypeError('XMTP worker requires a Console runtime.');
+  if (!runtimeRegistry?.getByConversationId || !runtimeRegistry?.get) {
+    throw new TypeError('XMTP worker requires the canonical active-runtime registry.');
+  }
+  if (typeof authorizeLooper !== 'function') throw new TypeError('XMTP worker requires fresh Looper authorization.');
   if (typeof getConversation !== 'function') throw new TypeError('XMTP worker requires a conversation resolver.');
+  const processedMessageIds = new Set();
 
   return {
     async handleMessage(message = {}) {
@@ -26,20 +32,40 @@ export function createConsoleXmtpMessageHandler({
 
       const conversationId = String(message.conversationId ?? '').trim();
       if (!conversationId) return { processed: false, reason: 'missing_conversation_id' };
+      const messageId = String(message.id ?? '').trim();
+      if (!messageId) return { processed: false, reason: 'missing_message_id' };
+      const binding = runtimeRegistry.getByConversationId(conversationId);
+      if (!binding) return { processed: false, reason: 'unbound_conversation' };
+
+      if (processedMessageIds.has(messageId)) return { processed: false, reason: 'duplicate_message' };
 
       const conversation = await getConversation(conversationId);
       if (!conversation) return { processed: false, reason: 'conversation_not_found' };
 
       const wallet = await resolveSenderWallet({ conversation, senderInboxId });
       if (!wallet) return { processed: false, reason: 'sender_wallet_unresolved' };
+      if (wallet !== binding.identity.owner) return { processed: false, reason: 'unbound_sender' };
 
       try {
+        const identity = await authorizeLooper({ tokenId: binding.identity.tokenId, wallet });
+        if (!sameCanonicalIdentity(identity, binding.identity)) {
+          return { processed: false, reason: 'canonical_identity_mismatch' };
+        }
+        const activation = runtimeRegistry.get(identity);
+        if (!activation || activation.conversationId !== conversationId) {
+          return { processed: false, reason: 'inactive_runtime' };
+        }
+        if (messageId) processedMessageIds.add(messageId);
         const result = await runtime.handleMessage({
-          ...defaults,
           wallet,
+          tokenId: identity.tokenId,
+          agentId: identity.erc8004AgentId,
+          activationId: activation.key,
+          agentName: activation.runtimeName,
+          canonicalIdentity: identity,
+          canonicalConversationId: conversationId,
           message: text,
-          conversationId,
-          threadId: `xmtp:${conversationId}`,
+          threadId: activation.threadId,
           inboundMessageId: message.id,
           publishHumanMessage: false,
         });
@@ -50,6 +76,7 @@ export function createConsoleXmtpMessageHandler({
           result,
         };
       } catch (error) {
+        if (messageId) processedMessageIds.delete(messageId);
         logger.error?.('Console XMTP message failed', {
           conversationId,
           messageId: message.id,
@@ -89,9 +116,10 @@ export async function startConsoleXmtpWorker(options = {}) {
   });
   const handler = createConsoleXmtpMessageHandler({
     runtime: consoleRuntime,
+    runtimeRegistry: options.runtimeRegistry,
+    authorizeLooper: options.authorizeLooper,
     ownInboxId: nodeClient.inboxId,
     getConversation: (conversationId) => nodeClient.conversations.getConversationById(conversationId),
-    defaults,
     logger,
   });
 
@@ -116,15 +144,24 @@ export async function startConsoleXmtpWorker(options = {}) {
     logger.error?.('Console XMTP worker stopped', error);
   });
 
+  let stopPromise = null;
+
   return {
     client: nodeClient,
+    xmtpClient: publishingClient,
+    runtime: consoleRuntime,
     stream,
     done,
     handler,
-    async stop() {
-      if (stream.end) return stream.end();
-      if (stream.return) return stream.return();
-      return undefined;
+    stop() {
+      if (!stopPromise) {
+        stopPromise = (async () => {
+          if (stream.end) await stream.end();
+          else if (stream.return) await stream.return();
+          await done;
+        })();
+      }
+      return stopPromise;
     },
   };
 }
@@ -172,6 +209,16 @@ export async function resolveSenderWallet({ conversation, senderInboxId } = {}) 
     return kind === ETHEREUM_IDENTIFIER_KIND && /^0x[a-f0-9]{40}$/i.test(value);
   });
   return walletIdentifier ? walletIdentifier.identifier.toLowerCase() : null;
+}
+
+function sameCanonicalIdentity(left = {}, right = {}) {
+  return Number(left.chainId) === 8453
+    && Number(right.chainId) === 8453
+    && String(left.contract ?? '').toLowerCase() === String(right.contract ?? '').toLowerCase()
+    && String(left.tokenId ?? '') === String(right.tokenId ?? '')
+    && String(left.erc8004AgentId ?? '') === String(right.erc8004AgentId ?? '')
+    && String(left.owner ?? '').toLowerCase() === String(right.owner ?? '').toLowerCase()
+    && left.controllerVerified === true;
 }
 
 function parseBoolean(value) {

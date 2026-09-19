@@ -57,6 +57,36 @@ test('durable memory extraction does not treat avoided high-risk entries as a hi
   assert.doesNotMatch(extracted.map((item) => item.text).join('\n'), /Risk preference: high risk/);
 });
 
+test('Sibyl bridge preserves canonical XMTP message evidence in thread records', async () => {
+  const script = `
+import importlib.util, json
+spec = importlib.util.spec_from_file_location("multipass_sibyl_bridge", ${JSON.stringify(new URL('../src/sibyl-memory/bridge.py', import.meta.url).pathname)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(json.dumps(module.normalize_thread_message({
+  "id": "xmtp-message-1",
+  "role": "agent",
+  "text": "Live XMTP reply.",
+  "sentAt": "2026-09-17T20:45:00.000Z",
+  "transport": "xmtp_group",
+  "senderLabel": "Bendr",
+  "participantId": "erc8004:89144",
+  "conversationId": "conversation-2431",
+  "xmtpMessageId": "xmtp-message-1",
+  "inferenceProvider": "local_bankr_adapter",
+})))
+`;
+  const { stdout } = await execFileAsync('/home/ubuntu/.openclaw/sibyl-venv/bin/python', ['-c', script]);
+  const record = JSON.parse(stdout);
+
+  assert.equal(record.id, 'xmtp-message-1');
+  assert.equal(record.senderLabel, 'Bendr');
+  assert.equal(record.participantId, 'erc8004:89144');
+  assert.equal(record.conversationId, 'conversation-2431');
+  assert.equal(record.xmtpMessageId, 'xmtp-message-1');
+  assert.equal(record.inferenceProvider, 'local_bankr_adapter');
+});
+
 test('Sibyl memory store can require the real bridge instead of silently falling back', async () => {
   const memory = createSibylMemoryStore({
     pythonBin: '/tmp/missing-sibyl-python',

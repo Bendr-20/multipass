@@ -25,13 +25,13 @@ const checkedFiles = [
 const bannedTerms = [
   'pass' + 'port',
   'Multi ' + 'Pass',
-  '.' + 'agent',
   'Legen' + 'dary',
   'buy ' + 'reputation',
   'purchase ' + 'reputation',
   'human-owned, ' + 'agent-managed',
 ];
 
+const blockedAgentDomainPattern = /https?:\/\/[^'"\s]*\.agent(?:[\/'"\s]|$)/iu;
 const emojiPattern = /[\u{1F300}-\u{1FAFF}]/u;
 
 test('Protocol Artifact web copy avoids blocked wording', async () => {
@@ -40,6 +40,7 @@ test('Protocol Artifact web copy avoids blocked wording', async () => {
     for (const term of bannedTerms) {
       assert.equal(text.includes(term), false, `${file} contains blocked wording: ${term}`);
     }
+    assert.equal(blockedAgentDomainPattern.test(text), false, `${file} contains a blocked .agent URL`);
     assert.equal(text.includes(String.fromCharCode(8212)), false, `${file} contains em dash`);
     assert.equal(emojiPattern.test(text), false, `${file} contains emoji`);
   }

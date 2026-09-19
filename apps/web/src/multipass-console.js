@@ -8,6 +8,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const wallet = state.walletSnapshot ?? {};
   const agentRoster = state.consoleOwnedAgents ?? { status: 'idle', error: null, agents: [] };
   const walletConnected = Boolean(wallet.connected && wallet.address);
+  const aliasMutationPending = state.consoleAgentNameMutation?.status === 'pending';
   const activeAgents = Array.isArray(agents) ? agents.filter(Boolean) : [];
   const activeAgent = selectActiveAgent(activeAgents, state.consoleSelectedAgentId);
   const roomParticipants = createRoomParticipants({
@@ -24,6 +25,12 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const savedMemory = Array.isArray(agentThread.savedMemory) ? agentThread.savedMemory : [];
   const recalledMemory = Array.isArray(agentThread.recalledMemory) ? agentThread.recalledMemory : [];
   const memoryEntries = createMemoryEntries({ savedMemory, recalledMemory });
+  const recall = agentThread.recalledMemoryPresent && recalledMemory.length
+    ? {
+      title: 'Sibyl recall',
+      body: agentThread.recalledMission || `Loaded ${recalledMemory.length} recalled memory ${recalledMemory.length === 1 ? 'entry' : 'entries'} for this wallet and agent.`,
+    }
+    : null;
   const proposalCount = Array.isArray(agentThread.proposals) ? agentThread.proposals.length : 0;
   const activeScore = normalizeCredScore(activeAgent?.credScore);
   const activeCred = activeAgent?.credLabel ?? (activeScore === null ? 'Cred pending' : `Cred ${activeScore}`);
@@ -32,14 +39,19 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
     ?? (walletConnected
       ? agentRoster.status === 'loading'
         ? 'Loading owned agents'
-        : 'No owned agents found'
-      : 'Select an agent');
+        : activeAgentCount > 0
+          ? 'Pick your agent'
+          : 'No owned agents found'
+      : 'Connect wallet');
+  const emptyAgentSummary = walletConnected && activeAgentCount > 0
+    ? 'Pick an owned Looper to load its identity and open the room.'
+    : 'Connect a wallet, then pick your agent from owned Loopers to load its identity and room.';
 
   const status = [
     { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
     { label: 'Agent', value: activeAgent?.tokenId ? activeAgentLabel : 'Select first' },
-    { label: 'Chat', value: walletConnected && activeAgent?.tokenId ? (roomParticipants.length > 1 ? 'XMTP room' : 'XMTP ready') : 'Standby' },
-    { label: 'Memory', value: memoryEntries.length ? `${memoryEntries.length} recalled` : 'Sibyl ready' },
+    { label: 'Chat', value: walletConnected && activeAgent?.tokenId ? formatTransportLabel(agentThread.transport) : 'Standby' },
+    { label: 'Memory', value: memoryEntries.length ? `${memoryEntries.length} loaded` : 'Standby' },
   ];
 
   return {
@@ -65,7 +77,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         value: agent.tokenId ?? '',
         label: buildAgentOptionLabel(agent),
       })),
-      selectionEnabled: walletConnected && agentRoster.status === 'loaded' && activeAgentCount > 0,
+      selectionEnabled: walletConnected && agentRoster.status === 'loaded' && activeAgentCount > 0 && !aliasMutationPending,
       selectionHint: createSelectionHint({ walletConnected, agentRosterStatus: agentRoster.status, activeAgentCount, roomParticipantCount: roomParticipants.length }),
       nextAction: createNextAction({ walletConnected, activeAgentCount, proposalCount, hasMessages: (agentThread.messages?.length ?? 0) > 0, roomParticipantCount: roomParticipants.length }),
       status,
@@ -74,14 +86,22 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       name: activeAgentLabel,
       role: activeAgent?.canonicalName && activeAgent.canonicalName !== activeAgent.name
         ? activeAgent.canonicalName
-        : (activeAgent?.role ?? 'Onchain agent'),
-      image: activeAgent?.image ?? DEFAULT_CONSOLE_PORTRAIT,
+        : (activeAgent?.role ?? (walletConnected ? 'Choose an owned Looper' : 'Connect wallet')),
+      image: activeAgent?.image ?? null,
+      portraitPlaceholder: activeAgent?.tokenId
+        ? null
+        : (walletConnected && activeAgentCount > 0 ? 'Pick agent' : 'Connect wallet'),
       walletLabel: walletConnected ? connectedWallet : null,
-      roomName: activeAgent?.presenceLabel ?? (roomParticipants.length > 1 ? agentThread.roomName : 'Direct operator line'),
+      roomName: activeAgent?.presenceLabel ?? (activeAgent?.tokenId
+        ? (roomParticipants.length > 1 ? agentThread.roomName : 'Direct operator line')
+        : 'No room open'),
       participants: agentThread.participants,
-      summary: createIdentitySummary({ activeAgent, activeCred, roomParticipantCount: roomParticipants.length, proposalCount }),
-      rename: createAgentRenameControl(activeAgent),
+      summary: activeAgent?.tokenId
+        ? createIdentitySummary({ activeAgent, activeCred, roomParticipantCount: roomParticipants.length, proposalCount })
+        : emptyAgentSummary,
+      rename: createAgentRenameControl(activeAgent, state.consoleAgentNameMutation),
       badges: createIdentityBadges({ activeAgent, verifiedLabel, transport: agentThread.transport, proposalCount }),
+      emptyState: !activeAgent?.tokenId,
       dossier: createIdentityDossier({
         activeAgent,
         walletConnected,
@@ -93,23 +113,16 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         verifiedLabel,
       }),
       stats: createIdentityStats({ activeAgent, activeCred, proposalCount }),
+      tokenLabel: activeAgent?.tokenId ? `Token #${activeAgent.tokenId}` : 'Token not loaded',
+      erc8004Label: getPositiveErc8004AgentId(activeAgent) ? `ERC-8004 #${getPositiveErc8004AgentId(activeAgent)}` : null,
     },
-    suiteChecks: createSuiteChecks({
-      walletConnected,
+    suiteChecks: createProofChecks({
       activeAgent,
-      activeCred,
-      memoryCount: memoryEntries.length,
-      proposalCount,
-      transport: agentThread.transport,
-      memoryProvider: agentThread.memoryProvider,
-      roomParticipantCount: roomParticipants.length,
+      thread: agentThread,
     }),
     memoryEntries,
     agentThread,
-    recall: {
-      title: agentThread.sessionReset ? 'Session recall' : 'Sibyl recall',
-      body: agentThread.recalledMission || (memoryEntries.length ? 'Recent memory is loaded for this wallet and selected agent.' : 'No recalled memory yet for this wallet-agent pair.'),
-    },
+    recall,
     threadContextItems: createThreadContextItems({
       activeAgent,
       activeCred,
@@ -128,6 +141,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       href: agent.href ?? null,
       selected: String(agent.tokenId ?? '') !== '' && String(agent.tokenId) === String(activeAgent?.tokenId ?? ''),
       inRoom: roomParticipants.some((participant) => String(participant.tokenId ?? '') === String(agent.tokenId ?? '')),
+      activationDisabled: aliasMutationPending,
     })),
     agentRoster,
   };
@@ -146,6 +160,15 @@ export function renderMultipassConsole(snapshot = {}) {
   return `
     <main class="multipass-console" aria-label="Multipass Console">
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
+        <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
+          ${renderSuitePanel(snapshot)}
+          ${renderConsoleAgentThread({
+            ...snapshot.agentThread,
+            recall: snapshot.recall,
+            contextItems: snapshot.threadContextItems,
+          })}
+        </section>
+
         <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
           <header class="console-dashboard-header console-sidebar-header">
             <div class="console-sidebar-brand">
@@ -162,23 +185,16 @@ export function renderMultipassConsole(snapshot = {}) {
               hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
               open: false,
               body: `
+                ${renderAgentSelector(snapshot.session)}
                 <div class="console-agent-list">
                   ${renderAgentRoster(snapshot)}
                 </div>
-                <p class="console-agent-note">The Console only loads real Helixa agents owned by the connected wallet.</p>
+                <p class="console-agent-note">The Console only loads real Loopers owned by the connected wallet.</p>
                 ${snapshot.agentRoster?.error ? `<p class="console-agent-error">${escapeHtml(snapshot.agentRoster.error)}</p>` : ''}
               `,
             })}
           </section>
         </aside>
-
-        <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
-          ${renderConsoleAgentThread({
-            ...snapshot.agentThread,
-            recall: snapshot.recall,
-            contextItems: snapshot.threadContextItems,
-          })}
-        </section>
       </section>
     </main>
   `;
@@ -199,16 +215,26 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
   const hasRuntimeProof = Boolean(thread.messages?.length || thread.proposals?.length || thread.savedMemory?.length || thread.recalledMemory?.length);
   return {
     status: thread.status ?? 'idle',
+    operationStatus: thread.operationStatus ?? null,
     disabled: !connected || loadingAgents || !hasAgent,
     error: thread.error ?? null,
+    errorKind: thread.errorKind ?? null,
+    retryAvailable: Boolean(thread.retryAvailable),
+    activationRetryAvailable: Boolean(thread.activationRetryAvailable),
+    roomActivationDisabled: state.consoleAgentNameMutation?.status === 'pending',
+    draft: String(thread.draft ?? ''),
     title: thread.title ?? null,
     metaLabel: thread.metaLabel ?? null,
     contextLabel: thread.contextLabel ?? null,
     agentAvatarUrl: activeAgent?.image ?? null,
-    transport: formatTransportLabel(thread.transport),
+    transport: formatTransportLabel(thread.transport, { live: Boolean(thread.conversationId) }),
+    rawTransport: String(thread.transport ?? ''),
+    conversationId: String(thread.conversationId ?? ''),
     memoryProvider: formatMemoryProviderLabel(thread.memoryProvider),
+    rawMemoryProvider: String(thread.memoryProvider ?? ''),
     inferenceProvider: formatInferenceProviderLabel(thread.inferenceProvider),
-    approvalMode: 'Review-only',
+    rawInferenceProvider: String(thread.inferenceProvider ?? ''),
+    executionMode: String(thread.executionMode ?? ''),
     defaultMission: DEFAULT_CONSOLE_MISSION,
     agentName: activeAgent?.name ?? 'Selected agent',
     roomName: String(thread.roomName ?? '').trim() || deriveRoomName(threadParticipants.length ? threadParticipants : [activeAgent].filter(Boolean)),
@@ -217,14 +243,13 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     proposals: thread.proposals,
     savedMemory: thread.savedMemory,
     recalledMemory: thread.recalledMemory,
+    savedMemoryPresent: Object.prototype.hasOwnProperty.call(thread, 'savedMemory') && Array.isArray(thread.savedMemory),
+    recalledMemoryPresent: Object.prototype.hasOwnProperty.call(thread, 'recalledMemory') && Array.isArray(thread.recalledMemory),
     missions: thread.missions,
-    sessionReset: Boolean(thread.sessionReset),
     recalledMission: thread.recalledMission ?? null,
     canReset: hasRuntimeProof,
     summary: latestAgentMessage
       ? 'Live chat updated.'
-      : thread.sessionReset && thread.recalledMission
-        ? thread.recalledMission
       : !connected
         ? 'Connect wallet to open a room.'
       : loadingAgents
@@ -234,7 +259,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
       : !hasAgent
         ? 'Select an owned agent to open a room.'
         : threadParticipants.length > 1
-          ? `Room ready with ${threadParticipants.length} participating agents.`
+          ? `Room ready with ${threadParticipants.length} room participants.`
           : 'XMTP room ready.',
   };
 }
@@ -243,33 +268,68 @@ function renderSessionPanel(session = {}) {
   const wallet = session.wallet ?? {};
   const connected = Boolean(wallet.connected);
   const walletLabel = connected ? wallet.label : null;
+  const roomStat = session.activeAgentId
+    ? (session.activeAgentLabel ?? `#${session.activeAgentId}`)
+    : connected
+      ? 'Waiting'
+      : 'Locked';
+  const roomHint = session.activeAgentId
+    ? 'Room is bound to the selected wallet-owned agent.'
+    : connected
+      ? 'Choose an agent from My agents to open the room.'
+      : 'Connect wallet to open a room.';
   const sessionNote = connected
-    ? (session.selectionHint ?? '')
+    ? 'Agent selection lives under My agents.'
     : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Connect wallet to load your agents.');
+  const walletOperation = createWalletOperation(wallet.status, session.rosterStatus);
 
   return `
     <section class="console-panel console-session-panel console-wallet-panel" aria-label="Console session">
+      ${walletOperation || wallet.error ? `
+        <div class="console-session-banner" role="status">
+          ${walletOperation ? `<strong>${escapeHtml(walletOperation)}</strong>` : ''}
+          ${wallet.error ? `<span>${escapeHtml(wallet.error)}</span>` : ''}
+        </div>
+      ` : ''}
       ${renderConsoleDrawer({
         label: 'Session',
-        title: 'Active agent',
-        stat: session.activeAgentLabel ?? 'Select an agent',
-        hint: session.selectionHint ?? '',
+        title: 'Current room',
+        stat: roomStat,
+        hint: roomHint,
         open: false,
         body: `
-          <div class="console-session-actions">
-            <label class="console-agent-selector">
-              <span>Active agent</span>
-              <select name="console_agent" data-action="select-console-agent" ${session.selectionEnabled ? '' : 'disabled'}>
-                ${renderAgentOptions(session)}
-              </select>
-            </label>
-          </div>
+          <dl class="console-session-status-grid">
+            ${(session.status ?? []).map(renderStatusItem).join('')}
+          </dl>
           ${walletLabel ? `<p class="console-wallet-label">${escapeHtml(walletLabel)}</p>` : ''}
           ${sessionNote ? `<p class="console-session-note">${escapeHtml(sessionNote)}</p>` : ''}
-          ${wallet.error ? `<p class="console-wallet-error">${escapeHtml(wallet.error)}</p>` : ''}
         `,
       })}
     </section>
+  `;
+}
+
+function createWalletOperation(walletStatus, rosterStatus) {
+  if (walletStatus === 'connecting') return 'Connecting wallet…';
+  if (walletStatus === 'signing') return 'Signing Console authentication…';
+  if (walletStatus === 'loading_roster' || rosterStatus === 'loading') return 'Loading wallet-owned Loopers…';
+  if (walletStatus === 'cancelled') return 'Wallet operation cancelled.';
+  if (walletStatus === 'authorization_failed') return 'Authorization failed. Connect again.';
+  if (walletStatus === 'transport_failed') return 'Wallet transport failed. Try again.';
+  if (walletStatus === 'wallet_changed') return 'Wallet changed. A new authenticated session is required.';
+  return null;
+}
+
+function renderAgentSelector(session = {}) {
+  return `
+    <div class="console-session-actions">
+      <label class="console-agent-selector">
+        <span>Choose agent</span>
+        <select name="console_agent" data-action="select-console-agent" ${session.selectionEnabled ? '' : 'disabled'}>
+          ${renderAgentOptions(session)}
+        </select>
+      </label>
+    </div>
   `;
 }
 
@@ -279,12 +339,14 @@ function renderIdentityCard(card = {}) {
     .filter(Boolean)
     .slice(0, 2)
     .join(' · ');
-  const trustStat = statsSummary || card.badges?.[0] || 'Awaiting trust';
+  const trustStat = card.emptyState ? 'Not loaded' : (statsSummary || card.badges?.[0] || 'Awaiting trust');
   const memberCount = Array.isArray(card.participants) ? card.participants.length : 0;
   return `
-    <section class="console-visual-card console-identity-card" aria-label="Selected agent">
+    <section class="console-visual-card console-identity-card console-identity-card-compact" aria-label="Selected agent">
       <div class="console-agent-portrait">
-        <img src="${escapeAttribute(card.image ?? DEFAULT_CONSOLE_PORTRAIT)}" alt="${escapeAttribute(card.name ?? 'Agent profile')}" loading="lazy">
+        ${card.image
+          ? `<img src="${escapeAttribute(card.image)}" alt="${escapeAttribute(card.name ?? 'Agent profile')}" loading="lazy">`
+          : `<div class="console-agent-portrait-placeholder">${escapeHtml(card.portraitPlaceholder ?? 'Pick agent')}</div>`}
       </div>
       <div class="console-card-head">
         ${card.label ? `<p class="card-label">${escapeHtml(card.label)}</p>` : ''}
@@ -295,6 +357,10 @@ function renderIdentityCard(card = {}) {
         <strong>${escapeHtml(card.name ?? 'Select an agent')}</strong>
         <small>${escapeHtml(card.roomName ?? 'Selected room')}</small>
         ${card.summary ? `<p>${escapeHtml(card.summary)}</p>` : ''}
+        <div class="console-identity-keyline">
+          <span>${escapeHtml(card.tokenLabel ?? 'Token not loaded')}</span>
+          ${card.erc8004Label ? `<span>${escapeHtml(card.erc8004Label)}</span>` : ''}
+        </div>
       </div>
       ${(card.badges ?? []).length ? `
         <div class="console-identity-badges">
@@ -349,7 +415,7 @@ function renderIdentityCard(card = {}) {
         label: 'Room',
         title: 'Participants',
         stat: `${memberCount} in room`,
-        hint: memberCount === 1 ? 'Single-agent room.' : 'Room participants for this thread.',
+        hint: memberCount === 1 ? 'Single-participant room.' : 'Room participants for this thread.',
         open: false,
         body: `
           <div class="console-identity-members">
@@ -365,21 +431,16 @@ function renderIdentityCard(card = {}) {
 }
 
 function renderSuitePanel(snapshot = {}) {
+  const checks = Array.isArray(snapshot.suiteChecks) ? snapshot.suiteChecks : [];
   return `
-    <section class="console-panel console-suite-panel console-trust-rail" aria-label="Live suite">
-      <div class="console-panel-heading">
-        <p class="card-label">Context</p>
-        <h2>Room context</h2>
-        <p>What this room knows now and what still waits for approval.</p>
-      </div>
+    <section class="console-suite-panel console-trust-rail console-proof-rail" aria-label="Verified runtime proof">
+      <strong class="console-proof-rail-title">Verified runtime proof</strong>
       <div class="console-check-stack">
-        ${(snapshot.suiteChecks ?? []).map(renderSuiteCheck).join('')}
-      </div>
-      <div class="console-memory-list console-memory-log">
-        ${(snapshot.memoryEntries ?? []).map(renderMemoryEntry).join('') || `
-          <article class="console-memory-empty">
-            <strong>Sibyl memory is ready</strong>
-            <p>Send a mission or preference and this room will store it against the wallet and selected agent.</p>
+        ${checks.length ? checks.map(renderSuiteCheck).join('') : `
+          <article class="open console-proof-empty">
+            <span>Evidence</span>
+            <strong>No verified runtime proof yet</strong>
+            <small>Proof appears only after the Console receives exact provider evidence.</small>
           </article>
         `}
       </div>
@@ -435,7 +496,10 @@ function renderAgentOptions(session = {}) {
   if (!options.length) {
     return `<option value="">${escapeHtml(session.rosterStatus === 'loading' ? 'Loading owned agents...' : 'No owned agents')}</option>`;
   }
-  return options.map((option) => `
+  const prompt = session.activeAgentId
+    ? ''
+    : '<option value="" selected>Pick your agent</option>';
+  return prompt + options.map((option) => `
     <option value="${escapeAttribute(option.value ?? '')}" ${option.value === session.activeAgentId ? 'selected' : ''}>${escapeHtml(option.label ?? option.value ?? '')}</option>
   `).join('');
 }
@@ -449,10 +513,10 @@ function renderAgentRoster(snapshot = {}) {
   let body = 'Connect wallet to load the agents tied to this operator.';
   if (status === 'loading') {
     title = 'Loading owned agents';
-    body = 'Checking the live Helixa directory for agents owned by this wallet.';
+    body = 'Checking live Looper ownership for this wallet.';
   } else if (status === 'loaded') {
     title = 'No owned agents found';
-    body = 'This wallet does not currently own a live Helixa agent record.';
+    body = 'This wallet does not currently own a Looper.';
   } else if (status === 'error') {
     title = 'Agent load failed';
     body = 'The live ownership lookup failed, so the Console is refusing to invent a roster.';
@@ -491,7 +555,7 @@ function renderAgentCard(agent = {}) {
         <span>${escapeHtml(agent.cred ?? 'Cred pending')}</span>
       </div>
       <div class="console-agent-card-actions">
-        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected ? 'disabled' : ''}>${selected ? 'Room live' : 'Open room'}</button>
+        <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(agent.tokenId ?? '')}" ${selected || agent.activationDisabled ? 'disabled' : ''}>${selected ? 'Room live' : 'Open room'}</button>
         ${openLink}
       </div>
     </article>
@@ -554,62 +618,50 @@ function renderConsoleDrawer({
   `;
 }
 
-function createSuiteChecks({
-  walletConnected = false,
-  activeAgent = null,
-  activeCred = 'Cred pending',
-  memoryCount = 0,
-  proposalCount = 0,
-  transport = 'Live chat',
-  memoryProvider = 'Sibyl memory',
-  roomParticipantCount = 0,
-} = {}) {
-  return [
-    {
-      label: 'Wallet',
-      value: walletConnected ? 'Connected' : 'Required',
-      body: 'Session stays bound to the connected wallet.',
-      className: walletConnected ? 'ready' : 'open',
-    },
-    {
-      label: 'Selected agent',
-      value: activeAgent?.tokenId ? `#${activeAgent.tokenId}` : 'Required',
-      body: activeAgent?.name ?? 'Choose one owned agent to manage.',
-      className: activeAgent?.tokenId ? 'ready' : 'open',
-    },
-    {
-      label: 'Chat',
-      value: transport,
-      body: roomParticipantCount > 1
-        ? `${roomParticipantCount} wallet-owned agents are active in this room.`
-        : 'Live manager chat for the selected agent.',
-      className: activeAgent?.tokenId ? 'ready' : 'open',
-    },
-    {
-      label: 'Memory',
-      value: memoryProvider,
-      body: memoryCount ? `${memoryCount} recalled item${memoryCount === 1 ? '' : 's'} loaded.` : 'No recalled memory yet.',
-      className: 'ready',
-    },
-    {
-      label: 'Cred',
-      value: activeCred,
-      body: 'Current trust layer snapshot for the selected agent.',
-      className: activeAgent?.tokenId ? 'ready' : 'open',
-    },
-    {
-      label: 'Approval',
-      value: proposalCount ? `${proposalCount} queued` : 'Review-only',
-      body: 'No external action executes without approval.',
-      className: 'ready',
-    },
-  ];
+function createProofChecks({ activeAgent = null, thread = {} } = {}) {
+  const checks = [];
+  const hasBankrAgentResponse = Array.isArray(thread.messages) && thread.messages.some((message) => (
+    message?.role === 'agent' && message?.inferenceProvider === 'bankr_llm_gateway'
+  ));
+  if (hasBankrAgentResponse) {
+    checks.push({ label: 'Inference', value: 'Bankr gateway', body: 'Response identified bankr_llm_gateway.', className: 'ready' });
+  }
+  if (thread.rawTransport === 'xmtp_group' && thread.conversationId) {
+    checks.push({ label: 'Transport', value: 'XMTP live', body: 'Server returned a non-empty XMTP conversation.', className: 'ready' });
+  }
+  if (thread.rawMemoryProvider === 'sibyl_memory' && thread.savedMemoryPresent) {
+    const savedCount = Array.isArray(thread.savedMemory) ? thread.savedMemory.length : 0;
+    checks.push({ label: 'Memory write', value: `Sibyl saved ${savedCount}`, body: 'Saved count returned by sibyl_memory.', className: 'ready' });
+  }
+  if (thread.rawMemoryProvider === 'sibyl_memory' && thread.recalledMemoryPresent) {
+    const recalledCount = Array.isArray(thread.recalledMemory) ? thread.recalledMemory.length : 0;
+    checks.push({ label: 'Memory recall', value: `Sibyl recalled ${recalledCount}`, body: 'Recalled count returned by sibyl_memory.', className: 'ready' });
+  }
+  const erc8004AgentId = getPositiveErc8004AgentId(activeAgent);
+  if (erc8004AgentId) {
+    checks.push({ label: 'Identity', value: `ERC-8004 #${erc8004AgentId}`, body: 'Positive numeric registry agent ID.', className: 'ready' });
+  }
+  const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
+  const proposalsAreReviewOnly = proposals.every((proposal) => (
+    proposal?.status === 'review_only'
+    && proposal?.executable === false
+    && proposal?.executionEnabled !== true
+  ));
+  if (thread.executionMode === 'review_only' && proposalsAreReviewOnly) {
+    checks.push({ label: 'Execution', value: 'Review-only', body: 'Runtime mode and every returned proposal are non-executable.', className: 'ready' });
+  }
+  return checks;
+}
+
+function getPositiveErc8004AgentId(agent = {}) {
+  const value = Number(agent?.erc8004AgentId);
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function createIdentitySummary({ activeAgent = null, activeCred = 'Cred pending', roomParticipantCount = 0, proposalCount = 0 } = {}) {
   if (!activeAgent?.tokenId) return 'Load a real agent and open a direct review-only thread.';
   if (activeAgent.logline) return activeAgent.logline;
-  const roomLabel = roomParticipantCount > 1 ? `${roomParticipantCount}-agent room` : 'direct thread';
+  const roomLabel = roomParticipantCount > 1 ? `${roomParticipantCount}-participant room` : 'direct thread';
   const reviewLabel = proposalCount ? `${proposalCount} queued for review` : 'review-only';
   return `${activeAgent.role ?? 'Onchain agent'} in a ${roomLabel}. ${activeCred}. ${reviewLabel}.`;
 }
@@ -628,7 +680,7 @@ function createIdentityDossier({
   const identityBody = activeAgent?.identityBody
     ?? (activeAgent?.helixaId
       ? `${verifiedLabel}. AgentDNA ${activeAgent.helixaId}.`
-      : (activeAgent?.name ? verifiedLabel : 'Connect wallet to load a wallet-owned Helixa identity.'));
+      : (activeAgent?.name ? verifiedLabel : 'Connect wallet to load a wallet-owned Looper identity.'));
   const temperamentValue = activeAgent?.temperament ?? activeAgent?.role ?? 'Review-only operator';
   const temperamentBody = activeAgent?.temperamentBody
     ?? (activeAgent?.tokenId
@@ -636,7 +688,7 @@ function createIdentityDossier({
       : 'The Console should feel like a character relationship, not a dashboard.');
   const roomBody = activeAgent?.mandateBody
     ?? (roomParticipantCount > 1
-      ? `${roomParticipantCount} wallet-owned agents are sharing this thread.`
+      ? `${roomParticipantCount} room participants are sharing this thread.`
       : 'This thread stays tied to one selected wallet-owned agent.');
   const operatorBody = activeAgent?.operatorBody
     ?? (proposalCount
@@ -702,7 +754,7 @@ function createThreadContextItems({
     {
       label: 'Mode',
       value: proposalCount ? `${proposalCount} queued proposal${proposalCount === 1 ? '' : 's'}` : 'Review-only',
-      body: participantCount > 1 ? `${participantCount} agents can collaborate, but nothing executes without approval.` : 'Single-agent room with explicit approval gates.',
+      body: participantCount > 1 ? `${participantCount} room participants can collaborate, but nothing executes without approval.` : 'Single-participant room with explicit approval gates.',
       className: 'ready',
     },
   ];
@@ -731,13 +783,13 @@ function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idl
   if (!walletConnected) return 'Connect wallet first.';
   if (agentRosterStatus === 'loading') return 'Loading wallet-owned agents.';
   if (agentRosterStatus === 'error') return 'Wallet-owned agent lookup failed.';
-  if (activeAgentCount === 0) return 'This wallet does not own a live Helixa agent record yet.';
+  if (activeAgentCount === 0) return 'This wallet does not own a Looper yet.';
   return 'Pick an agent to open its room and start the thread.';
 }
 
 function createNextAction({ walletConnected = false, activeAgentCount = 0, proposalCount = 0, hasMessages = false, roomParticipantCount = 0 } = {}) {
   if (!walletConnected) return { title: 'Wallet required', body: 'Connect wallet before the room can load an agent.' };
-  if (activeAgentCount === 0) return { title: 'No owned agents', body: 'This wallet needs a live Helixa agent record before chat can start.' };
+  if (activeAgentCount === 0) return { title: 'No owned Loopers', body: 'This wallet needs an owned Looper before chat can start.' };
   if (proposalCount > 0) return { title: 'Review queue', body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for approval.` };
   if (hasMessages) return { title: 'Keep the room live', body: 'The thread is active. Keep the operator conversation moving.' };
   return { title: 'Open a room', body: 'Pick an owned agent and send the first mission.' };
@@ -748,7 +800,7 @@ function selectActiveAgent(agents = [], selectedAgentId = null) {
   const selected = selectedAgentId
     ? agents.find((agent) => String(agent?.tokenId ?? '') === String(selectedAgentId))
     : null;
-  return selected ?? agents[0] ?? null;
+  return selected ?? null;
 }
 
 function buildAgentOptionLabel(agent = {}) {
@@ -767,18 +819,21 @@ function normalizeCredScore(value) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function formatTransportLabel(value) {
+function formatTransportLabel(value, { live = true } = {}) {
   const text = String(value ?? '').trim().toLowerCase();
+  if (!live && (text === 'xmtp_group' || text === 'xmtp_node_sdk')) return 'XMTP setup';
   if (!text || text === 'live_chat') return 'Live chat';
-  if (text === 'xmtp_local') return 'XMTP room';
-  if (text === 'xmtp_group') return 'XMTP group';
-  if (text === 'xmtp-ready' || text === 'xmtp_ready') return 'XMTP ready';
+  if (text === 'xmtp_local') return 'Local test adapter';
+  if (text === 'xmtp_group') return 'XMTP live';
+  if (text === 'unavailable') return 'XMTP unavailable';
+  if (text === 'xmtp-ready' || text === 'xmtp_ready') return 'XMTP configured';
   return text.replaceAll('_', ' ');
 }
 
 function formatMemoryProviderLabel(value) {
   const text = String(value ?? '').trim().toLowerCase();
-  if (!text || text === 'sibyl_memory') return 'Sibyl memory';
+  if (!text) return 'Memory standby';
+  if (text === 'sibyl_memory') return 'Sibyl memory';
   if (text === 'sibyl-ready' || text === 'sibyl_ready') return 'Sibyl memory';
   if (text === 'local_sibyl_adapter') return 'Sibyl memory';
   return text.replaceAll('_', ' ');
@@ -786,7 +841,8 @@ function formatMemoryProviderLabel(value) {
 
 function formatInferenceProviderLabel(value) {
   const text = String(value ?? '').trim().toLowerCase();
-  if (!text || text === 'bankr_llm_gateway') return 'Bankr gateway';
+  if (!text) return 'Runtime standby';
+  if (text === 'bankr_llm_gateway') return 'Bankr gateway';
   if (text === 'bankr-ready' || text === 'bankr_ready') return 'Bankr-ready';
   if (text === 'local_bankr_adapter') return 'Bankr-ready';
   return text.replaceAll('_', ' ');
@@ -809,16 +865,19 @@ function createRoomParticipants({ agents = [], activeAgent = null, participantId
   return activeAgent ? [activeAgent] : [];
 }
 
-function createAgentRenameControl(activeAgent = null) {
+function createAgentRenameControl(activeAgent = null, mutation = {}) {
   if (!activeAgent?.tokenId) return null;
   const canonicalName = String(activeAgent.canonicalName ?? activeAgent.name ?? '').trim() || `Agent #${activeAgent.tokenId}`;
   const currentName = String(activeAgent.name ?? canonicalName).trim() || canonicalName;
+  const pending = mutation?.status === 'pending';
   return {
-    enabled: true,
+    enabled: !pending,
     value: currentName,
     placeholder: canonicalName,
-    resettable: currentName !== canonicalName,
-    hint: currentName !== canonicalName
+    resettable: !pending && currentName !== canonicalName,
+    hint: pending
+      ? 'Updating console name…'
+      : currentName !== canonicalName
       ? `Live identity: ${canonicalName}`
       : 'Console-only alias for this selected agent.',
   };

@@ -4,12 +4,25 @@ import { privateKeyToAccount } from 'viem/accounts';
 const ETHEREUM_IDENTIFIER_KIND = 0;
 
 export function createDeferredXmtpAgentClient(options = {}) {
-  const fallback = createLocalXmtpAgentClient(options);
+  if (!options.enabled) {
+    return options.localFallbackEnabled
+      ? createLocalXmtpAgentClient(options)
+      : createUnavailableXmtpAgentClient({
+        provider: 'xmtp_disabled',
+        message: 'XMTP transport is disabled. Enable and configure the XMTP Node SDK or inject the explicit local test adapter.',
+      });
+  }
+  if (!String(options.walletKey ?? '').trim()) {
+    return createUnavailableXmtpAgentClient({
+      provider: 'xmtp_unconfigured',
+      message: 'XMTP is enabled but wallet configuration is unavailable.',
+    });
+  }
   let clientPromise = null;
 
   return {
-    provider: options.enabled ? 'xmtp_deferred' : fallback.provider,
-    transport: options.enabled ? 'xmtp_group' : fallback.transport,
+    provider: 'xmtp_node_sdk',
+    transport: 'xmtp_group',
 
     async publishRoomMessages(input = {}) {
       const client = await resolveClient();
@@ -23,14 +36,21 @@ export function createDeferredXmtpAgentClient(options = {}) {
   };
 
   async function resolveClient() {
-    if (clientPromise) return clientPromise;
-    if (!options.enabled || !String(options.walletKey ?? '').trim()) {
-      clientPromise = Promise.resolve(fallback);
-      return clientPromise;
-    }
-    clientPromise = createNodeXmtpAgentClient(options);
+    if (!clientPromise) clientPromise = createNodeXmtpAgentClient(options);
     return clientPromise;
   }
+}
+
+export function createUnavailableXmtpAgentClient({ provider = 'xmtp_disabled', message = 'XMTP transport is unavailable.' } = {}) {
+  async function unavailable() {
+    throw new Error(message);
+  }
+  return {
+    provider,
+    transport: 'unavailable',
+    publishRoomMessages: unavailable,
+    getThread: unavailable,
+  };
 }
 
 export function createLocalXmtpAgentClient({ now = () => new Date().toISOString() } = {}) {
@@ -45,6 +65,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
       const roomName = normalizeRoomName(input.roomName);
       const room = rooms.get(threadId) ?? {
         threadId,
+        topicId: String(input.topicId ?? threadId).trim(),
         conversationId: `local:${threadId}`,
         roomName,
         participants: [],
@@ -67,6 +88,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
 
       return {
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversationId,
         roomName: room.roomName,
         transport: 'xmtp_local',
@@ -81,9 +103,12 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
       const room = rooms.get(threadId);
       return {
         threadId,
+        topicId: room?.topicId ?? String(input.topicId ?? threadId).trim(),
         conversationId: room?.conversationId ?? null,
         roomName: room?.roomName ?? normalizeRoomName(input.roomName),
-        participants: [...(room?.participants ?? [])],
+        transport: 'xmtp_local',
+        adapter: 'local_xmtp_adapter',
+        participants: [...(room?.participants ?? input.participants ?? [])],
         messages: [...(room?.messages ?? [])],
       };
     },
@@ -126,6 +151,7 @@ export async function createNodeXmtpAgentClient({
         client,
         threadId,
         conversationId: input.conversationId,
+        topicId: input.topicId,
         roomName,
         wallet: input.wallet,
         participants: input.participants,
@@ -157,6 +183,7 @@ export async function createNodeXmtpAgentClient({
 
       return {
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversation.id,
         roomName: room.roomName,
         transport: 'xmtp_group',
@@ -168,12 +195,26 @@ export async function createNodeXmtpAgentClient({
 
     async getThread(input = {}) {
       const threadId = requireThreadId(input.threadId);
-      const room = rooms.get(threadId);
+      let room = rooms.get(threadId);
+      if (!room && input.conversationId) {
+        room = await openBoundRoom({
+          rooms,
+          client,
+          threadId,
+          conversationId: input.conversationId,
+          topicId: input.topicId,
+          roomName: normalizeRoomName(input.roomName),
+          participants: input.participants,
+        });
+      }
       return {
         threadId,
+        topicId: room?.topicId ?? String(input.topicId ?? threadId).trim(),
         conversationId: room?.conversation?.id ?? null,
         roomName: room?.roomName ?? normalizeRoomName(input.roomName),
-        participants: [...(room?.participants ?? [])],
+        transport: 'xmtp_group',
+        adapter: 'xmtp_node_sdk',
+        participants: [...(room?.participants ?? input.participants ?? [])],
         messages: [...(room?.messages ?? [])],
       };
     },
@@ -219,7 +260,7 @@ function createEoaSigner(privateKey) {
   };
 }
 
-async function ensureRoom({ rooms, client, threadId, conversationId, roomName, wallet, participants } = {}) {
+async function ensureRoom({ rooms, client, threadId, conversationId, topicId, roomName, wallet, participants } = {}) {
   const existing = rooms.get(threadId);
   if (existing) {
     existing.roomName = roomName;
@@ -228,34 +269,32 @@ async function ensureRoom({ rooms, client, threadId, conversationId, roomName, w
   }
 
   if (conversationId) {
-    await client.conversations.sync?.();
-    const conversation = await client.conversations.getConversationById(conversationId);
-    if (!conversation) {
-      throw new Error(`XMTP conversation not found: ${conversationId}`);
-    }
-    const room = {
-      conversation,
-      roomName,
-      participants: mergeParticipants([], participants),
-      messages: [],
-    };
-    rooms.set(threadId, room);
-    return room;
+    return openBoundRoom({ rooms, client, threadId, conversationId, topicId, roomName, participants });
   }
 
   const identifiers = buildMemberIdentifiers(wallet);
-  let conversation;
-  try {
-    conversation = identifiers.length
-      ? await client.conversations.createGroupWithIdentifiers(identifiers, { name: roomName })
-      : client.conversations.createGroupOptimistic({ name: roomName });
-  } catch (error) {
-    if (!identifiers.length) throw error;
-    conversation = client.conversations.createGroupOptimistic({ name: roomName });
-  }
+  if (!identifiers.length) throw new TypeError('Authenticated holder wallet is required for a new XMTP group.');
+  const metadata = { name: roomName, description: String(topicId ?? threadId) };
+  const conversation = await client.conversations.createGroupWithIdentifiers(identifiers, metadata);
 
   const room = {
     conversation,
+    topicId: String(topicId ?? threadId),
+    roomName,
+    participants: mergeParticipants([], participants),
+    messages: [],
+  };
+  rooms.set(threadId, room);
+  return room;
+}
+
+async function openBoundRoom({ rooms, client, threadId, conversationId, topicId, roomName, participants } = {}) {
+  await client.conversations.sync?.();
+  const conversation = await client.conversations.getConversationById(conversationId);
+  if (!conversation) throw new Error(`XMTP conversation not found: ${conversationId}`);
+  const room = {
+    conversation,
+    topicId: String(topicId ?? threadId),
     roomName,
     participants: mergeParticipants([], participants),
     messages: [],
@@ -307,16 +346,19 @@ function mergeParticipants(existing = [], incoming = []) {
 
 function normalizeParticipant(participant = {}) {
   const participantId = String(
-    participant.participantId ?? participant.agentId ?? participant.tokenId ?? '',
+    participant.participantId ?? participant.agentId ?? participant.tokenId ?? participant.wallet ?? '',
   ).trim();
   if (!participantId) return null;
-  return {
+  const normalized = {
     participantId,
-    agentId: String(participant.agentId ?? participantId).trim() || participantId,
-    tokenId: String(participant.tokenId ?? participantId).trim() || participantId,
     displayName: String(participant.displayName ?? participant.agentName ?? `Agent ${participantId}`).trim() || `Agent ${participantId}`,
     role: String(participant.role ?? 'Onchain agent').trim() || 'Onchain agent',
   };
+  if (participant.kind) normalized.kind = String(participant.kind);
+  if (participant.wallet) normalized.wallet = String(participant.wallet).trim().toLowerCase();
+  if (participant.agentId) normalized.agentId = String(participant.agentId).trim();
+  if (participant.tokenId) normalized.tokenId = String(participant.tokenId).trim();
+  return normalized;
 }
 
 function normalizeRoomName(value) {

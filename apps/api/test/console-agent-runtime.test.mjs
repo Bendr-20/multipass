@@ -3,9 +3,63 @@ import test from 'node:test';
 
 import { createConsoleAgentRuntime, createRuntimeProfile } from '../src/agent-runtime/index.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
+import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 import { buildSibylMemoryNamespace, createLocalSibylMemoryStore, extractDurableMemoryFromMessage } from '../src/sibyl-memory/index.js';
+import { createLocalXmtpAgentClient } from '../src/xmtp-agent/index.js';
+import { createMultipassConsoleSnapshot } from '../../web/src/multipass-console.js';
 
 const WALLET = '0x1234567890abcdef1234567890abcdef12345678';
+const CONSOLE_IDENTITY = {
+  chainId: 8453,
+  contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+  tokenId: '1234',
+  erc8004AgentId: '87069',
+  owner: WALLET,
+  controllerVerified: true,
+};
+
+function createLegacyAuthorizedOptions() {
+  const consoleRuntimeRegistry = createLooperRuntimeRegistry();
+  consoleRuntimeRegistry.activate({ identity: CONSOLE_IDENTITY, runtimeName: 'Agent #1234' });
+  return {
+    consoleAuthStore: { validateSession: () => ({ wallet: WALLET }) },
+    consoleRuntimeRegistry,
+    loopersAuthorizer: async () => CONSOLE_IDENTITY,
+  };
+}
+
+function secureConsoleRequest(body, path = '/api/multipass/console/agent/message') {
+  return new Request(`https://helixa.test${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: 'multipass_console=test-session',
+      'x-csrf-token': 'test-csrf',
+    },
+    body: JSON.stringify({ ...body, tokenId: '1234' }),
+  });
+}
+
+function hasFrontendReviewOnlyProof(payload = {}) {
+  const agent = { tokenId: '1234', name: 'Agent #1234', verified: true };
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: WALLET },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1234',
+      consoleAgentThread: {
+        ...(payload.thread ?? {}),
+        proposals: payload.proposals,
+        executionMode: payload.executionMode,
+        memoryProvider: payload.memory?.provider,
+        ...(Array.isArray(payload.memory?.saved) ? { savedMemory: payload.memory.saved } : {}),
+        ...(Array.isArray(payload.memory?.recalled) ? { recalledMemory: payload.memory.recalled } : {}),
+      },
+    },
+  });
+  return snapshot.suiteChecks.some((check) => check.value === 'Review-only');
+}
 
 test('runtime profile binds the selected agent to live chat, Bankr, and Sibyl namespace', () => {
   const profile = createRuntimeProfile({
@@ -47,6 +101,7 @@ test('local Sibyl adapter saves and recalls durable watchlist memory', async () 
 
 test('console agent runtime receives a message, saves memory, and emits review-only proposal', async () => {
   const runtime = createConsoleAgentRuntime({
+    xmtpClient: createLocalXmtpAgentClient(),
     memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
     now: () => '2026-08-30T01:30:00.000Z',
     llmClient: {
@@ -72,12 +127,36 @@ test('console agent runtime receives a message, saves memory, and emits review-o
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'fake_bankr');
   assert.equal(result.memory.saved.length, 2);
   assert.equal(result.missions[0].status, 'active');
+  assert.equal(result.executionMode, 'review_only');
   assert.equal(result.proposals[0].status, 'review_only');
+  assert.equal(result.proposals[0].executable, false);
   assert.match(result.proposals[0].risk, /No transaction authority/);
+});
+
+test('real activation response drives the frontend Review-only proof gate', async () => {
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
+    consoleAgentRuntime: createConsoleAgentRuntime({
+      xmtpClient: createLocalXmtpAgentClient(),
+      memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
+    }),
+  });
+
+  const response = await api.handleRequest(secureConsoleRequest(
+    { runtimeName: 'Agent #1234' },
+    '/api/multipass/console/agent/activate',
+  ));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.executionMode, 'review_only');
+  assert.equal(hasFrontendReviewOnlyProof(body), true);
 });
 
 test('console agent runtime lets multiple agents participate in one room', async () => {
   const runtime = createConsoleAgentRuntime({
+    xmtpClient: createLocalXmtpAgentClient(),
     memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
     now: () => '2026-08-30T01:30:00.000Z',
     llmClient: {
@@ -117,6 +196,7 @@ test('console agent runtime lets multiple agents participate in one room', async
 test('console agent runtime appends only new thread messages between turns', async () => {
   const memoryClient = createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' });
   const runtime = createConsoleAgentRuntime({
+    xmtpClient: createLocalXmtpAgentClient(),
     memoryClient,
     now: () => '2026-08-30T01:30:00.000Z',
     llmClient: {
@@ -157,7 +237,9 @@ test('console agent runtime appends only new thread messages between turns', asy
 test('POST /api/multipass/console/agent/message returns runtime thread payload', async () => {
   const api = createMultipassApi({
     store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
     consoleAgentRuntime: createConsoleAgentRuntime({
+      xmtpClient: createLocalXmtpAgentClient(),
       memoryClient: createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' }),
       now: () => '2026-08-30T01:30:00.000Z',
       llmClient: {
@@ -168,42 +250,33 @@ test('POST /api/multipass/console/agent/message returns runtime thread payload',
     }),
   });
 
-  const response = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      wallet: WALLET,
-      agentId: 'looper-1234',
-      message: 'Track Base agent tokens, keep risk medium, and avoid high-risk entries.',
-    }),
+  const response = await api.handleRequest(secureConsoleRequest({
+    message: 'Track Base agent tokens, keep risk medium, and avoid high-risk entries.',
   }));
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.profile.agentId, 'looper-1234');
+  assert.equal(body.profile.agentId, '87069');
   assert.match(body.thread.messages.at(-1).text, /Online/);
   assert.equal(body.memory.saved.length, 3);
+  assert.equal(body.executionMode, 'review_only');
   assert.equal(body.proposals[0].status, 'review_only');
+  assert.equal(body.proposals[0].executable, false);
+  assert.equal(hasFrontendReviewOnlyProof(body), true);
 });
 
 test('Bankr key does not call the gateway unless Console inference is explicitly enabled', async () => {
   const api = createMultipassApi({
     store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
+    consoleXmtpClient: createLocalXmtpAgentClient(),
     bankrLlmKey: 'test-key',
     fetchImpl: async () => {
       throw new Error('Bankr gateway should not be called by default.');
     },
   });
 
-  const response = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      wallet: WALLET,
-      agentId: 'looper-1234',
-      message: 'Watch Base agent tokens.',
-    }),
-  }));
+  const response = await api.handleRequest(secureConsoleRequest({ message: 'Watch Base agent tokens.' }));
   const body = await response.json();
 
   assert.equal(response.status, 200);
@@ -214,6 +287,8 @@ test('Bankr gateway adapter is used only after explicit Console inference opt-in
   let gatewayCalled = false;
   const api = createMultipassApi({
     store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
+    consoleXmtpClient: createLocalXmtpAgentClient(),
     bankrLlmKey: 'test-key',
     bankrLlmModel: 'test-model',
     consoleAgentBankrLlmEnabled: true,
@@ -228,15 +303,7 @@ test('Bankr gateway adapter is used only after explicit Console inference opt-in
     },
   });
 
-  const response = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      wallet: WALLET,
-      agentId: 'looper-1234',
-      message: 'Watch Base agent tokens.',
-    }),
-  }));
+  const response = await api.handleRequest(secureConsoleRequest({ message: 'Watch Base agent tokens.' }));
   const body = await response.json();
 
   assert.equal(response.status, 200);

@@ -5,15 +5,14 @@ export function renderConsoleAgentThread(thread = {}) {
     ? thread.messages
     : [{
       role: 'agent',
-      text: thread.sessionReset && thread.recalledMission
-        ? thread.recalledMission
-        : (thread.summary ?? 'Connect wallet to start.'),
-      transport: thread.transport ?? 'xmtp_local',
+      text: thread.summary ?? 'Connect wallet to start.',
+      transport: thread.transport ?? 'unavailable',
       senderLabel: participants[0]?.displayName ?? thread.agentName ?? 'Selected agent',
     }];
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
   const sending = thread.status === 'sending';
-  const disabled = Boolean(thread.disabled || sending);
+  const activating = thread.status === 'activating';
+  const disabled = Boolean(thread.disabled || sending || activating);
   const agentName = thread.agentName ?? 'Selected agent';
   const roomName = String(thread.roomName ?? '').trim() || `${agentName} room`;
   const threadTitle = String(thread.title ?? '').trim() || agentName;
@@ -25,7 +24,7 @@ export function renderConsoleAgentThread(thread = {}) {
   const linkStatus = disabled ? 'Standby' : 'Channel open';
   const contextSummary = createContextSummary(contextItems);
   const roomNotes = [
-    participants.length > 1 ? `${participants.length} agents in room.` : null,
+    participants.length > 1 ? `${participants.length} participants in room.` : null,
     memoryCueCount ? `${memoryCueCount} memory cue${memoryCueCount === 1 ? '' : 's'} loaded.` : 'Sibyl memory standing by.',
     contextSummary,
   ].filter(Boolean).join(' ');
@@ -38,6 +37,7 @@ export function renderConsoleAgentThread(thread = {}) {
     recalledMemory: thread.recalledMemory,
     missions: thread.missions,
   });
+  const operation = createOperationState(thread);
 
   return `
     <section class="console-panel console-agent-thread-panel" aria-label="Live agent chat">
@@ -55,47 +55,76 @@ export function renderConsoleAgentThread(thread = {}) {
             </div>
           </div>
         </div>
-        <div class="console-thread-shell-meta" aria-label="Room summary">
-          <strong>${escapeHtml(roomLabel)}</strong>
-          <span>${escapeHtml(`${linkStatus} · ${roomSummary}`)}</span>
-        </div>
       </header>
-      <section class="console-thread-toolbar" aria-label="Chat room controls">
-        ${participants.length ? `
-          <div class="console-thread-members" aria-label="Room participants">
-            ${participants.length > 1 ? `<span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>` : ''}
-            <div class="console-thread-member-list">
-              ${participants.map(renderParticipantPill).join('')}
+      <details class="console-thread-secondary-details">
+        <summary>
+          <span>Room details</span>
+          <small>${escapeHtml(participantSummary)}</small>
+        </summary>
+        <section class="console-thread-toolbar" aria-label="Secondary room context">
+          <div class="console-thread-shell-meta" aria-label="Room and transport summary">
+            <strong>${escapeHtml(roomLabel)}</strong>
+            <span>${escapeHtml(`${formatTransportLabel(thread.transport)} · ${linkStatus} · ${roomSummary}`)}</span>
+          </div>
+          ${participants.length ? `
+            <div class="console-thread-members" aria-label="Room participants">
+              ${participants.length > 1 ? `<span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>` : ''}
+              <div class="console-thread-member-list">
+                ${participants.map(renderParticipantPill).join('')}
+              </div>
             </div>
-          </div>
-        ` : ''}
-        ${roomNotes ? `
-          <div class="console-thread-context-summary">
-            <span>${escapeHtml(noteLabel)}</span>
-            <p>${escapeHtml(roomNotes)}</p>
-          </div>
-        ` : ''}
-      </section>
+          ` : ''}
+          ${roomNotes ? `
+            <div class="console-thread-context-summary">
+              <span>${escapeHtml(noteLabel)}</span>
+              <p>${escapeHtml(roomNotes)}</p>
+            </div>
+          ` : ''}
+        </section>
+      </details>
       <div class="console-thread-daybreak" aria-hidden="true"><span>Today</span></div>
+      ${operation ? `
+        <div class="console-thread-operation console-thread-operation-${escapeAttribute(operation.tone)}" role="status">
+          <div>
+            <strong>${escapeHtml(operation.title)}</strong>
+            <span>${escapeHtml(operation.body)}</span>
+          </div>
+          ${thread.activationRetryAvailable ? `<button type="button" data-action="retry-console-agent-activation" ${thread.roomActivationDisabled ? 'disabled' : ''}>Retry room activation</button>` : ''}
+        </div>
+      ` : ''}
       <div class="console-thread-messages">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>
       <form class="console-thread-composer" data-action="send-console-agent-message">
-        <label class="console-thread-composer-label">
+        <label class="console-thread-composer-label" for="console-agent-message">
           <span>Message room</span>
         </label>
         <div class="console-thread-composer-shell">
-          <textarea name="message" rows="4" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}></textarea>
+          <textarea id="console-agent-message" name="message" rows="4" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}>${escapeHtml(thread.draft ?? '')}</textarea>
           <div class="console-thread-actions">
             <small class="console-thread-actions-note">Review-only. Nothing executes without your approval.</small>
-            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Reset chat</button>
-            <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : 'Send'}</button>
+            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Clear local chat</button>
+            <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : (thread.retryAvailable ? 'Retry' : 'Send')}</button>
           </div>
         </div>
       </form>
       ${thread.error ? `<p class="console-thread-error">${escapeHtml(thread.error)}</p>` : ''}
     </section>
   `;
+}
+
+function createOperationState(thread = {}) {
+  const states = {
+    setting_up_xmtp: { title: 'Setting up XMTP', body: 'Preparing the wallet-bound transport before opening the room.', tone: 'working' },
+    opening_room: { title: 'Opening room', body: 'Recovering the canonical server conversation.', tone: 'working' },
+    sending_mission: { title: 'Sending mission', body: 'Submitting the preserved draft to the selected agent.', tone: 'working' },
+    waiting_bankr_sibyl: { title: 'Waiting for Bankr', body: 'Generating the reply · saving Sibyl memory · recalling Sibyl memory.', tone: 'working' },
+    cancelled: { title: 'Operation cancelled', body: 'Nothing was changed.', tone: 'neutral' },
+    authorization_failed: { title: 'Authorization failed', body: 'Reconnect the wallet session before retrying.', tone: 'error' },
+    activation_failed: { title: 'Room activation failed', body: 'The selected agent is unchanged. Retry opening its canonical room.', tone: 'error' },
+    transport_failed: { title: 'Transport failed', body: 'Your draft is preserved. Try again when the provider is reachable.', tone: 'error' },
+  };
+  return states[thread.operationStatus] ?? null;
 }
 
 function renderTimelineItem(item = {}, agentName = 'Selected agent') {
@@ -124,7 +153,6 @@ function renderThreadMessage(message = {}, agentName = 'Selected agent') {
       <div class="console-thread-entry">
         <span class="console-thread-meta">
           <strong class="console-thread-role">${escapeHtml(role)}</strong>
-          <small>${escapeHtml(formatTransportLabel(message.transport))}</small>
         </span>
         <p>${escapeHtml(message.text ?? '')}</p>
       </div>
@@ -349,9 +377,12 @@ function formatTransportLabel(value) {
   const text = String(value ?? '').trim().toLowerCase();
   if (!text || text === 'live_chat') return 'live chat';
   if (text === 'console') return 'live chat';
-  if (text === 'xmtp_local') return 'xmtp room';
-  if (text === 'xmtp_group') return 'xmtp group';
-  if (text === 'xmtp-ready' || text === 'xmtp_ready') return 'xmtp ready';
+  if (text === 'xmtp_local') return 'local test adapter';
+  if (text === 'xmtp_group') return 'XMTP';
+  if (text === 'xmtp live') return 'XMTP live';
+  if (text === 'xmtp room') return 'XMTP room';
+  if (text === 'unavailable') return 'transport unavailable';
+  if (text === 'xmtp-ready' || text === 'xmtp_ready' || text === 'xmtp configured') return 'XMTP configured';
   return text.replaceAll('_', ' ');
 }
 
@@ -366,9 +397,9 @@ function createRoomSummary(messages = [], proposals = []) {
 
 function createParticipantSummary(participants = []) {
   const count = Array.isArray(participants) ? participants.length : 0;
-  if (!count) return 'No agents in room';
-  if (count === 1) return '1 agent in room';
-  return `${count} agents in room`;
+  if (!count) return 'No participants in room';
+  if (count === 1) return '1 participant in room';
+  return `${count} participants in room`;
 }
 
 function initialsForLabel(value) {

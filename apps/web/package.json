@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.32.2",
+    "@xmtp/browser-sdk": "6.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "viem": "^2.53.1"

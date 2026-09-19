@@ -65,6 +65,10 @@ def normalize_thread_message(message: dict) -> dict | None:
         "sentAt": str((message or {}).get("sentAt") or utc_now()),
         "transport": str((message or {}).get("transport") or "live_chat"),
     }
+    for field in ("senderLabel", "participantId", "conversationId", "xmtpMessageId"):
+        value = str((message or {}).get(field) or "").strip()
+        if value:
+            normalized[field] = value
     inference_provider = str((message or {}).get("inferenceProvider") or "").strip()
     if inference_provider:
         normalized["inferenceProvider"] = inference_provider

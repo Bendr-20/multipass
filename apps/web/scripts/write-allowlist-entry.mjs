@@ -8,6 +8,7 @@ const distRoot = join(webRoot, 'dist');
 const sourcePath = join(distRoot, 'index.html');
 const outputPath = join(distRoot, 'allowlist', 'index.html');
 const mintOutputPath = join(distRoot, 'mint', 'index.html');
+const pauseOutputPath = join(distRoot, 'pause-mint', 'index.html');
 const consoleOutputPath = join(distRoot, 'console', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
@@ -41,6 +42,15 @@ await mkdir(dirname(mintOutputPath), { recursive: true });
 await writeFile(mintOutputPath, allowlistHtml
   .replaceAll(LOOPERS_DESCRIPTION, LOOPERS_MINT_DESCRIPTION)
   .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint')
+  .replaceAll(LOOPERS_PREVIEW_IMAGE, LOOPERS_MINT_PREVIEW_IMAGE));
+
+await mkdir(dirname(pauseOutputPath), { recursive: true });
+await writeFile(pauseOutputPath, allowlistHtml
+  .replace(/<title>[\s\S]*?<\/title>/u, '<title>Pause Loopers Mint</title>')
+  .replaceAll(LOOPERS_DESCRIPTION, 'Emergency owner-only Loopers mint pause.')
+  .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/pause-mint')
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, '<meta property="og:title" content="Pause Loopers Mint" />')
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Pause Loopers Mint" />')
   .replaceAll(LOOPERS_PREVIEW_IMAGE, LOOPERS_MINT_PREVIEW_IMAGE));
 
 await mkdir(dirname(consoleOutputPath), { recursive: true });

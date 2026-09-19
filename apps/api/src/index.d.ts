@@ -55,10 +55,30 @@ export interface MultipassApiOptions {
   loopersAllowlistRateLimit?: unknown;
   loopersAllowlistSubnetRateLimit?: unknown;
   loopersTurnstileSecretKey?: string | null;
+  loopersOwnedAgentLoader?: (input: { address: string }) => Promise<unknown[]>;
+  loopersOwnedRpcUrl?: string;
+  loopersOwnedMetadataBaseUrl?: string;
+  loopersPublicClients?: unknown[];
+  loopersAuthorizer?: (input: { tokenId: string; wallet: string }) => Promise<Record<string, unknown>>;
+  consoleAuthStore?: unknown;
+  consoleRuntimeRegistry?: unknown;
   bankrLlmKey?: string | null;
   bankrLlmModel?: string | null;
   consoleAgentBankrLlmEnabled?: boolean;
-  consoleAgentRuntime?: { handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown };
+  consoleXmtpEnabled?: boolean;
+  consoleXmtpEnv?: string;
+  consoleXmtpWalletKey?: string | null;
+  consoleXmtpDbPath?: string | null;
+  consoleXmtpDbEncryptionKey?: string | Uint8Array | null;
+  consoleXmtpHistorySyncUrl?: string | null;
+  consoleXmtpApiUrl?: string | null;
+  consoleXmtpGatewayHost?: string | null;
+  consoleXmtpAppVersion?: string;
+  consoleXmtpClient?: unknown;
+  consoleAgentRuntime?: {
+    handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown;
+    getThread?(input?: Record<string, unknown>): Promise<unknown> | unknown;
+  };
 }
 
 export interface MultipassApi {

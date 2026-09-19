@@ -3,11 +3,13 @@ import {
   createSibylMemoryStore,
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
+import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
 const DEFAULT_AGENT_ID = 'agent-manager';
 const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 const MAX_THREAD_HISTORY = 24;
+const CONSOLE_EXECUTION_MODE = 'review_only';
 
 export function createConsoleAgentRuntime({
   memoryClient = createSibylMemoryStore(),
@@ -17,6 +19,60 @@ export function createConsoleAgentRuntime({
   now = () => new Date().toISOString(),
 } = {}) {
   return {
+    async getThread(input = {}) {
+      const wallet = requireWallet(input.wallet);
+      const profile = createRuntimeProfile(input);
+      const namespace = profile.memoryNamespace;
+      const room = createRoomState(input, profile);
+      const messages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
+      const recalledMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
+      const transportThread = xmtpClient.transport === 'unavailable'
+        ? {
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: room.conversationId,
+          roomName: room.name,
+          transport: 'unavailable',
+          adapter: xmtpClient.provider ?? 'xmtp_disabled',
+          participants: room.participants,
+          messages: [],
+        }
+        : await xmtpClient.getThread({
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: room.conversationId,
+          roomName: room.name,
+          wallet,
+          participants: room.participants,
+        });
+      return {
+        schema_version: '0.1.0',
+        mode: 'console_agent_runtime',
+        executionMode: CONSOLE_EXECUTION_MODE,
+        profile,
+        room: publicRoom(room),
+        thread: {
+          transport: transportThread.transport ?? xmtpClient.transport,
+          adapter: transportThread.adapter ?? xmtpClient.provider,
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: transportThread.conversationId ?? room.conversationId ?? null,
+          roomName: transportThread.roomName ?? room.name,
+          participants: transportThread.participants?.length ? transportThread.participants : room.participants,
+          messages: messages.length ? messages : (transportThread.messages ?? []),
+        },
+        memory: {
+          provider: memoryClient.provider ?? 'sibyl_memory',
+          namespace,
+          recalled: recalledMemory,
+          saved: [],
+        },
+        signals: [],
+        missions: [],
+        proposals: [],
+      };
+    },
+
     async handleMessage(input = {}) {
       const wallet = requireWallet(input.wallet);
       const message = String(input.message ?? '').trim();
@@ -52,7 +108,7 @@ export function createConsoleAgentRuntime({
       }
 
       const agentMessages = [];
-      for (const participant of room.participants) {
+      for (const participant of room.participants.filter((entry) => entry.kind !== 'operator')) {
         const llm = await llmClient.generate({
           profile: createParticipantProfile(profile, participant, room),
           participant,
@@ -79,6 +135,7 @@ export function createConsoleAgentRuntime({
       const messagesToPublish = shouldPublishHumanMessage ? [userMessage, ...agentMessages] : agentMessages;
       const publishedRoom = await xmtpClient.publishRoomMessages({
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversationId,
         roomName: room.name,
         wallet,
@@ -98,17 +155,14 @@ export function createConsoleAgentRuntime({
       return {
         schema_version: '0.1.0',
         mode: 'console_agent_runtime',
+        executionMode: CONSOLE_EXECUTION_MODE,
         profile,
-        room: {
-          id: room.id,
-          name: room.name,
-          primaryParticipantId: room.primaryParticipantId,
-          participants: room.participants,
-        },
+        room: publicRoom(room),
         thread: {
           transport: publishedRoom.transport,
           adapter: publishedRoom.adapter,
           threadId,
+          topicId: publishedRoom.topicId ?? room.topicId,
           conversationId: publishedRoom.conversationId ?? null,
           roomName: publishedRoom.roomName ?? room.name,
           participants: publishedRoom.participants ?? room.participants,
@@ -130,19 +184,26 @@ export function createConsoleAgentRuntime({
 
 export function createRuntimeProfile(input = {}) {
   const wallet = requireWallet(input.wallet);
-  const tokenId = String(input.tokenId ?? input.agentId ?? 'unknown').trim() || 'unknown';
-  const agentId = String(input.agentId ?? tokenId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
+  const canonicalIdentity = input.canonicalIdentity && typeof input.canonicalIdentity === 'object'
+    ? input.canonicalIdentity
+    : null;
+  const tokenId = String(canonicalIdentity?.tokenId ?? input.tokenId ?? input.agentId ?? 'unknown').trim() || 'unknown';
+  const agentId = String(canonicalIdentity?.erc8004AgentId ?? input.agentId ?? tokenId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
   const activationId = String(input.activationId ?? `activation_${agentId}`).trim();
   const displayName = String(input.agentName ?? input.displayName ?? (tokenId === 'unknown' ? 'Selected agent' : `Agent #${tokenId}`)).trim();
+  const tokenContract = String(canonicalIdentity?.contract ?? input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim();
+  const chainId = Number(canonicalIdentity?.chainId ?? 8453);
   return {
     activationId,
     agentId,
     displayName,
     source: 'multipass_console_manager',
     rootIdentity: {
-      collection: 'Helixa AgentDNA',
-      tokenContract: String(input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim(),
+      collection: canonicalIdentity ? 'Loopers' : 'Helixa AgentDNA',
+      chainId,
+      tokenContract,
       tokenId,
+      erc8004AgentId: canonicalIdentity?.erc8004AgentId ?? agentId,
       ownerWallet: wallet,
     },
     chat: {
@@ -153,7 +214,14 @@ export function createRuntimeProfile(input = {}) {
       provider: 'bankr_llm_gateway',
       status: 'server_side_only',
     },
-    memoryNamespace: buildSibylMemoryNamespace({ wallet, agentId, activationId }),
+    memoryNamespace: canonicalIdentity
+      ? buildSibylMemoryNamespace({
+        chainId,
+        tokenContract,
+        tokenId,
+        identityAgentId: agentId,
+      })
+      : buildSibylMemoryNamespace({ wallet, agentId, activationId }),
     permissions: {
       trading: 'review_only',
       custody: 'disabled',
@@ -219,6 +287,8 @@ function deriveProposals({ message, signals, room }) {
     id: 'proposal_review_only_watch',
     title: 'Review live briefing',
     status: 'review_only',
+    executable: false,
+    executionMode: CONSOLE_EXECUTION_MODE,
     action: room?.participants?.length > 1
       ? 'Keep monitoring together and wait for human approval before any external action.'
       : 'Keep monitoring and wait for human approval before any external action.',
@@ -228,6 +298,20 @@ function deriveProposals({ message, signals, room }) {
 }
 
 function createRoomState(input = {}, profile = {}) {
+  if (input.canonicalIdentity) {
+    const canonical = buildCanonicalConsoleRoom({
+      activation: {
+        status: 'active',
+        runtimeName: profile.displayName,
+        identity: input.canonicalIdentity,
+      },
+    });
+    return {
+      ...canonical,
+      conversationId: String(input.canonicalConversationId ?? '').trim() || null,
+      operatorId: requireWallet(input.wallet),
+    };
+  }
   const participants = normalizeParticipants(input, profile);
   const primaryParticipant = participants.find((participant) => participant.agentId === profile.agentId) ?? participants[0];
   const roomId = `room_${participants.map((participant) => participant.participantId).join('_')}`;
@@ -237,10 +321,21 @@ function createRoomState(input = {}, profile = {}) {
     id: roomId,
     name: String(input.roomName ?? `${primaryParticipant?.displayName ?? profile.displayName} ops`).trim() || 'Multipass room',
     threadId,
+    topicId: threadId.replace(/^xmtp:/, ''),
     conversationId,
     operatorId: requireWallet(input.wallet),
     primaryParticipantId: primaryParticipant?.participantId ?? profile.agentId,
     participants,
+  };
+}
+
+function publicRoom(room = {}) {
+  return {
+    id: room.id,
+    name: room.name,
+    topicId: room.topicId,
+    primaryParticipantId: room.primaryParticipantId,
+    participants: room.participants,
   };
 }
 

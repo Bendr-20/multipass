@@ -1,10 +1,13 @@
+const DEFAULT_BANKR_LLM_MODEL = 'claude-haiku-4.5';
+
 export function createBankrLlmClient({
   apiKey,
-  model = 'claude-haiku-4.5',
+  model = DEFAULT_BANKR_LLM_MODEL,
   fetchImpl = fetch,
 } = {}) {
   const key = String(apiKey ?? '').trim();
   if (!key) return null;
+  const resolvedModel = String(model ?? '').trim() || DEFAULT_BANKR_LLM_MODEL;
 
   return {
     provider: 'bankr_llm_gateway',
@@ -17,7 +20,7 @@ export function createBankrLlmClient({
           'x-api-key': key,
         },
         body: JSON.stringify({
-          model,
+          model: resolvedModel,
           messages: [
             {
               role: 'system',

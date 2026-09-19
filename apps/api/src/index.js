@@ -22,6 +22,15 @@ import {
 import { getAllowlistProof } from './allowlist-snapshot.js';
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
+import { createConsoleAuthStore } from './console-auth.js';
+import {
+  LOOPERS_MAINNET_CHAIN_ID,
+  LOOPERS_MAINNET_CONTRACT,
+  authorizeLooperControl,
+  createLoopersOwnedAgentLoader,
+  createLoopersPublicClients,
+} from './loopers-owned-agents.js';
+import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
@@ -38,6 +47,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
+const CONSOLE_COOKIE_NAME = 'multipass_console';
 const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
 const LOOPERS_ALLOWLIST_RATE_LIMIT = {
   limit: 1,
@@ -178,6 +188,13 @@ export function createMultipassApi({
   loopersAllowlistRequireBrowserOrigin = false,
   loopersAllowlistBlockedSources = [],
   loopersTurnstileSecretKey,
+  loopersOwnedAgentLoader,
+  loopersOwnedRpcUrl,
+  loopersOwnedMetadataBaseUrl,
+  loopersPublicClients,
+  loopersAuthorizer,
+  consoleAuthStore,
+  consoleRuntimeRegistry,
   bankrLlmKey,
   bankrLlmModel,
   consoleAgentBankrLlmEnabled = false,
@@ -214,6 +231,18 @@ export function createMultipassApi({
       appVersion: consoleXmtpAppVersion,
     }),
   });
+  const looperClients = loopersOwnedAgentLoader && loopersAuthorizer
+    ? null
+    : createLoopersPublicClients({
+      rpcUrl: loopersOwnedRpcUrl,
+      publicClients: loopersPublicClients,
+    });
+  const ownedLoopersLoader = loopersOwnedAgentLoader ?? createLoopersOwnedAgentLoader({
+    fetchImpl,
+    publicClients: looperClients,
+    ...(loopersOwnedMetadataBaseUrl ? { metadataBaseUrl: loopersOwnedMetadataBaseUrl } : {}),
+  });
+  const authorizeLooper = loopersAuthorizer ?? ((input) => authorizeLooperControl({ ...input, publicClients: looperClients }));
   const context = {
     store,
     savedRecords,
@@ -224,6 +253,8 @@ export function createMultipassApi({
     signatureVerifier,
     cookieSecure: cookieSecure ?? inferSecureCookie(allowedOrigins, normalizedBaseUrl),
     cookieName: MANAGER_COOKIE_NAME,
+    consoleCookieName: CONSOLE_COOKIE_NAME,
+    consoleAuthStore: consoleAuthStore ?? createConsoleAuthStore(),
     fetchImpl,
     loopersAllowlist,
     loopersAllowlistSnapshot,
@@ -234,6 +265,9 @@ export function createMultipassApi({
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
+    loopersOwnedAgentLoader: ownedLoopersLoader,
+    loopersAuthorizer: authorizeLooper,
+    consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
   };
 
@@ -275,7 +309,7 @@ export function createMultipassApi({
         }
 
         if (parts[0] === 'api' && parts[1] === 'loopers') {
-          return await handleLooperRead(url, parts, context);
+          return await handleLooperRead(request, url, parts, context);
         }
 
         if (parts[0] === 'api' && parts[1] === 'resolve') {
@@ -334,6 +368,22 @@ async function handleStaticMultipassShellRead(parts) {
 async function handlePostRequest(request, parts, context) {
   if (parts[0] !== 'api' || parts[1] !== 'multipass') {
     return errorResponse(404, 'not_found', 'Route not found.');
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'nonce' && parts.length === 5) {
+    return handleConsoleSessionNonce(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'verify' && parts.length === 5) {
+    return handleConsoleSessionVerify(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'logout' && parts.length === 5) {
+    return handleConsoleSessionLogout(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'activate' && parts.length === 5) {
+    return handleConsoleAgentActivate(request, context);
   }
 
   if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'message' && parts.length === 5) {
@@ -396,16 +446,104 @@ async function handlePostRequest(request, parts, context) {
   return errorResponse(404, 'not_found', 'Route not found.');
 }
 
-async function handleConsoleAgentMessage(request, context) {
+async function handleConsoleSessionNonce(request, context) {
+  assertTrustedOrigin(request, context);
   const body = await readJsonBody(request);
-  const wallet = normalizeWallet(body.wallet, 'wallet');
+  return jsonResponse(context.consoleAuthStore.createChallenge({
+    wallet: normalizeWallet(body.wallet, 'wallet'),
+    domain: domainFromRequest(request),
+  }));
+}
+
+async function handleConsoleSessionVerify(request, context) {
+  assertTrustedOrigin(request, context);
+  const body = await readJsonBody(request);
+  let session;
+  try {
+    session = await context.consoleAuthStore.verifyChallenge({
+      wallet: normalizeWallet(body.wallet, 'wallet'),
+      nonce: String(body.nonce ?? ''),
+      signature: String(body.signature ?? ''),
+      signatureVerifier: context.signatureVerifier,
+    });
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
+  return jsonResponse({
+    schema_version: '0.1.0',
+    wallet: session.wallet,
+    csrfToken: session.csrfToken,
+    session_expires_at: session.expires_at,
+  }, 200, { 'set-cookie': buildConsoleSessionCookie(session.sessionId, context) });
+}
+
+function handleConsoleSessionLogout(request, context) {
+  assertTrustedOrigin(request, context);
+  const sessionId = parseCookies(request.headers.get('cookie')).get(context.consoleCookieName);
+  if (sessionId) context.consoleAuthStore.revokeSession(sessionId);
+  return jsonResponse({ schema_version: '0.1.0', ok: true }, 200, { 'set-cookie': clearConsoleSessionCookie(context) });
+}
+
+async function handleConsoleAgentActivate(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readJsonBody(request);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: body.runtimeName });
+  const recovered = typeof context.consoleAgentRuntime.getThread === 'function'
+    ? await context.consoleAgentRuntime.getThread({
+      tokenId: identity.tokenId,
+      agentId: identity.erc8004AgentId,
+      activationId: runtime.key,
+      agentName: runtime.runtimeName,
+      wallet: session.wallet,
+      canonicalIdentity: identity,
+      canonicalConversationId: runtime.conversationId,
+    })
+    : null;
+  return jsonResponse({
+    schema_version: '0.1.0',
+    runtime,
+    ...(recovered ? {
+      room: recovered.room,
+      thread: recovered.thread,
+      memory: recovered.memory,
+      missions: recovered.missions,
+      proposals: recovered.proposals,
+      executionMode: recovered.executionMode,
+    } : {}),
+  });
+}
+
+async function handleConsoleAgentMessage(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readJsonBody(request);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
   const message = String(body.message ?? '').trim();
   if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const activation = context.consoleRuntimeRegistry.get(identity);
+  if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
   const result = await context.consoleAgentRuntime.handleMessage({
-    ...body,
-    wallet,
+    tokenId: identity.tokenId,
+    agentId: identity.erc8004AgentId,
+    activationId: activation.key,
+    agentName: activation.runtimeName,
+    wallet: session.wallet,
+    canonicalIdentity: identity,
+    canonicalConversationId: activation.conversationId,
     message,
   });
+  if (result?.thread?.conversationId) {
+    context.consoleRuntimeRegistry.bindConversation({
+      identity,
+      conversationId: result.thread.conversationId,
+      threadId: result.thread.threadId,
+      topicId: result.thread.topicId,
+      transport: result.thread.transport,
+      participants: result.thread.participants,
+    });
+  }
   return jsonResponse(result);
 }
 
@@ -499,7 +637,18 @@ async function handleLooperPost(request, parts, context) {
   return errorResponse(404, 'not_found', 'Route not found.');
 }
 
-async function handleLooperRead(url, parts, context) {
+async function handleLooperRead(request, url, parts, context) {
+  if (parts[2] === 'owned' && parts.length === 3) {
+    const session = requireConsoleSession(request, context);
+    const agents = await context.loopersOwnedAgentLoader({ address: session.wallet });
+    return jsonResponse({
+      schema_version: '0.1.0',
+      collection: 'loopers',
+      owner: session.wallet,
+      agents,
+    });
+  }
+
   if (parts[2] === 'allowlist' && parts[3] === 'status' && parts.length === 4) {
     if (!context.loopersAllowlist) {
       return errorResponse(503, 'not_configured', 'Looper allowlist registration is not configured.');
@@ -964,6 +1113,54 @@ async function handleRefreshTool(request, identifier, fragmentId, context) {
     return jsonResponse({ schema_version: '0.1.0', ...refreshed });
   } catch (error) {
     throw mapToolImportError(error);
+  }
+}
+
+function requireConsoleSession(request, context, { requireCsrf = false } = {}) {
+  assertTrustedOrigin(request, context);
+  const sessionId = parseCookies(request.headers.get('cookie')).get(context.consoleCookieName);
+  if (!sessionId) throw new ApiUnauthorizedError('Authenticated Console wallet session is required.');
+  try {
+    return context.consoleAuthStore.validateSession({
+      sessionId,
+      csrfToken: request.headers.get('x-csrf-token') ?? '',
+      requireCsrf,
+    });
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
+}
+
+async function authorizeConsoleLooper({ tokenId, wallet, context }) {
+  try {
+    const identity = await context.loopersAuthorizer({ tokenId, wallet });
+    if (
+      Number(identity?.chainId) !== LOOPERS_MAINNET_CHAIN_ID
+      || String(identity?.contract ?? '').toLowerCase() !== LOOPERS_MAINNET_CONTRACT.toLowerCase()
+      || String(identity?.tokenId ?? '') !== String(tokenId)
+      || String(identity?.owner ?? '').toLowerCase() !== String(wallet).toLowerCase()
+      || !/^\d+$/.test(String(identity?.erc8004AgentId ?? ''))
+      || identity?.controllerVerified !== true
+    ) {
+      throw new ApiForbiddenError('Canonical Looper owner/controller authorization failed.');
+    }
+    return identity;
+  } catch (error) {
+    if (error instanceof ApiForbiddenError) throw error;
+    if (error?.code === 'forbidden' || /does not own|not the ERC-8004 identity controller/i.test(error?.message ?? '')) {
+      throw new ApiForbiddenError(error.message);
+    }
+    throw error;
+  }
+}
+
+function normalizeLooperTokenId(value) {
+  try {
+    const tokenId = BigInt(String(value ?? '').trim());
+    if (tokenId <= 0n || tokenId > 7_777n) throw new Error('out of range');
+    return tokenId.toString();
+  } catch {
+    throw new ApiInputError('invalid_request', 'Provide a valid Looper token ID.');
   }
 }
 
@@ -2268,6 +2465,27 @@ function clearSessionCookie(context) {
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
+    'Max-Age=0',
+    context.cookieSecure ? 'Secure' : null,
+  ].filter(Boolean).join('; ');
+}
+
+function buildConsoleSessionCookie(sessionId, context) {
+  return [
+    `${context.consoleCookieName}=${encodeURIComponent(sessionId)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    context.cookieSecure ? 'Secure' : null,
+  ].filter(Boolean).join('; ');
+}
+
+function clearConsoleSessionCookie(context) {
+  return [
+    `${context.consoleCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
     'Max-Age=0',
     context.cookieSecure ? 'Secure' : null,
   ].filter(Boolean).join('; ');
