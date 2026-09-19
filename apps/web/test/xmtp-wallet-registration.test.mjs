@@ -64,6 +64,31 @@ test('XMTP wallet onboarding registers an uninitialized wallet through its signe
   assert.deepEqual(result, { registered: true, created: true });
 });
 
+test('XMTP wallet onboarding registers a smart-contract wallet with an SCW signer', async () => {
+  let capturedSigner = null;
+  const result = await ensureXmtpWalletRegistration({
+    wallet: WALLET,
+    signMessage: async () => `0x${'11'.repeat(65)}`,
+    getAccountCode: async () => '0xef0100deadbeef',
+    getChainId: async () => '0x2105',
+    sdkLoader: async () => ({
+      Client: {
+        canMessage: async ([identifier]) => new Map([[identifier.identifier, false]]),
+        create: async (signer) => {
+          capturedSigner = signer;
+          return { close: async () => {} };
+        },
+      },
+    }),
+    registrationAttempts: 1,
+    sleepImpl: async () => {},
+  }).catch((error) => error);
+
+  assert.equal(capturedSigner?.type, 'SCW');
+  assert.equal(capturedSigner?.getChainId(), 8453n);
+  assert.equal(result instanceof XmtpWalletRegistrationError, true);
+});
+
 test('XMTP wallet onboarding recognizes the live raw AddressNotFound failure', () => {
   assert.equal(isXmtpRegistrationRequiredError(new Error('[GroupError::AddressNotFound] Addresses not found []')), true);
   assert.equal(isXmtpRegistrationRequiredError(new Error('holder is not reachable on XMTP')), true);

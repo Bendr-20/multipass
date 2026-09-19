@@ -737,6 +737,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         await ensureXmtpRegistration({
           wallet: walletSnapshot.address,
           signMessage: (messageToSign) => activeWalletClient.signMessage(messageToSign),
+          getAccountCode: (wallet) => activeWalletClient.request({ method: 'eth_getCode', params: [wallet, 'latest'] }),
+          getChainId: () => activeWalletClient.request({ method: 'eth_chainId' }),
         });
         if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
       }
@@ -773,6 +775,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         await ensureXmtpRegistration({
           wallet: walletSnapshot.address,
           signMessage: (messageToSign) => activeWalletClient.signMessage(messageToSign),
+          getAccountCode: (wallet) => activeWalletClient.request({ method: 'eth_getCode', params: [wallet, 'latest'] }),
+          getChainId: () => activeWalletClient.request({ method: 'eth_chainId' }),
         });
         if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
         state = {

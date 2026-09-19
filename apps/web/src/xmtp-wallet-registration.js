@@ -1,5 +1,6 @@
 const XMTP_ENV = 'production';
 const ETHEREUM_IDENTIFIER_KIND = 0;
+const EMPTY_ACCOUNT_CODE = /^0x(?:0+)?$/i;
 const DEFAULT_REGISTRATION_ATTEMPTS = 8;
 const DEFAULT_REGISTRATION_DELAY_MS = 500;
 const SAFE_REGISTRATION_ERROR = 'XMTP setup did not finish. Sign the wallet prompts, then try again.';
@@ -20,6 +21,8 @@ export function isXmtpRegistrationRequiredError(error) {
 export async function ensureXmtpWalletRegistration({
   wallet,
   signMessage,
+  getAccountCode,
+  getChainId,
   sdkLoader = () => import('@xmtp/browser-sdk'),
   registrationAttempts = DEFAULT_REGISTRATION_ATTEMPTS,
   registrationDelayMs = DEFAULT_REGISTRATION_DELAY_MS,
@@ -39,13 +42,25 @@ export async function ensureXmtpWalletRegistration({
     if (!Client?.canMessage || !Client?.create) throw new Error('XMTP browser client is unavailable.');
     if (await canMessage(Client, identifier)) return { registered: true, created: false };
 
+    const accountCode = typeof getAccountCode === 'function'
+      ? String(await getAccountCode(normalizedWallet) ?? '').trim()
+      : '0x';
+    const isSmartContractWallet = accountCode !== '' && !EMPTY_ACCOUNT_CODE.test(accountCode);
+    const chainId = isSmartContractWallet
+      ? normalizeChainId(await getChainId?.())
+      : null;
+    if (isSmartContractWallet && chainId == null) {
+      throw new Error('XMTP smart-contract wallet chain is unavailable.');
+    }
+
     const signer = {
-      type: 'EOA',
+      type: isSmartContractWallet ? 'SCW' : 'EOA',
       getIdentifier: () => identifier,
       async signMessage(message) {
         const signed = await signMessage(message);
         return hexToBytes(typeof signed === 'string' ? signed : signed?.signature);
       },
+      ...(isSmartContractWallet ? { getChainId: () => chainId } : {}),
     };
 
     const client = await Client.create(signer, {
@@ -76,6 +91,15 @@ async function canMessage(Client, identifier) {
 function normalizeWallet(value) {
   const wallet = String(value ?? '').trim().toLowerCase();
   return /^0x[a-f0-9]{40}$/.test(wallet) ? wallet : '';
+}
+
+function normalizeChainId(value) {
+  try {
+    const chainId = typeof value === 'bigint' ? value : BigInt(String(value ?? '').trim());
+    return chainId > 0n ? chainId : null;
+  } catch {
+    return null;
+  }
 }
 
 function hexToBytes(value) {
