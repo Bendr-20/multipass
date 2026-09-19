@@ -80,12 +80,12 @@ REST runs during startup, before each sweep finalization, and every 30 seconds w
 
 For each reconciliation:
 
-1. Snapshot `previousWatermark` and choose `upperBound = floor(now / 1000) - 2`; never move it backward.
+1. Snapshot `previousWatermark` and choose `upperBound = max(previousWatermark, floor(now / 1000) - 2)`. On first run initialize `previousWatermark = baselineCutoff`; therefore the bound can never move backward.
 2. Query `after = max(0, previousWatermark - 120)` and `before = upperBound`, following every `next` cursor.
 3. If OpenSea unexpectedly returns an event newer than `upperBound`, place it in normal ingress but exclude it from this snapshot's completion/advancement decision.
 4. Permanently apply the persisted `baselineCutoff`: every event with `eventTimestamp < baselineCutoff` is historical and can never post, even if indexed for the first time on a later restart.
 5. Apply all in-range pages atomically through the mutation queue. Events may become seen, delivered, baseline-filtered, persisted pending groups, or persisted retry records.
-6. Advance `restWatermark` to `max(previousWatermark, upperBound)` only after every page succeeded and every retryable in-range event is durably represented in one of those states. A successful empty result also advances to `upperBound`.
+6. Advance `restWatermark` to the already-clamped `upperBound` only after every page succeeded and every retryable in-range event is durably represented in one of those states. A successful empty result advances to that same clamped value.
 7. On pagination, processing, or state-write failure, retain `previousWatermark` and replay the overlap later.
 
 Persisted pending groups and retry records do not block advancement because they are durable independent work items. An event that failed before durable persistence does block it. Stable sale IDs are retained for seven days and capped at 50,000 entries, far beyond the overlap horizon.
@@ -114,7 +114,7 @@ Normalize both OpenSea payload shapes into:
 
 ```js
 {
-  id,                    // transaction hash + token ID; order hash fallback
+  id,                    // transaction hash + token ID
   transactionHash,
   orderHash,
   eventTimestamp,
@@ -131,30 +131,41 @@ Normalize both OpenSea payload shapes into:
 }
 ```
 
+Normalize timestamps before validation:
+
+- REST `event_timestamp` must be an integer Unix-second value.
+- Stream `payload.event_timestamp` must be an RFC 3339 string with an explicit `Z` or numeric offset; parse it to milliseconds and floor to Unix seconds.
+- Reject invalid dates, fractions that cannot parse, negative values, and timestamps more than five minutes in the future.
+- All baseline, watermark, ordering, grouping, and freshness comparisons use the normalized integer seconds.
+
 Reject events unless all of the following hold:
 
 - event is a sale;
 - chain is Base;
 - NFT contract matches the canonical Loopers contract;
 - token ID and transaction hash are present;
+- timestamp normalization succeeds;
 - quantity equals one;
 - payment quantity is a positive integer string;
 - payment decimals are a bounded non-negative integer.
 
 Construct OpenSea item and Basescan transaction links from the validated canonical contract, token ID, and transaction hash. Do not trust payload links.
 
-The stable dedupe ID is transaction hash plus token ID, with order hash only as a fallback discriminator. This collapses a Stream event and its REST copy into one sale.
+The stable dedupe ID is exactly lowercased transaction hash plus normalized token ID. `orderHash` is retained only as provenance and never changes identity. This collapses a Stream event and its REST copy into one sale, even if one source omits or disagrees on order hash.
 
 ## Exact Price and Premium Math
 
 Never materialize money or the premium boundary as JavaScript `Number`.
 
 - Parse the OpenSea stats body with `lossless-json` so `total.floor_price` retains its original decimal lexeme; add that package to `apps/api/package.json` and the pnpm lockfile.
+- Accept a floor lexeme only when it matches `^(?:0|[1-9]\d{0,30})(?:\.\d{1,36})?$`; reject signs, exponents, leading zeros, and values outside those digit bounds. This intentionally fails closed if OpenSea changes numeric representation.
+- Read `total.floor_price_symbol`, trim and uppercase it, and accept only exact `ETH` or `WETH`, both mapped to the Base ETH/WETH comparison family. Missing or any other symbol disables premium classification.
 - Accept payment quantities containing 1–96 decimal digits and payment decimals from 0 through 36; reject signs, exponents, fractions in the raw quantity, and values outside those bounds.
 - Represent every amount as an exact rational `{ numerator: BigInt, scale: 10n ** decimals }`; decimals above 18 are preserved, never truncated.
 - Base native ETH is exactly `0x0000000000000000000000000000000000000000`; canonical Base WETH is exactly `0x4200000000000000000000000000000000000006`. Those two addresses form one comparison family.
 - Sum compatible sweep items by scaling to the largest declared decimal count in that family, bounded at 36.
-- Format display values from integer/rational parts and trim insignificant zeros without floating-point conversion.
+- Format price and average displays by exact long division to at most eight fractional digits, round half-up at the ninth digit, and trim insignificant trailing zeros.
+- Format the sale/floor multiplier to two fractional digits and percentage-over-floor to one fractional digit, both with exact integer half-up rounding. Classification always uses unrounded rationals; displayed values never feed decisions.
 
 Parse `LOOPERS_SALES_PREMIUM_MULTIPLIER` as a decimal string with at most six fractional digits and a configured range of `1` through `100`. Reduce it to `{ numerator, denominator }`; the default `1.25` becomes `5/4`. For a compatible-currency sweep, compare without division or rounding:
 
@@ -164,7 +175,7 @@ The single-item case uses `itemCount = 1`. The implementation uses the configure
 
 If a transaction contains incompatible payment families, keep one grouped card with totals separated by symbol/address, omit average and premium claims, and log the anomaly safely.
 
-Fetch the collection floor from OpenSea stats and cache it for at most 30 seconds. A premium card is valid only when the losslessly parsed floor is positive, fresh, and in the ETH/WETH family. On floor failure, zero floor, stale cache, or incompatible currency, post a normal card without a premium claim.
+Fetch the collection floor and `floor_price_symbol` from OpenSea stats and cache the validated pair for at most 30 seconds. A premium card is valid only when the losslessly parsed floor is positive, fresh, and its accepted symbol maps to the ETH/WETH family. On grammar failure, exponent notation, missing/unknown symbol, zero floor, stale cache, or incompatible currency, post a normal card without a premium claim.
 
 ## Sweep Grouping and Late Siblings
 
@@ -173,8 +184,9 @@ Persist pending groups keyed by transaction hash.
 - Start a group when the first item arrives.
 - Deduplicate items by stable sale ID.
 - Set a quiet deadline eight seconds after the most recent sibling and a hard deadline thirty seconds after the first sibling.
-- Before finalization, request and await one coalesced REST overlap reconciliation for the group's timestamp; extend the quiet deadline if new siblings appear.
-- Finalize after the quiet deadline following that reconciliation, or at the hard deadline if OpenSea remains delayed.
+- Before finalization, request and await a coalesced REST overlap reconciliation whose returned `upperBound` is strictly greater than the greatest `eventTimestamp` currently in the group; extend the quiet deadline if new siblings appear.
+- If the coalesced promise was created with a stale bound (`upperBound <= groupTimestamp`), await its completion, then request a fresh reconciliation after the coalescer clears. Do not finalize on that stale result.
+- Finalize after the quiet deadline and a sufficiently fresh reconciliation, or at the thirty-second hard deadline after one best-effort fresh request. The hard deadline is the only exception to the freshness requirement.
 
 On finalization:
 
@@ -317,45 +329,49 @@ Rollback stops/disables the sales unit, enables and starts the unchanged old min
 
 Add focused coverage for:
 
-1. REST sale normalization.
-2. Phoenix Stream frame/join-acknowledgement and sale normalization.
-3. Stream/REST dedupe for the same transaction and token.
-4. Contract, chain, ERC-721 quantity, and malformed-payment rejection.
-5. Canonical link construction and unsafe payload-link rejection.
-6. Full native ETH/WETH address-family normalization.
-7. Lossless floor parsing with no `Number` conversion.
-8. Exact default 1.25× boundary and below-threshold behavior.
-9. Non-default rational multipliers and decimals above 18 without truncation.
-10. Raw digit/decimal/multiplier bound rejection.
-11. Currency mismatch and unavailable/stale-floor fail-closed behavior.
-12. Multi-item sweep exact total, rational average comparison, sorted IDs, and first trusted image.
-13. Eight-second debounce, thirty-second hard deadline, and pre-finalization REST reconciliation.
-14. Delayed sibling editing of the existing Telegram card against the original floor snapshot.
-15. Mixed-currency sweep behavior.
-16. First-run durable cutoff and no historical posts.
-17. Crash recovery immediately after cutoff persistence.
-18. Permanent pre-cutoff filtering of a newly indexed event on a later restart.
-19. Atomic startup merge/ingress-mode flip for buffered Stream and REST events.
-20. Same-second and late-indexed events across the overlap.
-21. Multi-page REST cursors, fixed `before` upper bound, and exclusion of newer events.
-22. Empty-page watermark advancement and no advancement on partial/failing pages.
-23. Durable pending/retry records allowing watermark advancement.
-24. Concurrent Stream/REST arrivals, in-flight dedupe, and explicit queue/reconciliation deadlock prevention.
-25. Periodic REST reconciliation after a simulated Stream gap.
-26. Persisted unflushed sweep recovery after service restart.
-27. Atomic file/directory `fsync` plus rename and restart dedupe.
-28. Telegram send accepted followed by state-write failure, proving the intentional duplicate-risk path.
-29. Telegram network/5xx/429, authorization/chat, known content/media 400, unknown-error, idempotent-edit, and non-editable-message classifications.
-30. Unresolved late-edit records remain pinned across retention; expired full records leave suppressing tombstones.
-31. OpenSea 429 `Retry-After`, transient backoff, and authentication failure behavior.
-32. Secret-redacted errors and logs.
-33. Normal, premium, and sweep Telegram HTML escaping and caption limits.
-34. Exact image-host allowlist and bypasses: sibling suffix, trailing dot, credentials, ports, IDN, IPv4/IPv6, and non-HTTPS.
-35. Redirect-free behavior: zero local image fetches, direct trusted URL only, logo/text fallbacks.
-36. Heartbeat/join failure removes readiness; acknowledged rejoin restores it.
-37. Ready log gating on join acknowledgement, complete REST reconciliation, durable state, and floor read.
-38. Failed post-stop rollout immediately restores the old unit in the deployment harness/runbook check.
-39. Config parsing and absolute production paths without secret leakage.
+1. REST sale normalization, including integer Unix-second timestamps.
+2. Phoenix Stream join acknowledgement and RFC 3339 timestamp normalization with floor-to-second behavior.
+3. Invalid, negative, timezone-less, and future timestamp rejection at baseline/watermark boundaries.
+4. Stream/REST dedupe for the same transaction and token, including differing/missing order hashes.
+5. Contract, chain, ERC-721 quantity, and malformed-payment rejection.
+6. Canonical link construction and unsafe payload-link rejection.
+7. Full native ETH/WETH address-family normalization.
+8. Lossless floor parsing with no `Number` conversion.
+9. Floor grammar bounds, exponent rejection, and exact case-normalized `ETH`/`WETH` symbol mapping.
+10. Exact default 1.25× boundary and below-threshold behavior.
+11. Non-default rational multipliers and decimals above 18 without truncation.
+12. Raw digit/decimal/multiplier bound rejection.
+13. Deterministic half-up display rounding for price, non-terminating averages, multiplier, and percentage while classification remains exact.
+14. Currency mismatch and unavailable/stale-floor fail-closed behavior.
+15. Multi-item sweep exact total, rational average comparison, sorted IDs, and first trusted image.
+16. Eight-second debounce, thirty-second hard deadline, and pre-finalization REST reconciliation.
+17. Stale coalesced reconciliation (`upperBound <= groupTimestamp`) forces a fresh run before non-hard-deadline finalization.
+18. Delayed sibling editing of the existing Telegram card against the original floor snapshot.
+19. Mixed-currency sweep behavior.
+20. First-run watermark initialization, durable cutoff, and no historical posts.
+21. Crash recovery immediately after cutoff persistence.
+22. Permanent pre-cutoff filtering of a newly indexed event on a later restart.
+23. Atomic startup merge/ingress-mode flip for buffered Stream and REST events.
+24. Same-second and late-indexed events across the overlap.
+25. Multi-page REST cursors, clamped fixed `before` upper bound, and exclusion of newer events.
+26. Empty-page advancement to the same clamped bound and no advancement on partial/failing pages.
+27. Durable pending/retry records allowing watermark advancement.
+28. Concurrent Stream/REST arrivals, in-flight dedupe, and explicit queue/reconciliation deadlock prevention.
+29. Periodic REST reconciliation after a simulated Stream gap.
+30. Persisted unflushed sweep recovery after service restart.
+31. Atomic file/directory `fsync` plus rename and restart dedupe.
+32. Telegram send accepted followed by state-write failure, proving the intentional duplicate-risk path.
+33. Telegram network/5xx/429, authorization/chat, known content/media 400, unknown-error, idempotent-edit, and non-editable-message classifications.
+34. Unresolved late-edit records remain pinned across retention; expired full records leave suppressing tombstones.
+35. OpenSea 429 `Retry-After`, transient backoff, and authentication failure behavior.
+36. Secret-redacted errors and logs.
+37. Normal, premium, and sweep Telegram HTML escaping and caption limits.
+38. Exact image-host allowlist and bypasses: sibling suffix, trailing dot, credentials, ports, IDN, IPv4/IPv6, and non-HTTPS.
+39. Redirect-free behavior: zero local image fetches, direct trusted URL only, logo/text fallbacks.
+40. Heartbeat/join failure removes readiness; acknowledged rejoin restores it.
+41. Ready log gating on join acknowledgement, complete REST reconciliation, durable state, and floor read.
+42. Failed post-stop rollout immediately restores the old unit in the deployment harness/runbook check.
+43. Config parsing and absolute production paths without secret leakage.
 
 Run the existing Loopers activity-bot suite as a regression check so dormant mint behavior remains intact.
 
