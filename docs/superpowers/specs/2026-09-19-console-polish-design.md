@@ -20,7 +20,7 @@ The drawer must not invent proof. Existing evidence gates remain unchanged, and 
 ### Identity and sidebar copy
 
 - Rename every Console-facing `Console name` field and drawer label to `Agent name`.
-- Give Looper #614 a temporary Cred score of 65, matching Quigbot, only when the live record has no real Cred score. Normalize both `credScore` and `credLabel` together so a stale `Cred pending` label cannot override the fallback. Any real numeric score and its label always win, and no other Looper receives this fallback.
+- Normalize Cred with this exact precedence: (1) when a finite numeric `credScore` exists, preserve it and preserve a non-pending `credLabel` or synthesize `Cred <score>`; (2) when no numeric score exists but a non-pending label exists, preserve that label and do not invent a number; (3) only when token #614 has neither a numeric score nor a non-pending label, set score 65 and label `Cred 65`; (4) every other pending agent stays pending.
 - Remove `review-only` wording from the identity Temper value/body and its default personality copy. Do not remove the separate runtime safety or execution proof boundary.
 - Replace `Authenticated user` or equivalent owner/operator labels with the resolved ENS name when available, otherwise the full connected owner wallet address.
 - Remove `Agent selection lives under My agents.` from Current room.
@@ -31,8 +31,9 @@ The drawer must not invent proof. Existing evidence gates remain unchanged, and 
 
 - Give the message timeline a bounded responsive height with its own vertical scroll instead of allowing every message to expand the full page.
 - Keep the room header, drawer, and composer outside the scrolling timeline so the input remains reachable.
-- Position the timeline at the newest message only when a room first opens, after a successful send, or when a genuinely new message arrives. Do not force-scroll unrelated rerenders, and preserve a reader's position when they have intentionally scrolled away from the bottom.
-- Preserve composer focus, draft text, and textarea selection across full-root rerenders. Auto-scroll must never steal focus from the composer.
+- Before a full-root rerender, capture the room/conversation key, message identity/count, timeline `scrollTop`, `scrollHeight`, and `clientHeight`. Treat the reader as near-bottom only when `scrollHeight - scrollTop - clientHeight <= 48` pixels.
+- On first room open and after a successful locally authored send, scroll to the newest message. For a genuinely new incoming message, scroll to newest only when the prior viewport was near-bottom; otherwise restore the prior absolute `scrollTop`. For unrelated rerenders in the same room, always restore the prior `scrollTop`. A room-key change resets to newest.
+- Before `root.innerHTML` replacement, capture the composer DOM value, whether its textarea is `document.activeElement`, `selectionStart`, `selectionEnd`, and `selectionDirection`. After replacement, restore the value and selection; call `focus({ preventScroll: true })` only when it was previously focused. Timeline restoration runs without focusing any element.
 - Preserve mobile page scrolling while confining long conversation history to the message viewport.
 - Agent messages use the selected Looper's canonical image URL.
 - Human messages use the connected owner's ENS avatar when resolvable.
@@ -56,11 +57,11 @@ ENS failure is cosmetic and must never fail the Console session. No signing mate
 
 - Renderer tests prove the proof rail is a closed expandable drawer and that expansion contains only available Multipass facts and evidence.
 - Tests prove `Agent name` replaces `Console name` and both removed instructional sentences are absent.
-- Tests prove Looper #614 receives Cred 65 only when both its real score and usable label are missing/pending, that a real score wins, and that non-614 agents never receive the fallback.
+- Tests prove all four Cred precedence branches: numeric score wins and repairs a pending label, label-only trust is preserved, #614 receives 65 only when both sources are absent/pending, and non-614 agents remain pending.
 - Tests prove Temper omits `review-only` while the execution safety boundary remains elsewhere.
 - Tests prove owner display prefers ENS and falls back to the full wallet address.
-- Tests prove the message timeline uses a bounded scroll viewport, keeps the composer outside it, scrolls on initial room open/post-send/new-message only, preserves an intentional reading position, and does not break mobile page scrolling.
-- Tests prove root rerenders preserve composer focus, draft, and textarea selection while newest-message scrolling does not steal focus.
+- Tests prove the message timeline uses a bounded scroll viewport, keeps the composer outside it, applies the 48-pixel near-bottom rule, always advances on first room open/local send, advances incoming messages only near-bottom, preserves absolute `scrollTop` when reading older messages, and does not break mobile page scrolling.
+- Tests prove full-root rerenders capture/restore composer DOM value, focus, selection start/end/direction, only refocus a previously focused composer, and never let timeline restoration steal focus.
 - Tests prove ENS results are discarded after wallet/session changes and cleared at wallet boundaries.
 - Tests prove agent and human messages receive Looper and ENS avatars, unsafe URL schemes are rejected, stale message avatars are overridden by role, and failed image loads reveal deterministic initials.
 - Run focused Console tests, the complete web test suite, production build, syntax checks, and `git diff --check`.

@@ -72,7 +72,8 @@ git commit -m "feat: resolve Console owner profiles"
 
 Prove:
 - Looper #614 with null score and `Cred pending` becomes score/label 65;
-- a real numeric #614 score and label win;
+- a finite score wins and repairs an absent/pending label to `Cred <score>`;
+- a non-pending label without a numeric score is preserved without inventing a number;
 - non-614 pending agents remain pending;
 - owner display prefers ENS and otherwise uses the full wallet, not a shortened label;
 - human messages receive owner profile label/avatar and agent messages receive selected Looper name/image even when persisted messages contain stale avatars;
@@ -89,7 +90,7 @@ Expected: new assertions FAIL.
 - [ ] **Step 3: Implement snapshot normalization**
 
 Add small pure helpers in `multipass-console.js` for:
-- `applyTemporaryCredFallback(agent)`;
+- `normalizeConsoleCred(agent)` implementing the four explicit precedence branches from the spec;
 - owner label selection from `state.consoleOwnerProfile` and authenticated wallet;
 - role-based message decoration with `safeConsoleAvatarUrl`.
 
@@ -199,9 +200,10 @@ git commit -m "feat: bind owner profile to Console session"
 
 Prove:
 - `.console-thread-messages` is the dedicated scroll viewport and the composer is its sibling;
-- room open, successful send, and genuinely new messages request newest-message scrolling;
-- unrelated rerenders and intentional above-bottom reading positions do not force scroll;
-- composer focus, draft, `selectionStart`, and `selectionEnd` survive rerenders;
+- first room open and successful local send request newest-message scrolling;
+- incoming messages scroll only when the prior viewport is within 48px of bottom;
+- unrelated rerenders and above-bottom readers restore the prior absolute `scrollTop`;
+- composer DOM value, focus, `selectionStart`, `selectionEnd`, and `selectionDirection` survive rerenders, while an unfocused composer stays unfocused;
 - image markup contains both image and deterministic initials fallback, rejects unsafe URLs, and the image error handler reveals initials without retrying.
 
 - [ ] **Step 2: Run focused tests and verify failure**
@@ -214,7 +216,7 @@ Expected: new assertions FAIL.
 
 - [ ] **Step 3: Implement viewport and interaction restoration**
 
-Add a message-scroll marker/count to the thread snapshot, capture viewport proximity-to-bottom plus composer focus/selection before root replacement, and restore after render. Scroll only for the specified room/message transitions or when already near bottom. Render avatar image and initials together; bind a one-shot `error` listener that removes/hides the failed image and reveals initials.
+Add a stable room/conversation key and message identity/count to the snapshot. Immediately before `root.innerHTML`, capture timeline `scrollTop`, `scrollHeight`, `clientHeight`, and the room key plus composer DOM value/focus/selection/direction. After render: reset to newest on room-key change or successful local send; for new incoming messages use `scrollHeight - scrollTop - clientHeight <= 48` to decide newest versus restoring prior absolute `scrollTop`; for unrelated same-room rerenders restore prior `scrollTop`. Restore the textarea value and selection and call `focus({ preventScroll: true })` only if it was previously active. Render avatar image and initials together; bind a one-shot `error` listener that removes/hides the failed image and reveals initials.
 
 - [ ] **Step 4: Add responsive styles**
 
