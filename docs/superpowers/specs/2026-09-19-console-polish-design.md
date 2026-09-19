@@ -27,8 +27,12 @@ The drawer must not invent proof. Existing evidence gates remain unchanged, and 
 - Remove `The Console only loads real Loopers owned by the connected wallet.` from My agents.
 - Correct Current room and My agents drawer text colors so summary hints, stats, and expanded copy remain readable in the live theme.
 
-### XMTP chat avatars
+### XMTP chat viewport and avatars
 
+- Give the message timeline a bounded responsive height with its own vertical scroll instead of allowing every message to expand the full page.
+- Keep the room header, drawer, and composer outside the scrolling timeline so the input remains reachable.
+- On initial render and after a successful send, position the timeline at the newest message without stealing focus from the composer.
+- Preserve mobile page scrolling while confining long conversation history to the message viewport.
 - Agent messages use the selected Looper's canonical image URL.
 - Human messages use the connected owner's ENS avatar when resolvable.
 - Resolve ENS name and avatar on Ethereum mainnet after wallet connection without blocking authentication, roster loading, activation, or send.
@@ -53,6 +57,7 @@ ENS failure is cosmetic and must never fail the Console session. No signing mate
 - Tests prove Looper #614 receives Cred 65 only when its real Cred value is missing.
 - Tests prove Temper omits `review-only` while the execution safety boundary remains elsewhere.
 - Tests prove owner display prefers ENS and falls back to the full wallet address.
+- Tests prove the message timeline uses a bounded scroll viewport, keeps the composer outside it, and exposes the newest message without breaking mobile page scrolling.
 - Tests prove agent and human messages receive Looper and ENS avatars, with safe fallbacks.
 - Run focused Console tests, the complete web test suite, production build, syntax checks, and `git diff --check`.
 - Inspect desktop and mobile Console screenshots for drawer density, contrast, avatar cropping, overflow, and composer reachability before deployment.
