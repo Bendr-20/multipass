@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Loopers owner withdrawal</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080b14; color: #eef2ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #172554 0, #080b14 48%); }
+    main { width: min(760px, 100%); border: 1px solid #334155; border-radius: 20px; padding: clamp(20px, 5vw, 40px); background: rgba(10, 15, 28, .94); box-shadow: 0 24px 80px rgba(0, 0, 0, .42); }
+    h1 { margin: 0 0 8px; font-size: clamp(1.7rem, 5vw, 2.5rem); }
+    .lede, .note { color: #a5b4fc; line-height: 1.55; }
+    dl { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(0, 1.3fr); gap: 12px 20px; margin: 28px 0; padding: 20px; border-radius: 14px; background: #101827; }
+    dt { color: #94a3b8; }
+    dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #status { min-height: 3.1rem; padding: 14px 16px; border: 1px solid #475569; border-radius: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+    button { appearance: none; border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 750; cursor: pointer; }
+    #connect { background: #334155; color: #f8fafc; }
+    #withdraw { background: #7c3aed; color: white; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    a { color: #a5b4fc; }
+    .note { margin: 22px 0 0; font-size: .92rem; }
+    @media (max-width: 560px) { dl { grid-template-columns: 1fr; gap: 5px; } dd { margin-bottom: 10px; } }
+  </style>
+</head>
+<body>
+  <main id="page-state" data-busy="true">
+    <h1>Loopers owner withdrawal</h1>
+    <p class="lede">Withdraw the live contract's full ETH balance to its pinned treasury. This page exposes no other contract write.</p>
+
+    <dl aria-label="Verified contract state">
+      <dt>Network</dt><dd id="network">Checking…</dd>
+      <dt>Connected wallet</dt><dd id="wallet">Checking…</dd>
+      <dt>Contract balance</dt><dd id="balance">Checking…</dd>
+      <dt>Onchain owner</dt><dd id="owner">Checking…</dd>
+      <dt>Onchain treasury</dt><dd id="treasury">Checking…</dd>
+      <dt>Implementation</dt><dd id="implementation">Checking…</dd>
+    </dl>
+
+    <p id="status" role="status" aria-live="polite">Verifying pinned contract state…</p>
+    <a id="transaction" href="" target="_blank" rel="noopener noreferrer" hidden>View transaction on BaseScan</a>
+
+    <div class="actions">
+      <button id="connect" type="button">Connect / switch to Base</button>
+      <button id="withdraw" type="button" disabled>Withdraw full balance to treasury</button>
+    </div>
+    <p class="note">The destination is fixed by the contract's existing treasury. You will review and approve the transaction in your wallet.</p>
+  </main>
+
+  <script>
+    'use strict';
+
+    const CHAIN_ID = 8453;
+    const CHAIN_HEX = '0x2105';
+    const LIVE_PROXY = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
+    const EXPECTED_OWNER = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+    const EXPECTED_TREASURY = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+    const OWNER_SELECTOR = '0x8da5cb5b';
+    const TREASURY_SELECTOR = '0x61d027b3';
+    const WITHDRAW_SELECTOR = '0x3ccfd60b';
+    const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+    const EXPECTED_IMPLEMENTATION = '0x68F22e3563891167D37C86391c4a83449c83e908';
+    const EXPECTED_PROXY_CODE_HASH = '6ea05616ee3e471f1a4890f75aebac2410a44a0beb0110821f74e6a977e59662';
+    const EXPECTED_IMPLEMENTATION_CODE_HASH = '46c2bf5bca689ba1994f06a6b85971e68392e2fc458a1ed09ff20022399644ec';
+    const BASE_RPC_URL = 'https://mainnet.base.org';
+    const PUBLIC_RPC_METHODS = Object.freeze(['eth_getBalance','eth_call','eth_getStorageAt','eth_getCode','eth_getTransactionByHash','eth_getTransactionReceipt']);
+    const WALLET_METHODS = Object.freeze(['eth_chainId','eth_accounts','eth_requestAccounts','wallet_switchEthereumChain','eth_sendTransaction']);
+    const WITHDRAW_TX = Object.freeze({
+      from: EXPECTED_OWNER,
+      to: LIVE_PROXY,
+      data: WITHDRAW_SELECTOR,
+      value: '0x0',
+    });
+
+    const elements = Object.freeze({
+      page: document.querySelector('#page-state'),
+      network: document.querySelector('#network'),
+      wallet: document.querySelector('#wallet'),
+      balance: document.querySelector('#balance'),
+      owner: document.querySelector('#owner'),
+      treasury: document.querySelector('#treasury'),
+      implementation: document.querySelector('#implementation'),
+      status: document.querySelector('#status'),
+      transaction: document.querySelector('#transaction'),
+      connect: document.querySelector('#connect'),
+      withdraw: document.querySelector('#withdraw'),
+    });
+
+    let rpcId = 0;
+    let ready = false;
+    let refreshVersion = 0;
+
+    const sameAddress = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
+
+    function setBusy(value) {
+      elements.page.dataset.busy = String(value);
+      elements.connect.disabled = value;
+      if (value) elements.withdraw.disabled = true;
+    }
+
+    function setReady(value) {
+      ready = value;
+      elements.withdraw.disabled = !value;
+    }
+
+    function showStatus(message) {
+      elements.status.textContent = String(message).slice(0, 280);
+    }
+
+    async function publicRpc(method, params) {
+      if (!PUBLIC_RPC_METHODS.includes(method)) throw new Error('Blocked public RPC method.');
+      const response = await fetch(BASE_RPC_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }),
+      });
+      if (!response.ok) throw new Error(`Base RPC HTTP ${response.status}.`);
+      const payload = await response.json();
+      if (payload.error) throw new Error(payload.error.message || 'Base RPC request failed.');
+      return payload.result;
+    }
+
+    async function walletRequest(method, params) {
+      if (!WALLET_METHODS.includes(method)) throw new Error('Blocked wallet method.');
+      if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+      return window.ethereum.request(params === undefined ? { method } : { method, params });
+    }
+
+    function decodeAddress(word, label) {
+      if (typeof word !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(word)) throw new Error(`Invalid ${label} response.`);
+      return `0x${word.slice(-40)}`;
+    }
+
+    function codeBytes(code) {
+      if (typeof code !== 'string' || !/^0x(?:[0-9a-fA-F]{2})+$/.test(code)) throw new Error('Missing or invalid contract code.');
+      const pairs = code.slice(2).match(/.{2}/g);
+      return Uint8Array.from(pairs, (pair) => Number.parseInt(pair, 16));
+    }
+
+    async function sha256Code(code) {
+      if (!window.crypto?.subtle) throw new Error('Browser SHA-256 is unavailable.');
+      const digest = await window.crypto.subtle.digest('SHA-256', codeBytes(code));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    function formatBalance(wei) {
+      const whole = wei / 1000000000000000000n;
+      const fraction = (wei % 1000000000000000000n).toString().padStart(18, '0').replace(/0+$/, '').slice(0, 6);
+      return `${whole}${fraction ? `.${fraction}` : ''} ETH`;
+    }
+
+    async function readPublicState() {
+      const [balanceHex, ownerWord, treasuryWord, implementationWord, proxyCode] = await Promise.all([
+        publicRpc('eth_getBalance', [LIVE_PROXY, 'latest']),
+        publicRpc('eth_call', [{ to: LIVE_PROXY, data: OWNER_SELECTOR }, 'latest']),
+        publicRpc('eth_call', [{ to: LIVE_PROXY, data: TREASURY_SELECTOR }, 'latest']),
+        publicRpc('eth_getStorageAt', [LIVE_PROXY, IMPLEMENTATION_SLOT, 'latest']),
+        publicRpc('eth_getCode', [LIVE_PROXY, 'latest']),
+      ]);
+      const implementation = decodeAddress(implementationWord, 'implementation slot');
+      const implementationCode = await publicRpc('eth_getCode', [implementation, 'latest']);
+      const [proxyCodeHash, implementationCodeHash] = await Promise.all([
+        sha256Code(proxyCode),
+        sha256Code(implementationCode),
+      ]);
+      return {
+        balance: BigInt(balanceHex),
+        owner: decodeAddress(ownerWord, 'owner'),
+        treasury: decodeAddress(treasuryWord, 'treasury'),
+        implementation,
+        proxyCodeHash,
+        implementationCodeHash,
+      };
+    }
+
+    function renderFacts(state, chainId, account) {
+      elements.network.textContent = chainId === CHAIN_HEX ? 'Base mainnet (8453)' : (chainId || 'Wallet unavailable');
+      elements.wallet.textContent = account || 'Not connected';
+      elements.balance.textContent = formatBalance(state.balance);
+      elements.owner.textContent = state.owner;
+      elements.treasury.textContent = state.treasury;
+      elements.implementation.textContent = state.implementation;
+    }
+
+    function validate(state, chainId, account) {
+      if (chainId !== CHAIN_HEX) throw new Error(`Wrong network: connected ${chainId || 'unknown'}, expected Base mainnet ${CHAIN_ID} (${CHAIN_HEX}).`);
+      if (!account) throw new Error('Wallet is not connected.');
+      if (!sameAddress(account, EXPECTED_OWNER)) throw new Error(`Connected wallet mismatch: ${account}; expected ${EXPECTED_OWNER}.`);
+      if (!sameAddress(state.owner, EXPECTED_OWNER)) throw new Error(`Onchain owner mismatch: ${state.owner}; expected ${EXPECTED_OWNER}.`);
+      if (!sameAddress(state.treasury, EXPECTED_TREASURY)) throw new Error(`Onchain treasury mismatch: ${state.treasury}; expected ${EXPECTED_TREASURY}.`);
+      if (!sameAddress(state.implementation, EXPECTED_IMPLEMENTATION)) throw new Error(`Implementation mismatch: ${state.implementation}; expected ${EXPECTED_IMPLEMENTATION}.`);
+      if (state.proxyCodeHash !== EXPECTED_PROXY_CODE_HASH) throw new Error(`Proxy code hash mismatch: ${state.proxyCodeHash}; expected ${EXPECTED_PROXY_CODE_HASH}.`);
+      if (state.implementationCodeHash !== EXPECTED_IMPLEMENTATION_CODE_HASH) throw new Error(`Implementation code hash mismatch: ${state.implementationCodeHash}; expected ${EXPECTED_IMPLEMENTATION_CODE_HASH}.`);
+      if (state.balance <= 0n) throw new Error('Contract has zero balance; there is no ETH to withdraw.');
+    }
+
+    function assertExactTransaction(transaction, chainId, account) {
+      if (chainId !== CHAIN_HEX || !sameAddress(account, EXPECTED_OWNER)) throw new Error('Wallet state changed before sending.');
+      const keys = Object.keys(transaction);
+      if (keys.length !== 4 || !keys.every((key) => ['from', 'to', 'data', 'value'].includes(key))) throw new Error('Blocked non-allowlisted transaction fields.');
+      if (!sameAddress(transaction.from, EXPECTED_OWNER)
+        || !sameAddress(transaction.to, LIVE_PROXY)
+        || transaction.data !== WITHDRAW_SELECTOR
+        || transaction.value !== '0x0') throw new Error('Blocked transaction outside the exact withdrawal allowlist.');
+    }
+
+    async function currentWalletState() {
+      if (!window.ethereum?.request) return { chainId: null, account: null };
+      const [chainId, accounts] = await Promise.all([
+        walletRequest('eth_chainId'),
+        walletRequest('eth_accounts'),
+      ]);
+      return { chainId, account: Array.isArray(accounts) ? (accounts[0] || null) : null };
+    }
+
+    async function refresh() {
+      const version = ++refreshVersion;
+      setReady(false);
+      setBusy(true);
+      try {
+        const [state, wallet] = await Promise.all([readPublicState(), currentWalletState()]);
+        if (version !== refreshVersion) return;
+        renderFacts(state, wallet.chainId, wallet.account);
+        if (!window.ethereum?.request) throw new Error('Injected wallet not found. Install or open an EVM wallet to continue.');
+        validate(state, wallet.chainId, wallet.account);
+        setReady(true);
+        showStatus('Ready. All pinned owner, treasury, bytecode, implementation, network, wallet, and balance checks passed.');
+      } catch (error) {
+        if (version === refreshVersion) showStatus(error.message || 'Verification failed.');
+      } finally {
+        if (version === refreshVersion) setBusy(false);
+      }
+    }
+
+    async function connect() {
+      setReady(false);
+      setBusy(true);
+      try {
+        if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+        await walletRequest('eth_requestAccounts');
+        const chainId = await walletRequest('eth_chainId');
+        if (chainId !== CHAIN_HEX) await walletRequest('wallet_switchEthereumChain', [{ chainId: CHAIN_HEX }]);
+      } catch (error) {
+        showStatus(error.code === 4001 ? 'Wallet request rejected. Nothing was changed.' : (error.message || 'Wallet connection failed.'));
+      } finally {
+        setBusy(false);
+      }
+      await refresh();
+    }
+
+    async function verifyMinedTransaction(hash) {
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const [transaction, receipt] = await Promise.all([
+          publicRpc('eth_getTransactionByHash', [hash]),
+          publicRpc('eth_getTransactionReceipt', [hash]),
+        ]);
+        if (transaction) {
+          if (!sameAddress(transaction.from, EXPECTED_OWNER)
+            || !sameAddress(transaction.to, LIVE_PROXY)
+            || transaction.input !== WITHDRAW_SELECTOR
+            || transaction.value !== '0x0') throw new Error('Submitted transaction fields do not match the approved withdrawal.');
+        }
+        if (receipt) {
+          if (!transaction) throw new Error('Receipt arrived without a verifiable transaction.');
+          if (receipt.status !== '0x1') throw new Error('Withdrawal transaction reverted.');
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      throw new Error('Timed out waiting for a verified transaction receipt.');
+    }
+
+    async function withdraw() {
+      if (!ready) return;
+      setReady(false);
+      setBusy(true);
+      elements.transaction.hidden = true;
+      elements.transaction.removeAttribute('href');
+      try {
+        showStatus('Re-verifying every pinned value before simulation…');
+        const [state, wallet] = await Promise.all([readPublicState(), currentWalletState()]);
+        renderFacts(state, wallet.chainId, wallet.account);
+        validate(state, wallet.chainId, wallet.account);
+
+        const transaction = { ...WITHDRAW_TX };
+        assertExactTransaction(transaction, wallet.chainId, wallet.account);
+        try {
+          await publicRpc('eth_call', [transaction, 'latest']);
+        } catch (error) {
+          throw new Error(`Withdrawal simulation failed: ${error.message}`);
+        }
+
+        const [finalChainId, finalAccounts, finalBalanceHex] = await Promise.all([
+          walletRequest('eth_chainId'),
+          walletRequest('eth_accounts'),
+          publicRpc('eth_getBalance', [LIVE_PROXY, 'latest']),
+        ]);
+        const finalAccount = Array.isArray(finalAccounts) ? (finalAccounts[0] || null) : null;
+        if (BigInt(finalBalanceHex) <= 0n) throw new Error('Contract has zero balance; there is no ETH to withdraw.');
+        assertExactTransaction(transaction, finalChainId, finalAccount);
+
+        const hash = await walletRequest('eth_sendTransaction', [transaction]);
+        if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('Wallet returned an invalid transaction hash.');
+        elements.transaction.href = `https://basescan.org/tx/${hash}`;
+        elements.transaction.hidden = false;
+        showStatus(`Submitted ${hash}. Waiting for Base confirmation…`);
+
+        await verifyMinedTransaction(hash);
+        const refreshed = await readPublicState();
+        renderFacts(refreshed, finalChainId, finalAccount);
+        showStatus('Withdrawal confirmed. The transaction fields and successful receipt were verified on Base.');
+      } catch (error) {
+        const rejected = error?.code === 4001 || /reject|denied|cancel/i.test(error?.message || '');
+        showStatus(rejected ? 'Wallet request rejected or cancelled. Nothing was changed.' : (error.message || 'Withdrawal failed.'));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    elements.connect.addEventListener('click', connect);
+    elements.withdraw.addEventListener('click', withdraw);
+
+    if (window.ethereum?.on) {
+      const invalidate = () => {
+        setReady(false);
+        setBusy(true);
+        showStatus('Wallet state changed. Re-running every check…');
+        void refresh();
+      };
+      window.ethereum.on('accountsChanged', invalidate);
+      window.ethereum.on('chainChanged', invalidate);
+    }
+
+    void refresh();
+  </script>
+</body>
+</html>
