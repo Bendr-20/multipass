@@ -72,6 +72,14 @@ test('contains only the reserve-mint owner write surface', async () => {
   assert.equal((html.match(/eth_sendTransaction/g) ?? []).length, 2, 'send method appears only in the wallet allowlist and one guarded call');
 });
 
+test('fails over across public Base RPC endpoints on throttling', async () => {
+  const html = await readPage();
+  assert.match(html, /const BASE_RPC_URLS = Object\.freeze\(\[/);
+  for (const host of ['mainnet.base.org', 'base.drpc.org', 'base-rpc.publicnode.com']) assert.ok(html.includes(host));
+  assert.match(html, /response\.status === 429/);
+  assert.match(html, /for \(let attempt = 0; attempt < BASE_RPC_URLS\.length; attempt \+= 1\)/);
+});
+
 test('uses explicit public and wallet RPC method allowlists', async () => {
   const html = await readPage();
   const publicMatch = html.match(/const PUBLIC_RPC_METHODS = Object\.freeze\((\[[^;]+\])\);/);

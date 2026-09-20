@@ -85,7 +85,11 @@
       registry: 'e3b1c1b4c04b34f90557a867aaef6bf2d57c5674e7a9f24994ae498ffd0f6f85',
       registryImplementation: '201b7634af2de088c58868052856922ea8534c47e2837f19529460e2fafb4ff1',
     });
-    const BASE_RPC_URL = 'https://base.drpc.org';
+    const BASE_RPC_URLS = Object.freeze([
+      'https://mainnet.base.org',
+      'https://base.drpc.org',
+      'https://base-rpc.publicnode.com',
+    ]);
     const ATTEMPT_KEY = 'loopers.reserveMint.8453.v1';
     const RESERVE_MINT_SELECTOR = '0xb0ea1802';
     const SELECTORS = Object.freeze({
@@ -111,6 +115,7 @@
     });
 
     let rpcId = 0;
+    let rpcCursor = 0;
     let ready = false;
     let inFlight = false;
     let walletGeneration = 0;
@@ -131,11 +136,32 @@
 
     async function publicRpc(method, params) {
       if (!PUBLIC_RPC_METHODS.includes(method)) throw new Error('Blocked public RPC method.');
-      const response = await fetch(BASE_RPC_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }) });
-      if (!response.ok) throw new Error(`Base RPC HTTP ${response.status}.`);
-      const payload = await response.json();
-      if (payload.error) throw new Error(payload.error.message || 'Base RPC request failed.');
-      return payload.result;
+      const body = JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params });
+      const start = rpcCursor;
+      rpcCursor = (rpcCursor + 1) % BASE_RPC_URLS.length;
+      let lastError = null;
+      for (let attempt = 0; attempt < BASE_RPC_URLS.length; attempt += 1) {
+        const url = BASE_RPC_URLS[(start + attempt) % BASE_RPC_URLS.length];
+        try {
+          const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+          if (!response.ok) {
+            lastError = new Error(`Base RPC HTTP ${response.status}.`);
+            if (response.status === 429 || response.status >= 500) continue;
+            throw lastError;
+          }
+          const payload = await response.json();
+          if (payload.error) {
+            lastError = new Error(payload.error.message || 'Base RPC request failed.');
+            if (/rate|limit|busy|capacity|temporar/i.test(lastError.message)) continue;
+            throw lastError;
+          }
+          return payload.result;
+        } catch (error) {
+          lastError = error;
+          if (attempt === BASE_RPC_URLS.length - 1) break;
+        }
+      }
+      throw new Error(`All Base RPC endpoints are unavailable${lastError ? `: ${lastError.message}` : '.'}`);
     }
     async function walletRequest(method, params) {
       if (!WALLET_METHODS.includes(method)) throw new Error('Blocked wallet method.');
