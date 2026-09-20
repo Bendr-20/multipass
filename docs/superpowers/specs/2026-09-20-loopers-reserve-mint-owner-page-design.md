@@ -36,7 +36,7 @@ The live Loopers implementation has immutable public constants for the adapter a
 
 Use a manual batch page modeled on the existing withdraw-only owner page. The destination is immutable. The user chooses an integer quantity from 1 through 40; the default is 1. Each click can create at most one wallet approval and one transaction. A later batch requires a fresh click after the previous receipt and post-state verification finish.
 
-Live `eth_estimateGas` checks against the current proxy and owner succeeded for quantities through 40 to the Safe and reverted at 50 and above. The full 337 reserve therefore needs at least nine transactions: eight batches of 40 and one batch of 17, if the one-NFT test is not counted separately. After a one-NFT test, the remaining 336 can be completed as eight batches of 40 and one batch of 16.
+Live `eth_estimateGas` checks against the current proxy and owner succeeded for quantities through 40 to the Safe and reverted at 50 and above. Without a separate test, the full 337 reserve requires nine transactions: eight batches of 40 and one batch of 17. With the intended one-NFT test, completion requires nine additional transactions—eight batches of 40 and one batch of 16—for ten transactions total.
 
 Rejected approaches:
 
@@ -78,11 +78,11 @@ At the provider boundary, the transaction must have exactly these semantic field
 - `data`: exact `reserveMint(fixedSafe, capturedQuantity)` calldata
 - `value`: `0x0`
 
-Any extra or mismatched authority-bearing field fails closed before `eth_sendTransaction`.
+The outbound transaction object must contain exactly those five keys. Any extra key or mismatched value fails closed before `eth_sendTransaction`.
 
 ## Pre-submit checks and sequencing
 
-Before enabling mint, obtain one canonical Base block number/hash and anchor every public RPC read to that same block. The snapshot must:
+Before enabling mint, require the public read RPC itself to return `eth_chainId == 0x2105`, obtain one canonical Base block number/hash, and anchor every public RPC read to that same block. Repeat the public-RPC chain identity check in every preflight, post-simulation, receipt, and confirmation pass. The snapshot must:
 
 1. Read and hash Loopers proxy code, Loopers implementation slot/code, Adapter8004 proxy/implementation code, and Identity Registry proxy/implementation code.
 2. Verify every pinned address and code hash, including `LIVE_ADAPTER()`, `EXPECTED_IDENTITY_REGISTRY()`, Adapter8004 `identityRegistry()`, and all three EIP-1967 implementation slots.
@@ -123,7 +123,9 @@ All post-state reads are anchored to the canonical receipt block/hash, preferabl
 
 Receipt-local logs and token-level reads are the attribution proof. Aggregate state is only a consistency check because unrelated activity can occur while the wallet is open: at the receipt block, `reserveMinted`, `totalSupply`, and Safe balance must each be at least their coherent preflight value plus the captured quantity. Unexpected same-receipt effects fail verification.
 
-After a small confirmation depth, the page rechecks that the receipt block remains canonical before claiming success. Transient lookup failures, a reorg, unresolved replacement, missing evidence, or a successful but unreconciled receipt keep the persistent lock and report pending/uncertain. The lock clears automatically only after a canonical reverted receipt (no mint) or a canonical successful receipt with complete transaction/log/state verification. A timeout alone never clears it; a strongly warned manual recovery path is available only for a transaction proven dropped or replaced.
+After submission, transaction/receipt lookup runs every 3 seconds for at most 120 attempts (6 minutes). Once a receipt appears, the page waits for three Base confirmations, checking every 2 seconds for at most 90 attempts (3 minutes), and then rechecks the original receipt block by hash with `requireCanonical: true` before claiming success. Exhausting either bound preserves the pending record and lock; a later reload or explicit non-write `Resume verification` action continues the same verification.
+
+Transient lookup failures, a reorg, unresolved replacement, missing evidence, or a successful but unreconciled receipt keep the persistent lock and report pending/uncertain. The lock clears automatically only after a canonical reverted receipt (no mint) or a canonical successful receipt with complete transaction/log/state verification. A timeout alone never clears it; a strongly warned manual recovery path is available only for a transaction proven dropped or replaced.
 
 ## Testing
 
@@ -142,8 +144,8 @@ Focused tests must cover:
 - exact `ReserveMinted`, two-stage Loopers `Transfer`, and `ERC8004Bound` log attribution; missing, extra, duplicate, malformed, or noncontiguous evidence stays locked
 - receipt-block token ownership, binding, URI, adapter binding, controller, and aggregate consistency checks
 - public mint, Safe transfer, or another owner reserve mint before inclusion cannot create false attribution
-- missing/malformed `chainId`, alternate encodings, mismatched transaction/receipt hashes or block coordinates, and reverted receipts
-- canonical confirmation, simulated reorg, transient lookup retry, and successful-but-unreconciled outcomes
+- null/malformed/incorrect wallet or public-RPC `chainId`, unexpected outbound request keys, alternate encodings, mismatched transaction/receipt hashes or block coordinates, and reverted receipts
+- exact 120-attempt receipt and 90-attempt confirmation bounds, canonical confirmation, simulated reorg, transient lookup retry, and successful-but-unreconciled outcomes
 - reload/navigation/browser restart with unresolved, mined-unverified, reorged, dropped, replaced, reverted, and fully verified pending records; no second send until safe unlock
 - provider method allowlists reject unexpected wallet and public RPC methods
 
