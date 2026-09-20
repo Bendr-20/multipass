@@ -96,7 +96,7 @@ On mint click:
 2. Capture quantity, exact transaction/calldata, and wallet-generation state, then re-run every chain, account, execution-identity, code, owner, reserve, supply, Safe-balance, Adapter8004, registry, URI-base, and calldata check in one block-anchored snapshot.
 3. Run `eth_call` against the exact transaction at that same snapshot; a revert blocks sending.
 4. Obtain a fresh canonical block and immediately repeat the coherent snapshot after simulation, requiring no relevant drift.
-5. Require the wallet-generation guard to remain unchanged, then read the owner's confirmed and pending nonce from the public RPC and require them to match (no pre-existing pending owner transaction).
+5. Require the wallet-generation guard to remain unchanged, then read the owner's confirmed and pending nonce from the public RPC and require them to match (no pre-existing pending owner transaction). Immediately after those awaited nonce reads, re-check the wallet-generation guard synchronously.
 6. As the final synchronous operation before provider invocation, persist the durable `prepared` record with a unique attempt ID, captured quantity, exact five-key transaction object/calldata, final coherent block/hash and values, expected owner nonce, wallet-generation state, and creation time.
 7. Invoke the single `eth_sendTransaction` request immediately, with no await or other asynchronous gap after persisting `prepared`.
 
@@ -152,7 +152,7 @@ Focused tests must cover:
 - every preflight/post-simulation read is anchored to one canonical block
 - exact calldata for quantities 1 and 40 and rejection of altered destination, quantity, proxy, sender, chain, or value
 - simulation, adapter register, registry metadata, delivery, and controller-validation failures send nothing or revert atomically as appropriate
-- preflight, simulation, post-simulation drift, nonce, and wallet-generation failures before durable `prepared` persistence safely unlock and send nothing
+- preflight, simulation, post-simulation drift, nonce, and wallet-generation failures before durable `prepared` persistence safely unlock and send nothing, including a wallet event during the awaited nonce reads
 - post-simulation drift in chain, account, owner, reserve, supply, Safe balance, any implementation/code hash/config, destination, quantity, or transaction field sends nothing
 - browser restart before provider invocation leaves no durable attempt; restart after `prepared` persistence restores the lock
 - wallet events and double clicks cannot create concurrent sends
