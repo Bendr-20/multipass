@@ -7171,6 +7171,19 @@ h1 {
   color: rgba(248, 243, 236, 0.78);
 }
 
+.console-agent-portrait .console-thread-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: rgba(248, 243, 236, 0.78);
+  padding: 18px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .console-identity-body {
   display: grid;
   gap: 4px;

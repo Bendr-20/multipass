@@ -132,6 +132,7 @@ test('console portrait keeps the full Looper image visible in the sidebar card',
   assert.match(css, /\.console-agent-portrait\s*\{[^}]*width:\s*min\(100%, 252px\);[^}]*aspect-ratio:\s*1;/s);
   assert.match(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center bottom;[^}]*transform:\s*none;/s);
   assert.doesNotMatch(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*cover;[^}]*transform:\s*scale/s);
+  assert.match(css, /\.console-agent-portrait \.console-thread-avatar-fallback\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*color:\s*rgba\(248, 243, 236, 0\.78\);[^}]*font-size:\s*12px;[^}]*font-weight:\s*900;[^}]*text-align:\s*center;[^}]*text-transform:\s*uppercase;/s);
   assert.doesNotMatch(css, /\.console-identity-card-compact\s*\{/s);
   assert.match(css, /\.console-workspace-sidebar \.console-agent-selector select,\s*\.console-workspace-sidebar \.console-agent-selector option\s*\{[^}]*background:\s*#17131f;[^}]*color:\s*#f8f3ec;/s);
   assert.match(css, /\.console-thread-chat-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
