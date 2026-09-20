@@ -92,13 +92,15 @@ Before enabling mint, require the public read RPC itself to return `eth_chainId 
 
 On mint click:
 
-1. Lock the form against duplicate submissions. Read the owner's confirmed and pending nonce from the public RPC, require them to match (no pre-existing pending owner transaction), and persist a `prepared` record before provider submission.
-2. The durable `prepared` record contains a unique attempt ID, captured quantity, exact five-key transaction object/calldata, coherent preflight block/hash and values, expected owner nonce, wallet-generation state, and creation time.
-3. Re-run every chain, account, execution-identity, code, owner, reserve, supply, Safe-balance, Adapter8004, registry, URI-base, and calldata check in one block-anchored snapshot.
-4. Run `eth_call` against the exact transaction at that same snapshot; a revert blocks sending.
-5. Obtain a fresh canonical block and immediately repeat the coherent snapshot after simulation, requiring no relevant drift.
-6. Require the wallet-generation guard to remain unchanged.
-7. Begin the single `eth_sendTransaction` request without an asynchronous gap.
+1. Acquire an in-memory mutex that blocks duplicate submissions, but do not persist a durable attempt yet.
+2. Capture quantity, exact transaction/calldata, and wallet-generation state, then re-run every chain, account, execution-identity, code, owner, reserve, supply, Safe-balance, Adapter8004, registry, URI-base, and calldata check in one block-anchored snapshot.
+3. Run `eth_call` against the exact transaction at that same snapshot; a revert blocks sending.
+4. Obtain a fresh canonical block and immediately repeat the coherent snapshot after simulation, requiring no relevant drift.
+5. Require the wallet-generation guard to remain unchanged, then read the owner's confirmed and pending nonce from the public RPC and require them to match (no pre-existing pending owner transaction).
+6. As the final synchronous operation before provider invocation, persist the durable `prepared` record with a unique attempt ID, captured quantity, exact five-key transaction object/calldata, final coherent block/hash and values, expected owner nonce, wallet-generation state, and creation time.
+7. Invoke the single `eth_sendTransaction` request immediately, with no await or other asynchronous gap after persisting `prepared`.
+
+Any validation, snapshot, simulation, drift, nonce, or wallet-generation failure before step 6 clears the in-memory mutex because provider invocation is locally proven not to have occurred. A browser termination before step 6 likewise leaves no durable attempt and no submission risk.
 
 `accountsChanged` or `chainChanged` invalidates readiness. Those events cannot unlock or start another send while a transaction is in flight.
 
@@ -150,7 +152,9 @@ Focused tests must cover:
 - every preflight/post-simulation read is anchored to one canonical block
 - exact calldata for quantities 1 and 40 and rejection of altered destination, quantity, proxy, sender, chain, or value
 - simulation, adapter register, registry metadata, delivery, and controller-validation failures send nothing or revert atomically as appropriate
+- preflight, simulation, post-simulation drift, nonce, and wallet-generation failures before durable `prepared` persistence safely unlock and send nothing
 - post-simulation drift in chain, account, owner, reserve, supply, Safe balance, any implementation/code hash/config, destination, quantity, or transaction field sends nothing
+- browser restart before provider invocation leaves no durable attempt; restart after `prepared` persistence restores the lock
 - wallet events and double clicks cannot create concurrent sends
 - EIP-1193 code `4001` clears only the `prepared` record and does not claim submission; every other provider error remains locked
 - the returned hash is persisted synchronously before nonce lookup; malformed hashes, nonce lookup failures, transport loss, and browser termination preserve recovery data
