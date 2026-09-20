@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <link rel="icon" href="data:,">
+  <title>Loopers reserve mint</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080b14; color: #eef2ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #172554 0, #080b14 48%); }
+    main { width: min(820px, 100%); border: 1px solid #334155; border-radius: 20px; padding: clamp(20px, 5vw, 40px); background: rgba(10, 15, 28, .95); box-shadow: 0 24px 80px rgba(0, 0, 0, .42); }
+    h1 { margin: 0 0 8px; font-size: clamp(1.7rem, 5vw, 2.5rem); }
+    .lede, .note { color: #a5b4fc; line-height: 1.55; }
+    dl { display: grid; grid-template-columns: minmax(10rem, .7fr) minmax(0, 1.3fr); gap: 11px 20px; margin: 26px 0; padding: 20px; border-radius: 14px; background: #101827; }
+    dt { color: #94a3b8; }
+    dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    label { display: grid; gap: 8px; max-width: 240px; font-weight: 750; }
+    input { width: 100%; border: 1px solid #64748b; border-radius: 10px; padding: 12px 14px; background: #0f172a; color: #fff; font: inherit; font-size: 1.05rem; }
+    #status { min-height: 3.2rem; margin-top: 18px; padding: 14px 16px; border: 1px solid #475569; border-radius: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+    button { appearance: none; border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 750; cursor: pointer; }
+    #connect, #resume { background: #334155; color: #f8fafc; }
+    #mint { background: #7c3aed; color: white; }
+    button:disabled, input:disabled { cursor: not-allowed; opacity: .42; }
+    a { color: #a5b4fc; }
+    .note { margin: 22px 0 0; font-size: .92rem; }
+    @media (max-width: 600px) { dl { grid-template-columns: 1fr; gap: 5px; } dd { margin-bottom: 9px; } }
+  </style>
+</head>
+<body>
+  <main id="page-state" data-busy="true">
+    <h1>Loopers reserve mint</h1>
+    <p class="lede">Mint 1–40 reserve Loopers directly to the pinned treasury Safe. Start with one. This page exposes no other contract write.</p>
+
+    <dl aria-label="Verified contract state">
+      <dt>Network</dt><dd id="network">Checking…</dd>
+      <dt>Connected wallet</dt><dd id="wallet">Checking…</dd>
+      <dt>Loopers proxy</dt><dd id="proxy">0x1649CD37f4748807b4882FC48765bA0B2aFfa94a</dd>
+      <dt>Implementation</dt><dd id="implementation">Checking…</dd>
+      <dt>Destination Safe</dt><dd id="safe">0xfA5c233683E4cE7cA6214E769Ae5F9D9e6Fa4483</dd>
+      <dt>Reserve minted</dt><dd id="reserve">Checking…</dd>
+      <dt>Reserve remaining</dt><dd id="remaining">Checking…</dd>
+      <dt>Total supply</dt><dd id="supply">Checking…</dd>
+      <dt>Safe Looper balance</dt><dd id="safe-balance">Checking…</dd>
+      <dt>Estimated token IDs</dt><dd id="token-range">Choose a quantity</dd>
+    </dl>
+
+    <label for="quantity">Quantity (1–40)
+      <input id="quantity" type="number" min="1" max="40" step="1" value="1" inputmode="numeric">
+    </label>
+
+    <p id="status" role="status" aria-live="polite">Verifying pinned production state…</p>
+    <a id="transaction" href="" target="_blank" rel="noopener noreferrer" hidden>View transaction on BaseScan</a>
+
+    <div class="actions">
+      <button id="connect" type="button">Connect / switch to Base</button>
+      <button id="mint" type="button" disabled>Reserve mint to Safe</button>
+      <button id="resume" type="button" hidden>Resume verification</button>
+    </div>
+    <p class="note">Destination is immutable. Your wallet must show the Loopers proxy, zero ETH value, and one reserve-mint call. No later batch runs automatically.</p>
+  </main>
+
+  <script>
+    'use strict';
+
+    const CHAIN_ID = 8453;
+    const CHAIN_HEX = '0x2105';
+    const LIVE_PROXY = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
+    const EXPECTED_IMPLEMENTATION = '0x68F22e3563891167D37C86391c4a83449c83e908';
+    const EXPECTED_OWNER = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+    const FIXED_SAFE = '0xfA5c233683E4cE7cA6214E769Ae5F9D9e6Fa4483';
+    const LIVE_ADAPTER = '0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27';
+    const EXPECTED_ADAPTER_IMPLEMENTATION = '0x0f81bd4EDD4879734361A1A44460264CBf6F94c9';
+    const IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+    const EXPECTED_REGISTRY_IMPLEMENTATION = '0x7274e874CA62410a93Bd8bf61c69d8045E399c02';
+    const AGENT_BASE_URI = 'https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/';
+    const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+    const EXPECTED_CODE_HASHES = Object.freeze({
+      proxy: '6ea05616ee3e471f1a4890f75aebac2410a44a0beb0110821f74e6a977e59662',
+      implementation: '46c2bf5bca689ba1994f06a6b85971e68392e2fc458a1ed09ff20022399644ec',
+      adapter: 'a0dc663d4134b47e77e38495310804146fac6b5ae1bc86b485be4f73314cb017',
+      adapterImplementation: '550ba6b2ab513da8e16b5b23c476c4a9f6ea87b897ba721ddae58410baf094be',
+      registry: 'e3b1c1b4c04b34f90557a867aaef6bf2d57c5674e7a9f24994ae498ffd0f6f85',
+      registryImplementation: '201b7634af2de088c58868052856922ea8534c47e2837f19529460e2fafb4ff1',
+    });
+    const BASE_RPC_URL = 'https://base.drpc.org';
+    const ATTEMPT_KEY = 'loopers.reserveMint.8453.v1';
+    const RESERVE_MINT_SELECTOR = '0xb0ea1802';
+    const SELECTORS = Object.freeze({
+      owner: '0x8da5cb5b', reserveMinted: '0x4c81433f', totalSupply: '0x18160ddd', balanceOf: '0x70a08231',
+      liveAdapter: '0x2c05b2da', expectedRegistry: '0xbfc41b4a', teamReserveCap: '0x9167f956', maxSupply: '0x32cb6b0c',
+      agentBaseURI: '0xf838b44f', identityRegistry: '0x134e18f4', ownerOf: '0x6352211e', bound: '0x5adbbdce',
+      agentId: '0x4c4a2696', agentURI: '0xf195e791', bindingOf: '0x4d69ebc2', isController: '0x158e711d',
+    });
+    const TOPICS = Object.freeze({
+      transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+      reserveMinted: '0x817373d73ac355e40750643a2bd4bf273950d1fc30533a38a26d4f980f4c3fcf',
+      bound: '0xb8fcb17338a7efdcb1bd0559c53bc7d8564f98be519fd7bc8197390a57f198d8',
+    });
+    const PUBLIC_RPC_METHODS = Object.freeze(['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_getStorageAt','eth_call','eth_getTransactionCount','eth_getTransactionByHash','eth_getTransactionReceipt']);
+    const WALLET_METHODS = Object.freeze(['eth_chainId','eth_accounts','eth_requestAccounts','wallet_switchEthereumChain','eth_sendTransaction']);
+
+    const elements = Object.freeze({
+      page: document.querySelector('#page-state'), network: document.querySelector('#network'), wallet: document.querySelector('#wallet'),
+      implementation: document.querySelector('#implementation'), reserve: document.querySelector('#reserve'), remaining: document.querySelector('#remaining'),
+      supply: document.querySelector('#supply'), safeBalance: document.querySelector('#safe-balance'), tokenRange: document.querySelector('#token-range'),
+      quantity: document.querySelector('#quantity'), status: document.querySelector('#status'), transaction: document.querySelector('#transaction'),
+      connect: document.querySelector('#connect'), mint: document.querySelector('#mint'), resume: document.querySelector('#resume'),
+    });
+
+    let rpcId = 0;
+    let ready = false;
+    let inFlight = false;
+    let walletGeneration = 0;
+    let latestSnapshot = null;
+
+    const sameAddress = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+    const strip0x = (value) => String(value || '').replace(/^0x/, '');
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function showStatus(message) { elements.status.textContent = String(message).slice(0, 600); }
+    function setBusy(value) {
+      elements.page.dataset.busy = String(value);
+      elements.connect.disabled = value || inFlight;
+      elements.quantity.disabled = value || inFlight;
+      if (value || inFlight) elements.mint.disabled = true;
+    }
+    function setReady(value) { ready = Boolean(value) && !inFlight && !loadAttempt(); elements.mint.disabled = !ready; }
+
+    async function publicRpc(method, params) {
+      if (!PUBLIC_RPC_METHODS.includes(method)) throw new Error('Blocked public RPC method.');
+      const response = await fetch(BASE_RPC_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }) });
+      if (!response.ok) throw new Error(`Base RPC HTTP ${response.status}.`);
+      const payload = await response.json();
+      if (payload.error) throw new Error(payload.error.message || 'Base RPC request failed.');
+      return payload.result;
+    }
+    async function walletRequest(method, params) {
+      if (!WALLET_METHODS.includes(method)) throw new Error('Blocked wallet method.');
+      if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+      return window.ethereum.request(params === undefined ? { method } : { method, params });
+    }
+    async function currentWallet() {
+      if (!window.ethereum?.request) return { chainId: null, account: null };
+      const [chainId, accounts] = await Promise.all([walletRequest('eth_chainId'), walletRequest('eth_accounts')]);
+      return { chainId, account: Array.isArray(accounts) ? (accounts[0] || null) : null };
+    }
+
+    function addressWord(address) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error('Invalid address.');
+      return strip0x(address).toLowerCase().padStart(64, '0');
+    }
+    const uintWord = (value) => BigInt(value).toString(16).padStart(64, '0');
+    const topicAddress = (address) => `0x${addressWord(address)}`;
+    const callData = (selector, ...words) => `${selector}${words.join('')}`;
+    function decodeAddress(word, label) {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(String(word))) throw new Error(`Invalid ${label} response.`);
+      return `0x${strip0x(word).slice(-40)}`;
+    }
+    function decodeUint(word, label) {
+      if (!/^0x[0-9a-fA-F]+$/.test(String(word))) throw new Error(`Invalid ${label} response.`);
+      return BigInt(word);
+    }
+    const decodeBool = (word, label) => decodeUint(word, label) === 1n;
+    function decodeString(data, label) {
+      const hex = strip0x(data);
+      if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length < 128) throw new Error(`Invalid ${label} response.`);
+      const offset = Number(BigInt(`0x${hex.slice(0, 64)}`)) * 2;
+      const length = Number(BigInt(`0x${hex.slice(offset, offset + 64)}`));
+      const body = hex.slice(offset + 64, offset + 64 + length * 2);
+      if (body.length !== length * 2) throw new Error(`Truncated ${label} response.`);
+      return new TextDecoder().decode(Uint8Array.from(body.match(/.{2}/g) || [], (byte) => Number.parseInt(byte, 16)));
+    }
+    function codeBytes(code) {
+      if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(String(code))) throw new Error('Missing or invalid contract code.');
+      return Uint8Array.from(strip0x(code).match(/.{2}/g), (byte) => Number.parseInt(byte, 16));
+    }
+    async function sha256Code(code) {
+      const digest = await window.crypto.subtle.digest('SHA-256', codeBytes(code));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function rpcCall(to, data, blockTag) { return publicRpc('eth_call', [{ to, data }, blockTag]); }
+    async function canonicalHead() {
+      const chainId = await publicRpc('eth_chainId', []);
+      if (BigInt(chainId) !== BigInt(CHAIN_ID)) throw new Error('Public RPC is not Base mainnet.');
+      const block = await publicRpc('eth_getBlockByNumber', ['latest', false]);
+      if (!block?.hash || !block?.number) throw new Error('Invalid Base head block.');
+      return { hash: block.hash, number: block.number };
+    }
+    async function readSnapshotAt(head) {
+      const tag = { blockHash: head.hash, requireCanonical: true };
+      const [proxyCode, implementationWord, ownerWord, reserveWord, supplyWord, safeBalanceWord, adapterWord, registryWord, reserveCapWord, maxSupplyWord, baseUriData] = await Promise.all([
+        publicRpc('eth_getCode', [LIVE_PROXY, tag]), publicRpc('eth_getStorageAt', [LIVE_PROXY, IMPLEMENTATION_SLOT, tag]),
+        rpcCall(LIVE_PROXY, SELECTORS.owner, tag), rpcCall(LIVE_PROXY, SELECTORS.reserveMinted, tag), rpcCall(LIVE_PROXY, SELECTORS.totalSupply, tag),
+        rpcCall(LIVE_PROXY, callData(SELECTORS.balanceOf, addressWord(FIXED_SAFE)), tag), rpcCall(LIVE_PROXY, SELECTORS.liveAdapter, tag),
+        rpcCall(LIVE_PROXY, SELECTORS.expectedRegistry, tag), rpcCall(LIVE_PROXY, SELECTORS.teamReserveCap, tag), rpcCall(LIVE_PROXY, SELECTORS.maxSupply, tag),
+        rpcCall(LIVE_PROXY, SELECTORS.agentBaseURI, tag),
+      ]);
+      const implementation = decodeAddress(implementationWord, 'Loopers implementation');
+      const adapter = decodeAddress(adapterWord, 'Adapter8004');
+      const registry = decodeAddress(registryWord, 'Identity Registry');
+      const [implementationCode, adapterCode, adapterImplementationWord, adapterRegistryWord, registryCode, registryImplementationWord] = await Promise.all([
+        publicRpc('eth_getCode', [implementation, tag]), publicRpc('eth_getCode', [adapter, tag]), publicRpc('eth_getStorageAt', [adapter, IMPLEMENTATION_SLOT, tag]),
+        rpcCall(adapter, SELECTORS.identityRegistry, tag), publicRpc('eth_getCode', [registry, tag]), publicRpc('eth_getStorageAt', [registry, IMPLEMENTATION_SLOT, tag]),
+      ]);
+      const adapterImplementation = decodeAddress(adapterImplementationWord, 'Adapter implementation');
+      const registryImplementation = decodeAddress(registryImplementationWord, 'Registry implementation');
+      const [adapterImplementationCode, registryImplementationCode, proxyHash, implementationHash, adapterHash, registryHash] = await Promise.all([
+        publicRpc('eth_getCode', [adapterImplementation, tag]), publicRpc('eth_getCode', [registryImplementation, tag]),
+        sha256Code(proxyCode), sha256Code(implementationCode), sha256Code(adapterCode), sha256Code(registryCode),
+      ]);
+      const [adapterImplementationHash, registryImplementationHash] = await Promise.all([sha256Code(adapterImplementationCode), sha256Code(registryImplementationCode)]);
+      return {
+        head, implementation, owner: decodeAddress(ownerWord, 'owner'), reserveMinted: decodeUint(reserveWord, 'reserveMinted'),
+        totalSupply: decodeUint(supplyWord, 'totalSupply'), safeBalance: decodeUint(safeBalanceWord, 'Safe balance'), adapter, registry,
+        adapterRegistry: decodeAddress(adapterRegistryWord, 'adapter registry'), reserveCap: decodeUint(reserveCapWord, 'reserve cap'),
+        maxSupply: decodeUint(maxSupplyWord, 'max supply'), baseURI: decodeString(baseUriData, 'agent base URI'), adapterImplementation,
+        registryImplementation, hashes: { proxy: proxyHash, implementation: implementationHash, adapter: adapterHash, adapterImplementation: adapterImplementationHash, registry: registryHash, registryImplementation: registryImplementationHash },
+      };
+    }
+    async function readSnapshot() { return readSnapshotAt(await canonicalHead()); }
+
+    function parseQuantity(snapshot) {
+      const raw = elements.quantity.value.trim();
+      if (!/^\d+$/.test(raw)) throw new Error('Quantity must be a whole number from 1 to 40.');
+      const quantity = BigInt(raw);
+      if (quantity < 1n || quantity > 40n) throw new Error('Quantity must be between 1 and 40.');
+      if (snapshot.reserveMinted + quantity > 337n) throw new Error('Quantity exceeds remaining reserve.');
+      if (snapshot.totalSupply + quantity > 7777n) throw new Error('Quantity exceeds maximum supply.');
+      return quantity;
+    }
+    function makeTransaction(quantity) {
+      return Object.freeze({ chainId: CHAIN_HEX, from: EXPECTED_OWNER, to: LIVE_PROXY, data: callData(RESERVE_MINT_SELECTOR, addressWord(FIXED_SAFE), uintWord(quantity)), value: '0x0' });
+    }
+    function assertExactTransaction(tx, quantity, wallet) {
+      const keys = Object.keys(tx).sort();
+      const expectedKeys = ['chainId','data','from','to','value'].sort();
+      if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) throw new Error('Blocked non-allowlisted transaction fields.');
+      if (wallet.chainId !== CHAIN_HEX || !sameAddress(wallet.account, EXPECTED_OWNER)) throw new Error('Wallet state changed before sending.');
+      if (tx.chainId !== CHAIN_HEX || !sameAddress(tx.from, EXPECTED_OWNER) || !sameAddress(tx.to, LIVE_PROXY) || tx.value !== '0x0' || tx.data !== callData(RESERVE_MINT_SELECTOR, addressWord(FIXED_SAFE), uintWord(quantity))) throw new Error('Blocked transaction outside the exact reserve-mint allowlist.');
+    }
+    function validateSnapshot(snapshot, wallet) {
+      if (wallet.chainId !== CHAIN_HEX) throw new Error(`Wrong wallet network; expected Base ${CHAIN_HEX}.`);
+      if (!sameAddress(wallet.account, EXPECTED_OWNER)) throw new Error(`Connected wallet must be ${EXPECTED_OWNER}.`);
+      if (!sameAddress(snapshot.owner, EXPECTED_OWNER)) throw new Error('Onchain owner mismatch.');
+      if (!sameAddress(snapshot.implementation, EXPECTED_IMPLEMENTATION) || !sameAddress(snapshot.adapter, LIVE_ADAPTER) || !sameAddress(snapshot.registry, IDENTITY_REGISTRY)) throw new Error('Pinned Loopers execution identity mismatch.');
+      if (!sameAddress(snapshot.adapterImplementation, EXPECTED_ADAPTER_IMPLEMENTATION) || !sameAddress(snapshot.registryImplementation, EXPECTED_REGISTRY_IMPLEMENTATION)) throw new Error('Pinned adapter or registry implementation mismatch.');
+      if (!sameAddress(snapshot.adapterRegistry, IDENTITY_REGISTRY)) throw new Error('Adapter registry mismatch.');
+      if (snapshot.reserveCap !== 337n || snapshot.maxSupply !== 7777n || snapshot.baseURI !== AGENT_BASE_URI) throw new Error('Pinned mint configuration mismatch.');
+      for (const [key, value] of Object.entries(EXPECTED_CODE_HASHES)) if (snapshot.hashes[key] !== value) throw new Error(`${key} code hash mismatch.`);
+    }
+    function sameSnapshot(a, b) {
+      return a.owner === b.owner && a.implementation === b.implementation && a.adapter === b.adapter && a.registry === b.registry
+        && a.adapterImplementation === b.adapterImplementation && a.registryImplementation === b.registryImplementation && a.adapterRegistry === b.adapterRegistry
+        && a.reserveMinted === b.reserveMinted && a.totalSupply === b.totalSupply && a.safeBalance === b.safeBalance && a.baseURI === b.baseURI
+        && Object.keys(a.hashes).every((key) => a.hashes[key] === b.hashes[key]);
+    }
+
+    function render(snapshot, wallet, quantity = null) {
+      elements.network.textContent = wallet.chainId === CHAIN_HEX ? 'Base mainnet (8453)' : (wallet.chainId || 'Wallet unavailable');
+      elements.wallet.textContent = wallet.account || 'Not connected';
+      elements.implementation.textContent = snapshot.implementation;
+      elements.reserve.textContent = `${snapshot.reserveMinted} / 337`;
+      elements.remaining.textContent = String(337n - snapshot.reserveMinted);
+      elements.supply.textContent = `${snapshot.totalSupply} / 7777`;
+      elements.safeBalance.textContent = String(snapshot.safeBalance);
+      if (quantity) elements.tokenRange.textContent = `${snapshot.totalSupply + 1n}–${snapshot.totalSupply + quantity} (estimate until confirmed)`;
+    }
+
+    function loadAttempt() {
+      try { const raw = localStorage.getItem(ATTEMPT_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+    }
+    function saveAttempt(attempt) { localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempt)); }
+    function clearAttempt() { localStorage.removeItem(ATTEMPT_KEY); }
+    const serialSnapshot = (snapshot) => ({ blockHash: snapshot.head.hash, blockNumber: snapshot.head.number, reserveMinted: String(snapshot.reserveMinted), totalSupply: String(snapshot.totalSupply), safeBalance: String(snapshot.safeBalance) });
+
+    async function refresh() {
+      setReady(false); setBusy(true);
+      try {
+        const [snapshot, wallet] = await Promise.all([readSnapshot(), currentWallet()]);
+        latestSnapshot = snapshot;
+        let quantity = null;
+        try { quantity = parseQuantity(snapshot); } catch {}
+        render(snapshot, wallet, quantity);
+        if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+        validateSnapshot(snapshot, wallet);
+        parseQuantity(snapshot);
+        const attempt = loadAttempt();
+        if (attempt) {
+          elements.resume.hidden = false;
+          if (attempt.hash) { elements.transaction.href = `https://basescan.org/tx/${attempt.hash}`; elements.transaction.hidden = false; }
+          throw new Error(`A prior reserve-mint attempt is ${attempt.status}. Resume verification before another mint.`);
+        }
+        elements.resume.hidden = true;
+        setReady(true);
+        showStatus('Ready. Quantity defaults to 1; destination and all production identities are pinned.');
+      } catch (error) { showStatus(error.message || 'Verification failed.'); }
+      finally { setBusy(false); }
+    }
+
+    function parseReceiptEvidence(receipt, quantity) {
+      const logs = Array.isArray(receipt.logs) ? receipt.logs : [];
+      const loopers = logs.filter((log) => sameAddress(log.address, LIVE_PROXY));
+      const transfers = loopers.filter((log) => log.topics?.[0]?.toLowerCase() === TOPICS.transfer);
+      const minted = transfers.filter((log) => log.topics?.[1]?.toLowerCase() === topicAddress('0x0000000000000000000000000000000000000000') && log.topics?.[2]?.toLowerCase() === topicAddress(LIVE_PROXY));
+      const delivered = transfers.filter((log) => log.topics?.[1]?.toLowerCase() === topicAddress(LIVE_PROXY) && log.topics?.[2]?.toLowerCase() === topicAddress(FIXED_SAFE));
+      const reserves = loopers.filter((log) => log.topics?.[0]?.toLowerCase() === TOPICS.reserveMinted);
+      const bindings = loopers.filter((log) => log.topics?.[0]?.toLowerCase() === TOPICS.bound);
+      if (minted.length !== Number(quantity) || delivered.length !== Number(quantity) || transfers.length !== Number(quantity) * 2) throw new Error('Receipt does not contain the exact mint-and-delivery transfers.');
+      if (reserves.length !== 1 || bindings.length !== Number(quantity)) throw new Error('Receipt reserve or ERC-8004 binding evidence is incomplete.');
+      const startId = BigInt(reserves[0].topics[2]);
+      if (!sameAddress(decodeAddress(reserves[0].topics[1], 'reserve recipient'), FIXED_SAFE) || BigInt(reserves[0].data) !== quantity) throw new Error('ReserveMinted event mismatch.');
+      const tokenIds = delivered.map((log) => BigInt(log.topics[3]));
+      for (let index = 0; index < tokenIds.length; index += 1) if (tokenIds[index] !== startId + BigInt(index)) throw new Error('Confirmed token IDs are not contiguous.');
+      for (let index = 0; index < minted.length; index += 1) if (BigInt(minted[index].topics[3]) !== tokenIds[index]) throw new Error('Mint and delivery token IDs disagree.');
+      const pairs = bindings.map((log) => ({ tokenId: BigInt(log.topics[1]), agentId: BigInt(log.topics[2]), holder: decodeAddress(log.topics[3], 'binding holder'), uri: decodeString(log.data, 'binding URI') }));
+      for (let index = 0; index < pairs.length; index += 1) {
+        const pair = pairs[index];
+        if (pair.tokenId !== tokenIds[index] || !sameAddress(pair.holder, FIXED_SAFE) || pair.uri !== `${AGENT_BASE_URI}${pair.tokenId}.json`) throw new Error('ERC-8004 binding event mismatch.');
+      }
+      return { startId, tokenIds, pairs };
+    }
+
+    async function verifyTokenState(evidence, blockTag) {
+      for (const pair of evidence.pairs) {
+        const tokenWord = uintWord(pair.tokenId);
+        const agentWord = uintWord(pair.agentId);
+        const [ownerWord, boundWord, agentIdWord, uriData, bindingData, controllerWord] = await Promise.all([
+          rpcCall(LIVE_PROXY, callData(SELECTORS.ownerOf, tokenWord), blockTag), rpcCall(LIVE_PROXY, callData(SELECTORS.bound, tokenWord), blockTag),
+          rpcCall(LIVE_PROXY, callData(SELECTORS.agentId, tokenWord), blockTag), rpcCall(LIVE_PROXY, callData(SELECTORS.agentURI, tokenWord), blockTag),
+          rpcCall(LIVE_ADAPTER, callData(SELECTORS.bindingOf, agentWord), blockTag), rpcCall(LIVE_ADAPTER, callData(SELECTORS.isController, agentWord, addressWord(FIXED_SAFE)), blockTag),
+        ]);
+        const bindingHex = strip0x(bindingData);
+        const bindingContract = `0x${bindingHex.slice(64 + 24, 128)}`;
+        const bindingTokenId = BigInt(`0x${bindingHex.slice(128, 192)}`);
+        if (!sameAddress(decodeAddress(ownerWord, 'token owner'), FIXED_SAFE) || !decodeBool(boundWord, 'bound') || decodeUint(agentIdWord, 'agent ID') !== pair.agentId
+          || decodeString(uriData, 'agent URI') !== pair.uri || !sameAddress(bindingContract, LIVE_PROXY) || bindingTokenId !== pair.tokenId || !decodeBool(controllerWord, 'controller')) throw new Error('Receipt-block token or ERC-8004 state mismatch.');
+      }
+    }
+
+    async function verifySubmitted(attempt) {
+      const quantity = BigInt(attempt.quantity);
+      let transaction = null; let receipt = null;
+      for (let poll = 0; poll < 120; poll += 1) {
+        [transaction, receipt] = await Promise.all([publicRpc('eth_getTransactionByHash', [attempt.hash]), publicRpc('eth_getTransactionReceipt', [attempt.hash])]);
+        if (transaction && receipt) break;
+        if (poll < 119) await sleep(3000);
+      }
+      if (!transaction || !receipt) throw Object.assign(new Error('Transaction is still pending on Base.'), { pending: true });
+      const expectedData = callData(RESERVE_MINT_SELECTOR, addressWord(FIXED_SAFE), uintWord(quantity));
+      if (transaction.hash?.toLowerCase() !== attempt.hash.toLowerCase() || receipt.transactionHash?.toLowerCase() !== attempt.hash.toLowerCase()
+        || !sameAddress(transaction.from, EXPECTED_OWNER) || !sameAddress(transaction.to, LIVE_PROXY) || transaction.input !== expectedData || BigInt(transaction.value || 0) !== 0n
+        || transaction.chainId == null || BigInt(transaction.chainId) !== BigInt(CHAIN_ID)) throw new Error('Mined transaction does not match the approved reserve mint.');
+      if (receipt.status === '0x0' || BigInt(receipt.status) !== 1n) return { reverted: true };
+      if (transaction.blockHash !== receipt.blockHash || transaction.blockNumber !== receipt.blockNumber || transaction.transactionIndex !== receipt.transactionIndex) throw new Error('Transaction and receipt block coordinates disagree.');
+      const evidence = parseReceiptEvidence(receipt, quantity);
+      const receiptHead = { hash: receipt.blockHash, number: receipt.blockNumber };
+      const snapshot = await readSnapshotAt(receiptHead);
+      validateSnapshot(snapshot, { chainId: CHAIN_HEX, account: EXPECTED_OWNER });
+      if (snapshot.reserveMinted < BigInt(attempt.preflight.reserveMinted) + quantity || snapshot.totalSupply < BigInt(attempt.preflight.totalSupply) + quantity || snapshot.safeBalance < BigInt(attempt.preflight.safeBalance) + quantity) throw new Error('Receipt-block aggregate state is inconsistent with the mint.');
+      await verifyTokenState(evidence, { blockHash: receipt.blockHash, requireCanonical: true });
+      for (let poll = 0; poll < 90; poll += 1) {
+        const head = await canonicalHead();
+        if (BigInt(head.number) >= BigInt(receipt.blockNumber) + 3n) break;
+        if (poll === 89) throw Object.assign(new Error('Waiting for canonical confirmations.'), { pending: true });
+        await sleep(2000);
+      }
+      const canonical = await publicRpc('eth_getBlockByNumber', [receipt.blockNumber, false]);
+      if (!canonical || canonical.hash !== receipt.blockHash) throw Object.assign(new Error('Receipt block was reorganized; verification remains locked.'), { pending: true });
+      return { reverted: false, evidence };
+    }
+
+    async function connect() {
+      if (inFlight) return;
+      try {
+        await walletRequest('eth_requestAccounts');
+        const chainId = await walletRequest('eth_chainId');
+        if (chainId !== CHAIN_HEX) await walletRequest('wallet_switchEthereumChain', [{ chainId: CHAIN_HEX }]);
+      } catch (error) { showStatus(error.code === 4001 ? 'Wallet request rejected. Nothing changed.' : (error.message || 'Wallet connection failed.')); }
+      await refresh();
+    }
+
+    async function mint() {
+      if (!ready || inFlight || loadAttempt()) return;
+      inFlight = true; setReady(false); setBusy(true);
+      const generation = walletGeneration;
+      let prepared = false;
+      let completionMessage = null;
+      try {
+        showStatus('Rechecking every pinned value and simulating the exact reserve mint…');
+        const [first, firstWallet] = await Promise.all([readSnapshot(), currentWallet()]);
+        validateSnapshot(first, firstWallet);
+        const quantity = parseQuantity(first);
+        const tx = makeTransaction(quantity);
+        assertExactTransaction(tx, quantity, firstWallet);
+        await publicRpc('eth_call', [tx, { blockHash: first.head.hash, requireCanonical: true }]);
+        const [finalSnapshot, finalWallet] = await Promise.all([readSnapshot(), currentWallet()]);
+        validateSnapshot(finalSnapshot, finalWallet);
+        assertExactTransaction(tx, quantity, finalWallet);
+        if (!sameSnapshot(first, finalSnapshot)) throw new Error('Contract state changed after simulation; retry from fresh state.');
+        if (generation !== walletGeneration) throw new Error('Wallet state changed before submission.');
+        const [confirmedNonce, pendingNonce] = await Promise.all([publicRpc('eth_getTransactionCount', [EXPECTED_OWNER, 'latest']), publicRpc('eth_getTransactionCount', [EXPECTED_OWNER, 'pending'])]);
+        if (BigInt(confirmedNonce) !== BigInt(pendingNonce)) throw new Error('Owner wallet already has a pending transaction.');
+        if (generation !== walletGeneration) throw new Error('Wallet state changed during final nonce checks.');
+        const attempt = { status: 'prepared', id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, quantity: String(quantity), transaction: tx, expectedNonce: pendingNonce, preflight: serialSnapshot(finalSnapshot), createdAt: new Date().toISOString() };
+        saveAttempt(attempt); prepared = true;
+        const sendPromise = window.ethereum.request({ method: 'eth_sendTransaction', params: [tx] });
+        const hash = await sendPromise;
+        if (!/^0x[0-9a-fA-F]{64}$/.test(String(hash))) throw new Error('Wallet returned an invalid transaction hash.');
+        attempt.status = 'submitted'; attempt.hash = hash; saveAttempt(attempt);
+        elements.transaction.href = `https://basescan.org/tx/${hash}`; elements.transaction.hidden = false; elements.resume.hidden = false;
+        showStatus(`Submitted ${hash}. Verifying exact NFT delivery and ERC-8004 bindings…`);
+        const result = await verifySubmitted(attempt);
+        if (result.reverted) {
+          clearAttempt();
+          completionMessage = 'Reserve-mint transaction reverted. No NFTs were minted.';
+          showStatus(completionMessage);
+        } else {
+          clearAttempt();
+          const endId = result.evidence.tokenIds.at(-1);
+          completionMessage = `Confirmed. Loopers #${result.evidence.startId}–#${endId} were minted and delivered to the Safe with verified ERC-8004 bindings.`;
+          showStatus(completionMessage);
+        }
+      } catch (error) {
+        if (error?.code === 4001 && prepared) { clearAttempt(); showStatus('Wallet rejected the transaction. Nothing was submitted.'); }
+        else {
+          const attempt = loadAttempt();
+          if (attempt) { attempt.status = attempt.hash ? 'submitted' : 'uncertain'; attempt.error = String(error.message || error).slice(0, 240); saveAttempt(attempt); elements.resume.hidden = false; }
+          showStatus(error.pending ? `${error.message} The page remains locked; use Resume verification.` : (error.message || 'Reserve mint failed.'));
+        }
+      } finally {
+        inFlight = false;
+        setBusy(false);
+        if (!loadAttempt()) await refresh();
+        if (completionMessage) showStatus(completionMessage);
+      }
+    }
+
+    async function resume() {
+      const attempt = loadAttempt();
+      if (!attempt || inFlight) return;
+      if (!attempt.hash) { showStatus('This attempt has no returned hash, so it remains locked rather than risking a duplicate mint.'); return; }
+      inFlight = true; setBusy(true);
+      let completionMessage = null;
+      try {
+        const result = await verifySubmitted(attempt);
+        completionMessage = result.reverted
+          ? 'Transaction reverted. The lock is cleared.'
+          : `Confirmed. Loopers #${result.evidence.startId}–#${result.evidence.tokenIds.at(-1)} are in the Safe.`;
+        showStatus(completionMessage);
+        clearAttempt();
+      } catch (error) { showStatus(`${error.message || 'Verification failed.'} The mint remains locked.`); }
+      finally {
+        inFlight = false;
+        setBusy(false);
+        if (!loadAttempt()) await refresh();
+        if (completionMessage) showStatus(completionMessage);
+      }
+    }
+
+    elements.connect.addEventListener('click', connect);
+    elements.mint.addEventListener('click', mint);
+    elements.resume.addEventListener('click', resume);
+    elements.quantity.addEventListener('input', () => {
+      setReady(false);
+      if (!latestSnapshot) return;
+      try { const quantity = parseQuantity(latestSnapshot); render(latestSnapshot, { chainId: CHAIN_HEX, account: elements.wallet.textContent }, quantity); if (!loadAttempt() && elements.wallet.textContent.toLowerCase() === EXPECTED_OWNER.toLowerCase()) setReady(true); showStatus('Quantity updated. The destination remains fixed to the Safe.'); }
+      catch (error) { showStatus(error.message); }
+    });
+
+    if (window.ethereum?.on) {
+      const invalidate = () => { walletGeneration += 1; setReady(false); if (!inFlight) void refresh(); else showStatus('Wallet state changed while a transaction was in progress; verification remains locked.'); };
+      window.ethereum.on('accountsChanged', invalidate);
+      window.ethereum.on('chainChanged', invalidate);
+    }
+
+    void refresh();
+  </script>
+</body>
+</html>
