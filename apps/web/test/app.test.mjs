@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { bindConsoleAvatarFallbacks, captureConsoleInteractionState, createApp, getConsoleMessageIdentity, restoreConsoleInteractionState } from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
+import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/multipass-console.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
@@ -6321,4 +6322,26 @@ test('Console avatar image failure removes the image and reveals initials once',
   image.dispatchEvent(new dom.window.Event('error'));
   assert.equal(root.querySelector('img'), null);
   assert.equal(root.querySelector('.console-thread-avatar-fallback').hidden, false);
+});
+
+test('Console selected identity portrait uses the shared one-shot image fallback', () => {
+  const agent = { tokenId: '1', name: 'Brok', image: 'https://example.test/brok.png' };
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1',
+    },
+  });
+  const dom = new JSDOM(`<!doctype html><main>${renderMultipassConsole(snapshot)}</main>`);
+  const root = dom.window.document.querySelector('main');
+  bindConsoleAvatarFallbacks(root);
+
+  const image = root.querySelector('.console-agent-portrait img[data-console-avatar-image]');
+  assert.equal(image?.getAttribute('alt'), '');
+  image.dispatchEvent(new dom.window.Event('error'));
+  assert.equal(root.querySelector('.console-agent-portrait img'), null);
+  assert.equal(root.querySelector('.console-agent-portrait .console-thread-avatar-fallback')?.hidden, false);
+  assert.equal(root.querySelector('.console-agent-portrait .console-thread-avatar-fallback')?.textContent, 'B');
 });

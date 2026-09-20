@@ -7033,6 +7033,12 @@ h1 {
   background: rgba(248, 243, 236, 0.12);
 }
 
+.console-workspace-sidebar .console-agent-selector select,
+.console-workspace-sidebar .console-agent-selector option {
+  background: #17131f;
+  color: #f8f3ec;
+}
+
 .console-agent-panel,
 .console-identity-card,
 .console-trust-rail,
@@ -7570,18 +7576,9 @@ h1 {
 
 .console-thread-chat-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-}
-
-.console-thread-avatar-chat {
-  width: 42px;
-  height: 42px;
-  background:
-    linear-gradient(135deg, rgba(92, 118, 162, 0.3), rgba(110, 236, 216, 0.16)),
-    rgba(248, 243, 236, 0.08);
-  color: #eaf8f5;
 }
 
 .console-thread-chat-copy {
@@ -8033,34 +8030,6 @@ h1 {
 .multipass-console-shell,
 .multipass-console {
   overflow-x: clip;
-}
-
-.console-identity-card-compact {
-  grid-template-columns: 68px minmax(0, 1fr);
-  align-items: center;
-}
-
-.console-identity-card-compact .console-agent-portrait {
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  width: 68px;
-  height: 68px;
-  aspect-ratio: 1;
-  border-radius: 14px;
-}
-
-.console-identity-card-compact .console-card-head,
-.console-identity-card-compact .console-identity-body {
-  grid-column: 2;
-}
-
-.console-identity-card-compact .console-identity-body > p,
-.console-identity-card-compact .console-identity-badges {
-  display: none;
-}
-
-.console-identity-card-compact > .console-sidebar-drawer {
-  grid-column: 1 / -1;
 }
 
 .console-identity-keyline {
@@ -9081,12 +9050,6 @@ h1 {
 .console-thread-local-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
-}
-
-.console-identity-card-compact .console-card-head span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 @media (max-width: 560px) {

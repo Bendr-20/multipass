@@ -72,6 +72,7 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.session.wallet.connected, true);
   assert.equal(snapshot.session.selectionEnabled, true);
   assert.equal(snapshot.session.options.length, 2);
+  assert.deepEqual(snapshot.session.options.map((option) => option.label), ['Bendr 2.0', 'Quigbot']);
   assert.equal(snapshot.session.activeAgentId, '1');
   assert.match(snapshot.session.selectionHint, /open its room/i);
   assert.equal(snapshot.kicker, undefined);
@@ -115,6 +116,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.ok(root.querySelector('.console-identity-card'));
   assert.equal(root.querySelector('[data-action="update-console-agent-name"]'), null);
   assert.ok(root.querySelector('.console-thread-shell-header'));
+  assert.equal(root.querySelector('.console-thread-chat-copy h2')?.textContent, 'Agent Private Chat');
+  assert.equal(root.querySelector('.console-thread-chat-head .console-thread-avatar-chat'), null);
   assert.ok(root.querySelector('.console-thread-toolbar'));
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
@@ -171,6 +174,7 @@ test('Multipass Console renderer includes agent runtime messages and review-only
       consoleParticipantAgentIds: ['1', '81'],
       consoleAgentThread: {
         status: 'received',
+        title: 'Legacy arbitrary room title',
         transport: 'xmtp_local',
         memoryProvider: 'local_sibyl_adapter',
         inferenceProvider: 'bankr_llm_gateway',
@@ -208,6 +212,11 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
+  assert.equal(root.querySelector('[data-action="select-console-agent"] option:checked')?.textContent, 'Bendr 2.0');
+  assert.match(root.querySelector('#console-agents > .console-sidebar-drawer > summary')?.textContent ?? '', /Bendr 2\.0/);
+  assert.equal(root.querySelector('.console-thread-chat-copy h2')?.textContent, 'Bendr 2.0 Private Chat');
+  assert.doesNotMatch(root.querySelector('.console-thread-chat-copy h2')?.textContent ?? '', /Legacy arbitrary room title/);
+  assert.equal(root.querySelector('.console-thread-chat-head .console-thread-avatar-chat'), null);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.console-thread-shell-meta')?.textContent ?? '', /3 messages, 1 queued/);
   assert.ok(root.querySelector('.console-thread-toolbar'));
@@ -330,7 +339,7 @@ test('Multipass Console withholds proof labels for readiness strings and incompl
   assert.match(railText, /No verified runtime proof yet/);
 });
 
-test('Multipass Console keeps compact identity secondary and names local clearing honestly', () => {
+test('Multipass Console features the selected identity portrait and names local clearing honestly', () => {
   const [agent] = sampleAgents();
   agent.erc8004AgentId = 87069;
   agent.image = 'https://example.test/looper.png';
@@ -345,7 +354,14 @@ test('Multipass Console keeps compact identity secondary and names local clearin
   })));
   const identity = root.querySelector('.console-identity-card');
 
-  assert.ok(identity?.classList.contains('console-identity-card-compact'));
+  assert.equal(identity?.classList.contains('console-identity-card-compact'), false);
+  assert.ok(identity?.firstElementChild?.classList.contains('console-agent-portrait'));
+  const portraitImage = identity?.querySelector('.console-agent-portrait img[data-console-avatar-image]');
+  const portraitFallback = identity?.querySelector('.console-agent-portrait .console-thread-avatar-fallback');
+  assert.equal(portraitImage?.getAttribute('src'), 'https://example.test/looper.png');
+  assert.equal(portraitImage?.getAttribute('alt'), '');
+  assert.equal(portraitFallback?.textContent, 'B2');
+  assert.equal(portraitFallback?.hidden, true);
   assert.match(identity?.textContent ?? '', /Bendr 2\.0/);
   assert.match(identity?.textContent ?? '', /Token #1/);
   assert.match(identity?.textContent ?? '', /ERC-8004 #87069/);
@@ -354,6 +370,8 @@ test('Multipass Console keeps compact identity secondary and names local clearin
   assert.ok(root.querySelector('.console-thread-secondary-details [data-action="reset-console-session"]'));
   assert.equal(root.querySelector('.console-thread-composer [data-action="reset-console-session"]'), null);
   assert.ok(root.querySelector('.console-send-button svg'));
+  assert.match(root.querySelector('.console-proof-rail')?.textContent ?? '', /Verified runtime proof/);
+  assert.doesNotMatch(root.textContent, /\$(?:CRED|BANKR|DRB)\b/);
   assert.doesNotMatch(root.textContent, /fresh-session|Session recall/i);
 });
 

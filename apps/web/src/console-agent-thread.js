@@ -15,9 +15,10 @@ export function renderConsoleAgentThread(thread = {}) {
   const sending = thread.status === 'sending';
   const activating = thread.status === 'activating';
   const disabled = Boolean(thread.disabled || sending || activating);
-  const agentName = thread.agentName ?? 'Selected agent';
+  const selectedAgentName = String(thread.agentName ?? '').trim();
+  const agentName = selectedAgentName || 'Selected agent';
   const roomName = String(thread.roomName ?? '').trim() || `${agentName} room`;
-  const threadTitle = String(thread.title ?? '').trim() || agentName;
+  const threadTitle = selectedAgentName ? `${selectedAgentName} Private Chat` : 'Agent Private Chat';
   const roomLabel = String(thread.metaLabel ?? '').trim() || (participants.length > 1 ? `#${roomName}` : 'Direct thread');
   const roomSummary = createRoomSummary(messages, proposals);
   const participantSummary = createParticipantSummary(participants);
@@ -46,11 +47,6 @@ export function renderConsoleAgentThread(thread = {}) {
       <header class="console-thread-shell-header">
         <div class="console-thread-shell-heading">
           <div class="console-thread-chat-head">
-            ${renderAvatar({
-              label: agentName,
-              imageUrl: thread.agentAvatarUrl ?? participants[0]?.avatarUrl ?? null,
-              className: 'console-thread-avatar-chat',
-            })}
             <div class="console-thread-chat-copy">
               <h2>${escapeHtml(threadTitle)}</h2>
               <p>${escapeHtml(thread.summary ?? 'Live chat ready.')}</p>

@@ -196,7 +196,7 @@ export function renderMultipassConsole(snapshot = {}) {
             ${renderConsoleDrawer({
               label: 'Agents',
               title: 'My agents',
-              stat: rosterStat,
+              stat: snapshot.session?.activeAgentId ? snapshot.session.activeAgentLabel : rosterStat,
               hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
               open: false,
               body: `
@@ -251,7 +251,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     rawInferenceProvider: String(thread.inferenceProvider ?? ''),
     executionMode: String(thread.executionMode ?? ''),
     defaultMission: DEFAULT_CONSOLE_MISSION,
-    agentName: activeAgent?.name ?? 'Selected agent',
+    agentName: activeAgent?.name ?? null,
     roomName: String(thread.roomName ?? '').trim() || deriveRoomName(threadParticipants.length ? threadParticipants : [activeAgent].filter(Boolean)),
     participants: threadParticipants.length ? threadParticipants : normalizeThreadParticipants([activeAgent].filter(Boolean)),
     messages: decorateConsoleMessages(thread.messages, { activeAgent, ownerProfile }),
@@ -349,6 +349,8 @@ function renderAgentSelector(session = {}) {
 }
 
 function renderIdentityCard(card = {}) {
+  const imageUrl = safeConsoleAvatarUrl(card.image);
+  const portraitFallback = escapeHtml(card.portraitPlaceholder ?? initialsForLabel(card.name ?? 'Agent'));
   const statsSummary = (card.stats ?? [])
     .map((item) => item?.value)
     .filter(Boolean)
@@ -357,11 +359,11 @@ function renderIdentityCard(card = {}) {
   const trustStat = card.emptyState ? 'Not loaded' : (statsSummary || card.badges?.[0] || 'Awaiting trust');
   const memberCount = Array.isArray(card.participants) ? card.participants.length : 0;
   return `
-    <section class="console-visual-card console-identity-card console-identity-card-compact" aria-label="Selected agent">
+    <section class="console-visual-card console-identity-card" aria-label="Selected agent">
       <div class="console-agent-portrait">
-        ${card.image
-          ? `<img src="${escapeAttribute(card.image)}" alt="${escapeAttribute(card.name ?? 'Agent profile')}" loading="lazy">`
-          : `<div class="console-agent-portrait-placeholder">${escapeHtml(card.portraitPlaceholder ?? 'Pick agent')}</div>`}
+        ${imageUrl
+          ? `<img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy" data-console-avatar-image><span class="console-thread-avatar-fallback" hidden>${portraitFallback}</span>`
+          : `<div class="console-agent-portrait-placeholder">${portraitFallback}</div>`}
       </div>
       <div class="console-card-head">
         ${card.label ? `<p class="card-label">${escapeHtml(card.label)}</p>` : ''}
@@ -832,12 +834,7 @@ function selectActiveAgent(agents = [], selectedAgentId = null) {
 }
 
 function buildAgentOptionLabel(agent = {}) {
-  const name = String(agent.name ?? agent.tokenId ?? 'Agent').trim();
-  const identity = agent.canonicalName && agent.canonicalName !== name
-    ? `${name} · ${agent.canonicalName}`
-    : name;
-  const cred = agent.credLabel ?? 'Cred pending';
-  return `${identity} · ${cred}`;
+  return String(agent.name ?? agent.tokenId ?? 'Agent').trim();
 }
 
 export function normalizeConsoleCred(agent = {}) {
