@@ -144,7 +144,7 @@ function createRpc(options = {}) {
   return { fetch, state };
 }
 
-async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet = false } = {}) {
+async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet = false, transactionMutation = null } = {}) {
   const html = await readPage();
   const rpc = createRpc(rpcOptions);
   const dom = new JSDOM(html, {
@@ -154,6 +154,19 @@ async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet
     beforeParse(window) {
       window.fetch = rpc.fetch;
       if (!noWallet) window.ethereum = wallet;
+      if (transactionMutation) {
+        const nativeObjectKeys = window.Object.keys.bind(window.Object);
+        let exactTransactionGuardReads = 0;
+        window.Object.keys = (value) => {
+          const keys = nativeObjectKeys(value);
+          if (keys.length === 4 && ['from', 'to', 'data', 'value'].every((key) => keys.includes(key))) {
+            exactTransactionGuardReads += 1;
+            if (exactTransactionGuardReads === 2) transactionMutation(value);
+            return nativeObjectKeys(value);
+          }
+          return keys;
+        };
+      }
       Object.defineProperty(window, 'crypto', {
         configurable: true,
         value: {
@@ -323,6 +336,62 @@ for (const scenario of POST_SIMULATION_MISMATCHES) {
     ));
     assert.equal(simulations.length, 1, 'the exact simulation must succeed before state changes');
     assert.match(statusText(fixture.document), scenario.error);
+    assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+    fixture.dom.window.close();
+  });
+}
+
+test('aborts with zero sends when injected chain changes after successful simulation', async () => {
+  const wallet = new MockEthereum();
+  const fixture = await openPage({
+    wallet,
+    rpcOptions: { afterSimulation: () => { wallet.chainId = '0x1'; } },
+  });
+  await clickWithdraw(fixture);
+  const simulations = fixture.rpc.state.calls.filter(({ method, params }) => (
+    method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
+  ));
+  assert.equal(simulations.length, 1);
+  assert.match(statusText(fixture.document), /wrong network/i);
+  assert.equal(wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+  fixture.dom.window.close();
+});
+
+test('aborts with zero sends when active account changes after successful simulation', async () => {
+  const wallet = new MockEthereum();
+  const changedAccount = '0x4444444444444444444444444444444444444444';
+  const fixture = await openPage({
+    wallet,
+    rpcOptions: { afterSimulation: () => { wallet.account = changedAccount; } },
+  });
+  await clickWithdraw(fixture);
+  const simulations = fixture.rpc.state.calls.filter(({ method, params }) => (
+    method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
+  ));
+  assert.equal(simulations.length, 1);
+  assert.match(statusText(fixture.document), /connected wallet mismatch/i);
+  assert.equal(wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+  fixture.dom.window.close();
+});
+
+const POST_SIMULATION_TRANSACTION_MUTATIONS = [
+  ['from', '0x5555555555555555555555555555555555555555'],
+  ['to', '0x6666666666666666666666666666666666666666'],
+  ['data', '0xdeadbeef'],
+  ['value', '0x1'],
+];
+
+for (const [field, value] of POST_SIMULATION_TRANSACTION_MUTATIONS) {
+  test(`aborts with zero sends when exact transaction ${field} changes after successful simulation`, async () => {
+    const fixture = await openPage({
+      transactionMutation: (transaction) => { transaction[field] = value; },
+    });
+    await clickWithdraw(fixture);
+    const simulations = fixture.rpc.state.calls.filter(({ method, params }) => (
+      method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
+    ));
+    assert.equal(simulations.length, 1);
+    assert.match(statusText(fixture.document), /transaction.*allowlist/i);
     assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
     fixture.dom.window.close();
   });
