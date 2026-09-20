@@ -92,8 +92,8 @@ Before enabling mint, require the public read RPC itself to return `eth_chainId 
 
 On mint click:
 
-1. Lock the form against duplicate submissions and persist the pending state key before provider submission.
-2. Capture quantity, exact calldata, wallet-generation state, and the coherent preflight block/hash and values.
+1. Lock the form against duplicate submissions. Read the owner's confirmed and pending nonce from the public RPC, require them to match (no pre-existing pending owner transaction), and persist a `prepared` record before provider submission.
+2. The durable `prepared` record contains a unique attempt ID, captured quantity, exact five-key transaction object/calldata, coherent preflight block/hash and values, expected owner nonce, wallet-generation state, and creation time.
 3. Re-run every chain, account, execution-identity, code, owner, reserve, supply, Safe-balance, Adapter8004, registry, URI-base, and calldata check in one block-anchored snapshot.
 4. Run `eth_call` against the exact transaction at that same snapshot; a revert blocks sending.
 5. Obtain a fresh canonical block and immediately repeat the coherent snapshot after simulation, requiring no relevant drift.
@@ -104,7 +104,17 @@ On mint click:
 
 ## Receipt and post-state verification
 
-After the wallet returns a transaction hash, the page exposes a BaseScan link and persists a pending record keyed by chain, proxy, and owner. The record contains the hash, captured quantity, exact calldata, coherent preflight block/hash and values, submission time, and known nonce. Reloading the page restores the lock and resumes verification before any write can be enabled.
+The durable state machine is:
+
+- `prepared`: persisted immediately before `eth_sendTransaction`, with the expected nonce and no hash yet.
+- `submitted`: as soon as the provider returns a syntactically valid transaction hash, synchronously persist that hash before any RPC lookup or other awaited work; fetch and persist the actual nonce afterward.
+- `confirmed`: set only after complete canonical success verification, then clear the write lock.
+- `reverted`: set only after a canonical reverted receipt, then clear the write lock because the mint did not execute.
+- `uncertain`: any ambiguous transport/provider failure, browser termination during send, malformed/missing returned hash, reorg, or unreconciled successful receipt; preserve the lock.
+
+Only an EIP-1193 user rejection with code `4001` clears a `prepared` record immediately because it definitively means the wallet rejected the request before submission. Every other provider error is ambiguous and transitions to `uncertain`; a timeout or disconnect never clears the lock.
+
+After the wallet returns and durably records a hash, the page exposes a BaseScan link. The pending record remains keyed by chain, proxy, and owner and retains the hash, quantity, exact transaction, snapshot, expected nonce, submission time, and later the fetched actual nonce. Reloading restores the lock and resumes verification before any write can be enabled.
 
 The page polls boundedly for both transaction and receipt, then requires:
 
@@ -125,7 +135,9 @@ Receipt-local logs and token-level reads are the attribution proof. Aggregate st
 
 After submission, transaction/receipt lookup runs every 3 seconds for at most 120 attempts (6 minutes). Once a receipt appears, the page waits for three Base confirmations, checking every 2 seconds for at most 90 attempts (3 minutes), and then rechecks the original receipt block by hash with `requireCanonical: true` before claiming success. Exhausting either bound preserves the pending record and lock; a later reload or explicit non-write `Resume verification` action continues the same verification.
 
-Transient lookup failures, a reorg, unresolved replacement, missing evidence, or a successful but unreconciled receipt keep the persistent lock and report pending/uncertain. The lock clears automatically only after a canonical reverted receipt (no mint) or a canonical successful receipt with complete transaction/log/state verification. A timeout alone never clears it; a strongly warned manual recovery path is available only for a transaction proven dropped or replaced.
+Transient lookup failures, a reorg, unresolved replacement, missing evidence, or a successful but unreconciled receipt keep the persistent lock and report pending/uncertain. The lock clears automatically only after a canonical reverted receipt (no mint) or a canonical successful receipt with complete transaction/log/state verification.
+
+For a pre-hash `uncertain` attempt, recovery uses the persisted expected nonce and snapshot. The page scans canonical full transaction blocks from the snapshot through the recovery head, plus the public RPC's pending block when available, for the expected owner/nonce. If it finds the exact transaction, it records that hash and resumes normal verification. If it finds a different canonical replacement at the same nonce, it requires that replacement's canonical receipt and confirms its calldata is not the reserve mint before clearing the old attempt. If neither the original nor a replacement can be proven, the lock remains; nonce movement or timeout alone is not proof. Manual clearing is offered only after the page presents canonical sender+nonce evidence that a different transaction consumed the nonce or equivalent canonical evidence that the exact attempt cannot still execute, and requires a strongly warned owner confirmation.
 
 ## Testing
 
@@ -140,13 +152,15 @@ Focused tests must cover:
 - simulation, adapter register, registry metadata, delivery, and controller-validation failures send nothing or revert atomically as appropriate
 - post-simulation drift in chain, account, owner, reserve, supply, Safe balance, any implementation/code hash/config, destination, quantity, or transaction field sends nothing
 - wallet events and double clicks cannot create concurrent sends
-- rejected wallet request does not claim submission
+- EIP-1193 code `4001` clears only the `prepared` record and does not claim submission; every other provider error remains locked
+- the returned hash is persisted synchronously before nonce lookup; malformed hashes, nonce lookup failures, transport loss, and browser termination preserve recovery data
+- pre-hash recovery finds an exact sender+nonce transaction, proves a different canonical replacement, or remains locked; timeout/nonce movement alone never unlocks
 - exact `ReserveMinted`, two-stage Loopers `Transfer`, and `ERC8004Bound` log attribution; missing, extra, duplicate, malformed, or noncontiguous evidence stays locked
 - receipt-block token ownership, binding, URI, adapter binding, controller, and aggregate consistency checks
 - public mint, Safe transfer, or another owner reserve mint before inclusion cannot create false attribution
 - null/malformed/incorrect wallet or public-RPC `chainId`, unexpected outbound request keys, alternate encodings, mismatched transaction/receipt hashes or block coordinates, and reverted receipts
 - exact 120-attempt receipt and 90-attempt confirmation bounds, canonical confirmation, simulated reorg, transient lookup retry, and successful-but-unreconciled outcomes
-- reload/navigation/browser restart with unresolved, mined-unverified, reorged, dropped, replaced, reverted, and fully verified pending records; no second send until safe unlock
+- reload/navigation/browser restart in every `prepared`, `submitted`, `uncertain`, `confirmed`, and `reverted` transition, including unresolved, mined-unverified, reorged, dropped, replaced, reverted, and fully verified records; no second send until safe unlock
 - provider method allowlists reject unexpected wallet and public RPC methods
 
 Run the focused test file, the full web suite, build, static copy scan, a live no-wallet browser smoke test, and source/live/fetched hash comparison before handoff.
