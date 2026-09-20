@@ -293,14 +293,10 @@
           throw new Error(`Withdrawal simulation failed: ${error.message}`);
         }
 
-        const [finalChainId, finalAccounts, finalBalanceHex] = await Promise.all([
-          walletRequest('eth_chainId'),
-          walletRequest('eth_accounts'),
-          publicRpc('eth_getBalance', [LIVE_PROXY, 'latest']),
-        ]);
-        const finalAccount = Array.isArray(finalAccounts) ? (finalAccounts[0] || null) : null;
-        if (BigInt(finalBalanceHex) <= 0n) throw new Error('Contract has zero balance; there is no ETH to withdraw.');
-        assertExactTransaction(transaction, finalChainId, finalAccount);
+        const [finalState, finalWallet] = await Promise.all([readPublicState(), currentWalletState()]);
+        renderFacts(finalState, finalWallet.chainId, finalWallet.account);
+        validate(finalState, finalWallet.chainId, finalWallet.account);
+        assertExactTransaction(transaction, finalWallet.chainId, finalWallet.account);
 
         const hash = await walletRequest('eth_sendTransaction', [transaction]);
         if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('Wallet returned an invalid transaction hash.');
@@ -310,7 +306,7 @@
 
         await verifyMinedTransaction(hash);
         const refreshed = await readPublicState();
-        renderFacts(refreshed, finalChainId, finalAccount);
+        renderFacts(refreshed, finalWallet.chainId, finalWallet.account);
         showStatus('Withdrawal confirmed. The transaction fields and successful receipt were verified on Base.');
       } catch (error) {
         const rejected = error?.code === 4001 || /reject|denied|cancel/i.test(error?.message || '');

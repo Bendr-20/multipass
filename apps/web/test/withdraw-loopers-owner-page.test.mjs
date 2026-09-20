@@ -86,6 +86,9 @@ function createRpc(options = {}) {
     treasury: options.treasury ?? OWNER,
     implementation: options.implementation ?? IMPLEMENTATION,
     simulationError: options.simulationError ?? null,
+    afterSimulation: options.afterSimulation ?? null,
+    proxyCode: options.proxyCode ?? '0x6001',
+    implementationCode: options.implementationCode ?? '0x6002',
     receiptStatus: options.receiptStatus ?? '0x1',
     txOverrides: options.txOverrides ?? {},
     calls: [],
@@ -106,12 +109,13 @@ function createRpc(options = {}) {
         else if (tx.data === WITHDRAW_SELECTOR) {
           if (state.simulationError) throw state.simulationError;
           result = '0x';
+          state.afterSimulation?.(state);
         } else throw new Error(`Unexpected eth_call data ${tx.data}`);
       } else if (payload.method === 'eth_getStorageAt') {
         assert.deepEqual(payload.params, [PROXY, IMPLEMENTATION_SLOT, 'latest']);
         result = addressWord(state.implementation);
       } else if (payload.method === 'eth_getCode') {
-        result = payload.params[0].toLowerCase() === PROXY.toLowerCase() ? '0x6001' : '0x6002';
+        result = payload.params[0].toLowerCase() === PROXY.toLowerCase() ? state.proxyCode : state.implementationCode;
       } else if (payload.method === 'eth_getTransactionByHash') {
         result = {
           hash: TX_HASH,
@@ -159,6 +163,8 @@ async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet
               const code = Buffer.from(bytes).toString('hex');
               if (code === '6001') return hexBytes(PROXY_HASH);
               if (code === '6002') return hexBytes(IMPLEMENTATION_HASH);
+              if (code === '6003') return hexBytes('11'.repeat(32));
+              if (code === '6004') return hexBytes('22'.repeat(32));
               throw new Error(`Unexpected digest input ${code}`);
             },
           },
@@ -275,16 +281,52 @@ test('account and chain events immediately invalidate readiness and re-run check
   fixture.dom.window.close();
 });
 
-test('blocks a stale balance before simulation and sends nothing', async () => {
-  const fixture = await openPage({ rpcOptions: { balanceResponses: ['0x1', '0x0'] } });
-  await clickWithdraw(fixture);
-  assert.match(statusText(fixture.document), /zero balance|no ETH/i);
-  assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
-  assert.equal(fixture.rpc.state.calls.filter(({ method, params }) => (
-    method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
-  )).length, 0);
-  fixture.dom.window.close();
-});
+const POST_SIMULATION_MISMATCHES = [
+  {
+    label: 'owner',
+    mutate: (state) => { state.owner = '0x1111111111111111111111111111111111111111'; },
+    error: /owner mismatch/i,
+  },
+  {
+    label: 'treasury',
+    mutate: (state) => { state.treasury = '0x2222222222222222222222222222222222222222'; },
+    error: /treasury mismatch/i,
+  },
+  {
+    label: 'proxy code hash',
+    mutate: (state) => { state.proxyCode = '0x6003'; },
+    error: /proxy code hash mismatch/i,
+  },
+  {
+    label: 'implementation address',
+    mutate: (state) => { state.implementation = '0x3333333333333333333333333333333333333333'; },
+    error: /implementation mismatch/i,
+  },
+  {
+    label: 'implementation code hash',
+    mutate: (state) => { state.implementationCode = '0x6004'; },
+    error: /implementation code hash mismatch/i,
+  },
+  {
+    label: 'balance',
+    mutate: (state) => { state.balanceResponses = ['0x0']; },
+    error: /zero balance|no ETH/i,
+  },
+];
+
+for (const scenario of POST_SIMULATION_MISMATCHES) {
+  test(`aborts with zero sends when ${scenario.label} changes after successful simulation`, async () => {
+    const fixture = await openPage({ rpcOptions: { afterSimulation: scenario.mutate } });
+    await clickWithdraw(fixture);
+    const simulations = fixture.rpc.state.calls.filter(({ method, params }) => (
+      method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
+    ));
+    assert.equal(simulations.length, 1, 'the exact simulation must succeed before state changes');
+    assert.match(statusText(fixture.document), scenario.error);
+    assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+    fixture.dom.window.close();
+  });
+}
 
 test('blocks a failed exact simulation and sends nothing', async () => {
   const fixture = await openPage({ rpcOptions: { simulationError: new Error('execution reverted') } });
