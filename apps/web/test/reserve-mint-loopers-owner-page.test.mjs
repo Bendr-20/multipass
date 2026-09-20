@@ -12,6 +12,7 @@ const IMPLEMENTATION = '0x68F22e3563891167D37C86391c4a83449c83e908';
 const ADAPTER = '0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27';
 const REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 const RESERVE_SELECTOR = '0xb0ea1802';
+const ENTRY_POINT_V06 = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789';
 
 const readPage = () => readFile(PAGE_PATH, 'utf8');
 
@@ -90,6 +91,16 @@ test('uses explicit public and wallet RPC method allowlists', async () => {
   const walletMethods = JSON.parse(walletMatch[1].replaceAll("'", '"'));
   assert.deepEqual(publicMethods, ['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_getStorageAt','eth_call','eth_getTransactionCount','eth_getTransactionByHash','eth_getTransactionReceipt']);
   assert.deepEqual(walletMethods, ['eth_chainId','eth_accounts','eth_requestAccounts','wallet_switchEthereumChain','eth_sendTransaction']);
+});
+
+test('accepts direct owner transactions and exact ERC-4337-wrapped reserve calls', async () => {
+  const html = await readPage();
+  assert.ok(html.includes(ENTRY_POINT_V06));
+  assert.match(html, /function assertApprovedMinedTransaction\(transaction, receipt, attempt, expectedData\)/);
+  assert.match(html, /const direct = sameAddress\(transaction\.from, EXPECTED_OWNER\)/);
+  assert.match(html, /const wrapped = sameAddress\(transaction\.to, ENTRY_POINT_V06\)/);
+  assert.match(html, /transaction\.input\.toLowerCase\(\)\.includes\(strip0x\(expectedData\)\.toLowerCase\(\)\)/);
+  assert.match(html, /if \(!direct && !wrapped\) throw new Error\('Mined transaction does not match the approved reserve mint\.'\)/);
 });
 
 test('verifies exact two-stage ERC-721 delivery and ERC-8004 binding evidence', async () => {

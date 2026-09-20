@@ -75,6 +75,7 @@
     const EXPECTED_ADAPTER_IMPLEMENTATION = '0x0f81bd4EDD4879734361A1A44460264CBf6F94c9';
     const IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
     const EXPECTED_REGISTRY_IMPLEMENTATION = '0x7274e874CA62410a93Bd8bf61c69d8045E399c02';
+    const ENTRY_POINT_V06 = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789';
     const AGENT_BASE_URI = 'https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/';
     const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
     const EXPECTED_CODE_HASHES = Object.freeze({
@@ -367,6 +368,17 @@
       }
     }
 
+    function assertApprovedMinedTransaction(transaction, receipt, attempt, expectedData) {
+      if (transaction.hash?.toLowerCase() !== attempt.hash.toLowerCase() || receipt.transactionHash?.toLowerCase() !== attempt.hash.toLowerCase()
+        || BigInt(transaction.value || 0) !== 0n || transaction.chainId == null || BigInt(transaction.chainId) !== BigInt(CHAIN_ID)) throw new Error('Mined transaction does not match the approved reserve mint.');
+      const direct = sameAddress(transaction.from, EXPECTED_OWNER) && sameAddress(transaction.to, LIVE_PROXY) && transaction.input === expectedData;
+      const wrapped = sameAddress(transaction.to, ENTRY_POINT_V06)
+        && typeof transaction.input === 'string'
+        && transaction.input.toLowerCase().includes(strip0x(LIVE_PROXY).toLowerCase())
+        && transaction.input.toLowerCase().includes(strip0x(expectedData).toLowerCase());
+      if (!direct && !wrapped) throw new Error('Mined transaction does not match the approved reserve mint.');
+    }
+
     async function verifySubmitted(attempt) {
       const quantity = BigInt(attempt.quantity);
       let transaction = null; let receipt = null;
@@ -377,9 +389,7 @@
       }
       if (!transaction || !receipt) throw Object.assign(new Error('Transaction is still pending on Base.'), { pending: true });
       const expectedData = callData(RESERVE_MINT_SELECTOR, addressWord(FIXED_SAFE), uintWord(quantity));
-      if (transaction.hash?.toLowerCase() !== attempt.hash.toLowerCase() || receipt.transactionHash?.toLowerCase() !== attempt.hash.toLowerCase()
-        || !sameAddress(transaction.from, EXPECTED_OWNER) || !sameAddress(transaction.to, LIVE_PROXY) || transaction.input !== expectedData || BigInt(transaction.value || 0) !== 0n
-        || transaction.chainId == null || BigInt(transaction.chainId) !== BigInt(CHAIN_ID)) throw new Error('Mined transaction does not match the approved reserve mint.');
+      assertApprovedMinedTransaction(transaction, receipt, attempt, expectedData);
       if (receipt.status === '0x0' || BigInt(receipt.status) !== 1n) return { reverted: true };
       if (transaction.blockHash !== receipt.blockHash || transaction.blockNumber !== receipt.blockNumber || transaction.transactionIndex !== receipt.transactionIndex) throw new Error('Transaction and receipt block coordinates disagree.');
       const evidence = parseReceiptEvidence(receipt, quantity);
