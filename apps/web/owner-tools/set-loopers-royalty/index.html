@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <link rel="icon" href="data:,">
+  <title>Set Loopers royalty wallet</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080b14; color: #eef2ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #172554 0, #080b14 48%); }
+    main { width: min(760px, 100%); border: 1px solid #334155; border-radius: 20px; padding: clamp(20px, 5vw, 40px); background: rgba(10, 15, 28, .96); }
+    h1 { margin: 0 0 8px; font-size: clamp(1.7rem, 5vw, 2.5rem); }
+    p { color: #a5b4fc; line-height: 1.55; }
+    dl { display: grid; grid-template-columns: minmax(10rem, .7fr) minmax(0, 1.3fr); gap: 11px 20px; margin: 26px 0; padding: 20px; border-radius: 14px; background: #101827; }
+    dt { color: #94a3b8; }
+    dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #status { min-height: 3.2rem; padding: 14px 16px; border: 1px solid #475569; border-radius: 12px; color: #f8fafc; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+    button { border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 750; cursor: pointer; }
+    #connect { background: #334155; color: #f8fafc; }
+    #set-royalty { background: #7c3aed; color: white; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    a { color: #a5b4fc; }
+    .note { font-size: .92rem; }
+    @media (max-width: 600px) { dl { grid-template-columns: 1fr; gap: 5px; } dd { margin-bottom: 9px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Set Loopers royalty wallet</h1>
+    <p>This one-purpose owner page changes only the ERC-2981 royalty receiver. It keeps royalties at 5% and does not change the primary treasury, ownership, NFTs, or contract code.</p>
+    <dl>
+      <dt>Network</dt><dd id="network">Checking…</dd>
+      <dt>Connected wallet</dt><dd id="wallet">Checking…</dd>
+      <dt>Loopers proxy</dt><dd>0x1649CD37f4748807b4882FC48765bA0B2aFfa94a</dd>
+      <dt>Current royalty wallet</dt><dd id="current">Checking…</dd>
+      <dt>New royalty wallet</dt><dd>0xfA5c233683E4cE7cA6214E769Ae5F9D9e6Fa4483</dd>
+      <dt>Royalty rate</dt><dd id="rate">Checking…</dd>
+    </dl>
+    <p id="status" role="status" aria-live="polite">Verifying live contract state…</p>
+    <a id="transaction" href="" target="_blank" rel="noopener noreferrer" hidden>View transaction on BaseScan</a>
+    <div class="actions">
+      <button id="connect" type="button">Connect / switch to Base</button>
+      <button id="set-royalty" type="button" disabled>Set Safe as royalty wallet</button>
+    </div>
+    <p class="note">Your wallet must show the Loopers proxy, zero ETH value, and calldata beginning <code>0x8dc251e3</code>. The destination Safe is fixed.</p>
+  </main>
+  <script>
+    'use strict';
+    const CHAIN_ID = 8453;
+    const CHAIN_HEX = '0x2105';
+    const LIVE_PROXY = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
+    const EXPECTED_IMPLEMENTATION = '0x68F22e3563891167D37C86391c4a83449c83e908';
+    const EXPECTED_OWNER = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+    const SAFE = '0xfA5c233683E4cE7cA6214E769Ae5F9D9e6Fa4483';
+    const SET_ROYALTY_CALLDATA = '0x8dc251e3000000000000000000000000fa5c233683e4ce7ca6214e769ae5f9d9e6fa4483';
+    const OWNER_CALLDATA = '0x8da5cb5b';
+    const ROYALTY_INFO_CALLDATA = '0x2a55205a' + 1n.toString(16).padStart(64, '0') + (10n ** 18n).toString(16).padStart(64, '0');
+    const ROYALTY_ON_ONE_ETH = 5n * 10n ** 16n;
+    const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+    const RPC_URLS = Object.freeze(['https://mainnet.base.org', 'https://base.drpc.org', 'https://base-rpc.publicnode.com']);
+    const PUBLIC_METHODS = Object.freeze(['eth_chainId','eth_call','eth_getStorageAt','eth_getTransactionReceipt']);
+    const WALLET_METHODS = Object.freeze(['eth_chainId','eth_accounts','eth_requestAccounts','wallet_switchEthereumChain','eth_sendTransaction']);
+    const elements = Object.freeze({
+      network: document.querySelector('#network'), wallet: document.querySelector('#wallet'), current: document.querySelector('#current'), rate: document.querySelector('#rate'),
+      status: document.querySelector('#status'), transaction: document.querySelector('#transaction'), connect: document.querySelector('#connect'), setRoyalty: document.querySelector('#set-royalty'),
+    });
+    let rpcId = 0; let rpcCursor = 0; let ready = false; let busy = false; let walletGeneration = 0;
+    const sameAddress = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const show = (message) => { elements.status.textContent = String(message).slice(0, 500); };
+    function decodeAddress(data, word = 0) {
+      const hex = String(data || '').replace(/^0x/, '');
+      if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length < (word + 1) * 64) throw new Error('Invalid address response.');
+      return `0x${hex.slice(word * 64 + 24, (word + 1) * 64)}`;
+    }
+    function setBusy(value) {
+      busy = value; elements.connect.disabled = value; elements.setRoyalty.disabled = value || !ready;
+    }
+    async function publicRpc(method, params) {
+      if (!PUBLIC_METHODS.includes(method)) throw new Error('Blocked public RPC method.');
+      const body = JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params });
+      const start = rpcCursor; rpcCursor = (rpcCursor + 1) % RPC_URLS.length; let last;
+      for (let i = 0; i < RPC_URLS.length; i += 1) {
+        try {
+          const response = await fetch(RPC_URLS[(start + i) % RPC_URLS.length], { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+          if (!response.ok) { last = new Error(`Base RPC HTTP ${response.status}.`); continue; }
+          const payload = await response.json(); if (payload.error) { last = new Error(payload.error.message || 'Base RPC failed.'); continue; }
+          return payload.result;
+        } catch (error) { last = error; }
+      }
+      throw last || new Error('Base RPC unavailable.');
+    }
+    async function walletRequest(method, params) {
+      if (!WALLET_METHODS.includes(method)) throw new Error('Blocked wallet method.');
+      if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+      return window.ethereum.request(params === undefined ? { method } : { method, params });
+    }
+    async function currentWallet() {
+      if (!window.ethereum?.request) return { chainId: null, account: null };
+      const [chainId, accounts] = await Promise.all([walletRequest('eth_chainId'), walletRequest('eth_accounts')]);
+      return { chainId, account: Array.isArray(accounts) ? accounts[0] || null : null };
+    }
+    async function readState() {
+      const [chainId, ownerData, royaltyData, implementationData] = await Promise.all([
+        publicRpc('eth_chainId', []), publicRpc('eth_call', [{ to: LIVE_PROXY, data: OWNER_CALLDATA }, 'latest']),
+        publicRpc('eth_call', [{ to: LIVE_PROXY, data: ROYALTY_INFO_CALLDATA }, 'latest']), publicRpc('eth_getStorageAt', [LIVE_PROXY, IMPLEMENTATION_SLOT, 'latest']),
+      ]);
+      const royaltyHex = String(royaltyData || '').replace(/^0x/, '');
+      if (royaltyHex.length < 128) throw new Error('Invalid royalty response.');
+      return { chainId, owner: decodeAddress(ownerData), royaltyReceiver: decodeAddress(royaltyData), royaltyAmount: BigInt(`0x${royaltyHex.slice(64, 128)}`), implementation: decodeAddress(implementationData) };
+    }
+    function validateState(state) {
+      if (BigInt(state.chainId) !== BigInt(CHAIN_ID)) throw new Error('Public RPC is not Base mainnet.');
+      if (!sameAddress(state.owner, EXPECTED_OWNER)) throw new Error('Onchain owner mismatch.');
+      if (!sameAddress(state.implementation, EXPECTED_IMPLEMENTATION)) throw new Error('Loopers implementation mismatch.');
+      if (state.royaltyAmount !== ROYALTY_ON_ONE_ETH) throw new Error('Royalty rate is not the expected 5%.');
+      if (!sameAddress(state.royaltyReceiver, EXPECTED_OWNER) && !sameAddress(state.royaltyReceiver, SAFE)) throw new Error('Current royalty receiver is unexpected.');
+    }
+    function render(state, wallet) {
+      elements.network.textContent = wallet.chainId === CHAIN_HEX ? 'Base mainnet (8453)' : wallet.chainId || 'Wallet unavailable';
+      elements.wallet.textContent = wallet.account || 'Not connected';
+      elements.current.textContent = state.royaltyReceiver;
+      elements.rate.textContent = '5%';
+    }
+    async function refresh() {
+      ready = false; setBusy(true);
+      try {
+        const [state, wallet] = await Promise.all([readState(), currentWallet()]); validateState(state); render(state, wallet);
+        if (sameAddress(state.royaltyReceiver, SAFE)) { show('Already complete. The Safe is the onchain 5% royalty wallet.'); return; }
+        if (!window.ethereum?.request) throw new Error('Injected wallet not found.');
+        if (wallet.chainId !== CHAIN_HEX || !sameAddress(wallet.account, EXPECTED_OWNER)) throw new Error(`Connect owner wallet ${EXPECTED_OWNER} on Base.`);
+        ready = true; show('Ready. This will change only the 5% royalty receiver to the fixed Safe.');
+      } catch (error) { show(error.message || 'Verification failed.'); }
+      finally { setBusy(false); }
+    }
+    async function connect() {
+      if (busy) return;
+      try { await walletRequest('eth_requestAccounts'); if (await walletRequest('eth_chainId') !== CHAIN_HEX) await walletRequest('wallet_switchEthereumChain', [{ chainId: CHAIN_HEX }]); }
+      catch (error) { show(error.code === 4001 ? 'Wallet request rejected. Nothing changed.' : error.message); }
+      await refresh();
+    }
+    async function waitForReceipt(hash) {
+      for (let i = 0; i < 80; i += 1) { const receipt = await publicRpc('eth_getTransactionReceipt', [hash]); if (receipt) return receipt; await sleep(2500); }
+      throw new Error('Transaction is still pending. Use the BaseScan link before retrying.');
+    }
+    async function setRoyalty() {
+      if (!ready || busy) return; const generation = walletGeneration; setBusy(true); ready = false;
+      try {
+        const [state, wallet] = await Promise.all([readState(), currentWallet()]); validateState(state);
+        if (sameAddress(state.royaltyReceiver, SAFE)) { show('Already complete. The Safe is the royalty wallet.'); return; }
+        if (wallet.chainId !== CHAIN_HEX || !sameAddress(wallet.account, EXPECTED_OWNER)) throw new Error('Owner wallet is not connected on Base.');
+        const tx = Object.freeze({ chainId: CHAIN_HEX, from: EXPECTED_OWNER, to: LIVE_PROXY, data: SET_ROYALTY_CALLDATA, value: '0x0' });
+        await publicRpc('eth_call', [tx, 'latest']);
+        const finalState = await readState(); const finalWallet = await currentWallet(); validateState(finalState);
+        if (!sameAddress(finalState.royaltyReceiver, state.royaltyReceiver) || finalWallet.chainId !== CHAIN_HEX || !sameAddress(finalWallet.account, EXPECTED_OWNER) || generation !== walletGeneration) throw new Error('State or wallet changed after simulation. Retry.');
+        const hash = await walletRequest('eth_sendTransaction', [tx]);
+        if (!/^0x[0-9a-fA-F]{64}$/.test(String(hash))) throw new Error('Wallet returned an invalid transaction hash.');
+        elements.transaction.href = `https://basescan.org/tx/${hash}`; elements.transaction.hidden = false; show(`Submitted ${hash}. Verifying…`);
+        const receipt = await waitForReceipt(hash); if (BigInt(receipt.status || 0) !== 1n) throw new Error('Royalty transaction reverted.');
+        const verified = await readState(); validateState(verified);
+        if (!sameAddress(verified.royaltyReceiver, SAFE) || verified.royaltyAmount !== ROYALTY_ON_ONE_ETH) throw new Error('Receipt mined, but royalty state did not verify.');
+        render(verified, await currentWallet()); show('Confirmed. The treasury Safe is now the onchain 5% royalty wallet.');
+      } catch (error) { show(error.code === 4001 ? 'Wallet rejected the transaction. Nothing changed.' : (error.message || 'Royalty update failed.')); }
+      finally { setBusy(false); if (!sameAddress(elements.current.textContent, SAFE)) await refresh(); }
+    }
+    elements.connect.addEventListener('click', connect);
+    elements.setRoyalty.addEventListener('click', setRoyalty);
+    if (window.ethereum?.on) { const invalidate = () => { walletGeneration += 1; ready = false; elements.setRoyalty.disabled = true; if (!busy) void refresh(); }; window.ethereum.on('accountsChanged', invalidate); window.ethereum.on('chainChanged', invalidate); }
+    void refresh();
+  </script>
+</body>
+</html>
