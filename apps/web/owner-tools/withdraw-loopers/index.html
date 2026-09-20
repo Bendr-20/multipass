@@ -73,6 +73,7 @@
       to: LIVE_PROXY,
       data: WITHDRAW_SELECTOR,
       value: '0x0',
+      chainId: CHAIN_HEX,
     });
 
     const elements = Object.freeze({
@@ -92,18 +93,20 @@
     let rpcId = 0;
     let ready = false;
     let refreshVersion = 0;
+    let walletGeneration = 0;
+    let withdrawalInFlight = false;
 
     const sameAddress = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
 
     function setBusy(value) {
       elements.page.dataset.busy = String(value);
-      elements.connect.disabled = value;
-      if (value) elements.withdraw.disabled = true;
+      elements.connect.disabled = value || withdrawalInFlight;
+      if (value || withdrawalInFlight) elements.withdraw.disabled = true;
     }
 
     function setReady(value) {
-      ready = value;
-      elements.withdraw.disabled = !value;
+      ready = value && !withdrawalInFlight;
+      elements.withdraw.disabled = !ready;
     }
 
     function showStatus(message) {
@@ -200,11 +203,12 @@
     function assertExactTransaction(transaction, chainId, account) {
       if (chainId !== CHAIN_HEX || !sameAddress(account, EXPECTED_OWNER)) throw new Error('Wallet state changed before sending.');
       const keys = Object.keys(transaction);
-      if (keys.length !== 4 || !keys.every((key) => ['from', 'to', 'data', 'value'].includes(key))) throw new Error('Blocked non-allowlisted transaction fields.');
+      if (keys.length !== 5 || !keys.every((key) => ['from', 'to', 'data', 'value', 'chainId'].includes(key))) throw new Error('Blocked non-allowlisted transaction fields.');
       if (!sameAddress(transaction.from, EXPECTED_OWNER)
         || !sameAddress(transaction.to, LIVE_PROXY)
         || transaction.data !== WITHDRAW_SELECTOR
-        || transaction.value !== '0x0') throw new Error('Blocked transaction outside the exact withdrawal allowlist.');
+        || transaction.value !== '0x0'
+        || transaction.chainId !== CHAIN_HEX) throw new Error('Blocked transaction outside the exact withdrawal allowlist.');
     }
 
     async function currentWalletState() {
@@ -226,8 +230,10 @@
         renderFacts(state, wallet.chainId, wallet.account);
         if (!window.ethereum?.request) throw new Error('Injected wallet not found. Install or open an EVM wallet to continue.');
         validate(state, wallet.chainId, wallet.account);
-        setReady(true);
-        showStatus('Ready. All pinned owner, treasury, bytecode, implementation, network, wallet, and balance checks passed.');
+        if (!withdrawalInFlight) {
+          setReady(true);
+          showStatus('Ready. All pinned owner, treasury, bytecode, implementation, network, wallet, and balance checks passed.');
+        }
       } catch (error) {
         if (version === refreshVersion) showStatus(error.message || 'Verification failed.');
       } finally {
@@ -236,6 +242,7 @@
     }
 
     async function connect() {
+      if (withdrawalInFlight) return;
       setReady(false);
       setBusy(true);
       try {
@@ -252,29 +259,45 @@
     }
 
     async function verifyMinedTransaction(hash) {
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        const [transaction, receipt] = await Promise.all([
-          publicRpc('eth_getTransactionByHash', [hash]),
-          publicRpc('eth_getTransactionReceipt', [hash]),
-        ]);
+      const maximumPolls = 12;
+      let lastLookupError = null;
+      for (let attempt = 0; attempt < maximumPolls; attempt += 1) {
+        let transaction;
+        let receipt;
+        try {
+          [transaction, receipt] = await Promise.all([
+            publicRpc('eth_getTransactionByHash', [hash]),
+            publicRpc('eth_getTransactionReceipt', [hash]),
+          ]);
+          lastLookupError = null;
+        } catch (error) {
+          lastLookupError = error;
+          if (attempt < maximumPolls - 1) await new Promise((resolve) => setTimeout(resolve, 2500));
+          continue;
+        }
         if (transaction) {
           if (!sameAddress(transaction.from, EXPECTED_OWNER)
             || !sameAddress(transaction.to, LIVE_PROXY)
             || transaction.input !== WITHDRAW_SELECTOR
-            || transaction.value !== '0x0') throw new Error('Submitted transaction fields do not match the approved withdrawal.');
+            || transaction.value !== '0x0'
+            || (transaction.chainId != null && transaction.chainId !== CHAIN_HEX)) throw new Error('Submitted transaction fields do not match the approved withdrawal.');
         }
-        if (receipt) {
-          if (!transaction) throw new Error('Receipt arrived without a verifiable transaction.');
+        if (receipt && transaction) {
           if (receipt.status !== '0x1') throw new Error('Withdrawal transaction reverted.');
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        if (attempt < maximumPolls - 1) await new Promise((resolve) => setTimeout(resolve, 2500));
       }
-      throw new Error('Timed out waiting for a verified transaction receipt.');
+      const error = new Error(`Transaction verification is still pending${lastLookupError ? `: ${lastLookupError.message}` : '.'}`);
+      error.pending = true;
+      throw error;
     }
 
     async function withdraw() {
-      if (!ready) return;
+      if (!ready || withdrawalInFlight) return;
+      withdrawalInFlight = true;
+      const startingWalletGeneration = walletGeneration;
+      let submittedHash = null;
       setReady(false);
       setBusy(true);
       elements.transaction.hidden = true;
@@ -297,9 +320,12 @@
         renderFacts(finalState, finalWallet.chainId, finalWallet.account);
         validate(finalState, finalWallet.chainId, finalWallet.account);
         assertExactTransaction(transaction, finalWallet.chainId, finalWallet.account);
+        if (startingWalletGeneration !== walletGeneration) throw new Error('Wallet state changed before provider submission.');
 
-        const hash = await walletRequest('eth_sendTransaction', [transaction]);
+        const sendRequest = walletRequest('eth_sendTransaction', [transaction]);
+        const hash = await sendRequest;
         if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error('Wallet returned an invalid transaction hash.');
+        submittedHash = hash;
         elements.transaction.href = `https://basescan.org/tx/${hash}`;
         elements.transaction.hidden = false;
         showStatus(`Submitted ${hash}. Waiting for Base confirmation…`);
@@ -310,8 +336,13 @@
         showStatus('Withdrawal confirmed. The transaction fields and successful receipt were verified on Base.');
       } catch (error) {
         const rejected = error?.code === 4001 || /reject|denied|cancel/i.test(error?.message || '');
-        showStatus(rejected ? 'Wallet request rejected or cancelled. Nothing was changed.' : (error.message || 'Withdrawal failed.'));
+        if (error?.pending && submittedHash) {
+          showStatus(`Submitted ${submittedHash}. Verification pending on Base; keep the BaseScan link and check again.`);
+        } else {
+          showStatus(rejected ? 'Wallet request rejected or cancelled. Nothing was changed.' : (error.message || 'Withdrawal failed.'));
+        }
       } finally {
+        withdrawalInFlight = false;
         setBusy(false);
       }
     }
@@ -321,6 +352,7 @@
 
     if (window.ethereum?.on) {
       const invalidate = () => {
+        walletGeneration += 1;
         setReady(false);
         setBusy(true);
         showStatus('Wallet state changed. Re-running every check…');

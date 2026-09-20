@@ -36,15 +36,26 @@ const addressWord = (address) => `0x${'0'.repeat(24)}${address.slice(2).toLowerC
 const implementationWord = addressWord(IMPLEMENTATION);
 const hexBytes = (hex) => Uint8Array.from(hex.match(/../g).map((byte) => Number.parseInt(byte, 16))).buffer;
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function readPage() {
   return readFile(PAGE_PATH, 'utf8');
 }
 
 class MockEthereum {
-  constructor({ account = OWNER, chainId = CHAIN_ID, sendError = null } = {}) {
+  constructor({ account = OWNER, chainId = CHAIN_ID, sendError = null, sendResult = TX_HASH } = {}) {
     this.account = account;
     this.chainId = chainId;
     this.sendError = sendError;
+    this.sendResult = sendResult;
     this.requests = [];
     this.listeners = new Map();
   }
@@ -62,7 +73,7 @@ class MockEthereum {
     }
     if (payload.method === 'eth_sendTransaction') {
       if (this.sendError) throw this.sendError;
-      return TX_HASH;
+      return this.sendResult;
     }
     throw new Error(`Unhandled wallet method ${payload.method}`);
   }
@@ -91,6 +102,8 @@ function createRpc(options = {}) {
     implementationCode: options.implementationCode ?? '0x6002',
     receiptStatus: options.receiptStatus ?? '0x1',
     txOverrides: options.txOverrides ?? {},
+    transactionLookupFailures: options.transactionLookupFailures ?? 0,
+    receiptLookupFailures: options.receiptLookupFailures ?? 0,
     calls: [],
   };
 
@@ -117,15 +130,24 @@ function createRpc(options = {}) {
       } else if (payload.method === 'eth_getCode') {
         result = payload.params[0].toLowerCase() === PROXY.toLowerCase() ? state.proxyCode : state.implementationCode;
       } else if (payload.method === 'eth_getTransactionByHash') {
+        if (state.transactionLookupFailures > 0) {
+          state.transactionLookupFailures -= 1;
+          throw new Error('temporary transaction lookup failure');
+        }
         result = {
           hash: TX_HASH,
           from: OWNER,
           to: PROXY,
           input: WITHDRAW_SELECTOR,
           value: '0x0',
+          chainId: CHAIN_ID,
           ...state.txOverrides,
         };
       } else if (payload.method === 'eth_getTransactionReceipt') {
+        if (state.receiptLookupFailures > 0) {
+          state.receiptLookupFailures -= 1;
+          throw new Error('temporary receipt lookup failure');
+        }
         result = { transactionHash: TX_HASH, status: state.receiptStatus };
       }
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result }), {
@@ -144,7 +166,14 @@ function createRpc(options = {}) {
   return { fetch, state };
 }
 
-async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet = false, transactionMutation = null } = {}) {
+async function openPage({
+  wallet = new MockEthereum(),
+  rpcOptions = {},
+  noWallet = false,
+  transactionMutation = null,
+  finalGuardHook = null,
+  instantTimers = false,
+} = {}) {
   const html = await readPage();
   const rpc = createRpc(rpcOptions);
   const dom = new JSDOM(html, {
@@ -154,18 +183,23 @@ async function openPage({ wallet = new MockEthereum(), rpcOptions = {}, noWallet
     beforeParse(window) {
       window.fetch = rpc.fetch;
       if (!noWallet) window.ethereum = wallet;
-      if (transactionMutation) {
+      const guardHook = transactionMutation ?? finalGuardHook;
+      if (guardHook) {
         const nativeObjectKeys = window.Object.keys.bind(window.Object);
         let exactTransactionGuardReads = 0;
         window.Object.keys = (value) => {
           const keys = nativeObjectKeys(value);
-          if (keys.length === 4 && ['from', 'to', 'data', 'value'].every((key) => keys.includes(key))) {
+          if (['from', 'to', 'data', 'value'].every((key) => keys.includes(key))) {
             exactTransactionGuardReads += 1;
-            if (exactTransactionGuardReads === 2) transactionMutation(value);
+            if (exactTransactionGuardReads === 2) guardHook(value);
             return nativeObjectKeys(value);
           }
           return keys;
         };
+      }
+      if (instantTimers) {
+        const nativeSetTimeout = window.setTimeout.bind(window);
+        window.setTimeout = (callback, _delay, ...args) => nativeSetTimeout(callback, 0, ...args);
       }
       Object.defineProperty(window, 'crypto', {
         configurable: true,
@@ -240,7 +274,7 @@ test('contains exact public and injected provider method allowlists', async () =
 
 test('pins the one immutable write tuple and excludes forbidden selectors and actions', async () => {
   const html = await readPage();
-  assert.match(html, /const WITHDRAW_TX = Object\.freeze\(\{\s*from: EXPECTED_OWNER,\s*to: LIVE_PROXY,\s*data: WITHDRAW_SELECTOR,\s*value: '0x0',\s*\}\);/s);
+  assert.match(html, /const WITHDRAW_TX = Object\.freeze\(\{\s*from: EXPECTED_OWNER,\s*to: LIVE_PROXY,\s*data: WITHDRAW_SELECTOR,\s*value: '0x0',\s*chainId: CHAIN_HEX,\s*\}\);/s);
   const forbiddenSignatures = [
     'setTreasury(address)', 'reserveMint(address,uint256)', 'transferFrom(address,address,uint256)',
     'safeTransferFrom(address,address,uint256)', 'transferOwnership(address)', 'renounceOwnership()',
@@ -291,6 +325,32 @@ test('account and chain events immediately invalidate readiness and re-run check
   assert.equal(fixture.document.querySelector('#withdraw').disabled, true);
   await waitFor(() => /wrong network/i.test(statusText(fixture.document)), 'chain refresh');
   assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+  fixture.dom.window.close();
+});
+
+test('double-click plus wallet change refreshes cannot start a concurrent withdrawal', async () => {
+  const sendGate = createDeferred();
+  const wallet = new MockEthereum({ sendResult: sendGate.promise });
+  const fixture = await openPage({ wallet });
+  const withdrawButton = fixture.document.querySelector('#withdraw');
+
+  withdrawButton.click();
+  withdrawButton.dispatchEvent(new fixture.dom.window.Event('click'));
+  await waitFor(() => wallet.requests.filter(({ method }) => method === 'eth_sendTransaction').length === 1, 'first send request');
+
+  wallet.emit('accountsChanged', [OWNER]);
+  wallet.emit('chainChanged', CHAIN_ID);
+  await waitFor(() => fixture.document.querySelector('#page-state').dataset.busy === 'false', 'wallet event refresh');
+  const controlsStayedDisabled = withdrawButton.disabled;
+  withdrawButton.dispatchEvent(new fixture.dom.window.Event('click'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const sendsBeforeResolution = wallet.requests.filter(({ method }) => method === 'eth_sendTransaction').length;
+
+  sendGate.resolve(TX_HASH);
+  await waitFor(() => /withdrawal confirmed/i.test(statusText(fixture.document)), 'first withdrawal confirmation');
+  assert.equal(controlsStayedDisabled, true);
+  assert.equal(sendsBeforeResolution, 1);
+  assert.equal(wallet.requests.filter(({ method }) => method === 'eth_sendTransaction').length, 1);
   fixture.dom.window.close();
 });
 
@@ -379,6 +439,7 @@ const POST_SIMULATION_TRANSACTION_MUTATIONS = [
   ['to', '0x6666666666666666666666666666666666666666'],
   ['data', '0xdeadbeef'],
   ['value', '0x1'],
+  ['chainId', '0x1'],
 ];
 
 for (const [field, value] of POST_SIMULATION_TRANSACTION_MUTATIONS) {
@@ -391,18 +452,34 @@ for (const [field, value] of POST_SIMULATION_TRANSACTION_MUTATIONS) {
       method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
     ));
     assert.equal(simulations.length, 1);
-    assert.match(statusText(fixture.document), /transaction.*allowlist/i);
+    assert.match(statusText(fixture.document), /allowlist/i);
     assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
     fixture.dom.window.close();
   });
 }
+
+test('wallet chain event during the final guard aborts before provider submission', async () => {
+  const wallet = new MockEthereum();
+  const fixture = await openPage({
+    wallet,
+    finalGuardHook: () => wallet.emit('chainChanged', '0x1'),
+  });
+  await clickWithdraw(fixture);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const simulations = fixture.rpc.state.calls.filter(({ method, params }) => (
+    method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR
+  ));
+  assert.equal(simulations.length, 1);
+  assert.equal(wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
+  fixture.dom.window.close();
+});
 
 test('blocks a failed exact simulation and sends nothing', async () => {
   const fixture = await openPage({ rpcOptions: { simulationError: new Error('execution reverted') } });
   await clickWithdraw(fixture);
   assert.match(statusText(fixture.document), /simulation.*execution reverted/i);
   const simulation = fixture.rpc.state.calls.find(({ method, params }) => method === 'eth_call' && params[0].data === WITHDRAW_SELECTOR);
-  assert.deepEqual(simulation.params[0], { from: OWNER, to: PROXY, data: WITHDRAW_SELECTOR, value: '0x0' });
+  assert.deepEqual(simulation.params[0], { from: OWNER, to: PROXY, data: WITHDRAW_SELECTOR, value: '0x0', chainId: CHAIN_ID });
   assert.equal(fixture.wallet.requests.some(({ method }) => method === 'eth_sendTransaction'), false);
   fixture.dom.window.close();
 });
@@ -422,7 +499,7 @@ test('sends only the exact immutable tuple and verifies a successful receipt', a
   await clickWithdraw(fixture);
   const sends = fixture.wallet.requests.filter(({ method }) => method === 'eth_sendTransaction');
   assert.equal(sends.length, 1);
-  assert.deepEqual(sends[0].params, [{ from: OWNER, to: PROXY, data: WITHDRAW_SELECTOR, value: '0x0' }]);
+  assert.deepEqual(sends[0].params, [{ from: OWNER, to: PROXY, data: WITHDRAW_SELECTOR, value: '0x0', chainId: CHAIN_ID }]);
   assert.match(statusText(fixture.document), /withdrawal confirmed/i);
   const link = fixture.document.querySelector('#transaction');
   assert.equal(link.hidden, false);
@@ -431,6 +508,55 @@ test('sends only the exact immutable tuple and verifies a successful receipt', a
   assert.ok(fixture.rpc.state.calls.some(({ method }) => method === 'eth_getTransactionReceipt'));
   fixture.dom.window.close();
 });
+
+test('retries transient transaction and receipt lookup failures until verified success', async () => {
+  const fixture = await openPage({
+    rpcOptions: { transactionLookupFailures: 1, receiptLookupFailures: 2 },
+    instantTimers: true,
+  });
+  await clickWithdraw(fixture);
+  assert.match(statusText(fixture.document), /withdrawal confirmed/i);
+  assert.ok(fixture.rpc.state.calls.filter(({ method }) => method === 'eth_getTransactionByHash').length >= 3);
+  assert.ok(fixture.rpc.state.calls.filter(({ method }) => method === 'eth_getTransactionReceipt').length >= 3);
+  assert.equal(fixture.document.querySelector('#transaction').href, `https://basescan.org/tx/${TX_HASH}`);
+  fixture.dom.window.close();
+});
+
+test('bounds persistent lookup failures while preserving submitted pending state and hash', async () => {
+  const fixture = await openPage({
+    rpcOptions: { transactionLookupFailures: 99, receiptLookupFailures: 99 },
+    instantTimers: true,
+  });
+  await clickWithdraw(fixture);
+  const transactionLookups = fixture.rpc.state.calls.filter(({ method }) => method === 'eth_getTransactionByHash').length;
+  const receiptLookups = fixture.rpc.state.calls.filter(({ method }) => method === 'eth_getTransactionReceipt').length;
+  assert.ok(transactionLookups > 1 && transactionLookups <= 20, `unexpected transaction lookup count ${transactionLookups}`);
+  assert.ok(receiptLookups > 1 && receiptLookups <= 20, `unexpected receipt lookup count ${receiptLookups}`);
+  assert.match(statusText(fixture.document), /submitted.*pending/i);
+  assert.doesNotMatch(statusText(fixture.document), /withdrawal failed/i);
+  assert.equal(fixture.document.querySelector('#transaction').hidden, false);
+  assert.equal(fixture.document.querySelector('#transaction').href, `https://basescan.org/tx/${TX_HASH}`);
+  fixture.dom.window.close();
+});
+
+const RETURNED_TRANSACTION_MISMATCHES = [
+  ['from', '0x7777777777777777777777777777777777777777'],
+  ['to', '0x8888888888888888888888888888888888888888'],
+  ['input', '0xdeadbeef'],
+  ['value', '0x1'],
+  ['chainId', '0x1'],
+];
+
+for (const [field, value] of RETURNED_TRANSACTION_MISMATCHES) {
+  test(`rejects success when returned transaction ${field} mismatches`, async () => {
+    const fixture = await openPage({ rpcOptions: { txOverrides: { [field]: value } } });
+    await clickWithdraw(fixture);
+    assert.match(statusText(fixture.document), /transaction fields.*do not match/i);
+    assert.doesNotMatch(statusText(fixture.document), /withdrawal confirmed/i);
+    assert.equal(fixture.wallet.requests.filter(({ method }) => method === 'eth_sendTransaction').length, 1);
+    fixture.dom.window.close();
+  });
+}
 
 test('treats a reverted receipt as failure and never reports success', async () => {
   const fixture = await openPage({ rpcOptions: { receiptStatus: '0x0' } });
