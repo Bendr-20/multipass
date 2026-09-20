@@ -106,13 +106,16 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelectorAll('.console-status-strip div').length, 0);
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.ok(root.querySelector('.console-trust-rail'));
+  const console = root.querySelector('.multipass-console');
   const main = root.querySelector('.console-basic-main');
-  const proofRail = main?.querySelector(':scope > .console-proof-rail');
+  const proofRail = console?.querySelector(':scope > .console-proof-rail');
   assert.ok(proofRail);
-  assert.equal(main?.firstElementChild, proofRail);
+  assert.equal(console?.firstElementChild, proofRail);
+  assert.equal(proofRail.nextElementSibling?.classList.contains('console-basic-shell'), true);
+  assert.equal(main?.querySelector(':scope > .console-proof-rail'), null);
   assert.equal(proofRail.tagName, 'DETAILS');
   assert.equal(proofRail.open, false);
-  assert.equal(main?.children[1]?.classList.contains('console-agent-thread-panel'), true);
+  assert.equal(main?.firstElementChild?.classList.contains('console-agent-thread-panel'), true);
   assert.ok(root.querySelector('.console-identity-card'));
   assert.equal(root.querySelector('[data-action="update-console-agent-name"]'), null);
   assert.ok(root.querySelector('.console-thread-shell-header'));
@@ -271,7 +274,7 @@ test('Multipass Console labels an agent plus authenticated holder as room partic
   assert.doesNotMatch(text, /2 wallet-owned agents|2 participating agents|2 agents in room/i);
 });
 
-test('Multipass Console proof rail renders above chat and only labels exact runtime evidence', () => {
+test('Multipass Console proof rail spans above both panels and only labels exact runtime evidence', () => {
   const [agent] = sampleAgents();
   agent.erc8004AgentId = 87069;
   const snapshot = createMultipassConsoleSnapshot({
@@ -295,11 +298,16 @@ test('Multipass Console proof rail renders above chat and only labels exact runt
     },
   });
   const root = render(renderMultipassConsole(snapshot));
+  const console = root.querySelector('.multipass-console');
+  const shell = root.querySelector('.console-basic-shell');
   const main = root.querySelector('.console-basic-main');
-  const rail = main?.querySelector(':scope > .console-proof-rail');
+  const rail = console?.querySelector(':scope > .console-proof-rail');
 
   assert.ok(rail);
-  assert.equal(main?.firstElementChild, rail);
+  assert.equal(console?.firstElementChild, rail);
+  assert.equal(rail.nextElementSibling, shell);
+  assert.equal(shell?.contains(rail), false);
+  assert.equal(main?.querySelector(':scope > .console-proof-rail'), null);
   assert.match(rail.textContent, /Bankr gateway/);
   assert.match(rail.textContent, /XMTP live/);
   assert.match(rail.textContent, /Sibyl saved 2/);
@@ -581,7 +589,9 @@ test('Multipass drawer is closed by default and exposes only available public fa
   const drawer = root.querySelector('details.console-multipass-drawer');
   assert.ok(drawer);
   assert.equal(drawer.open, false);
-  assert.equal(root.querySelector('.console-basic-main')?.firstElementChild, drawer);
+  assert.equal(root.querySelector('.multipass-console')?.firstElementChild, drawer);
+  assert.equal(drawer.nextElementSibling, root.querySelector('.console-basic-shell'));
+  assert.equal(root.querySelector('.console-basic-main')?.contains(drawer), false);
   assert.match(drawer.querySelector('summary')?.textContent ?? '', /Verified runtime proof.*Bankr gateway.*XMTP live/s);
   assert.match(drawer.textContent, /Agent name.*Bendr 2\.0/s);
   assert.match(drawer.textContent, /Owner.*quigley\.eth/s);

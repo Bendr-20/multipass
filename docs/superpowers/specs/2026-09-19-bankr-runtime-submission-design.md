@@ -130,7 +130,7 @@ When the wallet owns one Looper, select it automatically after the authenticated
 ### Information hierarchy
 
 - Keep the chat room as the largest and clearest surface.
-- Put compact `Bankr gateway`, `XMTP live`, `Sibyl memory`, `ERC-8004`, and `Review-only` proof above the fold once evidence exists.
+- Put compact `Bankr gateway`, `XMTP live`, `Sibyl memory`, `ERC-8004`, and `Review-only` proof in one full-width drawer above both Console panels once evidence exists.
 - Collapse secondary identity detail, room participants, and technical context behind optional drawers.
 - Remove mint-era copy, repeated explanations, and controls unrelated to the judge journey.
 - Keep the Looper image, name, token ID, and ERC-8004 ID visible without dominating the conversation.

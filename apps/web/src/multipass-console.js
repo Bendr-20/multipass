@@ -174,9 +174,9 @@ export function renderMultipassConsole(snapshot = {}) {
         : 'Empty';
   return `
     <main class="multipass-console" aria-label="Multipass Console">
+      ${renderSuitePanel(snapshot)}
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
         <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
-          ${renderSuitePanel(snapshot)}
           ${renderConsoleAgentThread({
             ...snapshot.agentThread,
             recall: snapshot.recall,

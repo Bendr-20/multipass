@@ -70,7 +70,7 @@
 - Modify: `apps/web/test/app.test.mjs`
 
 - [ ] Add a renderer test where no runtime evidence exists; assert `Bankr gateway`, `XMTP live`, and `Sibyl memory` are absent while `Review-only` and ERC-8004 appear only with their minimum evidence.
-- [ ] Add a renderer test with `inferenceProvider: bankr_llm_gateway`, `transport: xmtp_group`, a non-empty server conversation, `memoryProvider: sibyl_memory`, numeric ERC-8004 ID, and `executionMode: review_only`; assert the five proof labels appear above the chat.
+- [ ] Add a renderer test with `inferenceProvider: bankr_llm_gateway`, `transport: xmtp_group`, a non-empty server conversation, `memoryProvider: sibyl_memory`, numeric ERC-8004 ID, and `executionMode: review_only`; assert the five proof labels appear in a full-width drawer above both Console panels.
 - [ ] Add a single-owned-Looper app test; after authenticated roster load, assert the sole token is selected automatically and its canonical room is opened without another selector click.
 - [ ] Add wallet-change/logout tests; assert selected token, thread, room, and private memory state clear.
 - [ ] Add one failing test per state: wallet connecting, challenge signing, owned-Looper loading, holder XMTP setup, canonical room opening, mission sending, Bankr waiting, Sibyl saving, Sibyl recalling, cancellation, authorization failure, transport failure, and retry.
@@ -92,7 +92,7 @@
   - Sibyl: `memoryProvider === 'sibyl_memory'`; show saved and recalled counts separately.
   - ERC-8004: canonical numeric agent ID exists on the selected owned-agent record.
   - Review-only: runtime execution mode is `review_only` and proposals remain non-executable.
-- [ ] Render a compact proof rail immediately above the chat only for evidence-supported labels.
+- [ ] Render a compact full-width proof drawer immediately above the two-panel Console grid, with only evidence-supported labels.
 - [ ] Keep the identity card compact: image, name, Looper token ID, ERC-8004 ID; move dossier, participants, rename, and technical context into closed drawers.
 - [ ] Make the mission composer and conversation the dominant content.
 - [ ] Replace raw/internal state labels with short recovery copy and one primary action per state.
