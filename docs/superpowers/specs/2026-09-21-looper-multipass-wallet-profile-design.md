@@ -78,21 +78,26 @@ Looper #3802
   -> ERC-8004 identity #90994
 ```
 
-Verification is one immutable, block-anchored snapshot rather than a mixture of latest-state calls. It requires all of:
+Verification has separate current and historical anchors; neither mixes latest-state calls from different blocks.
+
+The current snapshot requires all of:
 
 - both RPC origins report chain ID `0x2105`;
-- the selected origin returns a latest non-null block number/hash and the second origin independently returns the same hash for that number;
-- every state read below is executed against the selected block hash with EIP-1898 `{blockHash, requireCanonical: true}`; if an origin cannot serve the complete batch at that hash, discard the whole batch and retry the whole batch on the other origin only after re-confirming that block hash;
+- both origins return non-null latest blocks whose heights differ by at most 20 blocks;
+- the lower height is selected, both origins return the same number/hash/timestamp for it, and its timestamp is not more than ten minutes behind or five minutes ahead of an injected client clock; a client-clock failure is `unavailable`, while origin disagreement is `mismatch`;
+- every current state read below is executed against the selected block hash with EIP-1898 `{blockHash, requireCanonical: true}`; if an origin cannot serve the complete batch at that hash, discard the whole batch and retry the whole batch on the other origin only after re-confirming that block hash;
+- Loopers proxy and implementation, ERC-6551 registry and account implementation, Adapter8004 proxy and implementation, and Identity Registry proxy and implementation have the exact code hashes and proxy slots pinned in the manifest;
 - account runtime is exactly the expected 173-byte runtime and SHA-256;
 - account `token()` returns exactly `(8453, Loopers contract, 3802)`;
 - account `owner()` equals the exact result of `Loopers.ownerOf(3802)`;
-- account `state()` returns exactly uint256 zero for this newly deployed account;
-- account `isValidSigner(holder,emptyContext)` returns the exact ERC-6551 magic value pinned in the activation implementation;
+- account `state()` is a canonical uint256 and is displayed as mutable account state; its current value is not required to remain zero;
+- account `isValidSigner(holder,emptyContext)` returns the exact 32-byte value `0x523e326000000000000000000000000000000000000000000000000000000000`;
 - Loopers `tokenBoundAccount(3802)` and canonical registry `account(implementation,salt,8453,Loopers,3802)` both equal the pinned account;
 - Loopers `erc8004BoundByLooper(3802)` is exactly true, `erc8004AgentIdByLooper(3802)` is exactly `90994`, and `erc8004AgentURI(3802)` is exactly the pinned URI;
 - Adapter8004 `identityRegistry()` equals the pinned registry, `bindingOf(90994)` is exactly `(0,Loopers,3802)`, and `isController(90994,holder)` is exactly true;
-- Identity Registry `ownerOf(90994)` equals Adapter8004 and `tokenURI(90994)` exactly equals the pinned URI;
-- the pinned activation transaction and receipt share one hash and block coordinate, the receipt status is successful, the receipt block is canonical, and the receipt contains exactly one matching canonical `ERC6551AccountCreated` event with exact account, implementation, salt, chain, token contract, and token ID.
+- Identity Registry `ownerOf(90994)` equals Adapter8004 and `tokenURI(90994)` exactly equals the pinned URI.
+
+The historical activation snapshot uses the pinned transaction hash, block number, and block hash. Both origins must return that exact canonical block. The transaction and receipt must share the pinned hash, block hash, block number, and transaction index; receipt status must be `0x1`; and receipt log index `0x106` must be the sole registry creation event with the exact pinned address, topics, data, transaction hash, coordinates, and `removed:false`. Historical account runtime, `token()`, `owner()`, `state()`, and valid-signer reads run against the pinned receipt block; `state()` must be exactly uint256 zero there. `Activation verified` means only that this canonical transaction contains the exact ERC-6551 creation event and the created account had the exact post-state at that block. It does not claim who submitted, sponsored, or authorized the enclosing EntryPoint transaction, so direct-versus-bundled operator attribution is outside this public profile.
 
 The verifier classifies evidence with strict precedence:
 
@@ -110,7 +115,9 @@ Display three live groups:
 - indexed fungible-token balances from Base Blockscout;
 - indexed NFT balances from Base Blockscout.
 
-The page must label non-native holdings as `Blockscout-indexed holdings`, cap rendered items, validate every response field, and support pagination only through an explicit `View on Blockscout` link in this first slice. An empty Blockscout result renders `No indexed assets yet`, not a universal claim that no assets exist.
+The holdings request has a ten-second timeout and a 1 MiB response limit. It accepts one object with exact top-level keys `items` and `next_page_params`; `items` may contain at most 100 entries and the renderer displays at most 24. Accepted token types are exactly `ERC-20`, `ERC-721`, and `ERC-1155`. `ERC-20` requires a nonnegative decimal integer `value` and integer `decimals` in `0..255`; NFT entries require a nonnegative decimal `token_id` and quantity. Contract addresses must be 20-byte hex. Remote token names, symbols, and image URLs are display-only text and are length-capped; remote token image URLs are not loaded in this slice. One malformed item marks the holdings result unavailable rather than silently presenting a partial portfolio. Non-null `next_page_params` produces `More holdings may exist` plus the explorer link; the client never follows server-provided pagination values.
+
+The page labels non-native holdings as `Blockscout-indexed holdings`. An empty valid first page with null pagination renders `No indexed assets yet`, not a universal claim that no assets exist.
 
 ### 5. Agent identity
 
@@ -143,14 +150,45 @@ Create one small manifest for Looper #3802 containing only pinned public facts:
 
 - chain ID and chain label;
 - Looper contract and token ID;
-- artwork/metadata URI and canonical profile route;
+- pinned artwork URL, descriptive metadata fields, metadata source URI, and canonical profile route;
 - deterministic account;
 - expected account implementation, salt, runtime bytes, and runtime SHA-256;
-- ERC-8004 identity ID and registry/adapter addresses;
-- activation transaction hash, canonical registry, event topic, and expected event values;
+- exact proxy/implementation code hashes and EIP-1967 slot words needed by the live proof;
+- ERC-8004 identity ID, URI, registry/adapter addresses, code hashes, and slots;
+- activation transaction and canonical receipt/event coordinates;
 - explorer/OpenSea links.
 
-The manifest is deep-frozen at runtime. Unknown fields fail generation. The generator must ensure every address, hash, URL, token ID, and route is canonical before producing the page.
+The manifest copies security-critical pins from the approved activation specification and the independently captured post-deployment receipt. It must include these exact post-deployment coordinates:
+
+| Field | Exact value |
+|---|---|
+| Transaction | `0x26408e5614af4d5fa507f29a1c4b7f4cc9fdca46057a37870acf9be06a00587c` |
+| Block number | `0x3132ee6` |
+| Block hash | `0xd8f0a523075a77026a68e096354ec3165d8605fc6c62b4b84de84c93c78f43f1` |
+| Transaction index | `0x56` |
+| Receipt status | `0x1` |
+| Registry log index | `0x106` |
+| Registry event topic | `0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722` |
+| Event account | `0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38` |
+| Event implementation | `0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF` |
+| Event salt | `0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee` |
+| Event chain/token | Base `8453`, Loopers `0x1649CD37f4748807b4882FC48765bA0B2aFfa94a`, token `3802` |
+
+The current-proof pin table is exact:
+
+| Identity | Runtime SHA-256 | EIP-1967 slot word when applicable |
+|---|---|---|
+| Looper #3802 account runtime | `0xf711d4661ab10b810b9409543a1e219774af23f67f8f7f0a3db6d6545d4f3b8a` | n/a |
+| Loopers proxy | `0x6ea05616ee3e471f1a4890f75aebac2410a44a0beb0110821f74e6a977e59662` | `0x00000000000000000000000068f22e3563891167d37c86391c4a83449c83e908` |
+| Loopers implementation | `0x46c2bf5bca689ba1994f06a6b85971e68392e2fc458a1ed09ff20022399644ec` | n/a |
+| ERC-6551 registry | `0xd7df998352f46d061e9e27c6a17d5108d7439482cb136c45e0f0733c7bd3da56` | n/a |
+| Account implementation | `0x7994cd119e7aaecf6b8d467e9152cfd0659753fa4919de19be4ff83116d92ee5` | n/a |
+| Adapter8004 proxy | `0xa0dc663d4134b47e77e38495310804146fac6b5ae1bc86b485be4f73314cb017` | `0x0000000000000000000000000f81bd4edd4879734361a1a44460264cbf6f94c9` |
+| Adapter8004 implementation | `0x550ba6b2ab513da8e16b5b23c476c4a9f6ea87b897ba721ddae58410baf094be` | n/a |
+| Identity Registry proxy | `0xe3b1c1b4c04b34f90557a867aaef6bf2d57c5674e7a9f24994ae498ffd0f6f85` | `0x0000000000000000000000007274e874ca62410a93bd8bf61c69d8045e399c02` |
+| Identity Registry implementation | `0x201b7634af2de088c58868052856922ea8534c47e2837f19529460e2fafb4ff1` | n/a |
+
+Code byte lengths and exact runtime bytes remain copied from `2026-09-20-looper-3802-wallet-activation-design.md`; generation fails if that source and the manifest diverge. The manifest is deep-frozen at runtime. Unknown fields fail generation. The generator must ensure every address, hash, URL, token ID, and route is canonical before producing the page.
 
 ## Runtime boundaries
 
@@ -172,8 +210,9 @@ Split the generated runtime into focused units:
    - Returns one immutable `verified`, `unavailable`, or `mismatch` result using the precedence defined above.
 
 4. **Holdings client**
-   - Reads only the exact Base Blockscout address/token endpoints.
-   - Validates response shapes, caps item count, and never follows an arbitrary URL from a response.
+   - Reads only the exact Base Blockscout token endpoint for the pinned account.
+   - Owns the native-balance value supplied by the current Base snapshot and the validated Blockscout holdings result.
+   - Validates response shapes and numeric domains, enforces byte/item/time caps, and never follows an arbitrary URL or pagination value from a response.
 
 5. **Renderer**
    - Uses DOM node creation and `textContent` for remote values.
@@ -181,7 +220,8 @@ Split the generated runtime into focused units:
    - Cannot perform RPC or portfolio fetches directly.
 
 6. **Bootstrap**
-   - Wires the four read-only units and performs one initial refresh.
+   - Wires the four read-only units and performs one initial refresh with an injected clock.
+   - Uses only artwork and descriptive content already validated into the immutable manifest; it performs no runtime metadata fetch.
    - Has no wallet, storage, analytics, cookie, or write boundary.
 
 ## Data sources
@@ -190,13 +230,13 @@ Exact public origins:
 
 - Base RPC primary: `https://mainnet.base.org`
 - Base RPC fallback: `https://base.drpc.org`
-- Indexed holdings: `https://base.blockscout.com/api/v2/addresses/{account}/tokens`
-- Address summary: `https://base.blockscout.com/api/v2/addresses/{account}`
-- Immutable metadata: the pinned Arweave URI after exact-origin validation
+- Indexed holdings: `https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens`
+- Artwork: `https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net/3ZwkzgHeRr0Chw14FzKmwZf54fyHi6d0KVOZQprgq50`
+- Metadata source reference only: `https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json`
 
-Allowed JSON-RPC methods are exactly `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`. Every request uses fixed parameters constructed from the manifest or selected block; the URL, method, address, block, and calldata are never supplied by query strings, storage, remote metadata, or DOM state.
+Allowed JSON-RPC methods are exactly `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getStorageAt`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`. Every request uses fixed parameters constructed from the manifest, the selected current block, or the pinned historical receipt coordinates; the URL, method, address, block, and calldata are never supplied by query strings, storage, remote metadata, or DOM state.
 
-All network reads use GET or JSON-RPC POST without credentials or cookies. RPC uses `redirect: "error"`; Blockscout and metadata redirects may be followed only when the final URL remains on an explicit allowlist. The holdings client accepts only the exact HTTPS Blockscout origin and path prefix. Remote images must resolve to an allowlisted Arweave gateway or an existing pinned Helixa asset URL.
+All runtime network reads use JSON-RPC POST or the one exact Blockscout GET without credentials or cookies. RPC uses `redirect: "error"`; the Blockscout URL is exact and uses `redirect: "error"`. There is no runtime metadata request. The artwork and OG image use the exact final Arweave HTTPS URL above; CSP does not wildcard Arweave. `connect-src` is exactly the two RPC origins and Base Blockscout, while `img-src` is exactly `'self'` and the pinned artwork origin.
 
 ## Routing and generation
 
@@ -217,11 +257,28 @@ The builder:
 - concatenates the allowlisted runtime units in a fixed order;
 - replaces one inline-script marker;
 - emits deterministic LF output;
-- writes the committed generated artifact for review;
+- writes the committed generated artifact at `apps/web/public-profiles/loopers/3802/index.html` for review;
 - supports `--check` and `--dist` modes;
-- places the production artifact at `dist/multipass/loopers/3802/index.html`.
+- writes `apps/web/dist/multipass/loopers/3802/index.html` in `--dist` mode.
 
-Only the #3802 manifest is accepted in this release. Adding another Looper requires a separately reviewed manifest and generated artifact.
+The existing web build sequence is updated to run Vite first, then the activation-page builder, then this profile builder; Vite therefore cannot clear the generated profile after it is written. In production, the committed generated artifact maps directly to `/var/www/helixa.xyz/multipass/loopers/3802/index.html`; the route-only deploy copies that one file and does not replace `/multipass/index.html` or shared assets.
+
+Nginx receives two exact locations before the general `/multipass/` fallback:
+
+```nginx
+location = /multipass/loopers/3802 {
+    root /var/www/helixa.xyz;
+    try_files /multipass/loopers/3802/index.html =404;
+}
+location = /multipass/loopers/3802/ {
+    root /var/www/helixa.xyz;
+    try_files /multipass/loopers/3802/index.html =404;
+}
+```
+
+This preserves the immutable slashless metadata URL without redirect and makes the trailing-slash form equivalent. Deployment backs up the whole Nginx file, inserts only these exact blocks, runs `nginx -t`, reloads only after a successful test, and restores/retests/reloads the backup on any route failure.
+
+Only the #3802 manifest and exact Nginx route are accepted in this release. Adding another Looper requires a separately reviewed manifest, generated artifact, and explicit exact route.
 
 ## Security and privacy
 
@@ -246,7 +303,7 @@ The activation owner page remains separate and no longer acts as the public prof
 - **Runtime mismatch:** show `Proof mismatch`, never `Wallet active` or `Verified`.
 - **Holder/controller/identity mismatch:** show a controller or identity warning and no verified badge.
 - **Receipt unavailable:** deployed state may be shown as `Observed onchain`, but not `Activation verified`.
-- **Metadata unavailable:** show a deterministic initials/image fallback and keep proof operational.
+- **Artwork unavailable:** show a deterministic initials fallback and keep proof operational; descriptive manifest content remains available without a metadata fetch.
 - **Blockscout unavailable:** show `Holdings temporarily unavailable`; do not infer zero balances.
 - **Malformed remote data:** reject the affected data source and render safe status copy.
 - **Refresh race:** only the newest refresh may update the page.
@@ -258,7 +315,7 @@ The generated HTML includes:
 - index/follow robots policy;
 - canonical route;
 - title `Looper #3802 Multipass | Helixa`;
-- concise description mentioning the verified token-bound wallet;
+- neutral description `Public onchain wallet and identity profile for Looper #3802` that does not claim runtime verification before JavaScript completes;
 - Open Graph and Twitter image/title/description;
 - JSON-LD describing the public profile and canonical NFT/account references without inventing ownership claims.
 
