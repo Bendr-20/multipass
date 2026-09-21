@@ -105,6 +105,17 @@ test('controller freezes every literal typed RPC request before the transport bo
   assert.match(source, /transport\.traceTransaction\(attempt\.txHash\)/u);
 });
 
+test('controller wires bounded polling, durable receipt-first confirmation, terminal revalidation, and non-wallet acknowledgement', async () => {
+  const source = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
+  assert.match(source, /pollTransactionReceipt/u);
+  assert.match(source, /pollHeads/u);
+  assert.ok(source.indexOf('persistDiscoveredReceipt(context') < source.indexOf('transport.pollHeads'));
+  assert.match(source, /resumeWithin\(context, \{ revalidation: true \}\)/u);
+  const acknowledgeBody = source.slice(source.indexOf('async function acknowledge()'), source.indexOf('function invalidateWallet()'));
+  assert.equal(acknowledgeBody.includes('sendPinnedActivation'), false);
+  assert.match(acknowledgeBody, /acknowledgeIsolatedOriginalRevert/u);
+});
+
 test('page exposes no editable, automatic retry, or collection-wide activation behavior', async () => {
   const html = await readFile(PAGE, 'utf8');
   assert.equal(/setInterval\([^)]*(?:activate|retry|sendPinnedActivation)/isu.test(html), false);

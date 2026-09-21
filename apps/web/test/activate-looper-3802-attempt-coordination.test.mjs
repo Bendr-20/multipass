@@ -49,6 +49,23 @@ test('unexpired foreign lease blocks takeover even while Web Lock is held', asyn
 });
 
 test('attempt history rejects every unlisted state edge', async () => {
-  const ns = await unit(); const value = storeValue(ns); const invalidAttempt = { ...value.attempts[0], state: 'confirmed_attributed', txHash: `0x${'ab'.repeat(32)}`, receipt: { blockNumber: 1, blockHash: `0x${'cd'.repeat(32)}`, discoveredAtMs: 10, confirmationDeadlineMs: 120010, registryLog: { receiptArrayIndex: 0, logIndex: '0x0', address: ns.PINSET.identities.registry.address.toLowerCase(), topics: [ns.TOPICS.erc6551AccountCreated], data: '0x' } }, history: [...value.attempts[0].history, { from: 'prepared', to: 'confirmed_attributed', atMs: 10, reason: 'receipt_attributed' }] };
+  const ns = await unit(); const value = storeValue(ns); const invalidAttempt = { ...value.attempts[0], state: 'confirmed_attributed', updatedAtMs: 2000, txHash: `0x${'ab'.repeat(32)}`, receipt: { blockNumber: 1, blockHash: `0x${'cd'.repeat(32)}`, discoveredAtMs: 2000, confirmationDeadlineMs: 122000, registryLog: { receiptArrayIndex: 0, logIndex: '0x0', address: ns.PINSET.identities.registry.address.toLowerCase(), topics: [ns.TOPICS.erc6551AccountCreated, `0x${ns.addressWord(ns.PINSET.identities.accountImplementation.address)}`, `0x${ns.addressWord(ns.PINSET.identities.loopers.address)}`, `0x${ns.uint256Word(ns.PINSET.tokenId)}`], data: `0x${ns.addressWord(ns.PINSET.account)}${ns.PINSET.salt.slice(2)}${ns.uint256Word(ns.PINSET.chainId)}` } }, history: [...value.attempts[0].history, { from: 'prepared', to: 'confirmed_attributed', atMs: 2000, reason: 'receipt_attributed' }] };
   assert.throws(() => ns.validateStoreV1({ ...value, attempts: [invalidAttempt] }), /legal|history/i);
+});
+
+test('state evidence acknowledgement active-attempt and supersession invariants fail closed', async () => {
+  const ns = await unit(); const base = storeValue(ns); const hash = `0x${'ab'.repeat(32)}`;
+  const transition = (from, to, reason, patch = {}) => ({ ...from, ...patch, state: to, updatedAtMs: 2000, history: [...from.history, { from: from.state, to, atMs: 2000, reason }] });
+  const hashless = transition(base.attempts[0], 'uncertain_hashless', 'provider_ambiguous', { txHash: hash });
+  assert.throws(() => ns.validateStoreV1({ ...base, attempts: [hashless] }), /hashless|evidence|txHash/i);
+  const submitted = transition(base.attempts[0], 'submitted', 'provider_hash', { txHash: hash, observation: { blockNumber: 1, blockHash: `0x${'cd'.repeat(32)}`, observedAtMs: 2000 } });
+  assert.throws(() => ns.validateStoreV1({ ...base, attempts: [submitted] }), /observation|evidence/i);
+  assert.throws(() => ns.validateStoreV1({ ...base, attempts: [{ ...base.attempts[0], acknowledgedAtMs: 2000, updatedAtMs: 2000 }] }), /acknowledge/i);
+  assert.throws(() => ns.validateStoreV1({ ...base, attempts: [{ ...base.attempts[0], retryOrdinal: 1 }] }), /retry|ordinal|lone/i);
+
+  const eligibleOriginal = transition(base.attempts[0], 'uncertain_hashless', 'provider_ambiguous');
+  const original = transition(eligibleOriginal, 'superseded', 'retry_superseded', { supersededById: UUID_B });
+  const retry = { ...attempt(ns, { id: UUID_B, retryOrdinal: 1, supersedesId: original.id }), createdAtMs: 2000, updatedAtMs: 2000, waitUntilMs: 602000, history: [{ from: null, to: 'prepared', atMs: 2000, reason: 'activate' }] };
+  const linked = { ...base, activeAttemptId: original.id, attempts: [original, retry] };
+  assert.throws(() => ns.validateStoreV1(linked), /active|superseded/i);
 });

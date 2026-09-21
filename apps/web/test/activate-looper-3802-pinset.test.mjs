@@ -122,6 +122,13 @@ test('builder enforces its exact manifest, marker count, and LF output', async (
   assert.throws(() => renderActivationHtml({ template: `${template}${template}`, sourceFiles }), /exactly one inline marker/i);
 });
 
+test('namespace installation is non-writable and non-configurable', async () => {
+  const source = await readFile(new URL('../owner-tools/activate-looper-3802/src/00-namespace.js', import.meta.url), 'utf8');
+  assert.match(source, /Object\.defineProperty\(globalThis/u);
+  assert.match(source, /writable:\s*false/u);
+  assert.match(source, /configurable:\s*false/u);
+});
+
 test('pinset contains every approved execution identity and fixed boundary', async () => {
   const { PINSET, RPC_ORIGINS, SELECTORS, TOPICS } = await loadPinsetUnit();
   const identities = {
@@ -231,6 +238,7 @@ test('exact activation calldata runtime hashes and transaction are pinned', asyn
   assert.equal(unit.EXPECTED_ACCOUNT_RUNTIME_SHA256, '0xf711d4661ab10b810b9409543a1e219774af23f67f8f7f0a3db6d6545d4f3b8a');
   assert.equal(await unit.sha256Hex(expectedRuntime), unit.EXPECTED_ACCOUNT_RUNTIME_SHA256);
   assert.equal(await unit.sha256Hex(expectedCalldata), '0xa42579ef68c4872f9c08ed5b67e9875c230fde1b0808a3df7401fe3ed65a19e8');
+  assert.equal((await readFile(new URL('../owner-tools/activate-looper-3802/src/01-pinset-encoding.js', import.meta.url), 'utf8')).includes('globalThis.crypto'), false);
   assert.deepEqual(Object.keys(unit.EXACT_TRANSACTION), ['chainId', 'from', 'to', 'data', 'value']);
   assert.deepEqual(plain(unit.EXACT_TRANSACTION), {
     chainId: '0x2105',

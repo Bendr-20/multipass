@@ -4,10 +4,17 @@
   const ns = globalThis.ActivateLooper3802;
   function bootstrap({ window, document }) {
     const transport = ns.createPublicRpcTransport({ fetch: window.fetch.bind(window), AbortController: window.AbortController, setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window), sleep: (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)), now: () => Date.now() });
-    const wallet = ns.createWalletBoundary(window.ethereum);
+    let provider = null; let storage = null; let locks = null;
+    try { provider = window.ethereum || null; } catch {}
+    try { storage = window.localStorage; } catch {}
+    try { locks = window.navigator?.locks || null; } catch {}
+    const wallet = ns.createWalletBoundary(provider);
     let controller;
-    const store = ns.createAttemptStore(window.localStorage, () => controller?.invalidateStorage());
-    const coordinator = ns.createCrossTabCoordinator({ locks: window.navigator.locks, store, crypto: window.crypto, now: () => Date.now(), setInterval: window.setInterval.bind(window), clearInterval: window.clearInterval.bind(window) });
+    const store = storage ? ns.createAttemptStore(storage, () => controller?.invalidateStorage()) : ns.deepFreeze({
+      read() { throw new Error('Durable activation storage is unavailable; page is read-only.'); },
+      handleStorageEvent() {},
+    });
+    const coordinator = ns.createCrossTabCoordinator({ locks: storage ? locks : null, store, crypto: window.crypto, now: () => Date.now(), setInterval: window.setInterval.bind(window), clearInterval: window.clearInterval.bind(window) });
     const renderer = ns.createRenderer(document);
     controller = ns.createController({ transport, wallet, store, coordinator, renderer, crypto: window.crypto, now: () => Date.now() });
     renderer.elements.connect.addEventListener('click', () => void controller.connect());

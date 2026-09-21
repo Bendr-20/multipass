@@ -1,3 +1,3 @@
 'use strict';
 
-globalThis.ActivateLooper3802 = Object.create(null);
+Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(null), enumerable: false, writable: false, configurable: false });

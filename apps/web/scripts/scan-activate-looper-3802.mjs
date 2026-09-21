@@ -8,6 +8,9 @@ export const PRODUCTION_ROOT = join(scriptDir, '..', 'owner-tools', 'activate-lo
 const ALLOWED_URLS = new Set(['https://mainnet.base.org','https://base.drpc.org','https://base-rpc.publicnode.com','https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json','https://basescan.org/tx/']);
 const WALLET_METHODS = ['eth_chainId','eth_accounts','eth_requestAccounts','wallet_switchEthereumChain','eth_sendTransaction'];
 const PUBLIC_METHODS = ['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_getStorageAt','eth_getBalance','eth_call','eth_estimateGas','eth_gasPrice','eth_getTransactionByHash','eth_getTransactionReceipt','debug_traceTransaction'];
+const APPROVED_METHODS = new Set([...WALLET_METHODS, ...PUBLIC_METHODS]);
+const APPROVED_SELECTORS = new Set(['0x8da5cb5b','0x6352211e','0x056d5afe','0xb3dd12a2','0x0df783f8','0x0be76ed6','0x246a0021','0x5adbbdce','0x4c4a2696','0xf195e791','0x134e18f4','0x4d69ebc2','0x158e711d','0xc87b56dd','0x5c60da1b','0xb0d691fe','0xfc0c546a','0xc19d93fb','0x523e3260','0xb61d27f6','0x34fcd5be','0x2c2abd1e','0x1fad948c','0xa6193531','0x8a54c52f']);
+const APPROVED_STORAGE_NAMES = new Set(['loopers.walletActivation','loopers.walletActivation.8453.3802.v1','loopers.walletActivation.8453.3802.submit.v1']);
 
 function finding(path, message) { throw new Error(`${path}: ${message}`); }
 export async function scanTree(root = PRODUCTION_ROOT) {
@@ -42,11 +45,19 @@ export async function scanTree(root = PRODUCTION_ROOT) {
     'navigator.locks': new Set(['src/09-bootstrap.js']),
   };
   for (const [token, paths] of Object.entries(allowedGlobal)) for (const { path, text } of all) if (text.includes(token) && !paths.has(path) && path !== 'index.html') finding(path, `misplaced ${token}`);
+  for (const { path, text } of all) {
+    if (/provider\.request\s*\(/u.test(text) && !['src/04-wallet-boundary.js','src/09-bootstrap.js'].includes(path) && path !== 'index.html') finding(path, 'misplaced provider request');
+    if (/navigator(?:\?\.|\.)locks/gu.test(text) && path !== 'src/09-bootstrap.js' && path !== 'index.html') finding(path, 'misplaced Web Locks capability');
+    if (text.includes('debug_traceTransaction') && path !== 'src/02-public-rpc-transport.js' && path !== 'index.html') finding(path, 'trace method outside transport');
+    if (/URLSearchParams|location\.(?:search|hash)|[?&](?:rpc|provider|target)=/iu.test(text)) finding(path, 'dynamic URL or configuration input');
+  }
   const source = names.map((name) => files.get(`src/${name}`)).join('\n');
   for (const method of WALLET_METHODS) if (!source.includes(method)) finding('src', `missing wallet method ${method}`);
   for (const method of PUBLIC_METHODS) if (!source.includes(method)) finding('src', `missing public method ${method}`);
-  for (const forbidden of ['eth_sign','personal_sign','eth_signTransaction','wallet_addEthereumChain']) if (source.includes(forbidden)) finding('src', `forbidden wallet method ${forbidden}`);
-  if ((source.match(/eth_sendTransaction/gu) || []).length > 2) finding('src', 'eth_sendTransaction appears outside allowlist/boundary');
+  for (const match of source.matchAll(/(['"])((?:eth|wallet|personal|debug)_[A-Za-z0-9_]+)\1/gu)) if (!APPROVED_METHODS.has(match[2])) finding('src', `unapproved wallet/public method ${match[2]}`);
+  for (const match of source.matchAll(/(['"])(0x[0-9a-fA-F]{8})\1/gu)) if (!APPROVED_SELECTORS.has(match[2].toLowerCase())) finding('src', `unapproved selector ${match[2]}`);
+  for (const match of source.matchAll(/loopers\.walletActivation[^'"\s]*/gu)) if (!APPROVED_STORAGE_NAMES.has(match[0])) finding('src', `unapproved activation storage key ${match[0]}`);
+  if ((source.match(/eth_sendTransaction/gu) || []).length !== 2) finding('src', 'eth_sendTransaction appears outside exact allowlist/boundary');
   const output = { files: [...files.keys()].sort(), walletMethods: WALLET_METHODS, publicMethods: PUBLIC_METHODS, status: 'approved' };
   return output;
 }

@@ -862,10 +862,22 @@ test('preflight plan covers every pinned code slot call simulation gas and accou
   assert.ok(Object.isFrozen(unit.PREFLIGHT_PLAN));
 });
 
-test('receipt-block plan excludes pre-send simulation and gas while adding exact account proofs', async () => {
+test('snapshot validator rejects mixed-origin mismatched and unknown transport evidence', async () => {
+  const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
+  const plan = [{ key: 'code', request: { kind: 'code', address: ADDRESS } }];
+  const bundle = { origin: MAINNET, mode: 'eip-1898', anchor: { number: '0x64', hash: HASH }, items: [{ origin: MAINNET, method: 'eth_getCode', params: [ADDRESS, { blockHash: HASH, requireCanonical: true }], result: '0x' }] };
+  assert.equal(unit.validateBundleMetadata(bundle, plan), true);
+  assert.throws(() => unit.validateBundleMetadata({ ...bundle, extra: true }, plan), /unknown|keys/i);
+  assert.throws(() => unit.validateBundleMetadata({ ...bundle, items: [{ ...bundle.items[0], origin: DRPC }] }, plan), /mixed-origin|mismatched/i);
+  assert.throws(() => unit.validateBundleMetadata({ ...bundle, items: [{ ...bundle.items[0], params: [ADDRESS, '0x64'] }] }, plan), /mixed-origin|mismatched/i);
+});
+
+test('receipt-block plans separate deployed account proofs from reverted undeployed proof', async () => {
   const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
   const keys = unit.POST_STATE_PLAN.map(({ key }) => key);
   assert.equal(keys.includes('simulation'), false); assert.equal(keys.includes('estimateGas'), false); assert.equal(keys.includes('gasPrice'), false);
   assert.deepEqual(JSON.parse(JSON.stringify(keys.filter((key) => key.startsWith('account:')).sort())), ['account:owner','account:state','account:token','account:validSigner']);
+  assert.equal(unit.REVERTED_STATE_PLAN.some(({ key }) => key.startsWith('account:')), false);
+  assert.equal(unit.REVERTED_STATE_PLAN.includes(unit.POST_STATE_PLAN[0]), true);
   assert.equal(unit.ACCOUNT_CALLS.validSigner.data, `${unit.SELECTORS.accountIsValidSigner}${unit.addressWord(unit.PINSET.holder)}${unit.uint256Word(64)}${unit.uint256Word(0)}`);
 });
