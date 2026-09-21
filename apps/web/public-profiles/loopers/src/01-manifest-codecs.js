@@ -299,7 +299,20 @@
     try {
       if (Array.isArray(expectedValue)) {
         if (!Array.isArray(candidate) || candidate.length !== expectedValue.length) throw new TypeError(path.join('.') + ' array length is not exact.');
-        return candidate.map((child, index) => normalizeExact(child, expectedValue[index], [...path, String(index)], ancestors));
+        const expectedKeys = Reflect.ownKeys(expectedValue);
+        const candidateKeys = Reflect.ownKeys(candidate);
+        if (candidateKeys.length !== expectedKeys.length || candidateKeys.some((key, index) => key !== expectedKeys[index])) {
+          throw new TypeError(path.join('.') + ' array keys are not exact.');
+        }
+        const normalized = [];
+        for (let index = 0; index < expectedValue.length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index));
+          if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
+            throw new TypeError([...path, String(index)].join('.') + ' must be a plain data element.');
+          }
+          normalized.push(normalizeExact(descriptor.value, expectedValue[index], [...path, String(index)], ancestors));
+        }
+        return normalized;
       }
       if (Array.isArray(candidate) || Object.prototype.toString.call(candidate) !== '[object Object]') {
         throw new TypeError(path.join('.') + ' must be a plain object.');

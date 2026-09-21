@@ -203,6 +203,29 @@ test('validates only the exact manifest and returns a recursively frozen normali
   }
 });
 
+test('rejects sparse arrays, extra own keys, symbols, and accessor-backed array values', async () => {
+  const { unit } = await loadBrowserUnits();
+  const malformedTopics = [
+    (topics) => { delete topics[1]; },
+    (topics) => { topics.extra = true; },
+    (topics) => { Object.defineProperty(topics, 'hidden', { value: true }); },
+    (topics) => { topics[Symbol('unexpected')] = true; },
+    (topics) => {
+      const value = topics[1];
+      Object.defineProperty(topics, '1', { enumerable: true, configurable: true, get: () => value });
+    },
+    (topics) => { Object.defineProperty(topics, 'extra', { enumerable: true, get: () => true }); },
+  ];
+
+  for (const mutate of malformedTopics) {
+    const candidate = clone(manifest);
+    mutate(candidate.activation.event.topics);
+    assert.throws(() => unit.validateManifest(candidate), /array|keys|plain data|exact/iu);
+  }
+
+  assert.doesNotThrow(() => unit.validateManifest(manifest));
+});
+
 test('rejects malformed and noncanonical manifest data before accepting any pin', async () => {
   const { unit } = await loadBrowserUnits();
   const cases = [
