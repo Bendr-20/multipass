@@ -339,7 +339,10 @@ export function assertActivationParity(manifest, activation) {
 }
 
 function createIsolatedContext() {
-  return createContext({ crypto: webcrypto, TextDecoder, TextEncoder, Uint8Array });
+  return createContext(
+    { crypto: webcrypto, TextDecoder, TextEncoder, Uint8Array },
+    { microtaskMode: 'afterEvaluate' },
+  );
 }
 
 function evaluateClassicUnits(sources, globalName) {

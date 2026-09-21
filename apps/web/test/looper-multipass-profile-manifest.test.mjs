@@ -751,6 +751,32 @@ test('bounds every trusted builder VM evaluation and times out an infinite-loop 
   });
 });
 
+test('keeps queued Promise jobs inside the builder VM timeout boundary', async () => {
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const sourcePath = path.join(temporaryWebRoot, 'public-profiles/loopers/src/01-manifest-codecs.js');
+    const source = await readFile(sourcePath, 'utf8');
+    await writeFile(sourcePath, `${source}\nPromise.resolve().then(() => { while (true) {} });\n`);
+    const program = [
+      `const { buildExpectedHtml } = await import(${JSON.stringify(pathToFileURL(builderPath).href)});`,
+      'try {',
+      `  await buildExpectedHtml({ webRoot: ${JSON.stringify(temporaryWebRoot)} });`,
+      "  process.stderr.write('builder unexpectedly completed');",
+      '  process.exitCode = 2;',
+      '} catch (error) {',
+      "  process.stdout.write(String(error?.code ?? 'NO_ERROR_CODE'));",
+      "  if (error?.code !== 'ERR_SCRIPT_EXECUTION_TIMEOUT') process.exitCode = 3;",
+      '}',
+    ].join('\n');
+    const result = spawnSync(process.execPath, ['--input-type=module', '--eval', program], {
+      encoding: 'utf8',
+      timeout: 3_000,
+    });
+    assert.equal(result.error, undefined, `builder failed to enforce its own microtask timeout: ${result.error?.message ?? ''}`);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, 'ERR_SCRIPT_EXECUTION_TIMEOUT');
+  });
+});
+
 test('rejects activation selector key and value drift against the explicit approved projection', async () => {
   const { assertActivationParity } = await loadBuilder();
   const activation = await loadActivationFixture();
