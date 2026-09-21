@@ -90,7 +90,7 @@
   async function verifyPostState(post) {
     if (!post || post.accountCode !== ns.EXPECTED_ACCOUNT_RUNTIME || await ns.sha256Hex(post.accountCode) !== ns.EXPECTED_ACCOUNT_RUNTIME_SHA256 || post.accountBalance !== '0x0') return false;
     return post.tokenResult === `0x${ns.uint256Word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${ns.uint256Word(ns.PINSET.tokenId)}`
-      && post.ownerResult === `0x${ns.addressWord(ns.PINSET.holder)}` && post.stateResult === `0x${ns.uint256Word(0)}` && post.validSignerResult === ns.SELECTORS.accountIsValidSigner && post.invariantsValid === true;
+      && post.ownerResult === `0x${ns.addressWord(ns.PINSET.holder)}` && post.stateResult === `0x${ns.uint256Word(0)}` && post.validSignerResult === `${ns.SELECTORS.accountIsValidSigner}${'0'.repeat(56)}` && post.invariantsValid === true;
   }
   async function verifyReceiptEvidence({ requestedHash, transaction, receipt, postState, trace = null, onchainUserOpHashResult = null }) {
     exactHashes(requestedHash, transaction, receipt); validateReceiptCoordinates(transaction, receipt); if (!Array.isArray(receipt.logs)) throw new Error('Receipt logs missing.'); uniqueLogIndices(receipt.logs); const postValid = await verifyPostState(postState);

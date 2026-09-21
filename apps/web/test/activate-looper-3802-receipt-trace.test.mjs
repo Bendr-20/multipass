@@ -8,7 +8,7 @@ const word = (value) => BigInt(value).toString(16).padStart(64, '0');
 const addressTopic = (address) => `0x${address.slice(2).toLowerCase().padStart(64, '0')}`;
 
 function registryLog(ns, index = 0) { return { address: ns.PINSET.identities.registry.address, logIndex: `0x${index.toString(16)}`, topics: [ns.TOPICS.erc6551AccountCreated, addressTopic(ns.PINSET.identities.accountImplementation.address), addressTopic(ns.PINSET.identities.loopers.address), `0x${word(ns.PINSET.tokenId)}`], data: `0x${ns.addressWord(ns.PINSET.account)}${ns.PINSET.salt.slice(2)}${word(ns.PINSET.chainId)}` }; }
-function postState(ns, overrides = {}) { return { accountCode: ns.EXPECTED_ACCOUNT_RUNTIME, accountBalance: '0x0', tokenResult: `0x${word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${word(ns.PINSET.tokenId)}`, ownerResult: `0x${ns.addressWord(ns.PINSET.holder)}`, stateResult: `0x${word(0)}`, validSignerResult: ns.SELECTORS.accountIsValidSigner, invariantsValid: true, ...overrides }; }
+function postState(ns, overrides = {}) { return { accountCode: ns.EXPECTED_ACCOUNT_RUNTIME, accountBalance: '0x0', tokenResult: `0x${word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${word(ns.PINSET.tokenId)}`, ownerResult: `0x${ns.addressWord(ns.PINSET.holder)}`, stateResult: `0x${word(0)}`, validSignerResult: `${ns.SELECTORS.accountIsValidSigner}${'0'.repeat(56)}`, invariantsValid: true, ...overrides }; }
 
 test('direct transaction requires exact envelope event and canonical post-state', async () => {
   const ns = await unit(); const hash = `0x${'ab'.repeat(32)}`; const log = registryLog(ns);

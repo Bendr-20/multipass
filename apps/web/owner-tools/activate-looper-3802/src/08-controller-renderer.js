@@ -66,7 +66,7 @@
     let busy = false; let refreshVersion = 0; let walletGeneration = 0; let preflight = null; let walletState = { chainId: null, account: null }; let durable = null; let status = 'Verifying pinned production state...';
     function view(txHash = null) { const walletReady = walletState.chainId === ns.PINSET.chainIdHex && walletState.account?.toLowerCase() === ns.PINSET.identities.sponsor.address.toLowerCase(); return { busy, wallet: walletState, preflight, store: durable, txHash, status, controls: deriveControls({ busy, walletReady, preflight, store: durable, locksAvailable: coordinator.available }) }; }
     function draw(txHash = null) { renderer.render(view(txHash)); }
-    async function readPreflight() { const anchor = await transport.anchorCanonicalHead(); const evidence = await transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)); evidence.anchor ||= anchor; const currentWallet = await wallet.readState(); const validated = await ns.validatePreflight(evidence, currentWallet); return { validated, currentWallet }; }
+    async function readPreflight() { const anchor = await transport.anchorCanonicalHead(); const [stateEvidence, gasPrice] = await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard({ kind: 'gasPrice' })]); const evidence = { ...stateEvidence, anchor, gasPrice }; const currentWallet = await wallet.readState(); const validated = await ns.validatePreflight(evidence, currentWallet); return { validated, currentWallet }; }
     async function refresh() {
       const version = ++refreshVersion; busy = true; status = 'Verifying pinned production state...'; draw();
       try { durable = store.read(); walletState = await wallet.readState(); if (!wallet.hasProvider) throw new Error('Injected wallet not found. Read-only checks remain safe; activation is disabled.'); const result = await readPreflight(); if (version !== refreshVersion) return; preflight = result.validated; walletState = result.currentWallet; status = preflight.accountState === 'deployed_exact' ? 'Pinned account is deployed; use Resume verification for canonical post-state.' : 'Ready. Every pinned preflight check passed.'; }
@@ -89,8 +89,42 @@
       } catch (error) { status = String(error?.message || error); }
       finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
     }
-    async function resume() { if (busy) return; busy = true; draw(); try { await coordinator.run('resume', async () => { durable = store.read(); status = 'Durable attempt retained. Canonical receipt verification requires complete public evidence; no wallet action was requested.'; }); } catch (error) { status = String(error?.message || error); } finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); } }
-    async function retry() { status = 'Retry requires fresh canonical eligibility proof and remains disabled unless the original hashless attempt is eligible.'; draw(); }
+    async function resume() {
+      if (busy) return; busy = true; draw();
+      try {
+        await coordinator.run('resume', async (context) => {
+          const latest = context.readLatest(); const attempt = latest.attempts.find((item) => item.id === latest.activeAttemptId); if (!attempt) throw new Error('No active attempt to resume.');
+          if (!attempt.txHash) { const result = await readPreflight(); if (result.validated.accountState === 'deployed_exact') { const at = now(); context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === attempt.id ? transitionAttempt(item, 'observed_unattributed', 'state_observed_unattributed', at, { observation: { blockNumber: result.validated.blockNumber, blockHash: result.validated.blockHash, observedAtMs: at } }) : item) })); status = 'Pinned account is canonically deployed, but no transaction hash can be attributed.'; } else status = 'No transaction hash is available. The attempt remains locked to prevent duplicate activation.'; return; }
+          const quorum = await transport.finalReceiptQuorum(attempt.txHash); const tx = quorum.mainnet.transaction.result; const receipt = quorum.mainnet.receipt.result; const drpcTx = quorum.drpc.transaction.result; const drpcReceipt = quorum.drpc.receipt.result; const publicReceipt = quorum.publicNodeReceipt.result;
+          if (!tx || !receipt || JSON.stringify(tx) !== JSON.stringify(drpcTx) || JSON.stringify(receipt) !== JSON.stringify(drpcReceipt) || !publicReceipt || publicReceipt.blockHash !== receipt.blockHash || publicReceipt.transactionHash !== receipt.transactionHash) throw new Error('Complete transaction/receipt quorum is unavailable.');
+          const anchor = { number: receipt.blockNumber, hash: receipt.blockHash }; const heads = await transport.anchorCanonicalHead(); if (ns.parseQuantity(heads.number) < ns.parseQuantity(receipt.blockNumber) + 2n) throw new Error('Waiting for three canonical confirmations.');
+          const postEvidence = await transport.stateBatch(anchor, ns.POST_STATE_PLAN.map(({ request }) => request)); const postState = await ns.validatePostState(postEvidence);
+          let trace = null; if (tx.to?.toLowerCase() === ns.PINSET.identities.entryPoint.address.toLowerCase()) trace = (await transport.request('https://base.drpc.org', { kind: 'trace', hash: attempt.txHash })).result;
+          const verified = await ns.verifyReceiptEvidence({ requestedHash: attempt.txHash, transaction: tx, receipt, postState, trace, onchainUserOpHashResult: null }); const at = now();
+          const persistedReceipt = { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, discoveredAtMs: at, confirmationDeadlineMs: at + 120000, registryLog: verified.registryLog || null };
+          const observation = verified.classification === 'observed_unattributed' ? { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, observedAtMs: at } : null;
+          const reason = verified.classification === 'confirmed_attributed' ? 'receipt_attributed' : verified.classification === 'observed_unattributed' ? 'state_observed_unattributed' : 'receipt_reverted';
+          context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === attempt.id ? transitionAttempt(item, verified.classification, reason, at, { receipt: persistedReceipt, observation }) : item) }));
+          status = verified.classification === 'confirmed_attributed' ? 'Confirmed and attributed: the pinned account was created by the approved activation call.' : verified.classification === 'observed_unattributed' ? 'Pinned account state is canonical, but transaction attribution is incomplete.' : 'Activation transaction reverted and the pinned account remains undeployed.';
+        });
+      } catch (error) { status = String(error?.message || error); }
+      finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
+    }
+    async function retry() {
+      if (busy) return; busy = true; draw();
+      try {
+        await coordinator.run('retry', async (context) => {
+          const latest = context.readLatest(); const original = latest.attempts.find((item) => item.id === latest.activeAttemptId); if (!original || original.state !== 'uncertain_hashless' || original.retryOrdinal !== 0 || original.txHash !== null || now() < original.waitUntilMs || latest.attempts.length !== 1) throw new Error('Original hashless attempt is not retry-eligible.');
+          const result = await readPreflight(); if (!result.validated.sendReady) throw new Error('Retry requires the pinned account to remain undeployed with zero balance.'); const timestamp = now(); const draft = makeAttempt({ id: crypto.randomUUID(), nowMs: timestamp, walletGeneration, validated: result.validated, retryOrdinal: 1, supersedesId: original.id });
+          const handoff = persistRetryAndInvoke(context, wallet, original.id, draft); let hash;
+          try { hash = await handoff.sendPromise; }
+          catch (error) { const to = error?.code === 4001 ? 'retry_cancelled' : 'uncertain_hashless'; const reason = error?.code === 4001 ? 'provider_rejected_retry' : 'provider_ambiguous'; context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, to, reason, now()) : item) })); status = error?.code === 4001 ? 'Retry was rejected. The one retry is permanently consumed.' : 'Retry wallet outcome is ambiguous and remains locked.'; return; }
+          if (!HASH.test(hash)) { context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, 'uncertain_hashless', 'provider_ambiguous', now()) : item) })); status = 'Retry returned no trustworthy hash and remains locked.'; return; }
+          context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, 'submitted', 'provider_hash', now(), { txHash: hash }) : item) })); status = 'Retry submitted. Resume canonical verification.';
+        });
+      } catch (error) { status = String(error?.message || error); }
+      finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
+    }
     async function acknowledge() { if (busy) return; try { await coordinator.run('acknowledge', async (context) => { context.mutate((latest) => ({ ...latest, attempts: latest.attempts.map((attempt) => attempt.id === latest.activeAttemptId ? { ...attempt, acknowledgedAtMs: now(), updatedAtMs: now() } : attempt) })); }); status = 'Result acknowledged. Durable evidence and write lock were retained.'; } catch (error) { status = String(error?.message || error); } durable = store.read(); draw(); }
     function invalidateWallet() { walletGeneration += 1; refreshVersion += 1; preflight = null; status = 'Wallet state changed. Readiness was invalidated.'; draw(); if (!busy) void refresh(); }
     function invalidateStorage() { refreshVersion += 1; durable = store.read(); preflight = null; status = 'Another tab changed activation state. Readiness was invalidated.'; draw(); }

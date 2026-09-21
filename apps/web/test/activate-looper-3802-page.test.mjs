@@ -59,3 +59,13 @@ test('generated page retains the exact closed UI and safe status rendering surfa
   assert.equal(document.querySelectorAll('script[src],iframe,object,embed').length, 0);
   assert.doesNotThrow(() => new Function(document.scripts[0].textContent));
 });
+
+test('retry handoff atomically supersedes one eligible original before wallet invocation', async () => {
+  const ns = await unit(); const journal = []; const retry = { id: 'retry', createdAtMs: 700000, supersedesId: null };
+  const original = { id: 'original', state: 'uncertain_hashless', retryOrdinal: 0, txHash: null, waitUntilMs: 600000, history: [], updatedAtMs: 0, supersededById: null };
+  const context = { mutate(mutator) { journal.push('write'); const next = mutator({ activeAttemptId: 'original', attempts: [original] }); journal.push('read-back'); return next; } };
+  const wallet = { sendPinnedActivation() { journal.push('send'); return Promise.resolve('hash'); } };
+  const handoff = ns.persistRetryAndInvoke(context, wallet, original.id, retry); journal.push('await'); await handoff.sendPromise;
+  assert.deepEqual(journal, ['write','read-back','send','await']);
+  assert.equal(handoff.stored.attempts[0].state, 'superseded'); assert.equal(handoff.stored.attempts[1].supersedesId, 'original');
+});

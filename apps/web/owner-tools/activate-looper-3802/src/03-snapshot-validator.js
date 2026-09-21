@@ -18,7 +18,6 @@
     plan.push({ key: 'accountBalance', request: { kind: 'balance', address: ns.PINSET.account } });
     plan.push({ key: 'simulation', request: { kind: 'call', transaction: ns.EXACT_TRANSACTION } });
     plan.push({ key: 'estimateGas', request: { kind: 'estimate', transaction: ns.EXACT_TRANSACTION } });
-    plan.push({ key: 'gasPrice', request: { kind: 'gasPrice' } });
     return ns.deepFreeze(plan);
   }
   const PREFLIGHT_PLAN = createPreflightPlan();
@@ -27,6 +26,7 @@
     if (!bundle || typeof bundle !== 'object' || !bundle.anchor || !HASH.test(bundle.anchor.hash) || typeof bundle.anchor.number !== 'string' || !Array.isArray(bundle.items) || bundle.items.length !== PREFLIGHT_PLAN.length) throw new Error('Incomplete or malformed anchored state bundle.');
     const values = Object.create(null);
     PREFLIGHT_PLAN.forEach(({ key }, index) => { values[key] = unwrap(bundle.items[index]); });
+    values.gasPrice = unwrap(bundle.gasPrice);
     return values;
   }
   function sameAddress(a, b) { return typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase(); }
@@ -83,7 +83,34 @@
     return ns.deepFreeze(validated);
   }
 
+  const ACCOUNT_CALLS = ns.deepFreeze({
+    token: { to: ns.PINSET.account, data: ns.SELECTORS.accountToken },
+    owner: { to: ns.PINSET.account, data: ns.SELECTORS.accountOwner },
+    state: { to: ns.PINSET.account, data: ns.SELECTORS.accountState },
+    validSigner: { to: ns.PINSET.account, data: `${ns.SELECTORS.accountIsValidSigner}${ns.addressWord(ns.PINSET.holder)}${ns.uint256Word(64)}${ns.uint256Word(0)}` },
+  });
+  const POST_STATE_PLAN = ns.deepFreeze([
+    ...CODE_IDENTITIES.map((name) => ({ key: `code:${name}`, request: { kind: 'code', address: ns.PINSET.identities[name].address } })),
+    ...SLOT_IDENTITIES.map((name) => ({ key: `slot:${name}`, request: { kind: 'storage', address: ns.PINSET.identities[name].address, slot: ns.PINSET.eip1967Slot } })),
+    ...CALL_NAMES.map((name) => ({ key: `call:${name}`, request: callRequest(ns.CALLS[name]) })),
+    { key: 'accountCode', request: { kind: 'code', address: ns.PINSET.account } },
+    { key: 'accountBalance', request: { kind: 'balance', address: ns.PINSET.account } },
+    ...Object.entries(ACCOUNT_CALLS).map(([key, transaction]) => ({ key: `account:${key}`, request: { kind: 'call', transaction } })),
+  ]);
+  async function validatePostState(bundle) {
+    if (!bundle || !bundle.anchor || !HASH.test(bundle.anchor.hash) || !Array.isArray(bundle.items) || bundle.items.length !== POST_STATE_PLAN.length) throw new Error('Incomplete receipt-block post-state bundle.');
+    const values = Object.create(null); POST_STATE_PLAN.forEach(({ key }, index) => { values[key] = unwrap(bundle.items[index]); });
+    for (const name of CODE_IDENTITIES) { const identity = ns.PINSET.identities[name]; const code = values[`code:${name}`]; if (codeLength(code) !== identity.bytes || await ns.sha256Hex(code) !== identity.sha256) throw new Error(`${name} receipt-block code mismatch.`); }
+    if (values['code:sponsor'] !== ns.PINSET.sponsorDesignator) throw new Error('Receipt-block sponsor designator mismatch.');
+    for (const name of SLOT_IDENTITIES) requireRaw(values[`slot:${name}`], ns.PINSET.identities[name].implementationSlot, `${name} receipt-block slot`);
+    for (const name of CALL_NAMES) requireRaw(values[`call:${name}`], ns.CALLS[name].result, `${name} receipt-block call`);
+    if (values.accountCode !== ns.EXPECTED_ACCOUNT_RUNTIME || await ns.sha256Hex(values.accountCode) !== ns.EXPECTED_ACCOUNT_RUNTIME_SHA256 || values.accountBalance !== '0x0') throw new Error('Receipt-block account runtime or balance mismatch.');
+    const expectedToken = `0x${ns.uint256Word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${ns.uint256Word(ns.PINSET.tokenId)}`;
+    const expectedOwner = `0x${ns.addressWord(ns.PINSET.holder)}`; const expectedState = `0x${ns.uint256Word(0)}`; const expectedSigner = `${ns.SELECTORS.accountIsValidSigner}${'0'.repeat(56)}`;
+    requireRaw(values['account:token'], expectedToken, 'account.token'); requireRaw(values['account:owner'], expectedOwner, 'account.owner'); requireRaw(values['account:state'], expectedState, 'account.state'); requireRaw(values['account:validSigner'], expectedSigner, 'account.isValidSigner');
+    return ns.deepFreeze({ accountCode: values.accountCode, accountBalance: values.accountBalance, tokenResult: values['account:token'], ownerResult: values['account:owner'], stateResult: values['account:state'], validSignerResult: values['account:validSigner'], invariantsValid: true });
+  }
   function withBlockRefs(plan, blockRef) { return plan.map(({ request }) => ({ ...request, ...(request.kind === 'gasPrice' ? {} : { blockRef }) })); }
 
-  Object.defineProperties(ns, Object.fromEntries(Object.entries({ PREFLIGHT_PLAN, createPreflightPlan, preflightRequests: withBlockRefs, classifyAccount, validatePreflight }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ PREFLIGHT_PLAN, POST_STATE_PLAN, ACCOUNT_CALLS, createPreflightPlan, preflightRequests: withBlockRefs, classifyAccount, validatePreflight, validatePostState }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
 })();

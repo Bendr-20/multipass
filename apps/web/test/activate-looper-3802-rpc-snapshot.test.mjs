@@ -403,6 +403,15 @@ test('preflight plan covers every pinned code slot call simulation gas and accou
   for (const name of Object.keys(unit.PINSET.identities)) assert.ok(keys.includes(`code:${name}`), `missing code:${name}`);
   for (const name of ['loopers','adapter','identityRegistry','sponsor']) assert.ok(keys.includes(`slot:${name}`));
   for (const name of Object.keys(unit.CALLS)) assert.ok(keys.includes(`call:${name}`));
-  for (const key of ['accountCode','accountBalance','simulation','estimateGas','gasPrice']) assert.ok(keys.includes(key));
+  for (const key of ['accountCode','accountBalance','simulation','estimateGas']) assert.ok(keys.includes(key));
+  assert.equal(keys.includes('gasPrice'), false, 'gas price is fetched separately because it is not block state');
   assert.ok(Object.isFrozen(unit.PREFLIGHT_PLAN));
+});
+
+test('receipt-block plan excludes pre-send simulation and gas while adding exact account proofs', async () => {
+  const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
+  const keys = unit.POST_STATE_PLAN.map(({ key }) => key);
+  assert.equal(keys.includes('simulation'), false); assert.equal(keys.includes('estimateGas'), false); assert.equal(keys.includes('gasPrice'), false);
+  assert.deepEqual(keys.filter((key) => key.startsWith('account:')).sort(), ['account:owner','account:state','account:token','account:validSigner']);
+  assert.equal(unit.ACCOUNT_CALLS.validSigner.data, `${unit.SELECTORS.accountIsValidSigner}${unit.addressWord(unit.PINSET.holder)}${unit.uint256Word(64)}${unit.uint256Word(0)}`);
 });
