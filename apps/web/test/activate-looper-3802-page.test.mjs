@@ -83,7 +83,7 @@ test('controller freezes every literal typed RPC request before the transport bo
   const transport = {
     anchorCanonicalHead: async () => ({ number: '0x1', hash: `0x${'ab'.repeat(32)}` }),
     stateBatch: async () => ({ items: [] }),
-    standard: async (request) => { gasPriceRequest = request; if (!Object.isFrozen(request)) throw new Error('RPC typed request must be frozen.'); return { result: '0x1' }; },
+    readNonState: async (request) => { gasPriceRequest = request; if (!Object.isFrozen(request)) throw new Error('RPC typed request must be frozen.'); return { result: '0x1' }; },
   };
   const rendered = [];
   const controller = ns.createController({
@@ -100,9 +100,9 @@ test('controller freezes every literal typed RPC request before the transport bo
   assert.match(rendered.at(-1).status, /Injected wallet not found/i);
 
   const source = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
-  assert.equal(source.includes('transport.standard({'), false);
-  assert.equal(source.includes("transport.request('https://base.drpc.org', {"), false);
-  assert.match(source, /Object\.freeze\(\{ kind: 'trace', hash: attempt\.txHash \}\)/u);
+  assert.equal(source.includes('transport.standard('), false);
+  assert.equal(source.includes('transport.request('), false);
+  assert.match(source, /transport\.traceTransaction\(attempt\.txHash\)/u);
 });
 
 test('page exposes no editable, automatic retry, or collection-wide activation behavior', async () => {

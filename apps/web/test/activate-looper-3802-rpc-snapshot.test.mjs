@@ -56,37 +56,69 @@ test('routing maps each request kind to exact approved origin method and params'
   assert.throws(() => unit.buildRpcRequest({ kind: 'nope' }, 1), /request kind/i);
 });
 
+test('public transport hides low-level request and generic state failover while retaining bounded reads and dRPC-only trace', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(({ body }) => body.method === 'debug_traceTransaction' ? { type: 'CALL' } : '0x1');
+  const transport = createTransport(unit, fetch);
+
+  assert.equal(transport.request, undefined);
+  assert.equal(transport.standard, undefined);
+  assert.equal(typeof transport.readNonState, 'function');
+  assert.equal(typeof transport.traceTransaction, 'function');
+
+  for (const request of [
+    { kind: 'code', address: ADDRESS, blockRef: BLOCK_REF },
+    { kind: 'storage', address: ADDRESS, slot: `0x${'00'.repeat(32)}`, blockRef: BLOCK_REF },
+    { kind: 'balance', address: ADDRESS, blockRef: BLOCK_REF },
+    { kind: 'call', transaction: TRANSACTION, blockRef: BLOCK_REF },
+    { kind: 'estimate', transaction: TRANSACTION, blockRef: BLOCK_REF },
+  ]) {
+    await assert.rejects(transport.readNonState(Object.freeze(request)), /non-state|state request/i);
+  }
+  assert.equal(calls.length, 0);
+
+  const gasPrice = await transport.readNonState(Object.freeze({ kind: 'gasPrice' }));
+  assert.equal(gasPrice.origin, MAINNET);
+  assert.equal(gasPrice.result, '0x1');
+  const trace = await transport.traceTransaction(HASH);
+  assert.equal(trace.origin, DRPC);
+  assert.deepEqual(calls.map(({ url, body }) => [url, body.method]), [
+    [MAINNET, 'eth_gasPrice'],
+    [DRPC, 'debug_traceTransaction'],
+  ]);
+});
+
 test('origin allowlist rejects forbidden routes before fetch', async () => {
   const unit = await loadActivationUnits();
   const { fetch, calls } = makeRpcFetch(() => '0x');
   const transport = createTransport(unit, fetch);
-  for (const kind of ['code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'trace']) {
+  for (const kind of ['code', 'storage', 'balance', 'call', 'estimate', 'trace']) {
     const request = kind === 'code' ? { kind, address: ADDRESS, blockRef: BLOCK_REF }
       : kind === 'storage' ? { kind, address: ADDRESS, slot: `0x${'00'.repeat(32)}`, blockRef: BLOCK_REF }
         : kind === 'balance' ? { kind, address: ADDRESS, blockRef: BLOCK_REF }
           : ['call', 'estimate'].includes(kind) ? { kind, transaction: TRANSACTION, blockRef: BLOCK_REF }
-            : kind === 'trace' ? { kind, hash: HASH } : { kind };
-    await assert.rejects(transport.request(PUBLICNODE, Object.freeze(request)), /not permitted/i);
+            : { kind, hash: HASH };
+    await assert.rejects(transport.readNonState(Object.freeze(request)), /state request/i);
   }
-  await assert.rejects(transport.request(MAINNET, Object.freeze({ kind: 'trace', hash: HASH })), /not permitted/i);
-  await assert.rejects(transport.request('https://example.com', Object.freeze({ kind: 'chainId' })), /origin/i);
   assert.equal(calls.length, 0);
+  await transport.traceTransaction(HASH);
+  assert.deepEqual(calls.map(({ url, body }) => [url, body.method]), [[DRPC, 'debug_traceTransaction']]);
 });
 
 test('routing accepts only frozen typed request objects', async () => {
   const unit = await loadActivationUnits();
   const { fetch, calls } = makeRpcFetch(() => '0x2105');
   const transport = createTransport(unit, fetch);
-  await assert.rejects(transport.request(MAINNET, { kind: 'chainId' }), /frozen/i);
+  await assert.rejects(transport.readNonState({ kind: 'chainId' }), /frozen/i);
   assert.equal(calls.length, 0);
-  assert.equal((await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }))).result, '0x2105');
+  assert.equal((await transport.readNonState(Object.freeze({ kind: 'chainId' }))).result, '0x2105');
 });
 
 test('routing sends strict POST options without credentials redirects or query strings', async () => {
   const unit = await loadActivationUnits();
   const { fetch, calls } = makeRpcFetch(() => '0x2105');
   const transport = createTransport(unit, fetch);
-  const evidence = await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }));
+  const evidence = await transport.readNonState(Object.freeze({ kind: 'chainId' }));
   assert.equal(evidence.result, '0x2105');
   assert.equal(evidence.origin, MAINNET);
   assert.deepEqual(Object.keys(calls[0].options).sort(), ['body', 'credentials', 'headers', 'method', 'redirect', 'signal'].sort());
@@ -100,13 +132,13 @@ test('routing sends strict POST options without credentials redirects or query s
 
 test('canonical native trailing-slash response URLs are accepted without relaxing URL boundaries', async () => {
   const unit = await loadActivationUnits();
-  const canonicalFetch = async (url, options) => rpcResponse(`${url}/`, JSON.stringify({
+  const canonicalFetch = async (url, options) => rpcResponse(`${url}/`, {
     jsonrpc: '2.0',
     id: JSON.parse(options.body).id,
     result: '0x2105',
-  }));
+  });
   assert.equal(
-    (await createTransport(unit, canonicalFetch).request(MAINNET, Object.freeze({ kind: 'chainId' }))).result,
+    (await createTransport(unit, canonicalFetch).readNonState(Object.freeze({ kind: 'chainId' }))).result,
     '0x2105',
   );
 
@@ -117,16 +149,41 @@ test('canonical native trailing-slash response URLs are accepted without relaxin
     { url: `${DRPC}/` },
     { url: `${MAINNET}/`, redirected: true },
   ]) {
-    const fetch = async (url, options) => rpcResponse(url, JSON.stringify({
+    const fetch = async (url, options) => rpcResponse(url, {
       jsonrpc: '2.0',
       id: JSON.parse(options.body).id,
       result: '0x2105',
-    }), overrides);
+    }, overrides);
     await assert.rejects(
-      createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })),
+      createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })),
       /redirect|URL/i,
     );
   }
+});
+
+test('redirects and response URL mismatches fail closed before body acceptance', async () => {
+  const unit = await loadActivationUnits();
+  for (const overrides of [
+    { redirected: true },
+    { url: `${MAINNET}/redirected` },
+  ]) {
+    const fetch = async (url, options) => rpcResponse(url, { jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x2105' }, overrides);
+    await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /redirect|URL/i);
+  }
+});
+
+test('HTTP 429 and 5xx permit one whole-origin failover while 4xx fails immediately', async () => {
+  const unit = await loadActivationUnits();
+  for (const status of [429, 500, 503]) {
+    const { fetch, calls } = makeRpcFetch(({ url }) => url === MAINNET
+      ? rpcResponse(url, '', { ok: false, status })
+      : '0x2105');
+    assert.equal((await createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' }))).origin, DRPC);
+    assert.deepEqual(calls.map(({ url }) => url), [MAINNET, DRPC]);
+  }
+  const { fetch, calls } = makeRpcFetch(({ url }) => rpcResponse(url, '', { ok: false, status: 400 }));
+  await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /HTTP 400/i);
+  assert.equal(calls.length, 1);
 });
 
 test('envelope validation rejects malformed JSON-RPC shapes and id mismatch', async () => {
@@ -146,7 +203,7 @@ test('envelope validation rejects malformed JSON-RPC shapes and id mismatch', as
       const payload = fixture({ id });
       return rpcResponse(url, typeof payload === 'string' ? payload : JSON.stringify(payload));
     };
-    await assert.rejects(createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })), /JSON|envelope|id|error/i);
+    await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /JSON|envelope|id|error/i);
   }
 });
 
@@ -159,16 +216,48 @@ test('response bytes enforce exact standard and trace caps', async () => {
     MAX_TRACE_RESPONSE_BYTES: 4194304,
     MAX_HTTP_ATTEMPTS_PER_ORIGIN: 1,
     RETRY_DELAYS_MS: [],
+    MAX_STATE_BATCH_REQUESTS: 64,
+    MAX_STATE_PLAN_DEPTH: 8,
+    MAX_STATE_PLAN_NODES: 1024,
+    MAX_STATE_PLAN_STRING_CHARS: 262144,
   });
   const fetch = async (url, options) => rpcResponse(url, JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x' }), {
     headers: { get: () => String(1048577) },
   });
-  await assert.rejects(createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })), /response.*bytes|large/i);
-  const traceFetch = async (url, options) => rpcResponse(url, 'x'.repeat(4194305), { headers: { get: () => null } });
-  await assert.rejects(createTransport(unit, traceFetch).request(DRPC, Object.freeze({ kind: 'trace', hash: HASH })), /response.*bytes|large/i);
+  await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /response.*bytes|large/i);
+  const traceFetch = async (url, options) => rpcResponse(url, 'x'.repeat(4194305), { headers: { get: () => String(4194305) } });
+  await assert.rejects(createTransport(unit, traceFetch).traceTransaction(HASH), /response.*bytes|large/i);
 });
 
-test('timeout aborts one request with no HTTP retry', async () => {
+test('content-length-less bodies are streamed and stopped at the byte cap', async () => {
+  const unit = await loadActivationUnits();
+  let cancelled = false;
+  let reads = 0;
+  const oversized = new Uint8Array(unit.TRANSPORT_BOUNDS.MAX_STANDARD_RESPONSE_BYTES + 1);
+  const fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    redirected: false,
+    url,
+    headers: { get: () => null },
+    body: {
+      getReader: () => ({
+        read: async () => {
+          reads += 1;
+          return reads === 1 ? { done: false, value: oversized } : { done: true };
+        },
+        cancel: async () => { cancelled = true; },
+        releaseLock: () => {},
+      }),
+    },
+    text: async () => { throw new Error('must not buffer an unbounded response'); },
+  });
+  await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /response.*bytes|limit/i);
+  assert.equal(reads, 1);
+  assert.equal(cancelled, true);
+});
+
+test('trace timeout aborts one dRPC request with no HTTP retry', async () => {
   const unit = await loadActivationUnits();
   let attempts = 0;
   const fetch = async (_url, options) => {
@@ -180,31 +269,73 @@ test('timeout aborts one request with no HTTP retry', async () => {
     setTimeout: (callback, milliseconds) => { timers.push(milliseconds); queueMicrotask(callback); return 1; },
     clearTimeout: () => {},
   });
-  await assert.rejects(transport.request(MAINNET, Object.freeze({ kind: 'chainId' })), /timeout|abort/i);
-  assert.deepEqual(timers, [10000]);
+  await assert.rejects(transport.traceTransaction(HASH), /timeout|abort/i);
+  assert.deepEqual(timers, [25000]);
   assert.equal(attempts, 1);
 });
 
 test('timeout remains active through response body consumption', async () => {
   const unit = await loadActivationUnits();
+  let fireTimer;
   let timerCleared = false;
+  let bodyStarted = false;
   const fetch = async (url, options) => ({
     ok: true,
     status: 200,
     redirected: false,
     url,
-    headers: { get: () => null },
+    headers: { get: () => '32' },
     text: async () => {
-      assert.equal(timerCleared, false, 'request timer must cover response.text()');
-      return JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x2105' });
+      bodyStarted = true;
+      return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
     },
   });
   const transport = createTransport(unit, fetch, {
-    setTimeout: () => 1,
+    setTimeout: (callback) => { fireTimer = callback; return 1; },
     clearTimeout: () => { timerCleared = true; },
   });
-  assert.equal((await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }))).result, '0x2105');
-  assert.equal(timerCleared, true);
+  const pending = transport.traceTransaction(HASH);
+  while (!bodyStarted) await Promise.resolve();
+  assert.equal(timerCleared, false, 'timeout must remain armed until the complete body is consumed');
+  fireTimer();
+  await assert.rejects(pending, /timeout|abort/i);
+});
+
+test('stream-body network abort remains eligible for one standard-origin failover', async () => {
+  const unit = await loadActivationUnits();
+  const timerCallbacks = [];
+  let mainnetReadStarted = false;
+  const calls = [];
+  const fetch = async (url, options) => {
+    calls.push(url);
+    if (url === DRPC) return rpcResponse(url, { jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x2105' });
+    return {
+      ok: true,
+      status: 200,
+      redirected: false,
+      url,
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            mainnetReadStarted = true;
+            return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+          },
+          releaseLock: () => {},
+        }),
+      },
+    };
+  };
+  const transport = createTransport(unit, fetch, {
+    setTimeout: (callback) => { timerCallbacks.push(callback); return timerCallbacks.length; },
+    clearTimeout: () => {},
+  });
+  const pending = transport.readNonState(Object.freeze({ kind: 'chainId' }));
+  while (!mainnetReadStarted) await Promise.resolve();
+  timerCallbacks[0]();
+  const result = await pending;
+  assert.equal(result.origin, DRPC);
+  assert.deepEqual(calls, [MAINNET, DRPC]);
 });
 
 test('semantic errors fail immediately while only bounded transient classes permit standard failover', async () => {
@@ -215,7 +346,7 @@ test('semantic errors fail immediately while only bounded transient classes perm
     { code: -32001, message: 'unauthorized request' },
   ]) {
     const { fetch, calls } = makeRpcFetch(() => ({ errorEnvelope: error }));
-    await assert.rejects(createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' })), /RPC|input|block|unauthorized/i);
+    await assert.rejects(createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' })), /RPC|input|block|unauthorized/i);
     assert.equal(calls.length, 1);
   }
   for (const error of [
@@ -224,7 +355,7 @@ test('semantic errors fail immediately while only bounded transient classes perm
     { code: -32000, message: 'temporarily busy' },
   ]) {
     const { fetch, calls } = makeRpcFetch(({ url }) => url === MAINNET ? { errorEnvelope: error } : '0x2105');
-    const evidence = await createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' }));
+    const evidence = await createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' }));
     assert.equal(evidence.origin, DRPC);
     assert.deepEqual(calls.map(({ url }) => url), [MAINNET, DRPC]);
   }
@@ -248,6 +379,29 @@ test('EIP-1898 capability detection accepts only the exact code and phrase pair'
     { code: -32000, message: 'invalid argument string' },
     { code: -32000, message: 'cannot unmarshal number' },
   ]) assert.equal(unit.isEip1898Unsupported(error), false, error.message);
+});
+
+test('EIP-1898 unsupported classification excludes block lookup and canonicality failures', async () => {
+  const unit = await loadActivationUnits();
+  for (const message of [
+    'blockHash object parameters are not supported',
+    'provider does not support requireCanonical',
+    'EIP-1898 is unavailable',
+    'invalid argument 1: expected object block parameter',
+    'cannot unmarshal object into Go value of type string',
+  ]) {
+    assert.equal(unit.isEip1898Unsupported({ code: -32000, message }), true, message);
+  }
+  for (const message of [
+    'unknown blockHash',
+    'blockHash not found',
+    'blockHash object references a noncanonical block',
+    'requireCanonical canonicality check failed',
+    'unknown block for EIP-1898 object argument',
+    'EIP-1898 unsupported because canonicality target was not-found',
+  ]) {
+    assert.equal(unit.isEip1898Unsupported({ code: -32000, message }), false, message);
+  }
 });
 
 test('canonical head anchors the minimum three-provider height to one hash', async () => {
@@ -276,6 +430,69 @@ test('canonical head rejects wrong chain behind null block and hash disagreement
     const { fetch } = makeRpcFetch(handler);
     await assert.rejects(createTransport(unit, fetch).anchorCanonicalHead(), /chain|block|hash|canonical/i);
   }
+});
+
+test('stateBatch validates clones freezes and bounds its complete plan synchronously before I/O', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(({ body }) => body.method === 'eth_getCode' ? '0x1234' : '0x');
+  const transport = createTransport(unit, fetch);
+  const valid = { kind: 'code', address: ADDRESS };
+
+  let rejectedPromise;
+  assert.throws(() => {
+    rejectedPromise = transport.stateBatch({ number: '0x64', hash: HASH }, [valid, { kind: 'nope' }]);
+    rejectedPromise?.catch?.(() => {});
+  }, /state batch|request kind|permitted/i);
+  assert.equal(calls.length, 0, 'an invalid later entry must prevent all I/O');
+
+  assert.equal(unit.TRANSPORT_BOUNDS.MAX_STATE_BATCH_REQUESTS, 64);
+  assert.throws(() => {
+    rejectedPromise = transport.stateBatch(
+      { number: '0x64', hash: HASH },
+      Array.from({ length: 65 }, () => ({ ...valid })),
+    );
+    rejectedPromise?.catch?.(() => {});
+  }, /64|batch.*limit|too many/i);
+  assert.equal(calls.length, 0, 'an oversized plan must prevent all I/O');
+
+  const sparsePlan = [{ ...valid }];
+  sparsePlan.length = 2;
+  assert.throws(() => {
+    rejectedPromise = transport.stateBatch({ number: '0x64', hash: HASH }, sparsePlan);
+    rejectedPromise?.catch?.(() => {});
+  }, /sparse|missing|state batch/i);
+  assert.equal(calls.length, 0, 'a sparse plan must prevent all I/O');
+
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  let first = true;
+  const plannedFetch = makeRpcFetch(async ({ body }) => {
+    if (first) {
+      first = false;
+      await firstGate;
+    }
+    return body.method === 'eth_getCode' ? '0x1234' : '0x';
+  });
+  const mutableTransaction = { to: ADDRESS, data: '0x8da5cb5b' };
+  const mutablePlan = [
+    { kind: 'code', address: ADDRESS },
+    { kind: 'call', transaction: mutableTransaction },
+  ];
+  const pending = createTransport(unit, plannedFetch.fetch).stateBatch({ number: '0x64', hash: HASH }, mutablePlan);
+  mutablePlan[0].address = '0x0000000000000000000000000000000000000001';
+  mutableTransaction.data = '0xdeadbeef';
+  mutablePlan.push({ kind: 'balance', address: ADDRESS });
+  assert.equal(Object.isFrozen(mutablePlan), false, 'caller-owned plan must not be frozen in place');
+  assert.equal(Object.isFrozen(mutableTransaction), false, 'caller-owned transaction must not be frozen in place');
+  releaseFirst();
+
+  const evidence = await pending;
+  assert.equal(evidence.items.length, 2);
+  assert.deepEqual(plannedFetch.calls.map(({ body }) => body.method), ['eth_getCode', 'eth_call']);
+  assert.equal(plannedFetch.calls[0].body.params[0], ADDRESS);
+  assert.equal(plannedFetch.calls[1].body.params[0].data, '0x8da5cb5b');
+  assert.ok(Object.isFrozen(evidence.items[1].params));
+  assert.ok(Object.isFrozen(evidence.items[1].params[0]));
 });
 
 test('whole state batch uses one provider and discards partial Mainnet evidence before dRPC failover', async () => {
@@ -338,6 +555,49 @@ test('EIP-1898 guarded batch rejects changed before or after hash and never uses
   assert.equal(calls.some(({ url, body }) => url === PUBLICNODE && body.method === 'eth_getCode'), false);
 });
 
+test('guarded number fallback rejects a mismatched before-guard hash', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(({ body }) => {
+    if (body.method === 'eth_getCode' && typeof body.params[1] === 'object') {
+      return { errorEnvelope: { code: -32000, message: 'EIP-1898 unavailable' } };
+    }
+    if (body.method === 'eth_getBlockByNumber') return block(100, 'cd');
+    return '0x';
+  });
+  await assert.rejects(
+    createTransport(unit, fetch).stateBatch({ number: '0x64', hash: HASH }, [{ kind: 'code', address: ADDRESS }]),
+    /before-guard|hash|canonical/i,
+  );
+  assert.equal(calls.filter(({ body }) => body.method === 'eth_getCode').length, 1);
+  assert.equal(calls.filter(({ body }) => body.method === 'eth_getBlockByNumber').length, 1);
+});
+
+test('partial EIP-1898 evidence is discarded before the complete guarded batch reruns', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(({ body }) => {
+    if (body.method === 'eth_getBalance' && typeof body.params[1] === 'object') {
+      return { errorEnvelope: { code: -32602, message: 'blockHash object unsupported' } };
+    }
+    if (body.method === 'eth_getBlockByNumber') return block(100, 'ab');
+    if (body.method === 'eth_getCode') return '0x1234';
+    if (body.method === 'eth_getBalance') return '0x0';
+    throw new Error(`Unexpected ${body.method}`);
+  });
+  const result = await createTransport(unit, fetch).stateBatch({ number: '0x64', hash: HASH }, [
+    { kind: 'code', address: ADDRESS },
+    { kind: 'balance', address: ADDRESS },
+  ]);
+  assert.equal(result.mode, 'number-guarded');
+  assert.deepEqual(calls.filter(({ body }) => body.method === 'eth_getCode').map(({ body }) => body.params[1]), [
+    BLOCK_REF,
+    '0x64',
+  ]);
+  assert.deepEqual(calls.filter(({ body }) => body.method === 'eth_getBalance').map(({ body }) => body.params[1]), [
+    BLOCK_REF,
+    '0x64',
+  ]);
+});
+
 test('three-origin chain quorum requires 0x2105 from every origin', async () => {
   const unit = await loadActivationUnits();
   const { fetch } = makeRpcFetch(({ url }) => url === PUBLICNODE ? '0x1' : '0x2105');
@@ -362,9 +622,25 @@ test('receipt poll generator uses exact cadence without overlap', async () => {
   await iterator.next();
   time.set(120000);
   await iterator.next();
+  await iterator.next();
   assert.deepEqual(time.sleeps, [2000, 2000, 10000]);
   assert.equal(maximum, 1);
   await iterator.return();
+});
+
+test('receipt poll generator terminates before 600 seconds without a request at or after the deadline', async () => {
+  const unit = await loadActivationUnits();
+  const time = createFakeTime(0);
+  const { fetch, calls } = makeRpcFetch(() => null);
+  const observations = [];
+  for await (const item of createTransport(unit, fetch, { sleep: time.sleep, now: time.now }).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })) {
+    observations.push(item.observedAtMs);
+  }
+  assert.equal(observations.at(-1), 590000);
+  assert.ok(observations.every((value) => value < 600000));
+  assert.equal(calls.length, observations.length * 4);
+  assert.deepEqual(time.sleeps.slice(0, 3), [2000, 2000, 2000]);
+  assert.equal(time.sleeps.at(-1), 10000);
 });
 
 test('head poll generator stops at fixed deadline with exact two-second sleeps', async () => {
@@ -373,8 +649,127 @@ test('head poll generator stops at fixed deadline with exact two-second sleeps',
   const { fetch } = makeRpcFetch(() => block(100));
   const values = [];
   for await (const item of createTransport(unit, fetch, { sleep: time.sleep, now: time.now }).pollHeads({ deadlineMs: 4000 })) values.push(item);
-  assert.equal(values.length, 3);
-  assert.deepEqual(time.sleeps, [2000, 2000]);
+  assert.equal(values.length, 2);
+  assert.deepEqual(time.sleeps, [2000]);
+});
+
+test('receipt and head polling enforce shrinking fixed-deadline budgets after every RPC phase', async () => {
+  const unit = await loadActivationUnits();
+
+  let receiptNow = 599500;
+  const receiptTimers = [];
+  const receiptFetch = makeRpcFetch(() => {
+    receiptNow += 200;
+    return null;
+  });
+  const receiptTransport = createTransport(unit, receiptFetch.fetch, {
+    now: () => receiptNow,
+    setTimeout: (_callback, milliseconds) => { receiptTimers.push(milliseconds); return receiptTimers.length; },
+    clearTimeout: () => {},
+  });
+  const receiptIterator = receiptTransport.pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+  assert.equal((await receiptIterator.next()).done, true);
+  assert.deepEqual(receiptTimers, [500, 300, 100]);
+  assert.deepEqual(receiptFetch.calls.map(({ url, body }) => [url, body.method]), [
+    [MAINNET, 'eth_getTransactionByHash'],
+    [MAINNET, 'eth_getTransactionReceipt'],
+    [DRPC, 'eth_getTransactionByHash'],
+  ]);
+
+  let exactDeadlineNow = 599500;
+  const exactDeadlineIncrements = [100, 100, 100, 200];
+  const exactDeadlineFetch = makeRpcFetch(() => {
+    exactDeadlineNow += exactDeadlineIncrements.shift();
+    return null;
+  });
+  const exactDeadlineIterator = createTransport(unit, exactDeadlineFetch.fetch, {
+    now: () => exactDeadlineNow,
+  }).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+  assert.equal((await exactDeadlineIterator.next()).done, true, 'a cycle completing exactly at the deadline must not yield');
+  assert.equal(exactDeadlineFetch.calls.length, 4);
+
+  let headNow = 450;
+  const headTimers = [];
+  const headFetch = makeRpcFetch(() => {
+    headNow += 75;
+    return block(100);
+  });
+  const headTransport = createTransport(unit, headFetch.fetch, {
+    now: () => headNow,
+    setTimeout: (_callback, milliseconds) => { headTimers.push(milliseconds); return headTimers.length; },
+    clearTimeout: () => {},
+  });
+  const headIterator = headTransport.pollHeads({ deadlineMs: 500 })[Symbol.asyncIterator]();
+  assert.equal((await headIterator.next()).done, true);
+  assert.deepEqual(headTimers, [50]);
+  assert.equal(headFetch.calls.length, 1);
+});
+
+test('throttled sleeps cannot issue receipt or head requests after fixed deadlines', async () => {
+  const unit = await loadActivationUnits();
+  for (const kind of ['receipt', 'head']) {
+    let now = 0;
+    const { fetch, calls } = makeRpcFetch(() => kind === 'head' ? block(100) : null);
+    const transport = createTransport(unit, fetch, {
+      now: () => now,
+      sleep: async () => { now = kind === 'head' ? 4001 : 600001; },
+    });
+    const iterator = kind === 'head'
+      ? transport.pollHeads({ deadlineMs: 4000 })[Symbol.asyncIterator]()
+      : transport.pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).done, false);
+    const callsAtDeadline = calls.length;
+    assert.equal((await iterator.next()).done, true);
+    assert.equal(calls.length, callsAtDeadline, `${kind} poll issued a request after its deadline`);
+  }
+});
+
+test('eligible transient poll-cycle failures continue on exact cadence while aborts and semantics propagate', async () => {
+  const unit = await loadActivationUnits();
+
+  for (const pollKind of ['receipt', 'head']) {
+    const time = createFakeTime(0);
+    let failed = false;
+    const { fetch, calls } = makeRpcFetch(({ url }) => {
+      if (!failed && url === MAINNET) {
+        failed = true;
+        time.set(750);
+        return rpcResponse(url, '', { ok: false, status: 503 });
+      }
+      return pollKind === 'head' ? block(100) : null;
+    });
+    const transport = createTransport(unit, fetch, { now: time.now, sleep: time.sleep });
+    const iterator = pollKind === 'head'
+      ? transport.pollHeads({ deadlineMs: 10000 })[Symbol.asyncIterator]()
+      : transport.pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+    const result = await iterator.next();
+    assert.equal(result.done, false, `${pollKind} poll must recover from one eligible transient cycle`);
+    assert.equal(result.value.observedAtMs, 2000);
+    assert.deepEqual(time.sleeps, [1250]);
+    assert.equal(calls.filter(({ url }) => url === MAINNET).length >= 2, true);
+    await iterator.return();
+  }
+
+  const semantic = makeRpcFetch(() => ({ errorEnvelope: { code: -32000, message: 'unknown block' } }));
+  const semanticIterator = createTransport(unit, semantic.fetch).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+  await assert.rejects(semanticIterator.next(), /unknown block/i);
+
+  const controller = new AbortController();
+  const abortReason = new Error('caller stopped polling');
+  let requestStarted = false;
+  const abortFetch = async (_url, options) => {
+    requestStarted = true;
+    return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+  };
+  const abortIterator = createTransport(unit, abortFetch).pollTransactionReceipt({
+    hash: HASH,
+    createdAtMs: 0,
+    signal: controller.signal,
+  })[Symbol.asyncIterator]();
+  const pending = abortIterator.next();
+  while (!requestStarted) await Promise.resolve();
+  controller.abort(abortReason);
+  await assert.rejects(pending, (error) => error === abortReason);
 });
 
 test('abort polling stops before another public request', async () => {
@@ -399,7 +794,7 @@ test('caller abort stops standard failover before another request', async () => 
   const { fetch, calls } = makeRpcFetch(() => '0x2105');
   controller.abort(new DOMException('Aborted', 'AbortError'));
   await assert.rejects(
-    createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' }), { signal: controller.signal }),
+    createTransport(unit, fetch).readNonState(Object.freeze({ kind: 'chainId' }), { signal: controller.signal }),
     /abort/i,
   );
   assert.equal(calls.length, 0);
@@ -417,6 +812,34 @@ test('final receipt quorum performs one Mainnet dRPC transaction-receipt pair an
   ]);
 });
 
+test('polling never yields evidence stamped at its fixed deadline', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(() => null);
+  const iterator = createTransport(unit, fetch, {
+    now: () => (calls.length < 4 ? 599999 : 600000),
+    sleep: async () => {},
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  }).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+  const result = await iterator.next();
+  assert.equal(result.done, true);
+});
+
+test('poll cadence catch-up is constant-time after a huge or non-finite clock jump', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(() => null);
+  for (const jumped of [10_000_000_000, Number.POSITIVE_INFINITY]) {
+    let nowCalls = 0;
+    const iterator = createTransport(unit, fetch, {
+      now: () => (nowCalls++ === 0 ? 0 : jumped),
+      sleep: async () => {},
+    }).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+    const result = await iterator.next();
+    assert.equal(result.done, true);
+    assert.ok(nowCalls < 20, `clock catch-up used ${nowCalls} now() calls`);
+  }
+  assert.equal(calls.length, 0);
+});
 
 test('classifies only exact undeployed and deployed activation account states', async () => {
   const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);

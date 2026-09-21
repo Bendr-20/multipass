@@ -8,6 +8,7 @@
   const ORIGINS = Object.freeze([MAINNET, DRPC, PUBLICNODE]);
   const STANDARD_KINDS = Object.freeze(['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt']);
   const QUORUM_KINDS = Object.freeze(['chainId', 'latestBlock', 'blockByNumber', 'transaction', 'receipt']);
+  const NON_STATE_KINDS = Object.freeze(['chainId', 'latestBlock', 'blockByNumber', 'gasPrice', 'transaction', 'receipt']);
   const ROUTE_MATRIX = ns.deepFreeze({
     [MAINNET]: [...STANDARD_KINDS],
     [DRPC]: [...STANDARD_KINDS, 'trace'],
@@ -20,6 +21,10 @@
     MAX_TRACE_RESPONSE_BYTES: 4194304,
     MAX_HTTP_ATTEMPTS_PER_ORIGIN: 1,
     RETRY_DELAYS_MS: [],
+    MAX_STATE_BATCH_REQUESTS: 64,
+    MAX_STATE_PLAN_DEPTH: 8,
+    MAX_STATE_PLAN_NODES: 1024,
+    MAX_STATE_PLAN_STRING_CHARS: 262144,
   });
   const TRACE_OPTIONS = ns.deepFreeze({ tracer: 'callTracer', timeout: '20s', tracerConfig: { onlyTopCall: false, withLog: true } });
   const ADDRESS = /^0x[0-9a-fA-F]{40}$/u;
@@ -30,6 +35,13 @@
       super(message);
       this.name = 'RpcTransportError';
       Object.assign(this, details);
+    }
+  }
+
+  class RpcDeadlineError extends Error {
+    constructor() {
+      super('RPC polling deadline reached.');
+      this.name = 'RpcDeadlineError';
     }
   }
 
@@ -99,9 +111,13 @@
   }
 
   function isEip1898Unsupported(error) {
-    return Boolean(error && (error.code === -32602 || error.code === -32000)
-      && typeof error.message === 'string'
-      && /blockHash|requireCanonical|EIP-1898|invalid argument.*object|cannot unmarshal.*object/iu.test(error.message));
+    if (!error || (error.code !== -32602 && error.code !== -32000) || typeof error.message !== 'string') return false;
+    const message = error.message;
+    if (/\bunknown\b|\bnot[\s-]+found\b|\bnon[\s-]?canonical\b|\bnot[\s-]+canonical\b|\bcanonicality\b/iu.test(message)) return false;
+    const namesCapability = /blockHash|requireCanonical|EIP[\s-]?1898/iu.test(message)
+      && /not[\s-]+supported|unsupported|unavailable|not[\s-]+implemented|does[\s-]+not[\s-]+support/iu.test(message);
+    const rejectsObjectArgument = /invalid argument.*object|cannot unmarshal.*object/iu.test(message);
+    return namesCapability || rejectsObjectArgument;
   }
 
   function isTransientRpcError(error) {
@@ -129,6 +145,49 @@
     return envelope.result;
   }
 
+  async function readBoundedResponseText(response, maxBytes) {
+    const declared = response.headers?.get?.('content-length');
+    if (declared !== null && declared !== undefined && (!/^\d+$/u.test(declared) || Number(declared) > maxBytes)) {
+      throw new RpcTransportError('RPC response bytes exceed limit.');
+    }
+    if (response.body && typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      let byteLength = 0;
+      let text = '';
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!(value instanceof Uint8Array)) throw new RpcTransportError('RPC response body yielded invalid bytes.');
+          byteLength += value.byteLength;
+          if (byteLength > maxBytes) {
+            const cancellation = reader.cancel?.();
+            cancellation?.catch?.(() => {});
+            throw new RpcTransportError('RPC response bytes exceed limit.');
+          }
+          try {
+            text += decoder.decode(value, { stream: true });
+          } catch (error) {
+            throw new RpcTransportError('RPC response body is not valid UTF-8.', { cause: error });
+          }
+        }
+        try {
+          text += decoder.decode();
+        } catch (error) {
+          throw new RpcTransportError('RPC response body is not valid UTF-8.', { cause: error });
+        }
+        return text;
+      } finally {
+        reader.releaseLock?.();
+      }
+    }
+    if (declared === null || declared === undefined) throw new RpcTransportError('RPC response body is not safely bounded.');
+    const text = await response.text();
+    if (new TextEncoder().encode(text).length > maxBytes) throw new RpcTransportError('RPC response bytes exceed limit.');
+    return text;
+  }
+
   function createPublicRpcTransport(dependencies) {
     exactKeys(dependencies, ['fetch', 'AbortController', 'setTimeout', 'clearTimeout', 'sleep', 'now'], 'transport dependencies');
     const { fetch, AbortController: AbortControllerImpl, setTimeout: setTimer, clearTimeout: clearTimer, sleep, now } = dependencies;
@@ -138,20 +197,27 @@
     let nextId = 1;
 
     async function request(origin, typedRequest, options = {}) {
-      if (!Object.isFrozen(typedRequest)) throw new RpcTransportError('RPC typed request must be frozen.');
       if (!ORIGINS.includes(origin)) throw new RpcTransportError('Unapproved RPC origin.');
       if (!ROUTE_MATRIX[origin].includes(typedRequest?.kind)) throw new RpcTransportError(`RPC request kind is not permitted for origin ${origin}.`);
+      if (!Object.isFrozen(typedRequest)) throw new RpcTransportError('RPC typed request must be frozen.');
       const body = buildRpcRequest(typedRequest, nextId);
       nextId += 1;
       const trace = typedRequest.kind === 'trace';
-      const timeoutMs = trace ? TRANSPORT_BOUNDS.TRACE_TIMEOUT_MS : TRANSPORT_BOUNDS.STANDARD_TIMEOUT_MS;
+      const fixedTimeoutMs = trace ? TRANSPORT_BOUNDS.TRACE_TIMEOUT_MS : TRANSPORT_BOUNDS.STANDARD_TIMEOUT_MS;
       const maxBytes = trace ? TRANSPORT_BOUNDS.MAX_TRACE_RESPONSE_BYTES : TRANSPORT_BOUNDS.MAX_STANDARD_RESPONSE_BYTES;
+      const deadlineMs = options.deadlineMs;
+      if (deadlineMs !== undefined && (!Number.isSafeInteger(deadlineMs) || deadlineMs < 0)) throw new TypeError('RPC deadline must be a nonnegative safe integer.');
+      const remainingMs = deadlineMs === undefined ? fixedTimeoutMs : deadlineMs - now();
+      if (remainingMs <= 0) throw new RpcDeadlineError();
+      const timeoutMs = Math.min(fixedTimeoutMs, remainingMs);
+      const deadlineLimited = deadlineMs !== undefined && remainingMs <= fixedTimeoutMs;
       const controller = new AbortControllerImpl();
       const callerSignal = options.signal;
-      if (callerSignal?.aborted) throw new RpcTransportError('RPC caller aborted.', { transient: false, cause: callerSignal.reason });
+      if (callerSignal?.aborted) throw callerSignal.reason ?? new DOMException('Aborted', 'AbortError');
       const abortFromCaller = () => controller.abort(callerSignal.reason ?? new DOMException('Aborted', 'AbortError'));
       callerSignal?.addEventListener?.('abort', abortFromCaller, { once: true });
-      const timer = setTimer(() => controller.abort(new Error(`RPC timeout after ${timeoutMs}ms.`)), timeoutMs);
+      const timeoutReason = deadlineLimited ? new RpcDeadlineError() : new Error(`RPC timeout after ${timeoutMs}ms.`);
+      const timer = setTimer(() => controller.abort(timeoutReason), timeoutMs);
       try {
         const response = await fetch(origin, {
           method: 'POST',
@@ -166,10 +232,7 @@
           const transient = response.status === 429 || response.status >= 500;
           throw new RpcTransportError(`RPC HTTP ${response.status}.`, { transient });
         }
-        const declared = response.headers?.get?.('content-length');
-        if (declared !== null && declared !== undefined && (!/^\d+$/u.test(declared) || Number(declared) > maxBytes)) throw new RpcTransportError('RPC response bytes exceed limit.');
-        const text = await response.text();
-        if (new TextEncoder().encode(text).length > maxBytes) throw new RpcTransportError('RPC response bytes exceed limit.');
+        const text = await readBoundedResponseText(response, maxBytes);
         let envelope;
         try {
           envelope = JSON.parse(text);
@@ -177,8 +240,12 @@
           throw new RpcTransportError('Invalid JSON-RPC JSON response.');
         }
         const result = validateEnvelope(envelope, body.id);
+        if (deadlineMs !== undefined && now() >= deadlineMs) throw new RpcDeadlineError();
         return ns.deepFreeze({ origin, method: body.method, params: body.params, result });
       } catch (error) {
+        if (callerSignal?.aborted) throw callerSignal.reason ?? new DOMException('Aborted', 'AbortError');
+        if (error instanceof RpcDeadlineError) throw error;
+        if (controller.signal.aborted && controller.signal.reason instanceof RpcDeadlineError) throw controller.signal.reason;
         if (error instanceof RpcTransportError) throw error;
         const reason = controller.signal.aborted ? controller.signal.reason : error;
         throw new RpcTransportError(`RPC network/abort failure: ${reason?.message ?? String(reason)}`, { transient: true, cause: reason });
@@ -188,13 +255,19 @@
       }
     }
 
-    async function standard(typedRequest, options = {}) {
+    async function readNonState(typedRequest, options = {}) {
+      if (!NON_STATE_KINDS.includes(typedRequest?.kind)) throw new RpcTransportError('Generic state requests are not exposed by the transport.');
       try {
         return await request(MAINNET, typedRequest, options);
       } catch (error) {
         if (!error?.transient || options.signal?.aborted) throw error;
         return request(DRPC, typedRequest, options);
       }
+    }
+
+    function traceTransaction(hash, options = {}) {
+      requireBytes32(hash, 'trace transaction hash');
+      return request(DRPC, Object.freeze({ kind: 'trace', hash }), options);
     }
 
     function validateBlock(result, expectedNumber = null) {
@@ -239,6 +312,62 @@
       }
     }
 
+    function cloneBoundedStatePlanValue(value, budget, depth = 0) {
+      budget.nodes += 1;
+      if (budget.nodes > TRANSPORT_BOUNDS.MAX_STATE_PLAN_NODES) throw new TypeError('State batch plan exceeds its node limit.');
+      if (depth > TRANSPORT_BOUNDS.MAX_STATE_PLAN_DEPTH) throw new TypeError('State batch plan exceeds its depth limit.');
+      if (value === null || typeof value === 'boolean') return value;
+      if (typeof value === 'number') {
+        if (!Number.isSafeInteger(value)) throw new TypeError('State batch plan numbers must be safe integers.');
+        return value;
+      }
+      if (typeof value === 'string') {
+        budget.stringChars += value.length;
+        if (budget.stringChars > TRANSPORT_BOUNDS.MAX_STATE_PLAN_STRING_CHARS) throw new TypeError('State batch plan exceeds its string limit.');
+        return value;
+      }
+      if (!value || typeof value !== 'object') throw new TypeError('State batch plan contains an unsupported value.');
+      const ownKeys = Reflect.ownKeys(value);
+      if (ownKeys.some((key) => typeof key !== 'string')) throw new TypeError('State batch plan may not contain symbol keys.');
+      if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index += 1) {
+          if (!Object.hasOwn(value, index)) throw new TypeError('State batch plan arrays may not be sparse.');
+        }
+        if (ownKeys.some((key) => key !== 'length' && !/^(?:0|[1-9][0-9]*)$/u.test(key))) throw new TypeError('State batch plan arrays may not have extra keys.');
+        return Array.from(value, (item) => cloneBoundedStatePlanValue(item, budget, depth + 1));
+      }
+      const clone = {};
+      for (const key of ownKeys) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) throw new TypeError('State batch plan must contain plain data properties.');
+        budget.stringChars += key.length;
+        if (budget.stringChars > TRANSPORT_BOUNDS.MAX_STATE_PLAN_STRING_CHARS) throw new TypeError('State batch plan exceeds its string limit.');
+        clone[key] = cloneBoundedStatePlanValue(descriptor.value, budget, depth + 1);
+      }
+      return clone;
+    }
+
+    function prepareStateBatchPlan(anchor, templates) {
+      const budget = { nodes: 0, stringChars: 0 };
+      const clonedAnchor = cloneBoundedStatePlanValue(anchor, budget);
+      exactKeys(clonedAnchor, ['number', 'hash'], 'state anchor');
+      const number = ns.parseQuantity(clonedAnchor.number);
+      requireBytes32(clonedAnchor.hash, 'state anchor hash');
+      if (!Array.isArray(templates) || templates.length === 0) throw new TypeError('State batch must contain requests.');
+      if (templates.length > TRANSPORT_BOUNDS.MAX_STATE_BATCH_REQUESTS) throw new TypeError(`State batch may contain at most ${TRANSPORT_BOUNDS.MAX_STATE_BATCH_REQUESTS} requests.`);
+      for (let index = 0; index < templates.length; index += 1) {
+        if (!Object.hasOwn(templates, index)) throw new TypeError('State batch may not contain sparse requests.');
+      }
+      const canonicalAnchor = { number: ns.canonicalQuantity(number), hash: clonedAnchor.hash };
+      const blockRef = { blockHash: canonicalAnchor.hash, requireCanonical: true };
+      const clonedTemplates = templates.map((template) => {
+        const clone = cloneBoundedStatePlanValue(template, budget);
+        buildRpcRequest(stateRequestWithBlockRef(clone, blockRef), 1);
+        return clone;
+      });
+      return ns.deepFreeze({ anchor: canonicalAnchor, templates: clonedTemplates });
+    }
+
     async function runStateRequests(origin, templates, blockRef, options) {
       const items = [];
       for (const template of templates) items.push(await request(origin, ns.deepFreeze(stateRequestWithBlockRef(template, blockRef)), options));
@@ -265,17 +394,17 @@
       }
     }
 
-    async function stateBatch(anchor, templates, options = {}) {
-      exactKeys(anchor, ['number', 'hash'], 'state anchor');
-      const number = ns.parseQuantity(anchor.number);
-      requireBytes32(anchor.hash, 'state anchor hash');
-      if (!Array.isArray(templates) || templates.length === 0) throw new TypeError('State batch must contain requests.');
-      const canonicalAnchor = ns.deepFreeze({ number: ns.canonicalQuantity(number), hash: anchor.hash });
+    function stateBatch(anchor, templates, options = {}) {
+      const plan = prepareStateBatchPlan(anchor, templates);
+      return executeStateBatch(plan, options);
+    }
+
+    async function executeStateBatch(plan, options) {
       try {
-        return await stateBatchAt(MAINNET, canonicalAnchor, templates, options);
+        return await stateBatchAt(MAINNET, plan.anchor, plan.templates, options);
       } catch (error) {
         if (!error?.transient || options.signal?.aborted) throw error;
-        return stateBatchAt(DRPC, canonicalAnchor, templates, options);
+        return stateBatchAt(DRPC, plan.anchor, plan.templates, options);
       }
     }
 
@@ -283,49 +412,104 @@
       if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
     }
 
-    async function transactionReceiptPair(origin, hash, signal) {
-      const transaction = await request(origin, Object.freeze({ kind: 'transaction', hash }), { signal });
-      const receipt = await request(origin, Object.freeze({ kind: 'receipt', hash }), { signal });
+    async function transactionReceiptPair(origin, hash, signal, deadlineMs) {
+      const transaction = await request(origin, Object.freeze({ kind: 'transaction', hash }), { signal, deadlineMs });
+      const receipt = await request(origin, Object.freeze({ kind: 'receipt', hash }), { signal, deadlineMs });
       return ns.deepFreeze({ origin, transaction, receipt });
+    }
+
+    function nextReceiptPollAt(pollAtMs, createdAtMs) {
+      const fastPhaseEndMs = createdAtMs + 120000;
+      return pollAtMs < fastPhaseEndMs ? Math.min(pollAtMs + 2000, fastPhaseEndMs) : pollAtMs + 10000;
+    }
+
+    function advancePastMissedReceiptCadence(pollAtMs, currentMs, createdAtMs) {
+      if (currentMs <= pollAtMs) return pollAtMs;
+      const fastPhaseEndMs = createdAtMs + 120000;
+      let target = pollAtMs;
+      if (target < fastPhaseEndMs) {
+        if (currentMs < fastPhaseEndMs) return target + Math.ceil((currentMs - target) / 2000) * 2000;
+        target = fastPhaseEndMs;
+      }
+      return target + Math.ceil((currentMs - target) / 10000) * 10000;
+    }
+
+    function advancePastMissedFixedCadence(pollAtMs, currentMs, intervalMs) {
+      if (currentMs <= pollAtMs) return pollAtMs;
+      return pollAtMs + Math.ceil((currentMs - pollAtMs) / intervalMs) * intervalMs;
+    }
+
+    async function waitForPollTarget(pollAtMs, deadlineMs, signal) {
+      throwIfAborted(signal);
+      const current = now();
+      if (!Number.isFinite(current) || current >= deadlineMs || pollAtMs >= deadlineMs) return false;
+      if (current < pollAtMs) await sleep(pollAtMs - current, signal);
+      throwIfAborted(signal);
+      const afterSleep = now();
+      return Number.isFinite(afterSleep) && afterSleep < deadlineMs;
+    }
+
+    function isEligiblePollTransient(error) {
+      return error instanceof RpcTransportError && error.transient === true;
     }
 
     async function* pollTransactionReceipt({ hash, createdAtMs, signal } = {}) {
       requireBytes32(hash, 'poll transaction hash');
-      if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0) throw new TypeError('createdAtMs must be a nonnegative safe integer.');
-      let first = true;
+      if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0 || !Number.isSafeInteger(createdAtMs + 600000)) throw new TypeError('createdAtMs must permit a safe fixed deadline.');
+      const deadlineMs = createdAtMs + 600000;
+      const startedAtMs = now();
+      if (!Number.isFinite(startedAtMs) || startedAtMs < createdAtMs) throw new TypeError('Polling clock cannot precede createdAtMs.');
+      let pollAtMs = startedAtMs;
       while (true) {
-        throwIfAborted(signal);
-        const elapsed = now() - createdAtMs;
-        if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 600000) return;
-        if (!first) {
-          const delay = elapsed < 120000 ? 2000 : 10000;
-          if (elapsed + delay > 600000) return;
-          await sleep(delay, signal);
+        const currentMs = now();
+        if (!Number.isFinite(currentMs) || currentMs >= deadlineMs) return;
+        pollAtMs = advancePastMissedReceiptCadence(pollAtMs, currentMs, createdAtMs);
+        if (!(await waitForPollTarget(pollAtMs, deadlineMs, signal))) return;
+        let evidence;
+        try {
+          const mainnet = await transactionReceiptPair(MAINNET, hash, signal, deadlineMs);
+          const drpc = await transactionReceiptPair(DRPC, hash, signal, deadlineMs);
+          const observedAtMs = now();
+          if (!Number.isFinite(observedAtMs) || observedAtMs >= deadlineMs) return;
+          evidence = ns.deepFreeze({ mainnet, drpc, observedAtMs });
+        } catch (error) {
           throwIfAborted(signal);
+          if (error instanceof RpcDeadlineError) return;
+          if (!isEligiblePollTransient(error)) throw error;
         }
-        first = false;
-        const mainnet = await transactionReceiptPair(MAINNET, hash, signal);
-        const drpc = await transactionReceiptPair(DRPC, hash, signal);
-        yield ns.deepFreeze({ mainnet, drpc, observedAtMs: now() });
+        pollAtMs = nextReceiptPollAt(pollAtMs, createdAtMs);
+        if (evidence) yield evidence;
       }
     }
 
     async function* pollHeads({ deadlineMs, signal } = {}) {
       if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 0) throw new TypeError('deadlineMs must be a nonnegative safe integer.');
-      let first = true;
+      const startedAtMs = now();
+      if (!Number.isFinite(startedAtMs)) throw new TypeError('Polling clock must be finite.');
+      let pollAtMs = startedAtMs;
       while (true) {
+        const currentMs = now();
+        if (!Number.isFinite(currentMs) || currentMs >= deadlineMs) return;
+        pollAtMs = advancePastMissedFixedCadence(pollAtMs, currentMs, 2000);
+        if (!(await waitForPollTarget(pollAtMs, deadlineMs, signal))) return;
+        const results = await Promise.allSettled(ORIGINS.map((origin) => request(
+          origin,
+          Object.freeze({ kind: 'latestBlock' }),
+          { signal, deadlineMs },
+        )));
         throwIfAborted(signal);
-        const current = now();
-        if (!Number.isFinite(current) || current > deadlineMs) return;
-        if (!first) {
-          if (current + 2000 > deadlineMs) return;
-          await sleep(2000, signal);
-          throwIfAborted(signal);
-        }
-        first = false;
-        const heads = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'latestBlock' }), { signal })));
-        yield ns.deepFreeze({ observedAtMs: now(), heads });
-        if (now() >= deadlineMs) return;
+        if (results.some((result) => result.status === 'rejected' && result.reason instanceof RpcDeadlineError)) return;
+        const semanticFailure = results.find((result) => result.status === 'rejected' && !isEligiblePollTransient(result.reason));
+        if (semanticFailure) throw semanticFailure.reason;
+        const transientFailure = results.some((result) => result.status === 'rejected');
+        const observedAtMs = now();
+        if (observedAtMs >= deadlineMs) return;
+        const evidence = transientFailure ? null : ns.deepFreeze({
+          observedAtMs,
+          heads: results.map((result) => result.value),
+        });
+        pollAtMs += 2000;
+        if (evidence) yield evidence;
       }
     }
 
@@ -338,8 +522,8 @@
     }
 
     return ns.deepFreeze({
-      request,
-      standard,
+      readNonState,
+      traceTransaction,
       requireChainQuorum: assertChainQuorum,
       anchorCanonicalHead,
       stateBatch,
