@@ -97,7 +97,7 @@ The current snapshot requires all of:
 - Adapter8004 `identityRegistry()` equals the pinned registry, `bindingOf(90994)` is exactly `(0,Loopers,3802)`, and `isController(90994,holder)` is exactly true;
 - Identity Registry `ownerOf(90994)` equals Adapter8004 and `tokenURI(90994)` exactly equals the pinned URI.
 
-The historical activation snapshot uses the pinned transaction hash, block number, and block hash. Both origins must return that exact canonical block. The transaction and receipt must share the pinned hash, block hash, block number, and transaction index; receipt status must be `0x1`; and receipt log index `0x106` must be the sole registry creation event with the exact pinned address, topics, data, transaction hash, coordinates, and `removed:false`. Historical account runtime, `token()`, `owner()`, `state()`, and valid-signer reads run against the pinned receipt block; `state()` must be exactly uint256 zero there. `Activation verified` means only that this canonical transaction contains the exact ERC-6551 creation event and the created account had the exact post-state at that block. It does not claim who submitted, sponsored, or authorized the enclosing EntryPoint transaction, so direct-versus-bundled operator attribution is outside this public profile.
+The historical activation snapshot uses the pinned transaction hash, block number, block hash, and holder `0x17d7DfA154dc0828AdE4115B9EB8a0A91C0fbDe4`. Both origins must return that exact canonical block. Every historical code, slot, balance, and call read uses EIP-1898 `{blockHash:"0xd8f0a523075a77026a68e096354ec3165d8605fc6c62b4b84de84c93c78f43f1",requireCanonical:true}`; block-number-only reads are forbidden. The transaction and receipt must share the pinned hash, block hash, block number, and transaction index; receipt status must be `0x1`; and receipt log index `0x106` must be the sole registry creation event with the exact pinned address, topics, data, transaction hash, coordinates, and `removed:false`. Historical account runtime and `token()` must match the manifest; `owner()` must equal the pinned holder; `state()` must be exactly uint256 zero; `isValidSigner(pinnedHolder,emptyContext)` must return exactly `0x523e326000000000000000000000000000000000000000000000000000000000`; and the account balance must be exactly zero. `Activation verified` means only that this canonical transaction contains the exact ERC-6551 creation event and the created account had the exact post-state at that block. It does not claim who submitted, sponsored, or authorized the enclosing EntryPoint transaction, so direct-versus-bundled operator attribution is outside this public profile.
 
 The verifier classifies evidence with strict precedence:
 
@@ -115,9 +115,22 @@ Display three live groups:
 - indexed fungible-token balances from Base Blockscout;
 - indexed NFT balances from Base Blockscout.
 
-The holdings request has a ten-second timeout and a 1 MiB response limit. It accepts one object with exact top-level keys `items` and `next_page_params`; `items` may contain at most 100 entries and the renderer displays at most 24. Accepted token types are exactly `ERC-20`, `ERC-721`, and `ERC-1155`. `ERC-20` requires a nonnegative decimal integer `value` and integer `decimals` in `0..255`; NFT entries require a nonnegative decimal `token_id` and quantity. Contract addresses must be 20-byte hex. Remote token names, symbols, and image URLs are display-only text and are length-capped; remote token image URLs are not loaded in this slice. One malformed item marks the holdings result unavailable rather than silently presenting a partial portfolio. Non-null `next_page_params` produces `More holdings may exist` plus the explorer link; the client never follows server-provided pagination values.
+The holdings client makes two independent exact requests, each with a ten-second timeout and 1 MiB response limit:
 
-The page labels non-native holdings as `Blockscout-indexed holdings`. An empty valid first page with null pagination renders `No indexed assets yet`, not a universal claim that no assets exist.
+```text
+GET /api/v2/addresses/{account}/tokens?type=ERC-20
+GET /api/v2/addresses/{account}/tokens?type=ERC-721%2CERC-1155
+```
+
+Each response must be an object containing `items` and `next_page_params`; extra response keys are ignored. `items` must be an array of at most 100 entries and each section renders at most 12. Every item must be an object with required fields at these exact locations: top-level `token`, `token_id`, `token_instance`, and `value`; nested `token.address_hash`, `token.type`, `token.name`, `token.symbol`, and `token.decimals`. Extra item/token fields are ignored.
+
+For an `ERC-20` item: `token.type` is exactly `ERC-20`; `token.address_hash` is a 20-byte address; `token.name` and `token.symbol` are strings or null and are capped to 80 and 24 characters; `token.decimals` is a canonical decimal string whose integer is in `0..255`; top-level `token_id` and `token_instance` are null; and top-level `value` is a canonical nonnegative decimal integer string.
+
+For an NFT item: `token.type` is exactly `ERC-721` or `ERC-1155`; `token.address_hash` is a 20-byte address; `token.name` and `token.symbol` follow the same nullable caps; `token.decimals` is null or the string `0`; top-level `token_id` is a canonical nonnegative decimal integer string; top-level `token_instance` may be null or an object but is ignored; and top-level `value` is the canonical positive decimal integer quantity displayed for that token ID (`1` for a normal ERC-721 holding, potentially greater for ERC-1155).
+
+Remote icon or metadata URLs are ignored and never loaded. One malformed item invalidates only that endpoint's section, which renders `Token holdings unavailable` or `NFT holdings unavailable`; it never silently presents that section as complete. A non-null `next_page_params` may be an object of unknown server-owned cursor fields and produces `More holdings may exist` plus the explorer link; the client never reads or follows those cursor values.
+
+The page labels non-native holdings as `Blockscout-indexed holdings`. Two empty valid first pages with null pagination render `No indexed assets yet`, not a universal claim that no assets exist.
 
 ### 5. Agent identity
 
@@ -127,9 +140,9 @@ Display:
 - the exact Looper-bound identity URI;
 - identity registry and adapter evidence links;
 - current holder/controller status;
-- public Looper personality summary from immutable metadata when the metadata fetch succeeds.
+- public Looper personality summary copied from the immutable metadata into the validated build-time manifest.
 
-Metadata is content, not authority. It may supply artwork and descriptive text but cannot determine wallet verification.
+Metadata is content, not authority. There is no runtime metadata fetch. Manifest artwork and descriptive text cannot determine wallet verification.
 
 ### 6. Public proof
 
@@ -230,7 +243,8 @@ Exact public origins:
 
 - Base RPC primary: `https://mainnet.base.org`
 - Base RPC fallback: `https://base.drpc.org`
-- Indexed holdings: `https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens`
+- Fungible holdings: `https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens?type=ERC-20`
+- NFT holdings: `https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens?type=ERC-721%2CERC-1155`
 - Artwork: `https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net/3ZwkzgHeRr0Chw14FzKmwZf54fyHi6d0KVOZQprgq50`
 - Metadata source reference only: `https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json`
 
@@ -261,7 +275,7 @@ The builder:
 - supports `--check` and `--dist` modes;
 - writes `apps/web/dist/multipass/loopers/3802/index.html` in `--dist` mode.
 
-The existing web build sequence is updated to run Vite first, then the activation-page builder, then this profile builder; Vite therefore cannot clear the generated profile after it is written. In production, the committed generated artifact maps directly to `/var/www/helixa.xyz/multipass/loopers/3802/index.html`; the route-only deploy copies that one file and does not replace `/multipass/index.html` or shared assets.
+The existing web build sequence remains intact and appends this generator: Vite first, then `write-allowlist-entry.mjs`, then the activation-page builder, then this profile builder. Vite therefore cannot clear any generated route after it is written, and the existing allowlist and activation artifacts remain generated. In production, the committed generated artifact maps directly to `/var/www/helixa.xyz/multipass/loopers/3802/index.html`; the route-only deploy copies that one file and does not replace `/multipass/index.html` or shared assets.
 
 Nginx receives two exact locations before the general `/multipass/` fallback:
 
@@ -291,7 +305,9 @@ The public profile:
 - does not load remote executable scripts;
 - does not render remote HTML;
 - does not expose private API keys or use credentialed requests;
-- uses a strict Content Security Policy compatible with its exact RPC, Blockscout, image, and explorer origins;
+- owns its Content Security Policy in an HTML `<meta http-equiv="Content-Security-Policy">`; Nginx does not add or override CSP for this exact route;
+- contains exactly one inline `<style>` and one inline `<script>` with no style/script attributes; the builder computes SHA-256 source hashes for both and injects only those hashes into `style-src` and `script-src`;
+- uses this complete directive model: `default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src <generated-script-hash>; script-src-attr 'none'; style-src <generated-style-hash>; style-src-attr 'none'; connect-src https://mainnet.base.org https://base.drpc.org https://base.blockscout.com; img-src 'self' https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; upgrade-insecure-requests`;
 - includes no analytics in this slice.
 
 The activation owner page remains separate and no longer acts as the public profile.
@@ -333,7 +349,7 @@ The generated HTML includes:
 ### Pure and generation tests
 
 - manifest accepts exact #3802 facts and rejects unknown or malformed fields;
-- builder output is deterministic and current;
+- builder output is deterministic and current, and recomputes exact CSP hashes when inline style or script bytes change;
 - generated artifact has one inline script and no remote executable code;
 - scanner rejects wallet-provider access, send methods, storage, cookies, arbitrary fetch origins, unsafe DOM sinks, and unexpected forms/inputs;
 - canonical-snapshot tests reject mixed blocks, changed hashes, origin disagreement, partial-batch fallback, wrong chain IDs, stale responses, and mismatch masking by transport failure;
