@@ -386,3 +386,23 @@ test('final receipt quorum performs one Mainnet dRPC transaction-receipt pair an
   ]);
 });
 
+
+test('classifies only exact undeployed and deployed activation account states', async () => {
+  const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
+  assert.equal(unit.classifyAccount('0x', '0x0'), 'undeployed_zero');
+  assert.equal(unit.classifyAccount('0x', '0x1'), 'unexpected_funded');
+  assert.equal(unit.classifyAccount(unit.EXPECTED_ACCOUNT_RUNTIME, '0x0'), 'deployed_exact');
+  assert.equal(unit.classifyAccount(unit.EXPECTED_ACCOUNT_RUNTIME, '0x1'), 'unexpected_funded');
+  assert.equal(unit.classifyAccount('0x1234', '0x0'), 'wrong_code');
+  assert.equal(unit.classifyAccount('0x1', '0x0'), 'malformed_code');
+});
+
+test('preflight plan covers every pinned code slot call simulation gas and account read', async () => {
+  const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
+  const keys = unit.PREFLIGHT_PLAN.map(({ key }) => key);
+  for (const name of Object.keys(unit.PINSET.identities)) assert.ok(keys.includes(`code:${name}`), `missing code:${name}`);
+  for (const name of ['loopers','adapter','identityRegistry','sponsor']) assert.ok(keys.includes(`slot:${name}`));
+  for (const name of Object.keys(unit.CALLS)) assert.ok(keys.includes(`call:${name}`));
+  for (const key of ['accountCode','accountBalance','simulation','estimateGas','gasPrice']) assert.ok(keys.includes(key));
+  assert.ok(Object.isFrozen(unit.PREFLIGHT_PLAN));
+});
