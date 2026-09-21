@@ -78,19 +78,29 @@ Looper #3802
   -> ERC-8004 identity #90994
 ```
 
-Verification requires all of:
+Verification is one immutable, block-anchored snapshot rather than a mixture of latest-state calls. It requires all of:
 
-- non-empty account runtime;
-- exact expected 173-byte runtime and SHA-256;
-- account `token()` returns `(8453, Loopers contract, 3802)`;
-- account `owner()` equals live `Loopers.ownerOf(3802)`;
-- account `state()` is valid;
-- Loopers `tokenBoundAccount(3802)` equals the account;
-- Loopers `erc8004BoundByLooper(3802)` is true;
-- Loopers `erc8004AgentIdByLooper(3802)` equals `90994`;
-- activation receipt status is successful and contains exactly one matching canonical `ERC6551AccountCreated` event.
+- both RPC origins report chain ID `0x2105`;
+- the selected origin returns a latest non-null block number/hash and the second origin independently returns the same hash for that number;
+- every state read below is executed against the selected block hash with EIP-1898 `{blockHash, requireCanonical: true}`; if an origin cannot serve the complete batch at that hash, discard the whole batch and retry the whole batch on the other origin only after re-confirming that block hash;
+- account runtime is exactly the expected 173-byte runtime and SHA-256;
+- account `token()` returns exactly `(8453, Loopers contract, 3802)`;
+- account `owner()` equals the exact result of `Loopers.ownerOf(3802)`;
+- account `state()` returns exactly uint256 zero for this newly deployed account;
+- account `isValidSigner(holder,emptyContext)` returns the exact ERC-6551 magic value pinned in the activation implementation;
+- Loopers `tokenBoundAccount(3802)` and canonical registry `account(implementation,salt,8453,Loopers,3802)` both equal the pinned account;
+- Loopers `erc8004BoundByLooper(3802)` is exactly true, `erc8004AgentIdByLooper(3802)` is exactly `90994`, and `erc8004AgentURI(3802)` is exactly the pinned URI;
+- Adapter8004 `identityRegistry()` equals the pinned registry, `bindingOf(90994)` is exactly `(0,Loopers,3802)`, and `isController(90994,holder)` is exactly true;
+- Identity Registry `ownerOf(90994)` equals Adapter8004 and `tokenURI(90994)` exactly equals the pinned URI;
+- the pinned activation transaction and receipt share one hash and block coordinate, the receipt status is successful, the receipt block is canonical, and the receipt contains exactly one matching canonical `ERC6551AccountCreated` event with exact account, implementation, salt, chain, token contract, and token ID.
 
-If any proof is unavailable or mismatched, the page must not show `Verified`. It shows `Proof unavailable` or `Proof mismatch` with safe explanatory copy and leaves immutable addresses visible.
+The verifier classifies evidence with strict precedence:
+
+1. `mismatch` if any successfully returned authoritative value disagrees, if the two origins disagree on the selected block hash, or if transaction/receipt/event coordinates disagree;
+2. `unavailable` only when no authoritative mismatch was observed but a required request timed out, reverted, returned malformed data, lacked archive/EIP-1898 support, or left the snapshot incomplete;
+3. `verified` only when the complete batch and receipt proof pass.
+
+A mismatch cannot be masked by a later timeout or fallback result. Any non-verified result removes `Wallet active` and `Verified`; the page shows `Proof mismatch` or `Proof unavailable` while leaving immutable addresses and explorer links visible.
 
 ### 4. Wallet holdings
 
@@ -151,13 +161,15 @@ Split the generated runtime into focused units:
    - Owns address, quantity, ABI word, and runtime-hash helpers.
 
 2. **Read-only Base client**
-   - Uses only exact allowlisted JSON-RPC methods.
-   - Uses bounded timeout and primary/fallback origins.
+   - Accepts a closed typed request union for `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt` only.
+   - Selects one canonical block, confirms it across both origins, and executes one whole EIP-1898 state batch; it never mixes partial batches from different origins.
+   - Uses bounded per-request and whole-refresh timeouts.
    - Never accesses `window.ethereum` and never sends a transaction.
 
 3. **Wallet proof verifier**
-   - Reads code, binding, holder/controller, identity binding, transaction, and receipt evidence.
-   - Returns one immutable `verified`, `unavailable`, or `mismatch` result.
+   - Accepts raw evidence plus the immutable manifest; it performs no network I/O.
+   - Strictly decodes code, binding, holder/controller, identity, transaction, receipt, and event evidence with no trailing ABI bytes.
+   - Returns one immutable `verified`, `unavailable`, or `mismatch` result using the precedence defined above.
 
 4. **Holdings client**
    - Reads only the exact Base Blockscout address/token endpoints.
@@ -180,9 +192,11 @@ Exact public origins:
 - Base RPC fallback: `https://base.drpc.org`
 - Indexed holdings: `https://base.blockscout.com/api/v2/addresses/{account}/tokens`
 - Address summary: `https://base.blockscout.com/api/v2/addresses/{account}`
-- Immutable metadata: pinned Arweave URI
+- Immutable metadata: the pinned Arweave URI after exact-origin validation
 
-All network reads use GET or JSON-RPC POST without credentials or cookies. Redirects are rejected for RPC. The holdings client accepts only the exact HTTPS Blockscout origin and path prefix. Remote images must resolve to an allowlisted Arweave gateway or an existing pinned Helixa asset URL.
+Allowed JSON-RPC methods are exactly `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`. Every request uses fixed parameters constructed from the manifest or selected block; the URL, method, address, block, and calldata are never supplied by query strings, storage, remote metadata, or DOM state.
+
+All network reads use GET or JSON-RPC POST without credentials or cookies. RPC uses `redirect: "error"`; Blockscout and metadata redirects may be followed only when the final URL remains on an explicit allowlist. The holdings client accepts only the exact HTTPS Blockscout origin and path prefix. Remote images must resolve to an allowlisted Arweave gateway or an existing pinned Helixa asset URL.
 
 ## Routing and generation
 
@@ -227,9 +241,10 @@ The activation owner page remains separate and no longer acts as the public prof
 
 ## Error handling
 
-- **RPC unavailable:** keep immutable identity facts, mark live proof unavailable, and preserve explorer links.
+- **RPC unavailable or incomplete snapshot:** discard the whole attempted batch, keep immutable identity facts, mark live proof unavailable, and preserve explorer links.
+- **RPC origins disagree on chain or canonical block:** classify as proof mismatch and do not retry into a verified state during that refresh.
 - **Runtime mismatch:** show `Proof mismatch`, never `Wallet active` or `Verified`.
-- **Holder/controller mismatch:** show a controller warning and no verified badge.
+- **Holder/controller/identity mismatch:** show a controller or identity warning and no verified badge.
 - **Receipt unavailable:** deployed state may be shown as `Observed onchain`, but not `Activation verified`.
 - **Metadata unavailable:** show a deterministic initials/image fallback and keep proof operational.
 - **Blockscout unavailable:** show `Holdings temporarily unavailable`; do not infer zero balances.
@@ -264,7 +279,8 @@ The generated HTML includes:
 - builder output is deterministic and current;
 - generated artifact has one inline script and no remote executable code;
 - scanner rejects wallet-provider access, send methods, storage, cookies, arbitrary fetch origins, unsafe DOM sinks, and unexpected forms/inputs;
-- ABI/runtime/event verifiers accept pinned fixtures and reject mutated account, implementation, salt, chain, token, holder, receipt, code, and identity values;
+- canonical-snapshot tests reject mixed blocks, changed hashes, origin disagreement, partial-batch fallback, wrong chain IDs, stale responses, and mismatch masking by transport failure;
+- ABI/runtime/event verifiers accept pinned fixtures and reject mutated account, implementation, salt, chain, token, holder, account state, signer magic, receipt coordinates, code, URI, adapter binding, controller, and identity values;
 - holdings parser validates and caps Blockscout data;
 - route and metadata tags are exact.
 
