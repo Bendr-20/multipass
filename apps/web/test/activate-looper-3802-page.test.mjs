@@ -76,3 +76,11 @@ test('bootstrap is the sole composition root for browser capabilities', async ()
   const controllerSource = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
   for (const forbidden of ['window.ethereum','localStorage','navigator.locks']) assert.equal(controllerSource.includes(forbidden), false, forbidden);
 });
+
+test('page exposes no editable, automatic retry, or collection-wide activation behavior', async () => {
+  const html = await readFile(PAGE, 'utf8');
+  assert.equal(/setInterval\([^)]*(?:activate|retry|sendPinnedActivation)/isu.test(html), false);
+  assert.equal(/activate all|collection-wide activation|batch activation/iu.test(html), false);
+  assert.equal((html.match(/eth_sendTransaction/gu) || []).length, 2);
+  const dom = new JSDOM(html); assert.equal(dom.window.document.querySelectorAll('input,textarea,select,[contenteditable]').length, 0);
+});
