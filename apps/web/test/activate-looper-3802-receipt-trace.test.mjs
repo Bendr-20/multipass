@@ -48,3 +48,16 @@ test('trace receipt ordinal remains distinct from block-global logIndex', async 
   const ns = await unit(); const log = registryLog(ns, 7); const decoded = ns.decodeRegistryLog(log, 0); assert.equal(decoded.receiptArrayIndex, 0); assert.equal(decoded.logIndex, '0x7');
   assert.throws(() => ns.decodeRegistryLog({ ...log, logIndex: '0x00' }, 0), /indices|quantity/i);
 });
+
+test('wallet envelope accepts only one zero-value exact registry activation call', async () => {
+  const ns = await unit();
+  const executeAbi = [{ type: 'function', name: 'execute', stateMutability: 'payable', inputs: [{name:'dest',type:'address'},{name:'value',type:'uint256'},{name:'func',type:'bytes'}], outputs: [] }];
+  const exact = encodeFunctionData({ abi: executeAbi, functionName: 'execute', args: [ns.PINSET.identities.registry.address, 0n, ns.EXACT_CALLDATA] });
+  const decoded = ns.decodeWalletEnvelope(exact);
+  assert.equal(decoded.value, 0n); assert.equal(decoded.data, ns.EXACT_CALLDATA);
+  const wrongValue = encodeFunctionData({ abi: executeAbi, functionName: 'execute', args: [ns.PINSET.identities.registry.address, 1n, ns.EXACT_CALLDATA] });
+  assert.throws(() => ns.decodeWalletEnvelope(wrongValue), /outside|pinned/i);
+  const wrongTarget = encodeFunctionData({ abi: executeAbi, functionName: 'execute', args: [ns.PINSET.identities.loopers.address, 0n, ns.EXACT_CALLDATA] });
+  assert.throws(() => ns.decodeWalletEnvelope(wrongTarget), /outside|pinned/i);
+  assert.throws(() => ns.decodeWalletEnvelope(`${exact}00`), /trailing/i);
+});
