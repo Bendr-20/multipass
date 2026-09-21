@@ -5,6 +5,7 @@
   const HASH = /^0x[0-9a-f]{64}$/u;
   const lowerTx = () => ({ chainId: ns.EXACT_TRANSACTION.chainId, from: ns.EXACT_TRANSACTION.from.toLowerCase(), to: ns.EXACT_TRANSACTION.to.toLowerCase(), data: ns.EXACT_TRANSACTION.data, value: '0x0' });
   const attemptPinset = () => ns.expectedAttemptPinset();
+  const GAS_PRICE_REQUEST = Object.freeze({ kind: 'gasPrice' });
 
   function makeAttempt({ id, nowMs, walletGeneration, validated, retryOrdinal = 0, supersedesId = null }) {
     return {
@@ -66,10 +67,10 @@
     let busy = false; let refreshVersion = 0; let walletGeneration = 0; let preflight = null; let walletState = { chainId: null, account: null }; let durable = null; let status = 'Verifying pinned production state...';
     function view(txHash = null) { const walletReady = walletState.chainId === ns.PINSET.chainIdHex && walletState.account?.toLowerCase() === ns.PINSET.identities.sponsor.address.toLowerCase(); return { busy, wallet: walletState, preflight, store: durable, txHash, status, controls: deriveControls({ busy, walletReady, preflight, store: durable, locksAvailable: coordinator.available }) }; }
     function draw(txHash = null) { renderer.render(view(txHash)); }
-    async function readPreflight() { const anchor = await transport.anchorCanonicalHead(); const [stateEvidence, gasPrice] = await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard({ kind: 'gasPrice' })]); const evidence = { ...stateEvidence, anchor, gasPrice }; const currentWallet = await wallet.readState(); const validated = await ns.validatePreflight(evidence, currentWallet); return { validated, currentWallet }; }
+    async function readPreflight() { const anchor = await transport.anchorCanonicalHead(); const [stateEvidence, gasPrice] = await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard(GAS_PRICE_REQUEST)]); const evidence = { ...stateEvidence, anchor, gasPrice }; const currentWallet = await wallet.readState(); const validated = await ns.validatePreflight(evidence, currentWallet); return { validated, currentWallet }; }
     async function refresh() {
       const version = ++refreshVersion; busy = true; status = 'Verifying pinned production state...'; draw();
-      try { durable = store.read(); walletState = await wallet.readState(); if (!wallet.hasProvider) { const anchor = await transport.anchorCanonicalHead(); await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard({ kind: 'gasPrice' })]); throw new Error('Injected wallet not found. Read-only checks remain safe; activation is disabled.'); } const result = await readPreflight(); if (version !== refreshVersion) return; preflight = result.validated; walletState = result.currentWallet; status = preflight.accountState === 'deployed_exact' ? 'Pinned account is deployed; use Resume verification for canonical post-state.' : 'Ready. Every pinned preflight check passed.'; }
+      try { durable = store.read(); walletState = await wallet.readState(); if (!wallet.hasProvider) { const anchor = await transport.anchorCanonicalHead(); await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard(GAS_PRICE_REQUEST)]); throw new Error('Injected wallet not found. Read-only checks remain safe; activation is disabled.'); } const result = await readPreflight(); if (version !== refreshVersion) return; preflight = result.validated; walletState = result.currentWallet; status = preflight.accountState === 'deployed_exact' ? 'Pinned account is deployed; use Resume verification for canonical post-state.' : 'Ready. Every pinned preflight check passed.'; }
       catch (error) { if (version !== refreshVersion) return; preflight = null; status = String(error?.message || error).slice(0, 600); }
       finally { if (version === refreshVersion) { busy = false; draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); } }
     }
@@ -103,7 +104,7 @@
           if (tx.to?.toLowerCase() === ns.PINSET.identities.entryPoint.address.toLowerCase()) {
             const decoded = ns.decodeHandleOps(tx.input); const index = decoded.operations.findIndex((operation) => operation.sender.toLowerCase() === ns.PINSET.identities.sponsor.address.toLowerCase()); if (index < 0) throw new Error('Wrapped receipt has no selected sponsor operation.');
             const hashCall = ns.encodeGetUserOpHashCall(decoded.operations[index], decoded.signatures[index]); const hashEvidence = await transport.stateBatch(anchor, [{ kind: 'call', transaction: { to: ns.PINSET.identities.entryPoint.address, data: hashCall } }]); onchainUserOpHashResult = hashEvidence.items[0].result;
-            trace = (await transport.request('https://base.drpc.org', { kind: 'trace', hash: attempt.txHash })).result;
+            trace = (await transport.request('https://base.drpc.org', Object.freeze({ kind: 'trace', hash: attempt.txHash }))).result;
           }
           const verified = await ns.verifyReceiptEvidence({ requestedHash: attempt.txHash, transaction: tx, receipt, postState, trace, onchainUserOpHashResult }); const at = now();
           const persistedReceipt = { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, discoveredAtMs: at, confirmationDeadlineMs: at + 120000, registryLog: verified.registryLog || null };

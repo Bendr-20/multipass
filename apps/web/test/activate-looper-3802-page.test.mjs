@@ -6,7 +6,7 @@ import { loadActivationUnits } from './activate-looper-3802-fixture.mjs';
 
 const PAGE = new URL('../owner-tools/activate-looper-3802/index.html', import.meta.url);
 
-async function unit() { return loadActivationUnits(['00-namespace.js','01-pinset-encoding.js','04-wallet-boundary.js','05-attempt-store.js','06-cross-tab-coordinator.js','08-controller-renderer.js']); }
+async function unit() { return loadActivationUnits(['00-namespace.js','01-pinset-encoding.js','03-snapshot-validator.js','04-wallet-boundary.js','05-attempt-store.js','06-cross-tab-coordinator.js','08-controller-renderer.js']); }
 
 test('wallet boundary exposes only approved methods and sends the exact transaction synchronously', async () => {
   const ns = await unit(); const calls = [];
@@ -75,6 +75,34 @@ test('bootstrap is the sole composition root for browser capabilities', async ()
   assert.equal(typeof ns.bootstrap, 'function');
   const controllerSource = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
   for (const forbidden of ['window.ethereum','localStorage','navigator.locks']) assert.equal(controllerSource.includes(forbidden), false, forbidden);
+});
+
+test('controller freezes every literal typed RPC request before the transport boundary', async () => {
+  const ns = await unit();
+  let gasPriceRequest = null;
+  const transport = {
+    anchorCanonicalHead: async () => ({ number: '0x1', hash: `0x${'ab'.repeat(32)}` }),
+    stateBatch: async () => ({ items: [] }),
+    standard: async (request) => { gasPriceRequest = request; if (!Object.isFrozen(request)) throw new Error('RPC typed request must be frozen.'); return { result: '0x1' }; },
+  };
+  const rendered = [];
+  const controller = ns.createController({
+    transport,
+    wallet: { hasProvider: false, readState: async () => ({ chainId: null, account: null }) },
+    store: { read: () => null },
+    coordinator: { available: false },
+    renderer: { render: (view) => rendered.push(view) },
+    crypto: { randomUUID: () => 'unused' },
+    now: () => 0,
+  });
+  await controller.refresh();
+  assert.equal(Object.isFrozen(gasPriceRequest), true);
+  assert.match(rendered.at(-1).status, /Injected wallet not found/i);
+
+  const source = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
+  assert.equal(source.includes('transport.standard({'), false);
+  assert.equal(source.includes("transport.request('https://base.drpc.org', {"), false);
+  assert.match(source, /Object\.freeze\(\{ kind: 'trace', hash: attempt\.txHash \}\)/u);
 });
 
 test('page exposes no editable, automatic retry, or collection-wide activation behavior', async () => {
