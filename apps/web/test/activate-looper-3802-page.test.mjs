@@ -31,3 +31,31 @@ test('wallet boundary handles no provider and Base switching without exposing ge
   assert.equal(calls.some(({ method }) => method === 'wallet_switchEthereumChain'), true);
 });
 
+test('prepared/send handoff invokes the wallet on the statement after synchronous read-back', async () => {
+  const ns = await unit(); const journal = [];
+  const context = { mutate(mutator) { journal.push('write'); const next = mutator({ activeAttemptId: null, attempts: [] }); journal.push('read-back'); return next; } };
+  const wallet = { sendPinnedActivation() { journal.push('send'); return Promise.resolve('hash'); } };
+  const draft = { id: 'draft' };
+  const handoff = ns.persistPreparedAndInvoke(context, wallet, draft);
+  journal.push('first-await'); await handoff.sendPromise;
+  assert.deepEqual(journal, ['write','read-back','send','first-await']);
+});
+
+test('controller control state is fail closed', async () => {
+  const ns = await unit();
+  const locked = ns.deriveControls({ busy: false, walletReady: true, preflight: { sendReady: true }, store: null, locksAvailable: false });
+  assert.equal(locked.activate.disabled, true);
+  const ready = ns.deriveControls({ busy: false, walletReady: true, preflight: { sendReady: true }, store: null, locksAvailable: true });
+  assert.equal(ready.activate.disabled, false);
+  const durable = ns.deriveControls({ busy: false, walletReady: true, preflight: { sendReady: true }, store: { activeAttemptId: 'x', attempts: [{ id: 'x', state: 'submitted', retryOrdinal: 0 }] }, locksAvailable: true });
+  assert.equal(durable.activate.disabled, true); assert.equal(durable.resume.visible, true);
+});
+
+test('generated page retains the exact closed UI and safe status rendering surface', async () => {
+  const html = await readFile(PAGE, 'utf8'); const dom = new JSDOM(html); const { document } = dom.window;
+  assert.ok(document.getElementById('page-state'));
+  assert.equal(document.querySelectorAll('input,textarea,select,[contenteditable]').length, 0);
+  assert.deepEqual([...document.querySelectorAll('button')].map(({ id }) => id), ['connect','activate','resume','retry','acknowledge']);
+  assert.equal(document.querySelectorAll('script[src],iframe,object,embed').length, 0);
+  assert.doesNotThrow(() => new Function(document.scripts[0].textContent));
+});
