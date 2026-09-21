@@ -102,7 +102,7 @@
     </style>
   </head>
   <body>
-    <main>
+    <main id="page-state" data-busy="true">
       <header>
         <h1>Activate Looper #3802 wallet</h1>
         <p class="lede">
@@ -855,19 +855,670 @@ globalThis.ActivateLooper3802 = Object.create(null);
   }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
 })();
 
-// Implemented by Task 4.
+'use strict';
 
-// Implemented by Task 5.
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const ADDRESS = /^0x[0-9a-fA-F]{40}$/u;
+  const HASH = /^0x[0-9a-f]{64}$/u;
+  const CODE_IDENTITIES = ['loopers','loopersImplementation','registry','accountImplementation','adapter','adapterImplementation','identityRegistry','identityRegistryImplementation','sponsor','sponsorDelegate','sponsorImplementation','entryPoint'];
+  const SLOT_IDENTITIES = ['loopers','adapter','identityRegistry','sponsor'];
+  const CALL_NAMES = Object.keys(ns.CALLS);
 
-// Implemented by Task 6.
+  function callRequest(call) { return { kind: 'call', transaction: { to: call.target, data: call.calldata } }; }
+  function createPreflightPlan() {
+    const plan = [];
+    for (const name of CODE_IDENTITIES) plan.push({ key: `code:${name}`, request: { kind: 'code', address: ns.PINSET.identities[name].address } });
+    for (const name of SLOT_IDENTITIES) plan.push({ key: `slot:${name}`, request: { kind: 'storage', address: ns.PINSET.identities[name].address, slot: ns.PINSET.eip1967Slot } });
+    for (const name of CALL_NAMES) plan.push({ key: `call:${name}`, request: callRequest(ns.CALLS[name]) });
+    plan.push({ key: 'accountCode', request: { kind: 'code', address: ns.PINSET.account } });
+    plan.push({ key: 'accountBalance', request: { kind: 'balance', address: ns.PINSET.account } });
+    plan.push({ key: 'simulation', request: { kind: 'call', transaction: ns.EXACT_TRANSACTION } });
+    plan.push({ key: 'estimateGas', request: { kind: 'estimate', transaction: ns.EXACT_TRANSACTION } });
+    return ns.deepFreeze(plan);
+  }
+  const PREFLIGHT_PLAN = createPreflightPlan();
+  function unwrap(item) { return item && typeof item === 'object' && Object.hasOwn(item, 'result') ? item.result : item; }
+  function mapEvidence(bundle) {
+    if (!bundle || typeof bundle !== 'object' || !bundle.anchor || !HASH.test(bundle.anchor.hash) || typeof bundle.anchor.number !== 'string' || !Array.isArray(bundle.items) || bundle.items.length !== PREFLIGHT_PLAN.length) throw new Error('Incomplete or malformed anchored state bundle.');
+    const values = Object.create(null);
+    PREFLIGHT_PLAN.forEach(({ key }, index) => { values[key] = unwrap(bundle.items[index]); });
+    values.gasPrice = unwrap(bundle.gasPrice);
+    return values;
+  }
+  function sameAddress(a, b) { return typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase(); }
+  function requireRaw(actual, expected, label) { if (actual !== expected) throw new Error(`${label} raw result mismatch.`); }
+  function codeLength(code) { return ns.hexToBytes(code).length; }
+  function decodeLowAddress(slot, label) { const value = ns.decodeAddress(slot); if (!ADDRESS.test(value)) throw new Error(`${label} address malformed.`); return value; }
+  function classifyAccount(code, balance) {
+    if (code === '0x') return balance === '0x0' ? 'undeployed_zero' : 'unexpected_funded';
+    let bytes;
+    try { bytes = ns.hexToBytes(code); } catch { return 'malformed_code'; }
+    if (bytes.length === 173 && code === ns.EXPECTED_ACCOUNT_RUNTIME) return balance === '0x0' ? 'deployed_exact' : 'unexpected_funded';
+    return 'wrong_code';
+  }
 
-// Implemented by Task 7.
+  async function validatePreflight(bundle, wallet) {
+    if (!wallet || wallet.chainId !== ns.PINSET.chainIdHex || !sameAddress(wallet.account, ns.PINSET.identities.sponsor.address)) throw new Error('Connected wallet must be the pinned sponsor on Base.');
+    const values = mapEvidence(bundle);
+    for (const name of CODE_IDENTITIES) {
+      const identity = ns.PINSET.identities[name]; const code = values[`code:${name}`];
+      if (codeLength(code) !== identity.bytes) throw new Error(`${name} code length mismatch.`);
+      if (await ns.sha256Hex(code) !== identity.sha256) throw new Error(`${name} code hash mismatch.`);
+    }
+    if (values['code:sponsor'] !== ns.PINSET.sponsorDesignator) throw new Error('Sponsor designator mismatch.');
+    for (const name of SLOT_IDENTITIES) {
+      const expected = ns.PINSET.identities[name].implementationSlot; const actual = values[`slot:${name}`]; requireRaw(actual, expected, `${name} implementation slot`);
+      const mapped = name === 'loopers' ? 'loopersImplementation' : name === 'adapter' ? 'adapterImplementation' : name === 'identityRegistry' ? 'identityRegistryImplementation' : 'sponsorImplementation';
+      if (!sameAddress(decodeLowAddress(actual, name), ns.PINSET.identities[mapped].address)) throw new Error(`${name} implementation address mismatch.`);
+    }
+    for (const name of CALL_NAMES) requireRaw(values[`call:${name}`], ns.CALLS[name].result, name);
+    if (ns.decodeAddress(values['call:loopersOwner']) !== ns.PINSET.identities.sponsor.address.toLowerCase()) throw new Error('Loopers owner mismatch.');
+    if (ns.decodeAddress(values['call:loopersOwnerOf']) !== ns.PINSET.holder.toLowerCase()) throw new Error('Looper holder mismatch.');
+    if (ns.decodeString(values['call:loopersIdentityUri']) !== ns.PINSET.identityUri || ns.decodeString(values['call:identityTokenUri']) !== ns.PINSET.identityUri) throw new Error('Identity URI mismatch.');
+    const binding = ns.decodeBinding(values['call:adapterBinding']); if (binding.standard !== 0 || !sameAddress(binding.tokenContract, ns.PINSET.identities.loopers.address) || binding.tokenId !== ns.PINSET.tokenId) throw new Error('Adapter binding mismatch.');
+    if (!ns.decodeBool(values['call:adapterController'])) throw new Error('Holder is not identity controller.');
+    ns.validateExactTransaction(ns.EXACT_TRANSACTION);
+    requireRaw(values.simulation, `0x${ns.addressWord(ns.PINSET.account)}`, 'simulation');
+    const estimated = ns.parseQuantity(values.estimateGas); if (estimated > BigInt(ns.PINSET.gasCap)) throw new Error('Gas estimate exceeds cap.');
+    const gasPrice = ns.parseQuantity(values.gasPrice);
+    const accountState = classifyAccount(values.accountCode, values.accountBalance);
+    const validated = {
+      blockNumber: Number(ns.parseQuantity(bundle.anchor.number)), blockHash: bundle.anchor.hash, origin: bundle.origin, accountState,
+      estimatedGas: values.estimateGas, gasPrice: values.gasPrice, estimatedFeeWei: (estimated * gasPrice).toString(10), sendReady: accountState === 'undeployed_zero',
+      accountCode: values.accountCode, accountBalance: values.accountBalance,
+      preflight: {
+        blockNumber: Number(ns.parseQuantity(bundle.anchor.number)), blockHash: bundle.anchor.hash, estimatedGas: values.estimateGas, gasPrice: values.gasPrice,
+        accountCode: values.accountCode, accountBalance: values.accountBalance,
+        loopersImplementationSlot: values['slot:loopers'], adapterImplementationSlot: values['slot:adapter'], identityImplementationSlot: values['slot:identityRegistry'],
+        sponsorDesignator: values['code:sponsor'], sponsorImplementationSlot: values['slot:sponsor'],
+        adapterIdentityRegistryResult: values['call:adapterIdentityRegistry'], adapterBindingResult: values['call:adapterBinding'], adapterControllerResult: values['call:adapterController'],
+        identityOwnerResult: values['call:identityOwner'], identityTokenURIResult: values['call:identityTokenUri'], sponsorImplementationResult: values['call:sponsorImplementation'],
+        sponsorEntryPointResult: values['call:sponsorEntryPoint'], simulationResult: values.simulation,
+      },
+    };
+    return ns.deepFreeze(validated);
+  }
 
-// Implemented by Task 8.
+  const ACCOUNT_CALLS = ns.deepFreeze({
+    token: { to: ns.PINSET.account, data: ns.SELECTORS.accountToken },
+    owner: { to: ns.PINSET.account, data: ns.SELECTORS.accountOwner },
+    state: { to: ns.PINSET.account, data: ns.SELECTORS.accountState },
+    validSigner: { to: ns.PINSET.account, data: `${ns.SELECTORS.accountIsValidSigner}${ns.addressWord(ns.PINSET.holder)}${ns.uint256Word(64)}${ns.uint256Word(0)}` },
+  });
+  const POST_STATE_PLAN = ns.deepFreeze([
+    ...CODE_IDENTITIES.map((name) => ({ key: `code:${name}`, request: { kind: 'code', address: ns.PINSET.identities[name].address } })),
+    ...SLOT_IDENTITIES.map((name) => ({ key: `slot:${name}`, request: { kind: 'storage', address: ns.PINSET.identities[name].address, slot: ns.PINSET.eip1967Slot } })),
+    ...CALL_NAMES.map((name) => ({ key: `call:${name}`, request: callRequest(ns.CALLS[name]) })),
+    { key: 'accountCode', request: { kind: 'code', address: ns.PINSET.account } },
+    { key: 'accountBalance', request: { kind: 'balance', address: ns.PINSET.account } },
+    ...Object.entries(ACCOUNT_CALLS).map(([key, transaction]) => ({ key: `account:${key}`, request: { kind: 'call', transaction } })),
+  ]);
+  async function validatePostState(bundle) {
+    if (!bundle || !bundle.anchor || !HASH.test(bundle.anchor.hash) || !Array.isArray(bundle.items) || bundle.items.length !== POST_STATE_PLAN.length) throw new Error('Incomplete receipt-block post-state bundle.');
+    const values = Object.create(null); POST_STATE_PLAN.forEach(({ key }, index) => { values[key] = unwrap(bundle.items[index]); });
+    for (const name of CODE_IDENTITIES) { const identity = ns.PINSET.identities[name]; const code = values[`code:${name}`]; if (codeLength(code) !== identity.bytes || await ns.sha256Hex(code) !== identity.sha256) throw new Error(`${name} receipt-block code mismatch.`); }
+    if (values['code:sponsor'] !== ns.PINSET.sponsorDesignator) throw new Error('Receipt-block sponsor designator mismatch.');
+    for (const name of SLOT_IDENTITIES) requireRaw(values[`slot:${name}`], ns.PINSET.identities[name].implementationSlot, `${name} receipt-block slot`);
+    for (const name of CALL_NAMES) requireRaw(values[`call:${name}`], ns.CALLS[name].result, `${name} receipt-block call`);
+    if (values.accountCode !== ns.EXPECTED_ACCOUNT_RUNTIME || await ns.sha256Hex(values.accountCode) !== ns.EXPECTED_ACCOUNT_RUNTIME_SHA256 || values.accountBalance !== '0x0') throw new Error('Receipt-block account runtime or balance mismatch.');
+    const expectedToken = `0x${ns.uint256Word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${ns.uint256Word(ns.PINSET.tokenId)}`;
+    const expectedOwner = `0x${ns.addressWord(ns.PINSET.holder)}`; const expectedState = `0x${ns.uint256Word(0)}`; const expectedSigner = `${ns.SELECTORS.accountIsValidSigner}${'0'.repeat(56)}`;
+    requireRaw(values['account:token'], expectedToken, 'account.token'); requireRaw(values['account:owner'], expectedOwner, 'account.owner'); requireRaw(values['account:state'], expectedState, 'account.state'); requireRaw(values['account:validSigner'], expectedSigner, 'account.isValidSigner');
+    return ns.deepFreeze({ accountCode: values.accountCode, accountBalance: values.accountBalance, tokenResult: values['account:token'], ownerResult: values['account:owner'], stateResult: values['account:state'], validSignerResult: values['account:validSigner'], invariantsValid: true });
+  }
+  function withBlockRefs(plan, blockRef) { return plan.map(({ request }) => ({ ...request, ...(request.kind === 'gasPrice' ? {} : { blockRef }) })); }
 
-// Implemented by Task 9.
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ PREFLIGHT_PLAN, POST_STATE_PLAN, ACCOUNT_CALLS, createPreflightPlan, preflightRequests: withBlockRefs, classifyAccount, validatePreflight, validatePostState }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+})();
 
-// Implemented by Task 10.
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const WALLET_METHODS = ns.deepFreeze(['eth_chainId', 'eth_accounts', 'eth_requestAccounts', 'wallet_switchEthereumChain', 'eth_sendTransaction']);
+
+  function createWalletBoundary(provider) {
+    const validProvider = provider && typeof provider.request === 'function';
+    function request(method, params) {
+      if (!WALLET_METHODS.includes(method)) throw new Error('Blocked wallet method.');
+      if (!validProvider) throw new Error('Injected wallet not found.');
+      const payload = params === undefined ? { method } : { method, params };
+      return provider.request(payload);
+    }
+    async function readState() {
+      if (!validProvider) return ns.deepFreeze({ chainId: null, account: null });
+      const [chainId, accounts] = await Promise.all([request('eth_chainId'), request('eth_accounts')]);
+      if (typeof chainId !== 'string' || !Array.isArray(accounts) || accounts.some((value) => typeof value !== 'string')) throw new Error('Injected wallet returned malformed state.');
+      return ns.deepFreeze({ chainId, account: accounts[0] || null });
+    }
+    async function connectAndSwitch() {
+      const accounts = await request('eth_requestAccounts');
+      if (!Array.isArray(accounts) || accounts.some((value) => typeof value !== 'string')) throw new Error('Injected wallet returned malformed accounts.');
+      let chainId = await request('eth_chainId');
+      if (chainId !== ns.PINSET.chainIdHex) {
+        await request('wallet_switchEthereumChain', [{ chainId: ns.PINSET.chainIdHex }]);
+        chainId = await request('eth_chainId');
+      }
+      if (chainId !== ns.PINSET.chainIdHex) throw new Error('Wallet did not switch to Base.');
+      return ns.deepFreeze({ chainId, account: accounts[0] || null });
+    }
+    function onWalletChange(listener) {
+      if (!validProvider || typeof provider.on !== 'function') return () => {};
+      provider.on('accountsChanged', listener);
+      provider.on('chainChanged', listener);
+      return () => {
+        if (typeof provider.removeListener === 'function') {
+          provider.removeListener('accountsChanged', listener);
+          provider.removeListener('chainChanged', listener);
+        }
+      };
+    }
+    function sendPinnedActivation(...args) {
+      if (args.length !== 0) throw new Error('sendPinnedActivation takes no arguments.');
+      ns.validateExactTransaction(ns.EXACT_TRANSACTION);
+      return request('eth_sendTransaction', [ns.EXACT_TRANSACTION]);
+    }
+    return ns.deepFreeze({ hasProvider: validProvider, readState, connectAndSwitch, onWalletChange, sendPinnedActivation });
+  }
+
+  Object.defineProperties(ns, {
+    WALLET_METHODS: { value: WALLET_METHODS, enumerable: true, writable: false, configurable: false },
+    createWalletBoundary: { value: createWalletBoundary, enumerable: true, writable: false, configurable: false },
+  });
+})();
+
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const STATES = ns.deepFreeze(['prepared','submitted','uncertain_hashless','uncertain_hashed','confirmed_attributed','observed_unattributed','reverted','superseded','retry_cancelled']);
+  const REASONS = ns.deepFreeze(['activate','provider_hash','provider_rejected_retry','provider_ambiguous','reload_prepared','receipt_attributed','state_observed_unattributed','receipt_reverted','receipt_timeout','confirmation_timeout','canonicality_lost','evidence_incomplete','retry_superseded','late_original_observed']);
+  const PURPOSES = ns.deepFreeze(['activate','retry','resume','acknowledge']);
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+  const HASH = /^0x[0-9a-f]{64}$/u;
+  const ADDRESS = /^0x[0-9a-f]{40}$/u;
+  const BYTES = /^0x(?:[0-9a-f]{2})*$/u;
+  const QUANTITY = /^(?:0x0|0x[1-9a-f][0-9a-f]*)$/u;
+  const STORE_KEYS = ['schema','version','revision','chainId','tokenId','activeAttemptId','lease','attempts'];
+  const ATTEMPT_KEYS = ['id','retryOrdinal','state','createdAtMs','updatedAtMs','waitUntilMs','acknowledgedAtMs','walletGeneration','supersedesId','supersededById','txHash','receipt','observation','pinset','transaction','preflight','history'];
+  const LEASE_KEYS = ['lockName','ownerTabId','leaseId','purpose','acquiredAtMs','heartbeatAtMs','expiresAtMs'];
+  const PIN_KEYS = ['sponsor','holder','account','loopers','registry','accountImplementation','salt','adapter','identityRegistry','identityId','sponsorDelegate','sponsorImplementation','entryPoint','calldataHash'];
+  const TX_KEYS = ['chainId','from','to','data','value'];
+  const PREFLIGHT_KEYS = ['blockNumber','blockHash','estimatedGas','gasPrice','accountCode','accountBalance','loopersImplementationSlot','adapterImplementationSlot','identityImplementationSlot','sponsorDesignator','sponsorImplementationSlot','adapterIdentityRegistryResult','adapterBindingResult','adapterControllerResult','identityOwnerResult','identityTokenURIResult','sponsorImplementationResult','sponsorEntryPointResult','simulationResult'];
+  const HISTORY_KEYS = ['from','to','atMs','reason'];
+  const RECEIPT_KEYS = ['blockNumber','blockHash','discoveredAtMs','confirmationDeadlineMs','registryLog'];
+  const LOG_KEYS = ['receiptArrayIndex','logIndex','address','topics','data'];
+  const OBS_KEYS = ['blockNumber','blockHash','observedAtMs'];
+
+  function exactKeys(value, keys, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`);
+    const actual = Object.keys(value);
+    if (actual.length !== keys.length || actual.some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(value, key))) throw new Error(`${label} has unknown or missing keys.`);
+  }
+  function integer(value, label) { if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a safe nonnegative integer.`); }
+  function uuid(value, label) { if (typeof value !== 'string' || !UUID.test(value)) throw new Error(`${label} must be a UUID.`); }
+  function nullableUuid(value, label) { if (value !== null) uuid(value, label); }
+  function address(value, label) { if (typeof value !== 'string' || !ADDRESS.test(value)) throw new Error(`${label} must be a lowercase address.`); }
+  function quantity(value, label) { if (typeof value !== 'string' || !QUANTITY.test(value)) throw new Error(`${label} must be a canonical quantity.`); }
+  function bytes(value, label) { if (typeof value !== 'string' || !BYTES.test(value)) throw new Error(`${label} must be lowercase bytes.`); }
+  function hash(value, label) { if (typeof value !== 'string' || !HASH.test(value)) throw new Error(`${label} must be lowercase bytes32.`); }
+  function nullableHash(value, label) { if (value !== null) hash(value, label); }
+
+  function expectedPinset() {
+    const p = ns.PINSET;
+    return {
+      sponsor: p.identities.sponsor.address.toLowerCase(), holder: p.holder.toLowerCase(), account: p.account.toLowerCase(), loopers: p.identities.loopers.address.toLowerCase(),
+      registry: p.identities.registry.address.toLowerCase(), accountImplementation: p.identities.accountImplementation.address.toLowerCase(), salt: p.salt,
+      adapter: p.identities.adapter.address.toLowerCase(), identityRegistry: p.identities.identityRegistry.address.toLowerCase(), identityId: p.identityId,
+      sponsorDelegate: p.identities.sponsorDelegate.address.toLowerCase(), sponsorImplementation: p.identities.sponsorImplementation.address.toLowerCase(),
+      entryPoint: p.identities.entryPoint.address.toLowerCase(), calldataHash: ns.EXACT_CALLDATA_HASH,
+    };
+  }
+  function expectedTransaction() {
+    return { chainId: ns.PINSET.chainIdHex, from: ns.EXACT_TRANSACTION.from.toLowerCase(), to: ns.EXACT_TRANSACTION.to.toLowerCase(), data: ns.EXACT_TRANSACTION.data, value: '0x0' };
+  }
+  function exactFixedObject(value, expected, label) {
+    exactKeys(value, Object.keys(expected), label);
+    for (const [key, expectedValue] of Object.entries(expected)) if (value[key] !== expectedValue) throw new Error(`${label}.${key} mismatch.`);
+  }
+
+  function validateLease(value) {
+    if (value === null) return;
+    exactKeys(value, LEASE_KEYS, 'lease');
+    if (value.lockName !== ns.PINSET.lockName || !PURPOSES.includes(value.purpose)) throw new Error('Invalid lease identity or purpose.');
+    uuid(value.ownerTabId, 'lease.ownerTabId'); uuid(value.leaseId, 'lease.leaseId');
+    integer(value.acquiredAtMs, 'lease.acquiredAtMs'); integer(value.heartbeatAtMs, 'lease.heartbeatAtMs'); integer(value.expiresAtMs, 'lease.expiresAtMs');
+    if (value.heartbeatAtMs < value.acquiredAtMs || value.expiresAtMs !== value.heartbeatAtMs + 30000) throw new Error('Invalid lease timing.');
+  }
+  function validateReceipt(value) {
+    if (value === null) return;
+    exactKeys(value, RECEIPT_KEYS, 'receipt'); integer(value.blockNumber, 'receipt.blockNumber'); hash(value.blockHash, 'receipt.blockHash'); integer(value.discoveredAtMs, 'receipt.discoveredAtMs'); integer(value.confirmationDeadlineMs, 'receipt.confirmationDeadlineMs');
+    if (value.confirmationDeadlineMs !== value.discoveredAtMs + 120000) throw new Error('Invalid confirmation deadline.');
+    if (value.registryLog !== null) {
+      exactKeys(value.registryLog, LOG_KEYS, 'registryLog'); integer(value.registryLog.receiptArrayIndex, 'registryLog.receiptArrayIndex'); quantity(value.registryLog.logIndex, 'registryLog.logIndex'); address(value.registryLog.address, 'registryLog.address');
+      if (!Array.isArray(value.registryLog.topics)) throw new Error('registryLog.topics must be an array.'); value.registryLog.topics.forEach((topic, index) => hash(topic, `registryLog.topics[${index}]`)); bytes(value.registryLog.data, 'registryLog.data');
+    }
+  }
+  function validateObservation(value) { if (value === null) return; exactKeys(value, OBS_KEYS, 'observation'); integer(value.blockNumber, 'observation.blockNumber'); hash(value.blockHash, 'observation.blockHash'); integer(value.observedAtMs, 'observation.observedAtMs'); }
+  function validatePreflight(value) {
+    exactKeys(value, PREFLIGHT_KEYS, 'preflight'); integer(value.blockNumber, 'preflight.blockNumber'); hash(value.blockHash, 'preflight.blockHash'); quantity(value.estimatedGas, 'preflight.estimatedGas'); quantity(value.gasPrice, 'preflight.gasPrice');
+    bytes(value.accountCode, 'preflight.accountCode'); quantity(value.accountBalance, 'preflight.accountBalance');
+    for (const key of PREFLIGHT_KEYS.slice(6)) bytes(value[key], `preflight.${key}`);
+    if (value.accountCode !== '0x' || value.accountBalance !== '0x0') throw new Error('Prepared preflight account was not undeployed and zero balance.');
+  }
+  function validateHistory(value, state) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 20) throw new Error('history length is invalid.');
+    let previous = null;
+    value.forEach((item, index) => {
+      exactKeys(item, HISTORY_KEYS, `history[${index}]`); if (item.from !== previous || (item.from !== null && !STATES.includes(item.from)) || !STATES.includes(item.to) || !REASONS.includes(item.reason)) throw new Error('history is not contiguous or closed.'); integer(item.atMs, 'history.atMs'); previous = item.to;
+    });
+    if (value[0].from !== null || value[0].to !== 'prepared' || value[0].reason !== 'activate' || previous !== state) throw new Error('history does not match state.');
+  }
+  function validateAttempt(value) {
+    exactKeys(value, ATTEMPT_KEYS, 'attempt'); uuid(value.id, 'attempt.id'); if (value.retryOrdinal !== 0 && value.retryOrdinal !== 1) throw new Error('Invalid retry ordinal.'); if (!STATES.includes(value.state)) throw new Error('Invalid state.');
+    integer(value.createdAtMs, 'createdAtMs'); integer(value.updatedAtMs, 'updatedAtMs'); integer(value.waitUntilMs, 'waitUntilMs'); integer(value.walletGeneration, 'walletGeneration'); if (value.updatedAtMs < value.createdAtMs || value.waitUntilMs !== value.createdAtMs + 600000) throw new Error('Invalid attempt timing.');
+    if (value.acknowledgedAtMs !== null) integer(value.acknowledgedAtMs, 'acknowledgedAtMs'); nullableUuid(value.supersedesId, 'supersedesId'); nullableUuid(value.supersededById, 'supersededById'); nullableHash(value.txHash, 'txHash'); validateReceipt(value.receipt); validateObservation(value.observation);
+    exactFixedObject(value.pinset, expectedPinset(), 'pinset'); exactFixedObject(value.transaction, expectedTransaction(), 'transaction'); validatePreflight(value.preflight); validateHistory(value.history, value.state);
+    if (value.state === 'prepared' && (value.txHash !== null || value.receipt !== null || value.observation !== null)) throw new Error('Prepared evidence mismatch.');
+    if (['submitted','uncertain_hashed','confirmed_attributed','reverted'].includes(value.state) && value.txHash === null) throw new Error('Hashed state requires txHash.');
+    if (value.state === 'confirmed_attributed' && (!value.receipt?.registryLog || value.observation !== null)) throw new Error('Attributed state requires registry log only.');
+    if (value.state === 'observed_unattributed' && value.observation === null) throw new Error('Observed state requires observation.');
+    if (value.state === 'reverted' && value.receipt === null) throw new Error('Reverted state requires receipt.');
+    if (value.state === 'superseded' && value.supersededById === null) throw new Error('Superseded state requires link.');
+    return value;
+  }
+  function validateStore(value) {
+    exactKeys(value, STORE_KEYS, 'store');
+    if (value.schema !== 'loopers.walletActivation' || value.version !== 1 || value.chainId !== ns.PINSET.chainId || value.tokenId !== ns.PINSET.tokenId) throw new Error('Store identity mismatch.');
+    integer(value.revision, 'revision'); if (value.revision < 1) throw new Error('Revision must start at 1.'); nullableUuid(value.activeAttemptId, 'activeAttemptId'); validateLease(value.lease);
+    if (!Array.isArray(value.attempts) || value.attempts.length > 2) throw new Error('Invalid attempt count.'); value.attempts.forEach(validateAttempt);
+    if (new Set(value.attempts.map((attempt) => attempt.id)).size !== value.attempts.length) throw new Error('Duplicate attempt IDs.');
+    if (value.attempts.length === 0) { if (value.activeAttemptId !== null || value.lease?.purpose !== 'activate') throw new Error('Empty store is valid only for a fresh Activate lease.'); }
+    else if (value.attempts.filter((attempt) => attempt.id === value.activeAttemptId).length !== 1) throw new Error('activeAttemptId mismatch.');
+    if (value.attempts.length === 2) {
+      const original = value.attempts.find((attempt) => attempt.retryOrdinal === 0); const retry = value.attempts.find((attempt) => attempt.retryOrdinal === 1);
+      if (!original || !retry || original.supersededById !== retry.id || retry.supersedesId !== original.id) throw new Error('Broken supersession links.');
+    }
+    return ns.deepFreeze(value);
+  }
+  function parseStore(raw) { if (raw === null) return null; let value; try { value = JSON.parse(raw); } catch { throw new Error('Activation attempt storage is corrupt.'); } return validateStore(value); }
+  function canonical(value) { return JSON.stringify(value); }
+
+  function createAttemptStore(storage, onInvalidate = () => {}) {
+    if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function' || typeof storage.removeItem !== 'function') throw new TypeError('Storage-like dependency required.');
+    function read() { return parseStore(storage.getItem(ns.PINSET.storageKey)); }
+    function writeNext(previous, next) {
+      if (previous === null) { if (next.revision !== 1) throw new Error('Initial revision must be 1.'); }
+      else if (next.revision !== previous.revision + 1) throw new Error('Revision must increment exactly once.');
+      const validated = validateStore(next); const serialized = canonical(validated); storage.setItem(ns.PINSET.storageKey, serialized); const readBack = storage.getItem(ns.PINSET.storageKey); if (readBack !== serialized) throw new Error('Activation store read-back mismatch.'); return parseStore(readBack);
+    }
+    function mutate(mutator) { const previous = read(); const draft = mutator(previous); if (!draft || typeof draft !== 'object') throw new Error('Mutation must return a complete store.'); return writeNext(previous, draft); }
+    function removeValidated(predicate, label) { const current = read(); if (!current || !predicate(current)) throw new Error(`${label} precondition failed.`); storage.removeItem(ns.PINSET.storageKey); if (storage.getItem(ns.PINSET.storageKey) !== null) throw new Error('Activation store deletion read-back mismatch.'); return null; }
+    function abandonFreshLease(ownerTabId, leaseId) { return removeValidated((store) => store.attempts.length === 0 && store.lease?.ownerTabId === ownerTabId && store.lease?.leaseId === leaseId, 'Fresh lease abandonment'); }
+    function rejectOriginalPrepared4001(ownerTabId, leaseId) { return removeValidated((store) => store.attempts.length === 1 && store.attempts[0].retryOrdinal === 0 && store.attempts[0].state === 'prepared' && store.lease?.ownerTabId === ownerTabId && store.lease?.leaseId === leaseId, 'Original rejection'); }
+    function acknowledgeIsolatedOriginalRevert() { return removeValidated((store) => store.attempts.length === 1 && store.attempts[0].retryOrdinal === 0 && store.attempts[0].state === 'reverted' && store.attempts[0].supersedesId === null && store.attempts[0].supersededById === null && store.attempts[0].receipt !== null, 'Revert acknowledgement'); }
+    function handleStorageEvent(event) { if (event?.key === ns.PINSET.storageKey) onInvalidate(); }
+    return ns.deepFreeze({ read, mutate, abandonFreshLease, rejectOriginalPrepared4001, acknowledgeIsolatedOriginalRevert, handleStorageEvent, validateStore });
+  }
+
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ ATTEMPT_STATES: STATES, ATTEMPT_REASONS: REASONS, validateStoreV1: validateStore, createAttemptStore, expectedAttemptPinset: expectedPinset, expectedAttemptTransaction: expectedTransaction }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+})();
+
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const LEASE_TTL_MS = 30000;
+  const HEARTBEAT_MS = 5000;
+
+  function createCrossTabCoordinator({ locks, store, crypto, now, setInterval, clearInterval }) {
+    if (!locks || typeof locks.request !== 'function') return ns.deepFreeze({ available: false, run: async () => { throw new Error('Exclusive Web Locks are unavailable; page is read-only.'); } });
+    if (!store || typeof store.read !== 'function' || typeof store.mutate !== 'function' || typeof crypto?.randomUUID !== 'function' || typeof now !== 'function' || typeof setInterval !== 'function' || typeof clearInterval !== 'function') throw new TypeError('Invalid coordinator dependencies.');
+    const ownerTabId = crypto.randomUUID();
+
+    function makeLease(purpose, acquiredAtMs) {
+      return { lockName: ns.PINSET.lockName, ownerTabId, leaseId: crypto.randomUUID(), purpose, acquiredAtMs, heartbeatAtMs: acquiredAtMs, expiresAtMs: acquiredAtMs + LEASE_TTL_MS };
+    }
+    function baseStore(lease) {
+      return { schema: 'loopers.walletActivation', version: 1, revision: 1, chainId: ns.PINSET.chainId, tokenId: ns.PINSET.tokenId, activeAttemptId: null, lease, attempts: [] };
+    }
+    function installLease(purpose) {
+      const timestamp = now();
+      const current = store.read();
+      if (!current) {
+        if (purpose !== 'activate') throw new Error('No durable attempt exists for this action.');
+        const lease = makeLease(purpose, timestamp);
+        return store.mutate((latest) => { if (latest !== null) throw new Error('Activation store changed before lease install.'); return baseStore(lease); });
+      }
+      if (current.lease && current.lease.ownerTabId !== ownerTabId && timestamp < current.lease.expiresAtMs) throw new Error('Another tab owns an unexpired activation lease.');
+      const lease = makeLease(purpose, timestamp);
+      return store.mutate((latest) => {
+        if (!latest || latest.revision !== current.revision) throw new Error('Activation store changed before lease takeover.');
+        if (latest.lease && latest.lease.ownerTabId !== ownerTabId && timestamp < latest.lease.expiresAtMs) throw new Error('Another tab owns an unexpired activation lease.');
+        return { ...latest, revision: latest.revision + 1, lease };
+      });
+    }
+    function mutateOwned(leaseId, mutator) {
+      return store.mutate((latest) => {
+        if (!latest || latest.lease?.ownerTabId !== ownerTabId || latest.lease?.leaseId !== leaseId) throw new Error('Activation lease changed or was lost.');
+        const next = mutator(latest);
+        return { ...next, revision: latest.revision + 1 };
+      });
+    }
+    function heartbeat(leaseId) {
+      const timestamp = now();
+      return mutateOwned(leaseId, (latest) => ({ ...latest, lease: { ...latest.lease, heartbeatAtMs: timestamp, expiresAtMs: timestamp + LEASE_TTL_MS } }));
+    }
+    function clearOwnedLease(leaseId) {
+      return mutateOwned(leaseId, (latest) => ({ ...latest, lease: null }));
+    }
+
+    async function run(purpose, action) {
+      if (!['activate','retry','resume','acknowledge'].includes(purpose) || typeof action !== 'function') throw new TypeError('Invalid coordinated action.');
+      let granted = false;
+      const result = await locks.request(ns.PINSET.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
+        if (lock === null) return { granted: false };
+        granted = true;
+        const leased = installLease(purpose);
+        const leaseId = leased.lease.leaseId;
+        let heartbeatError = null;
+        const timer = setInterval(() => { try { heartbeat(leaseId); } catch (error) { heartbeatError = error; } }, HEARTBEAT_MS);
+        let completed = false;
+        try {
+          const value = await action(ns.deepFreeze({
+            ownerTabId, leaseId,
+            readLatest() { const latest = store.read(); if (!latest || latest.lease?.ownerTabId !== ownerTabId || latest.lease?.leaseId !== leaseId) throw new Error('Activation lease changed or was lost.'); return latest; },
+            mutate(mutator) { if (heartbeatError) throw heartbeatError; return mutateOwned(leaseId, mutator); },
+          }));
+          if (heartbeatError) throw heartbeatError;
+          completed = true;
+          const latest = store.read();
+          if (latest?.lease?.ownerTabId === ownerTabId && latest.lease?.leaseId === leaseId) clearOwnedLease(leaseId);
+          return { granted: true, value };
+        } finally {
+          clearInterval(timer);
+          if (!completed) {
+            const latest = store.read();
+            if (purpose === 'activate' && latest?.attempts.length === 0 && latest.lease?.ownerTabId === ownerTabId && latest.lease?.leaseId === leaseId) store.abandonFreshLease(ownerTabId, leaseId);
+          }
+        }
+      });
+      if (!granted || !result?.granted) throw new Error('Exclusive activation lock is busy; no action was queued.');
+      return result.value;
+    }
+
+    return ns.deepFreeze({ available: true, ownerTabId, run });
+  }
+
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ LEASE_TTL_MS, HEARTBEAT_MS, createCrossTabCoordinator }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+})();
+
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const WORD = 64;
+  const HASH = /^0x[0-9a-f]{64}$/u;
+  const QUANTITY = /^(?:0x0|0x[1-9a-f][0-9a-f]*)$/u;
+  const lower = (value) => typeof value === 'string' ? value.toLowerCase() : value;
+  const sameAddress = (a, b) => lower(a) === lower(b);
+  const strip = (hex) => { ns.hexToBytes(hex); return hex.slice(2); };
+  function word(hex, index) { const body = strip(hex); const start = index * WORD; if (start + WORD > body.length) throw new Error('ABI word is truncated.'); return `0x${body.slice(start, start + WORD)}`; }
+  function safeNumber(value, label) { const n = ns.decodeUint256(value); if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`${label} is unsafe.`); return Number(n); }
+  function decodeDynamicBytes(bodyHex, baseByte, offsetWord, label) {
+    const body = strip(bodyHex); const offset = safeNumber(offsetWord, `${label} offset`); if (offset % 32 !== 0) throw new Error(`${label} offset is unaligned.`);
+    const lengthPosition = (baseByte + offset) * 2; if (lengthPosition + WORD > body.length) throw new Error(`${label} offset is out of bounds.`);
+    const length = safeNumber(`0x${body.slice(lengthPosition, lengthPosition + WORD)}`, `${label} length`); const dataStart = lengthPosition + WORD; const padded = Math.ceil(length / 32) * 64; const end = dataStart + padded;
+    if (end > body.length) throw new Error(`${label} is truncated.`); if (!/^0*$/u.test(body.slice(dataStart + length * 2, end))) throw new Error(`${label} padding is nonzero.`);
+    return { value: `0x${body.slice(dataStart, dataStart + length * 2)}`, endByte: end / 2 };
+  }
+
+  function decodeUserOperationTuple(fullHex, tupleByte) {
+    const body = strip(fullHex); const start = tupleByte * 2; if (start + 11 * WORD > body.length) throw new Error('UserOperation tuple is truncated.');
+    const get = (index) => `0x${body.slice(start + index * WORD, start + (index + 1) * WORD)}`;
+    const initCode = decodeDynamicBytes(fullHex, tupleByte, get(2), 'initCode'); const callData = decodeDynamicBytes(fullHex, tupleByte, get(3), 'callData'); const paymasterAndData = decodeDynamicBytes(fullHex, tupleByte, get(9), 'paymasterAndData'); const signature = decodeDynamicBytes(fullHex, tupleByte, get(10), 'signature');
+    return { operation: ns.deepFreeze({ sender: ns.decodeAddress(get(0)), nonce: ns.decodeUint256(get(1)), initCode: initCode.value, callData: callData.value, callGasLimit: ns.decodeUint256(get(4)), verificationGasLimit: ns.decodeUint256(get(5)), preVerificationGas: ns.decodeUint256(get(6)), maxFeePerGas: ns.decodeUint256(get(7)), maxPriorityFeePerGas: ns.decodeUint256(get(8)), paymasterAndData: paymasterAndData.value }), endByte: Math.max(tupleByte + 11 * 32, initCode.endByte, callData.endByte, paymasterAndData.endByte, signature.endByte) };
+  }
+  function decodeHandleOps(input) {
+    if (!input.startsWith(ns.SELECTORS.handleOps)) throw new Error('Top-level selector is not handleOps.');
+    const args = `0x${input.slice(10)}`; const body = strip(args); if (body.length < 2 * WORD) throw new Error('handleOps head is truncated.');
+    const arrayOffset = safeNumber(word(args, 0), 'UserOperation array offset'); if (arrayOffset !== 64) throw new Error('UserOperation array offset is noncanonical.'); const beneficiary = ns.decodeAddress(word(args, 1));
+    const lengthWordAt = arrayOffset * 2; const count = safeNumber(`0x${body.slice(lengthWordAt, lengthWordAt + WORD)}`, 'UserOperation count'); if (count > 32) throw new Error('UserOperation count exceeds bound.');
+    const offsetBaseByte = arrayOffset + 32; const offsetsStart = offsetBaseByte * 2; if (offsetsStart + count * WORD > body.length) throw new Error('UserOperation offsets are truncated.');
+    const operations = []; let endByte = offsetBaseByte + count * 32; let previous = -1;
+    for (let index = 0; index < count; index += 1) {
+      const relative = safeNumber(`0x${body.slice(offsetsStart + index * WORD, offsetsStart + (index + 1) * WORD)}`, 'UserOperation tuple offset'); if (relative % 32 !== 0 || relative <= previous) throw new Error('UserOperation tuple offsets are noncanonical.'); previous = relative;
+      const decoded = decodeUserOperationTuple(args, offsetBaseByte + relative); operations.push(decoded.operation); endByte = Math.max(endByte, decoded.endByte);
+    }
+    if (endByte * 2 !== body.length) throw new Error('handleOps has trailing or overlapping bytes.'); return ns.deepFreeze({ operations, beneficiary });
+  }
+
+  function decodeExecute(callData) {
+    if (!callData.startsWith(ns.SELECTORS.execute)) throw new Error('Wallet call is not execute.'); const args = `0x${callData.slice(10)}`;
+    if (ns.hexToBytes(args).length < 96) throw new Error('execute is truncated.'); const target = ns.decodeAddress(word(args, 0)); const value = ns.decodeUint256(word(args, 1)); const data = decodeDynamicBytes(args, 0, word(args, 2), 'execute data');
+    if (data.endByte !== ns.hexToBytes(args).length || safeNumber(word(args, 2), 'execute data offset') !== 96) throw new Error('execute has trailing bytes or noncanonical offset.');
+    return ns.deepFreeze({ target, value, data: data.value });
+  }
+  function decodeExecuteBatch(callData) {
+    if (!callData.startsWith(ns.SELECTORS.executeBatch)) throw new Error('Wallet call is not executeBatch.'); const args = `0x${callData.slice(10)}`; if (safeNumber(word(args, 0), 'batch offset') !== 32) throw new Error('Batch offset is noncanonical.');
+    const body = strip(args); const count = safeNumber(`0x${body.slice(64, 128)}`, 'batch count'); if (count !== 1) throw new Error('Batch must contain exactly one call.'); const relative = safeNumber(`0x${body.slice(128, 192)}`, 'batch tuple offset'); const tupleByte = 64 + relative; const startWord = tupleByte / 32;
+    const target = ns.decodeAddress(word(args, startWord)); const value = ns.decodeUint256(word(args, startWord + 1)); const data = decodeDynamicBytes(args, tupleByte, word(args, startWord + 2), 'batch data'); if (data.endByte !== ns.hexToBytes(args).length) throw new Error('Batch has trailing bytes.'); return ns.deepFreeze({ target, value, data: data.value });
+  }
+  function decodeWalletEnvelope(callData) {
+    if (callData.startsWith(ns.SELECTORS.executeWithoutChainIdValidation)) throw new Error('Replayable wallet execution is forbidden.');
+    const decoded = callData.startsWith(ns.SELECTORS.executeBatch) ? decodeExecuteBatch(callData) : decodeExecute(callData);
+    if (!sameAddress(decoded.target, ns.PINSET.identities.registry.address) || decoded.value !== 0n || decoded.data !== ns.EXACT_CALLDATA) throw new Error('Wallet envelope is outside the pinned activation call.'); return decoded;
+  }
+
+  function decodeRegistryLog(log, receiptIndex) {
+    if (!log || !sameAddress(log.address, ns.PINSET.identities.registry.address) || !Array.isArray(log.topics) || log.topics.length !== 4 || log.topics[0] !== ns.TOPICS.erc6551AccountCreated) throw new Error('Registry event shape mismatch.');
+    if (!QUANTITY.test(log.logIndex) || !Number.isInteger(receiptIndex) || receiptIndex < 0) throw new Error('Registry event indices are invalid.');
+    const implementation = ns.decodeAddress(log.topics[1]); const tokenContract = ns.decodeAddress(log.topics[2]); const tokenId = ns.decodeUint256(log.topics[3]); const data = log.data;
+    if (ns.hexToBytes(data).length !== 96) throw new Error('Registry event data length mismatch.'); const account = ns.decodeAddress(word(data, 0)); const salt = word(data, 1); const chainId = ns.decodeUint256(word(data, 2));
+    if (!sameAddress(account, ns.PINSET.account) || !sameAddress(implementation, ns.PINSET.identities.accountImplementation.address) || salt !== ns.PINSET.salt || chainId !== BigInt(ns.PINSET.chainId) || !sameAddress(tokenContract, ns.PINSET.identities.loopers.address) || tokenId !== BigInt(ns.PINSET.tokenId)) throw new Error('Registry event values mismatch.');
+    return ns.deepFreeze({ receiptArrayIndex: receiptIndex, logIndex: log.logIndex, address: lower(log.address), topics: log.topics, data: log.data });
+  }
+  function exactHashes(requestedHash, transaction, receipt) { if (!HASH.test(requestedHash) || lower(transaction?.hash) !== requestedHash || lower(receipt?.transactionHash) !== requestedHash) throw new Error('Transaction/receipt/requested hash mismatch.'); }
+  function validateReceiptCoordinates(transaction, receipt) { if (!QUANTITY.test(receipt.blockNumber) || !HASH.test(receipt.blockHash) || transaction.blockNumber !== receipt.blockNumber || transaction.blockHash !== receipt.blockHash || transaction.transactionIndex !== receipt.transactionIndex) throw new Error('Transaction and receipt block coordinates disagree.'); }
+  function uniqueLogIndices(logs) { const seen = new Set(); for (const log of logs) { if (!QUANTITY.test(log.logIndex) || seen.has(log.logIndex)) throw new Error('Receipt logIndex values are invalid or duplicate.'); seen.add(log.logIndex); } }
+  function directAttribution(transaction, receipt) {
+    if (transaction.chainId !== ns.PINSET.chainIdHex || !sameAddress(transaction.from, ns.PINSET.identities.sponsor.address) || !sameAddress(transaction.to, ns.PINSET.identities.registry.address) || transaction.input !== ns.EXACT_CALLDATA || transaction.value !== '0x0') throw new Error('Direct transaction is not exact.');
+    const matches = receipt.logs.map((log, index) => ({ log, index })).filter(({ log }) => sameAddress(log.address, ns.PINSET.identities.registry.address) && log.topics?.[0] === ns.TOPICS.erc6551AccountCreated); if (matches.length !== 1) throw new Error('Expected exactly one registry creation event.'); return decodeRegistryLog(matches[0].log, matches[0].index);
+  }
+  function decodeUserOperationEvent(receipt, operation, userOpHash) {
+    const matches = receipt.logs.filter((log) => log.topics?.[0] === ns.TOPICS.userOperationEvent && log.topics?.[1] === userOpHash && sameAddress(ns.decodeAddress(log.topics?.[2] || '0x'), operation.sender)); if (matches.length !== 1) throw new Error('Expected exactly one selected UserOperationEvent.'); const log = matches[0]; if (ns.hexToBytes(log.data).length !== 128) throw new Error('UserOperationEvent data length mismatch.'); if (ns.decodeUint256(word(log.data, 0)) !== operation.nonce || ns.decodeBool(word(log.data, 1)) !== true) throw new Error('UserOperationEvent nonce or success mismatch.'); return log;
+  }
+  function findTraceAttribution(trace, selectedCallData, receipt) {
+    if (!trace || !sameAddress(trace.to, ns.PINSET.identities.entryPoint.address) || trace.input === undefined) throw new Error('Trace root mismatch.'); const candidates = [];
+    function walk(frame, insideSelected = false) {
+      const selected = sameAddress(frame.from, ns.PINSET.identities.entryPoint.address) && sameAddress(frame.to, ns.PINSET.identities.sponsor.address) && frame.input === selectedCallData && BigInt(frame.value || '0x0') === 0n && !frame.error;
+      if (selected) candidates.push(frame); for (const child of frame.calls || []) walk(child, insideSelected || selected);
+    }
+    walk(trace); if (candidates.length !== 1) throw new Error('Trace must contain exactly one selected sponsor frame.'); const frame = candidates[0]; const permitted = [ns.PINSET.identities.sponsor.address, ns.PINSET.identities.sponsorDelegate.address, ns.PINSET.identities.sponsorImplementation.address, ns.PINSET.identities.registry.address].map(lower); const registryCalls = [];
+    function inspect(node) { for (const child of node.calls || []) { const type = String(child.type || 'CALL').toUpperCase(); if (['CREATE','CREATE2'].includes(type) || (!['CALL','DELEGATECALL','STATICCALL'].includes(type))) throw new Error('Forbidden trace call type.'); if (!permitted.includes(lower(child.to))) throw new Error('Unexpected wallet-envelope external call.'); if (sameAddress(child.to, ns.PINSET.identities.registry.address)) { if (type !== 'CALL' || child.input !== ns.EXACT_CALLDATA || BigInt(child.value || '0x0') !== 0n || child.error) throw new Error('Registry trace call mismatch.'); registryCalls.push(child); } inspect(child); } }
+    inspect(frame); if (registryCalls.length !== 1) throw new Error('Trace must contain exactly one registry call.'); const logs = registryCalls[0].logs; if (!Array.isArray(logs)) throw new Error('Trace lacks per-frame logs.'); const matching = logs.filter((log) => log.topics?.[0] === ns.TOPICS.erc6551AccountCreated); if (matching.length !== 1 || !Number.isInteger(matching[0].index) || matching[0].index < 0 || matching[0].index >= receipt.logs.length) throw new Error('Trace registry log ordinal mismatch.'); const receiptLog = receipt.logs[matching[0].index]; if (JSON.stringify({ address: lower(matching[0].address), topics: matching[0].topics, data: matching[0].data }) !== JSON.stringify({ address: lower(receiptLog.address), topics: receiptLog.topics, data: receiptLog.data })) throw new Error('Trace log bytes do not match receipt ordinal.'); return decodeRegistryLog(receiptLog, matching[0].index);
+  }
+  async function wrappedAttribution(transaction, receipt, evidence) {
+    if (transaction.chainId !== ns.PINSET.chainIdHex || !sameAddress(transaction.to, ns.PINSET.identities.entryPoint.address) || transaction.value !== '0x0') throw new Error('Wrapped top-level transaction mismatch.'); const decoded = decodeHandleOps(transaction.input); const selected = decoded.operations.filter((operation) => sameAddress(operation.sender, ns.PINSET.identities.sponsor.address)); if (selected.length !== 1 || selected[0].initCode !== '0x') throw new Error('Expected one initialized sponsor UserOperation.'); decodeWalletEnvelope(selected[0].callData);
+    const localHash = ns.hashUserOperationV06(selected[0]); if (evidence.onchainUserOpHashResult !== localHash) throw new Error('Local/onchain userOpHash mismatch.'); decodeUserOperationEvent(receipt, selected[0], localHash); return findTraceAttribution(evidence.trace, selected[0].callData, receipt);
+  }
+  async function verifyPostState(post) {
+    if (!post || post.accountCode !== ns.EXPECTED_ACCOUNT_RUNTIME || await ns.sha256Hex(post.accountCode) !== ns.EXPECTED_ACCOUNT_RUNTIME_SHA256 || post.accountBalance !== '0x0') return false;
+    return post.tokenResult === `0x${ns.uint256Word(ns.PINSET.chainId)}${ns.addressWord(ns.PINSET.identities.loopers.address)}${ns.uint256Word(ns.PINSET.tokenId)}`
+      && post.ownerResult === `0x${ns.addressWord(ns.PINSET.holder)}` && post.stateResult === `0x${ns.uint256Word(0)}` && post.validSignerResult === `${ns.SELECTORS.accountIsValidSigner}${'0'.repeat(56)}` && post.invariantsValid === true;
+  }
+  async function verifyReceiptEvidence({ requestedHash, transaction, receipt, postState, trace = null, onchainUserOpHashResult = null }) {
+    exactHashes(requestedHash, transaction, receipt); validateReceiptCoordinates(transaction, receipt); if (!Array.isArray(receipt.logs)) throw new Error('Receipt logs missing.'); uniqueLogIndices(receipt.logs); const postValid = await verifyPostState(postState);
+    if (receipt.status === '0x0') return ns.deepFreeze({ classification: postValid ? 'observed_unattributed' : 'reverted', registryLog: null }); if (receipt.status !== '0x1') throw new Error('Receipt status malformed.');
+    try { const registryLog = sameAddress(transaction.to, ns.PINSET.identities.registry.address) ? directAttribution(transaction, receipt) : await wrappedAttribution(transaction, receipt, { trace, onchainUserOpHashResult }); if (!postValid) return ns.deepFreeze({ classification: 'uncertain_hashed', registryLog: null }); return ns.deepFreeze({ classification: 'confirmed_attributed', registryLog }); }
+    catch (error) { if (postValid) return ns.deepFreeze({ classification: 'observed_unattributed', registryLog: null, attributionError: String(error.message).slice(0, 240) }); throw error; }
+  }
+
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ decodeHandleOps, decodeWalletEnvelope, decodeRegistryLog, verifyPostState, verifyReceiptEvidence }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+})();
+
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  const HASH = /^0x[0-9a-f]{64}$/u;
+  const lowerTx = () => ({ chainId: ns.EXACT_TRANSACTION.chainId, from: ns.EXACT_TRANSACTION.from.toLowerCase(), to: ns.EXACT_TRANSACTION.to.toLowerCase(), data: ns.EXACT_TRANSACTION.data, value: '0x0' });
+  const attemptPinset = () => ns.expectedAttemptPinset();
+
+  function makeAttempt({ id, nowMs, walletGeneration, validated, retryOrdinal = 0, supersedesId = null }) {
+    return {
+      id, retryOrdinal, state: 'prepared', createdAtMs: nowMs, updatedAtMs: nowMs, waitUntilMs: nowMs + 600000, acknowledgedAtMs: null,
+      walletGeneration, supersedesId, supersededById: null, txHash: null, receipt: null, observation: null, pinset: attemptPinset(), transaction: lowerTx(), preflight: validated.preflight,
+      history: [{ from: null, to: 'prepared', atMs: nowMs, reason: 'activate' }],
+    };
+  }
+  function transitionAttempt(attempt, to, reason, atMs, patch = {}) {
+    if (attempt.history.length >= 20) throw new Error('Attempt history limit reached.');
+    return { ...attempt, ...patch, state: to, updatedAtMs: atMs, history: [...attempt.history, { from: attempt.state, to, atMs, reason }] };
+  }
+  function persistPreparedAndInvoke(context, wallet, preparedDraft) {
+    const stored = context.mutate((latest) => {
+      if (!latest || latest.attempts.length !== 0 || latest.activeAttemptId !== null) throw new Error('Fresh activation precondition changed.');
+      return { ...latest, activeAttemptId: preparedDraft.id, attempts: [preparedDraft] };
+    });
+    const sendPromise = wallet.sendPinnedActivation();
+    return Object.freeze({ stored, sendPromise });
+  }
+  function persistRetryAndInvoke(context, wallet, originalId, retryDraft) {
+    const stored = context.mutate((latest) => {
+      const original = latest?.attempts.find((attempt) => attempt.id === originalId);
+      if (!original || original.state !== 'uncertain_hashless' || original.retryOrdinal !== 0 || original.txHash !== null || retryDraft.createdAtMs < original.waitUntilMs || latest.attempts.length !== 1) throw new Error('Retry is not eligible.');
+      const superseded = transitionAttempt(original, 'superseded', 'retry_superseded', retryDraft.createdAtMs, { supersededById: retryDraft.id });
+      const retry = { ...retryDraft, supersedesId: original.id };
+      return { ...latest, activeAttemptId: retry.id, attempts: [superseded, retry] };
+    });
+    const sendPromise = wallet.sendPinnedActivation();
+    return Object.freeze({ stored, sendPromise });
+  }
+
+  function deriveControls({ busy, walletReady, preflight, store, locksAvailable }) {
+    const active = store?.attempts.find((attempt) => attempt.id === store.activeAttemptId) || null;
+    const terminal = active && ['confirmed_attributed','observed_unattributed','reverted','retry_cancelled'].includes(active.state);
+    const resumable = active && ['submitted','uncertain_hashless','uncertain_hashed','superseded','confirmed_attributed','observed_unattributed','reverted','retry_cancelled'].includes(active.state);
+    const retryable = active?.state === 'uncertain_hashless' && active.retryOrdinal === 0 && active.txHash === null && Date.now() >= active.waitUntilMs && store.attempts.length === 1;
+    return ns.deepFreeze({
+      connect: { visible: true, disabled: busy },
+      activate: { visible: true, disabled: busy || !locksAvailable || !walletReady || !preflight?.sendReady || Boolean(store) },
+      resume: { visible: Boolean(resumable), disabled: busy || !locksAvailable },
+      retry: { visible: Boolean(retryable), disabled: busy || !locksAvailable },
+      acknowledge: { visible: Boolean(terminal), disabled: busy || !locksAvailable },
+    });
+  }
+  function createRenderer(document) {
+    const get = (id) => { const node = document.getElementById(id); if (!node) throw new Error(`Missing #${id}.`); return node; };
+    const elements = { page: get('page-state'), network: get('network'), wallet: get('connected-wallet'), deployment: get('account-deployment-state'), balance: get('account-balance'), controller: get('identity-controller-status'), gas: get('estimated-gas'), fee: get('estimated-fee'), status: get('status'), transaction: get('transaction'), connect: get('connect'), activate: get('activate'), resume: get('resume'), retry: get('retry'), acknowledge: get('acknowledge') };
+    function render(view) {
+      elements.page.dataset.busy = String(Boolean(view.busy)); elements.network.textContent = view.wallet?.chainId === ns.PINSET.chainIdHex ? 'Base mainnet (8453)' : (view.wallet?.chainId || 'Wallet unavailable'); elements.wallet.textContent = view.wallet?.account || 'Not connected';
+      elements.deployment.textContent = view.preflight?.accountState || 'Not checked'; elements.balance.textContent = view.preflight?.accountBalance || 'Not checked'; elements.controller.textContent = view.preflight ? 'Pinned holder is controller' : 'Not checked'; elements.gas.textContent = view.preflight?.estimatedGas || 'Not checked'; elements.fee.textContent = view.preflight ? `${view.preflight.estimatedFeeWei} wei (nonbinding)` : 'Not checked'; elements.status.textContent = String(view.status || '').slice(0, 600);
+      if (view.txHash && HASH.test(view.txHash)) { const link = document.createElement('a'); link.href = `https://basescan.org/tx/${view.txHash}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = view.txHash; elements.transaction.replaceChildren(link); } else elements.transaction.textContent = 'No transaction submitted.';
+      for (const id of ['connect','activate','resume','retry','acknowledge']) { const control = view.controls[id]; elements[id].hidden = !control.visible; elements[id].disabled = control.disabled; }
+    }
+    return ns.deepFreeze({ elements, render });
+  }
+
+  function createController({ transport, wallet, store, coordinator, renderer, crypto, now }) {
+    let busy = false; let refreshVersion = 0; let walletGeneration = 0; let preflight = null; let walletState = { chainId: null, account: null }; let durable = null; let status = 'Verifying pinned production state...';
+    function view(txHash = null) { const walletReady = walletState.chainId === ns.PINSET.chainIdHex && walletState.account?.toLowerCase() === ns.PINSET.identities.sponsor.address.toLowerCase(); return { busy, wallet: walletState, preflight, store: durable, txHash, status, controls: deriveControls({ busy, walletReady, preflight, store: durable, locksAvailable: coordinator.available }) }; }
+    function draw(txHash = null) { renderer.render(view(txHash)); }
+    async function readPreflight() { const anchor = await transport.anchorCanonicalHead(); const [stateEvidence, gasPrice] = await Promise.all([transport.stateBatch(anchor, ns.PREFLIGHT_PLAN.map(({ request }) => request)), transport.standard({ kind: 'gasPrice' })]); const evidence = { ...stateEvidence, anchor, gasPrice }; const currentWallet = await wallet.readState(); const validated = await ns.validatePreflight(evidence, currentWallet); return { validated, currentWallet }; }
+    async function refresh() {
+      const version = ++refreshVersion; busy = true; status = 'Verifying pinned production state...'; draw();
+      try { durable = store.read(); walletState = await wallet.readState(); if (!wallet.hasProvider) throw new Error('Injected wallet not found. Read-only checks remain safe; activation is disabled.'); const result = await readPreflight(); if (version !== refreshVersion) return; preflight = result.validated; walletState = result.currentWallet; status = preflight.accountState === 'deployed_exact' ? 'Pinned account is deployed; use Resume verification for canonical post-state.' : 'Ready. Every pinned preflight check passed.'; }
+      catch (error) { if (version !== refreshVersion) return; preflight = null; status = String(error?.message || error).slice(0, 600); }
+      finally { if (version === refreshVersion) { busy = false; draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); } }
+    }
+    async function connect() { if (busy) return; busy = true; draw(); try { await wallet.connectAndSwitch(); } catch (error) { status = error?.code === 4001 ? 'Wallet request rejected. Nothing changed.' : String(error?.message || error); } finally { busy = false; await refresh(); } }
+    async function activate() {
+      if (busy) return; busy = true; draw(); const capturedGeneration = walletGeneration;
+      try {
+        await coordinator.run('activate', async (context) => {
+          const result = await readPreflight(); if (!result.validated.sendReady || capturedGeneration !== walletGeneration) throw new Error('Wallet or account state changed before submission.');
+          const timestamp = now(); const draft = makeAttempt({ id: crypto.randomUUID(), nowMs: timestamp, walletGeneration, validated: result.validated });
+          const handoff = persistPreparedAndInvoke(context, wallet, draft); let hash;
+          try { hash = await handoff.sendPromise; }
+          catch (error) { if (error?.code === 4001) { store.rejectOriginalPrepared4001(context.ownerTabId, context.leaseId); status = 'Wallet rejected the transaction. No transaction was submitted.'; return; } context.mutate((latest) => ({ ...latest, attempts: latest.attempts.map((attempt) => attempt.id === draft.id ? transitionAttempt(attempt, 'uncertain_hashless', 'provider_ambiguous', now()) : attempt) })); status = 'Wallet outcome is ambiguous. Activation remains locked; use Resume verification.'; return; }
+          if (!HASH.test(hash)) { context.mutate((latest) => ({ ...latest, attempts: latest.attempts.map((attempt) => attempt.id === draft.id ? transitionAttempt(attempt, 'uncertain_hashless', 'provider_ambiguous', now()) : attempt) })); status = 'Wallet returned no trustworthy hash. Activation remains locked.'; return; }
+          context.mutate((latest) => ({ ...latest, attempts: latest.attempts.map((attempt) => attempt.id === draft.id ? transitionAttempt(attempt, 'submitted', 'provider_hash', now(), { txHash: hash }) : attempt) })); status = 'Submitted. Use Resume verification to prove canonical receipt and account state.';
+        });
+      } catch (error) { status = String(error?.message || error); }
+      finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
+    }
+    async function resume() {
+      if (busy) return; busy = true; draw();
+      try {
+        await coordinator.run('resume', async (context) => {
+          const latest = context.readLatest(); const attempt = latest.attempts.find((item) => item.id === latest.activeAttemptId); if (!attempt) throw new Error('No active attempt to resume.');
+          if (!attempt.txHash) { const result = await readPreflight(); if (result.validated.accountState === 'deployed_exact') { const at = now(); context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === attempt.id ? transitionAttempt(item, 'observed_unattributed', 'state_observed_unattributed', at, { observation: { blockNumber: result.validated.blockNumber, blockHash: result.validated.blockHash, observedAtMs: at } }) : item) })); status = 'Pinned account is canonically deployed, but no transaction hash can be attributed.'; } else status = 'No transaction hash is available. The attempt remains locked to prevent duplicate activation.'; return; }
+          const quorum = await transport.finalReceiptQuorum(attempt.txHash); const tx = quorum.mainnet.transaction.result; const receipt = quorum.mainnet.receipt.result; const drpcTx = quorum.drpc.transaction.result; const drpcReceipt = quorum.drpc.receipt.result; const publicReceipt = quorum.publicNodeReceipt.result;
+          if (!tx || !receipt || JSON.stringify(tx) !== JSON.stringify(drpcTx) || JSON.stringify(receipt) !== JSON.stringify(drpcReceipt) || !publicReceipt || publicReceipt.blockHash !== receipt.blockHash || publicReceipt.transactionHash !== receipt.transactionHash) throw new Error('Complete transaction/receipt quorum is unavailable.');
+          const anchor = { number: receipt.blockNumber, hash: receipt.blockHash }; const heads = await transport.anchorCanonicalHead(); if (ns.parseQuantity(heads.number) < ns.parseQuantity(receipt.blockNumber) + 2n) throw new Error('Waiting for three canonical confirmations.');
+          const postEvidence = await transport.stateBatch(anchor, ns.POST_STATE_PLAN.map(({ request }) => request)); const postState = await ns.validatePostState(postEvidence);
+          let trace = null; if (tx.to?.toLowerCase() === ns.PINSET.identities.entryPoint.address.toLowerCase()) trace = (await transport.request('https://base.drpc.org', { kind: 'trace', hash: attempt.txHash })).result;
+          const verified = await ns.verifyReceiptEvidence({ requestedHash: attempt.txHash, transaction: tx, receipt, postState, trace, onchainUserOpHashResult: null }); const at = now();
+          const persistedReceipt = { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, discoveredAtMs: at, confirmationDeadlineMs: at + 120000, registryLog: verified.registryLog || null };
+          const observation = verified.classification === 'observed_unattributed' ? { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, observedAtMs: at } : null;
+          const reason = verified.classification === 'confirmed_attributed' ? 'receipt_attributed' : verified.classification === 'observed_unattributed' ? 'state_observed_unattributed' : 'receipt_reverted';
+          context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === attempt.id ? transitionAttempt(item, verified.classification, reason, at, { receipt: persistedReceipt, observation }) : item) }));
+          status = verified.classification === 'confirmed_attributed' ? 'Confirmed and attributed: the pinned account was created by the approved activation call.' : verified.classification === 'observed_unattributed' ? 'Pinned account state is canonical, but transaction attribution is incomplete.' : 'Activation transaction reverted and the pinned account remains undeployed.';
+        });
+      } catch (error) { status = String(error?.message || error); }
+      finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
+    }
+    async function retry() {
+      if (busy) return; busy = true; draw();
+      try {
+        await coordinator.run('retry', async (context) => {
+          const latest = context.readLatest(); const original = latest.attempts.find((item) => item.id === latest.activeAttemptId); if (!original || original.state !== 'uncertain_hashless' || original.retryOrdinal !== 0 || original.txHash !== null || now() < original.waitUntilMs || latest.attempts.length !== 1) throw new Error('Original hashless attempt is not retry-eligible.');
+          const result = await readPreflight(); if (!result.validated.sendReady) throw new Error('Retry requires the pinned account to remain undeployed with zero balance.'); const timestamp = now(); const draft = makeAttempt({ id: crypto.randomUUID(), nowMs: timestamp, walletGeneration, validated: result.validated, retryOrdinal: 1, supersedesId: original.id });
+          const handoff = persistRetryAndInvoke(context, wallet, original.id, draft); let hash;
+          try { hash = await handoff.sendPromise; }
+          catch (error) { const to = error?.code === 4001 ? 'retry_cancelled' : 'uncertain_hashless'; const reason = error?.code === 4001 ? 'provider_rejected_retry' : 'provider_ambiguous'; context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, to, reason, now()) : item) })); status = error?.code === 4001 ? 'Retry was rejected. The one retry is permanently consumed.' : 'Retry wallet outcome is ambiguous and remains locked.'; return; }
+          if (!HASH.test(hash)) { context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, 'uncertain_hashless', 'provider_ambiguous', now()) : item) })); status = 'Retry returned no trustworthy hash and remains locked.'; return; }
+          context.mutate((storeValue) => ({ ...storeValue, attempts: storeValue.attempts.map((item) => item.id === draft.id ? transitionAttempt(item, 'submitted', 'provider_hash', now(), { txHash: hash }) : item) })); status = 'Retry submitted. Resume canonical verification.';
+        });
+      } catch (error) { status = String(error?.message || error); }
+      finally { busy = false; durable = store.read(); draw(durable?.attempts.find((a) => a.id === durable.activeAttemptId)?.txHash || null); }
+    }
+    async function acknowledge() { if (busy) return; try { await coordinator.run('acknowledge', async (context) => { context.mutate((latest) => ({ ...latest, attempts: latest.attempts.map((attempt) => attempt.id === latest.activeAttemptId ? { ...attempt, acknowledgedAtMs: now(), updatedAtMs: now() } : attempt) })); }); status = 'Result acknowledged. Durable evidence and write lock were retained.'; } catch (error) { status = String(error?.message || error); } durable = store.read(); draw(); }
+    function invalidateWallet() { walletGeneration += 1; refreshVersion += 1; preflight = null; status = 'Wallet state changed. Readiness was invalidated.'; draw(); if (!busy) void refresh(); }
+    function invalidateStorage() { refreshVersion += 1; durable = store.read(); preflight = null; status = 'Another tab changed activation state. Readiness was invalidated.'; draw(); }
+    return ns.deepFreeze({ refresh, connect, activate, resume, retry, acknowledge, invalidateWallet, invalidateStorage, get walletGeneration() { return walletGeneration; } });
+  }
+
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ makeAttempt, transitionAttempt, persistPreparedAndInvoke, persistRetryAndInvoke, deriveControls, createRenderer, createController }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+})();
+
+'use strict';
+
+(() => {
+  const ns = globalThis.ActivateLooper3802;
+  function bootstrap({ window, document }) {
+    const transport = ns.createPublicRpcTransport({ fetch: window.fetch.bind(window), AbortController: window.AbortController, setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window), sleep: (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)), now: () => Date.now() });
+    const wallet = ns.createWalletBoundary(window.ethereum);
+    let controller;
+    const store = ns.createAttemptStore(window.localStorage, () => controller?.invalidateStorage());
+    const coordinator = ns.createCrossTabCoordinator({ locks: window.navigator.locks, store, crypto: window.crypto, now: () => Date.now(), setInterval: window.setInterval.bind(window), clearInterval: window.clearInterval.bind(window) });
+    const renderer = ns.createRenderer(document);
+    controller = ns.createController({ transport, wallet, store, coordinator, renderer, crypto: window.crypto, now: () => Date.now() });
+    renderer.elements.connect.addEventListener('click', () => void controller.connect());
+    renderer.elements.activate.addEventListener('click', () => void controller.activate());
+    renderer.elements.resume.addEventListener('click', () => void controller.resume());
+    renderer.elements.retry.addEventListener('click', () => void controller.retry());
+    renderer.elements.acknowledge.addEventListener('click', () => void controller.acknowledge());
+    wallet.onWalletChange(controller.invalidateWallet);
+    window.addEventListener('storage', (event) => store.handleStorageEvent(event));
+    void controller.refresh();
+    return ns.deepFreeze({ transport, wallet, store, coordinator, renderer, controller });
+  }
+  Object.defineProperty(ns, 'bootstrap', { value: bootstrap, enumerable: true, writable: false, configurable: false });
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') bootstrap({ window, document });
+})();
 </script>
   </body>
 </html>
