@@ -289,15 +289,23 @@
       return ns.deepFreeze({ chainId: ns.PINSET.chainIdHex, evidence });
     }
 
+    async function verifyCanonicalBlock(number, expectedHash = null, options = {}) {
+      const parsed = typeof number === 'string' && number.startsWith('0x') ? ns.parseQuantity(number) : BigInt(number);
+      if (parsed < 0n) throw new TypeError('Canonical block number must be nonnegative.');
+      if (expectedHash !== null) requireBytes32(expectedHash, 'expected canonical block hash');
+      const evidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'blockByNumber', number: parsed }), options)));
+      const exact = evidence.map((item) => validateBlock(item.result, parsed));
+      if (exact.some((item) => item.hash !== exact[0].hash) || (expectedHash !== null && exact[0].hash !== expectedHash)) throw new RpcTransportError('Canonical block hash quorum disagreement.');
+      return ns.deepFreeze({ number: ns.canonicalQuantity(parsed), hash: exact[0].hash, evidence });
+    }
+
     async function anchorCanonicalHead(options = {}) {
       await assertChainQuorum(options);
       const latestEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'latestBlock' }), options)));
       const latest = latestEvidence.map((item) => validateBlock(item.result));
       const minimum = latest.reduce((value, item) => item.number < value ? item.number : value, latest[0].number);
-      const exactEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'blockByNumber', number: minimum }), options)));
-      const exact = exactEvidence.map((item) => validateBlock(item.result, minimum));
-      if (exact.some((item) => item.hash !== exact[0].hash)) throw new RpcTransportError('Canonical block hash quorum disagreement.');
-      return ns.deepFreeze({ number: ns.canonicalQuantity(minimum), hash: exact[0].hash });
+      const verified = await verifyCanonicalBlock(minimum, null, options);
+      return ns.deepFreeze({ number: verified.number, hash: verified.hash });
     }
 
     function stateRequestWithBlockRef(template, blockRef) {
@@ -525,6 +533,7 @@
       readNonState,
       traceTransaction,
       requireChainQuorum: assertChainQuorum,
+      verifyCanonicalBlock,
       anchorCanonicalHead,
       stateBatch,
       pollTransactionReceipt,

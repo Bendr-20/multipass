@@ -120,6 +120,7 @@
       if (finalPair && publicReceipt?.transactionHash?.toLowerCase() === attempt.txHash && JSON.stringify(publicReceipt) === JSON.stringify(finalPair.receipt)) pair = finalPair;
       else if (finalEvidence) pair = null;
       if (!pair) { markHashedUncertain(context, attempt, 'receipt_timeout'); return null; }
+      try { await transport.verifyCanonicalBlock(pair.receipt.blockNumber, pair.receipt.blockHash); } catch { markHashedUncertain(context, attempt, 'canonicality_lost'); return null; }
       if (!persisted) persisted = persistDiscoveredReceipt(context, attempt.id, pair.receipt, now());
       if (persisted.blockNumber !== Number(ns.parseQuantity(pair.receipt.blockNumber)) || persisted.blockHash !== pair.receipt.blockHash) { markHashedUncertain(context, attempt, 'canonicality_lost'); return null; }
       const receiptBlockNumber = ns.parseQuantity(pair.receipt.blockNumber); let confirmed = false;
@@ -178,7 +179,7 @@
       }
       if (!attempt.txHash) {
         const anchor = attempt.state === 'observed_unattributed' && attempt.observation ? { number: ns.canonicalQuantity(attempt.observation.blockNumber), hash: attempt.observation.blockHash } : await transport.anchorCanonicalHead();
-        let postState = null; try { postState = await readValidatedState(anchor, ns.POST_STATE_PLAN, ns.validatePostState); } catch {}
+        let postState = null; try { if (attempt.state === 'observed_unattributed') await transport.verifyCanonicalBlock(anchor.number, anchor.hash); postState = await readValidatedState(anchor, ns.POST_STATE_PLAN, ns.validatePostState); } catch {}
         if (postState) {
           if (attempt.state === 'observed_unattributed') return { trusted: true, classification: attempt.state };
           const atMs = now(); mutateAttempt(context, attempt.id, 'observed_unattributed', 'state_observed_unattributed', { observation: { blockNumber: postState.blockNumber, blockHash: postState.blockHash, observedAtMs: atMs } }); return { trusted: true, classification: 'observed_unattributed' };

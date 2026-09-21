@@ -811,15 +811,23 @@ Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(n
       return ns.deepFreeze({ chainId: ns.PINSET.chainIdHex, evidence });
     }
 
+    async function verifyCanonicalBlock(number, expectedHash = null, options = {}) {
+      const parsed = typeof number === 'string' && number.startsWith('0x') ? ns.parseQuantity(number) : BigInt(number);
+      if (parsed < 0n) throw new TypeError('Canonical block number must be nonnegative.');
+      if (expectedHash !== null) requireBytes32(expectedHash, 'expected canonical block hash');
+      const evidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'blockByNumber', number: parsed }), options)));
+      const exact = evidence.map((item) => validateBlock(item.result, parsed));
+      if (exact.some((item) => item.hash !== exact[0].hash) || (expectedHash !== null && exact[0].hash !== expectedHash)) throw new RpcTransportError('Canonical block hash quorum disagreement.');
+      return ns.deepFreeze({ number: ns.canonicalQuantity(parsed), hash: exact[0].hash, evidence });
+    }
+
     async function anchorCanonicalHead(options = {}) {
       await assertChainQuorum(options);
       const latestEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'latestBlock' }), options)));
       const latest = latestEvidence.map((item) => validateBlock(item.result));
       const minimum = latest.reduce((value, item) => item.number < value ? item.number : value, latest[0].number);
-      const exactEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'blockByNumber', number: minimum }), options)));
-      const exact = exactEvidence.map((item) => validateBlock(item.result, minimum));
-      if (exact.some((item) => item.hash !== exact[0].hash)) throw new RpcTransportError('Canonical block hash quorum disagreement.');
-      return ns.deepFreeze({ number: ns.canonicalQuantity(minimum), hash: exact[0].hash });
+      const verified = await verifyCanonicalBlock(minimum, null, options);
+      return ns.deepFreeze({ number: verified.number, hash: verified.hash });
     }
 
     function stateRequestWithBlockRef(template, blockRef) {
@@ -1047,6 +1055,7 @@ Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(n
       readNonState,
       traceTransaction,
       requireChainQuorum: assertChainQuorum,
+      verifyCanonicalBlock,
       anchorCanonicalHead,
       stateBatch,
       pollTransactionReceipt,
@@ -1358,6 +1367,13 @@ Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(n
       exactKeys(value.registryLog, LOG_KEYS, 'registryLog'); integer(value.registryLog.receiptArrayIndex, 'registryLog.receiptArrayIndex'); quantity(value.registryLog.logIndex, 'registryLog.logIndex'); address(value.registryLog.address, 'registryLog.address');
       if (value.registryLog.address !== ns.PINSET.identities.registry.address.toLowerCase()) throw new Error('registryLog address mismatch.');
       if (!Array.isArray(value.registryLog.topics) || value.registryLog.topics.length !== 4) throw new Error('registryLog.topics must contain the exact event topics.'); value.registryLog.topics.forEach((topic, index) => hash(topic, `registryLog.topics[${index}]`)); if (value.registryLog.topics[0] !== ns.TOPICS.erc6551AccountCreated) throw new Error('registryLog event topic mismatch.'); bytes(value.registryLog.data, 'registryLog.data'); if (value.registryLog.data.length !== 2 + 96 * 2) throw new Error('registryLog data length mismatch.');
+      const dataWord = (index) => `0x${value.registryLog.data.slice(2 + index * 64, 66 + index * 64)}`;
+      if (ns.decodeAddress(value.registryLog.topics[1]) !== ns.PINSET.identities.accountImplementation.address.toLowerCase()
+        || ns.decodeAddress(value.registryLog.topics[2]) !== ns.PINSET.identities.loopers.address.toLowerCase()
+        || ns.decodeUint256(value.registryLog.topics[3]) !== BigInt(ns.PINSET.tokenId)
+        || ns.decodeAddress(dataWord(0)) !== ns.PINSET.account.toLowerCase()
+        || dataWord(1) !== ns.PINSET.salt
+        || ns.decodeUint256(dataWord(2)) !== BigInt(ns.PINSET.chainId)) throw new Error('registryLog pinned event values mismatch.');
     }
   }
   function validateObservation(value) { if (value === null) return; exactKeys(value, OBS_KEYS, 'observation'); integer(value.blockNumber, 'observation.blockNumber'); hash(value.blockHash, 'observation.blockHash'); integer(value.observedAtMs, 'observation.observedAtMs'); }
@@ -1854,6 +1870,7 @@ Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(n
       if (finalPair && publicReceipt?.transactionHash?.toLowerCase() === attempt.txHash && JSON.stringify(publicReceipt) === JSON.stringify(finalPair.receipt)) pair = finalPair;
       else if (finalEvidence) pair = null;
       if (!pair) { markHashedUncertain(context, attempt, 'receipt_timeout'); return null; }
+      try { await transport.verifyCanonicalBlock(pair.receipt.blockNumber, pair.receipt.blockHash); } catch { markHashedUncertain(context, attempt, 'canonicality_lost'); return null; }
       if (!persisted) persisted = persistDiscoveredReceipt(context, attempt.id, pair.receipt, now());
       if (persisted.blockNumber !== Number(ns.parseQuantity(pair.receipt.blockNumber)) || persisted.blockHash !== pair.receipt.blockHash) { markHashedUncertain(context, attempt, 'canonicality_lost'); return null; }
       const receiptBlockNumber = ns.parseQuantity(pair.receipt.blockNumber); let confirmed = false;
@@ -1912,7 +1929,7 @@ Object.defineProperty(globalThis, 'ActivateLooper3802', { value: Object.create(n
       }
       if (!attempt.txHash) {
         const anchor = attempt.state === 'observed_unattributed' && attempt.observation ? { number: ns.canonicalQuantity(attempt.observation.blockNumber), hash: attempt.observation.blockHash } : await transport.anchorCanonicalHead();
-        let postState = null; try { postState = await readValidatedState(anchor, ns.POST_STATE_PLAN, ns.validatePostState); } catch {}
+        let postState = null; try { if (attempt.state === 'observed_unattributed') await transport.verifyCanonicalBlock(anchor.number, anchor.hash); postState = await readValidatedState(anchor, ns.POST_STATE_PLAN, ns.validatePostState); } catch {}
         if (postState) {
           if (attempt.state === 'observed_unattributed') return { trusted: true, classification: attempt.state };
           const atMs = now(); mutateAttempt(context, attempt.id, 'observed_unattributed', 'state_observed_unattributed', { observation: { blockNumber: postState.blockNumber, blockHash: postState.blockHash, observedAtMs: atMs } }); return { trusted: true, classification: 'observed_unattributed' };

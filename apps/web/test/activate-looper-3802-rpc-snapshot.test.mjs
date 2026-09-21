@@ -419,6 +419,16 @@ test('canonical head anchors the minimum three-provider height to one hash', asy
   assert.deepEqual(calls.filter(({ body }) => body.params[0] === '0x64').map(({ url }) => url).sort(), [MAINNET, DRPC, PUBLICNODE].sort());
 });
 
+test('fixed block canonicality requires the same expected hash from all three origins', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(() => block(100, 'ab'));
+  const transport = createTransport(unit, fetch);
+  const verified = await transport.verifyCanonicalBlock('0x64', HASH);
+  assert.equal(verified.hash, HASH); assert.equal(calls.length, 3);
+  const mismatch = makeRpcFetch(({ url }) => block(100, url === PUBLICNODE ? 'cd' : 'ab'));
+  await assert.rejects(createTransport(unit, mismatch.fetch).verifyCanonicalBlock('0x64', HASH), /quorum|hash/i);
+});
+
 test('canonical head rejects wrong chain behind null block and hash disagreement', async () => {
   const unit = await loadActivationUnits();
   const scenarios = [

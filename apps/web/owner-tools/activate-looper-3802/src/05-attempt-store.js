@@ -69,6 +69,13 @@
       exactKeys(value.registryLog, LOG_KEYS, 'registryLog'); integer(value.registryLog.receiptArrayIndex, 'registryLog.receiptArrayIndex'); quantity(value.registryLog.logIndex, 'registryLog.logIndex'); address(value.registryLog.address, 'registryLog.address');
       if (value.registryLog.address !== ns.PINSET.identities.registry.address.toLowerCase()) throw new Error('registryLog address mismatch.');
       if (!Array.isArray(value.registryLog.topics) || value.registryLog.topics.length !== 4) throw new Error('registryLog.topics must contain the exact event topics.'); value.registryLog.topics.forEach((topic, index) => hash(topic, `registryLog.topics[${index}]`)); if (value.registryLog.topics[0] !== ns.TOPICS.erc6551AccountCreated) throw new Error('registryLog event topic mismatch.'); bytes(value.registryLog.data, 'registryLog.data'); if (value.registryLog.data.length !== 2 + 96 * 2) throw new Error('registryLog data length mismatch.');
+      const dataWord = (index) => `0x${value.registryLog.data.slice(2 + index * 64, 66 + index * 64)}`;
+      if (ns.decodeAddress(value.registryLog.topics[1]) !== ns.PINSET.identities.accountImplementation.address.toLowerCase()
+        || ns.decodeAddress(value.registryLog.topics[2]) !== ns.PINSET.identities.loopers.address.toLowerCase()
+        || ns.decodeUint256(value.registryLog.topics[3]) !== BigInt(ns.PINSET.tokenId)
+        || ns.decodeAddress(dataWord(0)) !== ns.PINSET.account.toLowerCase()
+        || dataWord(1) !== ns.PINSET.salt
+        || ns.decodeUint256(dataWord(2)) !== BigInt(ns.PINSET.chainId)) throw new Error('registryLog pinned event values mismatch.');
     }
   }
   function validateObservation(value) { if (value === null) return; exactKeys(value, OBS_KEYS, 'observation'); integer(value.blockNumber, 'observation.blockNumber'); hash(value.blockHash, 'observation.blockHash'); integer(value.observedAtMs, 'observation.observedAtMs'); }
