@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, '..');
@@ -451,6 +452,31 @@ async function withTemporaryWebTree(run) {
   }
 }
 
+async function writeManifestModule(temporaryWebRoot, candidate) {
+  const target = path.join(temporaryWebRoot, 'public-profiles/loopers/manifests/3802.js');
+  const original = await readFile(target, 'utf8');
+  const prefix = original.slice(0, original.indexOf('const manifest ='));
+  const lock = sha256Oracle(utf8Hex(JSON.stringify(candidate)));
+  await writeFile(target, `${prefix}const manifest = ${JSON.stringify(candidate, null, 2)};\n\nexport const MANIFEST_LOCK = '${lock}';\n\nexport default deepFreeze(manifest);\n`);
+  return lock;
+}
+
+async function loadActivationFixture(root = webRoot) {
+  const context = vm.createContext({ crypto: globalThis.crypto, TextDecoder, TextEncoder, Uint8Array });
+  for (const name of ['00-namespace.js', '01-pinset-encoding.js']) {
+    const source = await readFile(path.join(root, 'owner-tools/activate-looper-3802/src', name), 'utf8');
+    vm.runInContext(source, context, { filename: name, timeout: 1_000 });
+  }
+  return JSON.parse(vm.runInContext('JSON.stringify(globalThis.ActivateLooper3802)', context, { timeout: 1_000 }));
+}
+
+function assertSafeScriptBoundaries(html) {
+  const dom = new JSDOM(html);
+  assert.equal(dom.window.document.scripts.length, 2, 'one JSON-LD block and one executable runtime');
+  assert.equal(dom.window.document.querySelectorAll('script:not([type])').length, 1, 'one executable script boundary');
+  assert.equal(dom.window.document.querySelector('#injected, #source-injected'), null, 'no injected DOM');
+}
+
 function runtimeScript(html) {
   return extractSingle(html, /<script>([\s\S]*?)<\/script>/gu, 'executable inline script');
 }
@@ -649,4 +675,133 @@ test('rejects every approved receipt fixture drift independently', async () => {
     setAt(changed, activationKeys, mutateLeaf(valueAt(changed, activationKeys)));
     assert.throws(() => assertReceiptFixture(changed), undefined, `accepted receipt drift at ${keys.join('.')}`);
   }
+});
+
+test('serializes hostile manifest text deterministically without creating a script boundary or injected DOM', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const candidate = clone(manifest);
+    candidate.content.tagline = '</ScRiPt><h1 id="injected">& hostile \u2028 \u2029</h1>';
+    await writeManifestModule(temporaryWebRoot, candidate);
+
+    const first = await buildExpectedHtml({ webRoot: temporaryWebRoot });
+    const second = await buildExpectedHtml({ webRoot: temporaryWebRoot });
+    assert.equal(first, second);
+    assertSafeScriptBoundaries(first);
+    const registration = extractSingle(runtimeScript(first), /(\/\* profile-manifest: 3802 \*\/[\s\S]*?)(?=\/\* profile-unit: 02-base-rpc\.js \*\/)/gu, 'manifest registration');
+    assert.doesNotMatch(registration, /<\/script|<h1|& hostile|\u2028|\u2029/iu);
+    assert.match(registration, /\\u003c\/ScRiPt\\u003e\\u003ch1 id=\\"injected\\"\\u003e\\u0026 hostile \\u2028 \\u2029\\u003c\/h1\\u003e/u);
+  });
+});
+
+test('renders mutable manifest presentation fields through context-safe template markers', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const candidate = clone(manifest);
+    candidate.chainLabel = 'Manifest <Network> & chain';
+    candidate.content.tagline = 'Manifest-owned <tagline> & facts';
+    candidate.content.seoTitle = 'Manifest-owned <title> & profile';
+    candidate.content.seoDescription = 'Manifest-owned "description" & proof';
+    candidate.content.artworkUrl = 'https://example.test/art.png?from="manifest"&mode=proof';
+    await writeManifestModule(temporaryWebRoot, candidate);
+
+    const html = await buildExpectedHtml({ webRoot: temporaryWebRoot });
+    const dom = new JSDOM(html);
+    const { document } = dom.window;
+    assert.equal(document.title, candidate.content.seoTitle);
+    assert.equal(document.querySelector('meta[name="description"]').content, candidate.content.seoDescription);
+    assert.equal(document.querySelector('link[rel="canonical"]').href, candidate.urls.canonicalProfile);
+    assert.equal(document.querySelector('#profile-title').textContent, candidate.content.name);
+    assert.equal(document.querySelector('.tagline').textContent, candidate.content.tagline);
+    assert.equal(document.querySelector('.art').getAttribute('src'), candidate.content.artworkUrl);
+    const factValue = (label) => [...document.querySelectorAll('dt')].find((node) => node.textContent === label)?.nextElementSibling?.textContent;
+    assert.equal(factValue('Network'), candidate.chainLabel);
+    assert.equal(document.querySelectorAll('.proof-chain li')[1].textContent, `ERC-6551 account on ${candidate.chainLabel}`);
+    assert.equal(factValue('Sources'), `${candidate.chainLabel} RPC and ${candidate.chainLabel} Blockscout`);
+    assert.match(html, /Manifest-owned &lt;tagline&gt; &amp; facts/u);
+    assert.match(html, /src="https:\/\/example\.test\/art\.png\?from=&quot;manifest&quot;&amp;mode=proof"/u);
+    assert.match(document.querySelector('meta[http-equiv="Content-Security-Policy"]').content, /img-src 'self' https:\/\/example\.test/u);
+    assertSafeScriptBoundaries(html);
+  });
+});
+
+test('rejects a literal case-insensitive script terminator in a source unit before template insertion', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const sourcePath = path.join(temporaryWebRoot, 'public-profiles/loopers/src/02-base-rpc.js');
+    const source = await readFile(sourcePath, 'utf8');
+    await writeFile(sourcePath, `${source}\n// </ScRiPt><h1 id="source-injected">injected</h1>\n`);
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /script.*terminator|closing.*script|<\/script/iu);
+  });
+});
+
+test('bounds every trusted builder VM evaluation and times out an infinite-loop source unit', async () => {
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const sourcePath = path.join(temporaryWebRoot, 'public-profiles/loopers/src/01-manifest-codecs.js');
+    const source = await readFile(sourcePath, 'utf8');
+    await writeFile(sourcePath, `${source}\nwhile (true) {}\n`);
+    const program = `import(${JSON.stringify(pathToFileURL(builderPath).href)}).then(({ buildExpectedHtml }) => buildExpectedHtml({ webRoot: ${JSON.stringify(temporaryWebRoot)} }));`;
+    const result = spawnSync(process.execPath, ['--input-type=module', '--eval', program], {
+      encoding: 'utf8',
+      timeout: 3_000,
+    });
+    assert.equal(result.error, undefined, `builder process exceeded the external test guard: ${result.error?.message ?? ''}`);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /script execution timed out|timed out/iu);
+  });
+});
+
+test('rejects activation selector key and value drift against the explicit approved projection', async () => {
+  const { assertActivationParity } = await loadBuilder();
+  const activation = await loadActivationFixture();
+  assert.doesNotThrow(() => assertActivationParity(manifest, activation));
+
+  const keyDrift = clone(activation);
+  keyDrift.SELECTORS.unexpectedSelector = keyDrift.SELECTORS.owner;
+  assert.throws(() => assertActivationParity(manifest, keyDrift), /selector.*keys|allowlist|projection/iu);
+
+  const valueDrift = clone(activation);
+  valueDrift.SELECTORS.owner = '0x00000000';
+  assert.throws(() => assertActivationParity(manifest, valueDrift), /owner selector|selector.*value|divergence/iu);
+});
+
+test('cleans up the sibling temporary artifact when an atomic write fails after opening it', async () => {
+  const { atomicWriteFile } = await loadBuilder();
+  const calls = [];
+  const outputPath = path.join(os.tmpdir(), 'atomic-profile', 'index.html');
+  await assert.rejects(
+    () => atomicWriteFile(outputPath, Buffer.from('complete\n'), {
+      nonce: () => 'partial',
+      write: async (target) => { calls.push(['write', target]); throw Object.assign(new Error('simulated partial write failure'), { code: 'EIO' }); },
+      move: async () => calls.push(['unexpected-move']),
+      remove: async (target) => calls.push(['remove', target]),
+    }),
+    /simulated partial write failure/u,
+  );
+  const temporaryPath = `${outputPath}.partial.tmp`;
+  assert.deepEqual(calls, [
+    ['write', temporaryPath],
+    ['remove', temporaryPath],
+  ]);
+});
+
+test('cleans up the sibling temporary artifact when atomic rename fails', async () => {
+  const { atomicWriteFile } = await loadBuilder();
+  const calls = [];
+  const outputPath = path.join(os.tmpdir(), 'atomic-profile', 'index.html');
+  await assert.rejects(
+    () => atomicWriteFile(outputPath, Buffer.from('complete\n'), {
+      nonce: () => 'fixed',
+      write: async (target, contents, options) => calls.push(['write', target, contents.toString('utf8'), options]),
+      move: async (from, to) => { calls.push(['move', from, to]); throw new Error('simulated rename failure'); },
+      remove: async (target) => calls.push(['remove', target]),
+    }),
+    /simulated rename failure/u,
+  );
+  const temporaryPath = `${outputPath}.fixed.tmp`;
+  assert.deepEqual(calls, [
+    ['write', temporaryPath, 'complete\n', { flag: 'wx' }],
+    ['move', temporaryPath, outputPath],
+    ['remove', temporaryPath],
+  ]);
 });

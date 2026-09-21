@@ -1,5 +1,5 @@
-import { createHash, webcrypto } from 'node:crypto';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID, webcrypto } from 'node:crypto';
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import { TextDecoder, TextEncoder } from 'node:util';
@@ -23,7 +23,7 @@ const ACTIVATION_UNITS = Object.freeze(['00-namespace.js', '01-pinset-encoding.j
 const PROFILE_ID = '3802';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEB_ROOT = join(SCRIPT_DIR, '..');
-const ARTWORK_ORIGIN = 'https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net';
+const BUILDER_VM_TIMEOUT_MS = 1_000;
 
 const APPROVED_SELECTORS = Object.freeze({
   owner: '0x8da5cb5b',
@@ -46,6 +46,35 @@ const APPROVED_SELECTORS = Object.freeze({
   accountIsValidSigner: '0x523e3260',
   createAccount: '0x8a54c52f',
 });
+
+const ACTIVATION_SELECTOR_KEYS = Object.freeze([
+  'owner',
+  'ownerOf',
+  'erc6551Registry',
+  'erc6551Implementation',
+  'erc6551Salt',
+  'tokenBoundAccount',
+  'registryAccount',
+  'erc8004BoundByLooper',
+  'erc8004AgentIdByLooper',
+  'erc8004AgentURI',
+  'identityRegistry',
+  'bindingOf',
+  'isController',
+  'tokenURI',
+  'sponsorImplementation',
+  'sponsorEntryPoint',
+  'accountToken',
+  'accountOwner',
+  'accountState',
+  'accountIsValidSigner',
+  'execute',
+  'executeBatch',
+  'executeWithoutChainIdValidation',
+  'handleOps',
+  'getUserOpHash',
+  'createAccount',
+]);
 
 const APPROVED_RECEIPT_FIXTURE = Object.freeze({
   transactionHash: '0x26408e5614af4d5fa507f29a1c4b7f4cc9fdca46057a37870acf9be06a00587c',
@@ -90,10 +119,94 @@ function oneFinalNewline(value) {
 }
 
 function stableSerialize(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new TypeError('Stable serialization does not support undefined values.');
+    return serialized.replace(/[<>&\u2028\u2029]/gu, (character) => ({
+      '<': '\\u003c',
+      '>': '\\u003e',
+      '&': '\\u0026',
+      '\u2028': '\\u2028',
+      '\u2029': '\\u2029',
+    })[character]);
+  }
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
   const keys = Object.keys(value).sort();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(',')}}`;
+  return `{${keys.map((key) => `${stableSerialize(key)}:${stableSerialize(value[key])}`).join(',')}}`;
+}
+
+function escapeHtmlText(value) {
+  return String(value).replace(/[&<>]/gu, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[character]);
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value).replace(/[&<>"']/gu, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+}
+
+function profileJsonLd(manifest) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    name: manifest.content.seoTitle,
+    description: manifest.content.seoDescription,
+    url: manifest.urls.canonicalProfile,
+    primaryImageOfPage: manifest.content.artworkUrl,
+    mainEntity: {
+      '@type': 'Thing',
+      name: manifest.content.name,
+      identifier: `${manifest.contracts.loopersProxy.address}:${manifest.tokenId}`,
+      url: manifest.urls.openSea,
+      sameAs: [manifest.urls.baseScanToken, manifest.urls.baseScanAccount],
+    },
+  };
+}
+
+function applyManifestTemplate(template, manifest) {
+  const text = escapeHtmlText;
+  const attribute = escapeHtmlAttribute;
+  const replacements = {
+    '%%SEO_TITLE_TEXT%%': text(manifest.content.seoTitle),
+    '%%SEO_TITLE_ATTR%%': attribute(manifest.content.seoTitle),
+    '%%SEO_DESCRIPTION_ATTR%%': attribute(manifest.content.seoDescription),
+    '%%CANONICAL_PROFILE_ATTR%%': attribute(manifest.urls.canonicalProfile),
+    '%%ARTWORK_URL_ATTR%%': attribute(manifest.content.artworkUrl),
+    '%%OPEN_SEA_ATTR%%': attribute(manifest.urls.openSea),
+    '%%BASESCAN_TOKEN_ATTR%%': attribute(manifest.urls.baseScanToken),
+    '%%BASESCAN_ACCOUNT_ATTR%%': attribute(manifest.urls.baseScanAccount),
+    '%%BASESCAN_ACTIVATION_ATTR%%': attribute(manifest.urls.baseScanActivation),
+    '%%CONTENT_NAME_TEXT%%': text(manifest.content.name),
+    '%%ARTWORK_ALT_ATTR%%': attribute(`${manifest.content.name} artwork`),
+    '%%COLLECTION_TEXT%%': text(manifest.content.collection),
+    '%%TAGLINE_TEXT%%': text(manifest.content.tagline),
+    '%%AGENT_CLASS_TEXT%%': text(manifest.content.agentClass),
+    '%%SECONDARY_CLASS_TEXT%%': text(manifest.content.secondaryClass),
+    '%%SPECIALIZATION_TEXT%%': text(manifest.content.specialization),
+    '%%VOICE_TEXT%%': text(manifest.content.voice),
+    '%%CHAIN_LABEL_TEXT%%': text(manifest.chainLabel),
+    '%%ACCOUNT_TEXT%%': text(manifest.account),
+    '%%IDENTITY_ID_TEXT%%': text(manifest.erc8004.identityId),
+    '%%IDENTITY_URI_TEXT%%': text(manifest.erc8004.identityUri),
+    '%%ACTIVATION_HASH_TEXT%%': text(manifest.activation.transactionHash),
+    '%%ACTIVATION_BLOCK_TEXT%%': text(manifest.activation.blockNumber),
+    '%%JSON_LD%%': stableSerialize(profileJsonLd(manifest)),
+  };
+  let rendered = template;
+  for (const [marker, value] of Object.entries(replacements)) {
+    if (!rendered.includes(marker)) throw new Error(`Template is missing required manifest marker ${marker}.`);
+    rendered = rendered.replaceAll(marker, value);
+  }
+  if (/%%[A-Z0-9_]+%%/u.test(rendered)) throw new Error('Template contains an unexpected or unreplaced manifest marker.');
+  return rendered;
+}
+
+function assertNoScriptTerminator(value, label) {
+  if (/<\/script/iu.test(value)) throw new Error(`${label} contains a closing script terminator.`);
 }
 
 function sha256Hex(value) {
@@ -189,9 +302,10 @@ export function assertActivationParity(manifest, activation) {
   assertEqual(EXPECTED_ACCOUNT_RUNTIME_SHA256, manifest.erc6551.runtimeSha256, 'account runtime hash');
   assertEqual(TOPICS.erc6551AccountCreated, manifest.activation.event.topic0, 'ERC-6551 creation topic');
 
-  assertExactObjectKeys(APPROVED_SELECTORS, Object.keys(APPROVED_SELECTORS), 'Approved selector fixture');
-  for (const [name, selector] of Object.entries(APPROVED_SELECTORS)) {
-    assertEqual(SELECTORS[name], selector, `${name} selector`);
+  assertExactObjectKeys(SELECTORS, ACTIVATION_SELECTOR_KEYS, 'Activation selector fixture');
+  const selectorProjection = Object.fromEntries(Object.keys(APPROVED_SELECTORS).map((name) => [name, SELECTORS[name]]));
+  if (stableSerialize(selectorProjection) !== stableSerialize(APPROVED_SELECTORS)) {
+    throw new Error('Activation selector value projection diverges from the approved profile selector set.');
   }
 
   const loopers = manifest.contracts.loopersProxy.address;
@@ -230,22 +344,24 @@ function createIsolatedContext() {
 
 function evaluateClassicUnits(sources, globalName) {
   const context = createIsolatedContext();
+  // Repository sources are trusted build input, but evaluation is still bounded so a bad edit cannot hang the build.
   for (const [name, source] of sources) {
-    runInContext(normalizeLf(source), context, { filename: name });
+    runInContext(normalizeLf(source), context, { filename: name, timeout: BUILDER_VM_TIMEOUT_MS });
   }
-  const serialized = runInContext(`JSON.stringify(globalThis[${JSON.stringify(globalName)}])`, context);
+  const serialized = runInContext(`JSON.stringify(globalThis[${JSON.stringify(globalName)}])`, context, { timeout: BUILDER_VM_TIMEOUT_MS });
   if (typeof serialized !== 'string') throw new Error(`${globalName} did not register in the isolated VM.`);
   return { context, fixture: JSON.parse(serialized) };
 }
 
 function evaluateProfileManifest(sourceFiles, manifest, manifestLock) {
   const context = createIsolatedContext();
+  // Repository sources are trusted build input, but evaluation is still bounded so a bad edit cannot hang the build.
   for (const name of SOURCE_UNITS.slice(0, 2)) {
-    runInContext(normalizeLf(sourceFiles[name]), context, { filename: name });
+    runInContext(normalizeLf(sourceFiles[name]), context, { filename: name, timeout: BUILDER_VM_TIMEOUT_MS });
   }
   const candidate = stableSerialize(manifest);
   const script = `JSON.stringify(globalThis.LooperMultipassProfile.validateManifest(${candidate}, ${JSON.stringify(manifestLock)}))`;
-  const serialized = runInContext(script, context, { filename: 'validate-profile-manifest.js' });
+  const serialized = runInContext(script, context, { filename: 'validate-profile-manifest.js', timeout: BUILDER_VM_TIMEOUT_MS });
   return JSON.parse(serialized);
 }
 
@@ -291,7 +407,9 @@ function buildRuntime(sourceFiles, manifest, manifestLock) {
     sections.push(normalizeLf(sourceFiles[name]).replace(/\n+$/u, ''));
     if (name === '01-manifest-codecs.js') sections.push(synthesizeManifestRegistration(manifest, manifestLock));
   }
-  return sections.join('\n');
+  const runtime = sections.join('\n');
+  assertNoScriptTerminator(runtime, 'Assembled profile runtime');
+  return runtime;
 }
 
 export function buildProfileHtml({ template, sourceFiles, manifest, manifestLock }) {
@@ -302,7 +420,7 @@ export function buildProfileHtml({ template, sourceFiles, manifest, manifestLock
   if (cspMarkerCount !== 1) throw new Error(`Template must contain exactly one CSP marker; found ${cspMarkerCount}.`);
 
   const runtime = buildRuntime(sourceFiles, manifest, manifestLock);
-  let html = normalizedTemplate.replace(RUNTIME_MARKER, runtime);
+  let html = applyManifestTemplate(normalizedTemplate, manifest).replace(RUNTIME_MARKER, runtime);
   const styleBody = extractSingleBody(html, /<style>([\s\S]*?)<\/style>/gu, 'literal inline style');
   const scriptBody = extractSingleBody(html, /<script>([\s\S]*?)<\/script>/gu, 'executable inline script');
   const csp = [
@@ -315,7 +433,7 @@ export function buildProfileHtml({ template, sourceFiles, manifest, manifestLock
     `style-src ${quotedCspHash(styleBody)}`,
     "style-src-attr 'none'",
     'connect-src https://mainnet.base.org https://base.drpc.org https://base.blockscout.com',
-    `img-src 'self' ${ARTWORK_ORIGIN}`,
+    `img-src 'self' ${new URL(manifest.content.artworkUrl).origin}`,
     "font-src 'none'",
     "media-src 'none'",
     "frame-src 'none'",
@@ -384,13 +502,38 @@ async function assertExistingDist(webRoot) {
   if (!details.isDirectory()) throw new Error('Cannot write --dist output because apps/web/dist is not a directory.');
 }
 
+export async function atomicWriteFile(outputPath, contents, {
+  nonce = randomUUID,
+  write = writeFile,
+  move = rename,
+  remove = unlink,
+} = {}) {
+  const temporaryPath = `${outputPath}.${nonce()}.tmp`;
+  let phase = 'write';
+  try {
+    await write(temporaryPath, contents, { flag: 'wx' });
+    phase = 'rename';
+    await move(temporaryPath, outputPath);
+  } catch (error) {
+    // Never remove an EEXIST collision: that sibling file was not created by this write attempt.
+    if (!(phase === 'write' && error?.code === 'EEXIST')) {
+      try {
+        await remove(temporaryPath);
+      } catch (cleanupError) {
+        if (cleanupError?.code !== 'ENOENT') throw new AggregateError([error, cleanupError], 'Atomic artifact write and cleanup failed.');
+      }
+    }
+    throw error;
+  }
+}
+
 export async function writeProfileArtifact({ webRoot = DEFAULT_WEB_ROOT, mode = 'source' } = {}) {
   if (mode !== 'source' && mode !== 'dist') throw new Error('Write mode must be source or dist.');
   if (mode === 'dist') await assertExistingDist(webRoot);
   const expected = Buffer.from(await buildExpectedHtml({ webRoot }), 'utf8');
   const outputPath = mode === 'dist' ? distPath(webRoot) : generatedPath(webRoot);
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, expected);
+  await atomicWriteFile(outputPath, expected);
   return outputPath;
 }
 
