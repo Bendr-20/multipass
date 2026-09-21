@@ -28,3 +28,22 @@ test('revisioned whole-record writes synchronously verify read-back', async () =
   assert.throws(() => store.mutate((latest) => ({ ...latest, revision: 4 })), /increment/i);
 });
 
+test('Web Lock request is exact no-queue exclusive and failed action leaves no fresh record', async () => {
+  const ns = await unit(); const storage = memoryStorage(); const store = ns.createAttemptStore(storage); const requests = [];
+  const locks = { request: async (name, options, callback) => { requests.push({ name, options }); return callback({ name }); } }; let uuidIndex = 0; const uuids = [UUID_A, UUID_B];
+  const coordinator = ns.createCrossTabCoordinator({ locks, store, crypto: { randomUUID: () => uuids[uuidIndex++] }, now: () => 1000, setInterval: () => 1, clearInterval: () => {} });
+  await assert.rejects(coordinator.run('activate', async () => { throw new Error('stop'); }), /stop/);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{ name: ns.PINSET.lockName, options: { mode: 'exclusive', ifAvailable: true } }]); assert.equal(store.read(), null);
+});
+
+test('Web Locks unavailable and null lock fail closed with no mutation', async () => {
+  const ns = await unit(); const storage = memoryStorage(); const store = ns.createAttemptStore(storage);
+  const absent = ns.createCrossTabCoordinator({ locks: null, store, crypto: { randomUUID: () => UUID_A }, now: () => 0, setInterval, clearInterval }); assert.equal(absent.available, false); await assert.rejects(absent.run('activate', async () => {}), /read-only/i);
+  const nullLock = ns.createCrossTabCoordinator({ locks: { request: async (_n,_o,cb) => cb(null) }, store, crypto: { randomUUID: () => UUID_A }, now: () => 0, setInterval: () => 1, clearInterval: () => {} }); await assert.rejects(nullLock.run('activate', async () => {}), /busy|queued/i); assert.equal(store.read(), null);
+});
+
+test('unexpired foreign lease blocks takeover even while Web Lock is held', async () => {
+  const ns = await unit(); const storage = memoryStorage(); const store = ns.createAttemptStore(storage); storage.setItem(ns.PINSET.storageKey, JSON.stringify(storeValue(ns)));
+  const coordinator = ns.createCrossTabCoordinator({ locks: { request: async (_n,_o,cb) => cb({}) }, store, crypto: { randomUUID: () => UUID_C }, now: () => 2000, setInterval: () => 1, clearInterval: () => {} });
+  await assert.rejects(coordinator.run('resume', async () => {}), /foreign|another tab|lease/i); assert.equal(store.read().revision, 1);
+});
