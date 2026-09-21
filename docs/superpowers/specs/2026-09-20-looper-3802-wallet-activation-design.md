@@ -22,7 +22,7 @@ The pilot does not:
 
 ## Pinned production identities
 
-All bytecode hashes below are SHA-256 over the exact bytes returned by `eth_getCode` (the `0x` prefix is excluded). The values were re-verified read-only using the three-origin Base RPC allowlist at canonical block `51581194` (`0x313110a`), hash `0x2c3bcbd692401b6735fe410f7b9b78736c6850590f6b8f92133a8aa75e045397`, on 2026-09-21. These are runtime pinsets, not informational deployment notes: any later byte, slot, call-result, or address mismatch disables every write.
+Except for the explicitly derived future ERC-6551 account runtime below, bytecode hashes are SHA-256 over exact bytes returned by `eth_getCode` (excluding the `0x` prefix). Live values were re-verified read-only at canonical Base block `51581194` (`0x313110a`), hash `0x2c3bcbd692401b6735fe410f7b9b78736c6850590f6b8f92133a8aa75e045397`, on 2026-09-21. These are runtime pinsets, not informational deployment notes: any later byte, slot, call-result, or address mismatch disables every write.
 
 ### Chain, Looper, and ERC-6551
 
@@ -39,14 +39,38 @@ All bytecode hashes below are SHA-256 over the exact bytes returned by `eth_getC
 - Salt: `0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee`
 - `createAccount(address,bytes32,uint256,address,uint256)` selector: `0x8a54c52f`
 - `ERC6551AccountCreated` topic: `0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722`
-- Expected deployed Looper #3802 account runtime-code SHA-256: `0xf711d4661ab10b810b9409543a1e219774af23f67f8f7f0a3db6d6545d4f3b8a`
 
 The sponsor is the current Loopers contract owner, but account creation is permissionless and the pinned ERC-6551 account resolves control from the current Looper holder. Paying gas does not grant the sponsor control.
+
+#### Derived future account runtime
+
+The expected account is currently undeployed: `eth_getCode(0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38,0x313110a) == 0x`. Its expected 173-byte runtime and SHA-256 are therefore **derived future values**, not live `eth_getCode` observations. Derive them reproducibly as:
+
+```text
+runtime =
+  0x363d3d373d3d3d363d73
+  || 0x1e3787bc9b2e6d7763de1dccf10e9d062f3b43bf
+  || 0x5af43d82803e903d91602b57fd5bf3
+  || abi.encode(
+       bytes32(0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee),
+       uint256(8453),
+       address(0x1649CD37f4748807b4882FC48765bA0B2aFfa94a),
+       uint256(3802)
+     )
+```
+
+This is the 45-byte ERC-6551 minimal-proxy runtime followed by the 128-byte immutable context `(salt, chainId, tokenContract, tokenId)`. The exact expected bytes are:
+
+```text
+0x363d3d373d3d3d363d731e3787bc9b2e6d7763de1dccf10e9d062f3b43bf5af43d82803e903d91602b57fd5bf3ff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee00000000000000000000000000000000000000000000000000000000000021050000000000000000000000001649cd37f4748807b4882fc48765ba0b2affa94a0000000000000000000000000000000000000000000000000000000000000eda
+```
+
+Derived SHA-256: `0xf711d4661ab10b810b9409543a1e219774af23f67f8f7f0a3db6d6545d4f3b8a`. As a live pattern check, deployed Looper #1 account `0x4f231082867B2F93B1C4C1eC6e71d4558d671333` has a 173-byte runtime at the verification block and equals the same formula with `tokenId = 1`. After #3802 deployment, the page must require exact equality to the bytes above before treating the derived hash as observed.
 
 ### Adapter8004 and Identity Registry execution identities
 
 - Existing ERC-8004 identity: `90994` (`0x16372`)
-- Agent URI: `https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json`
+- Expected shared identity URI: `https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json`
 - EIP-1967 implementation slot: `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`
 
 | Role | Address | Runtime bytes | Runtime SHA-256 | Raw EIP-1967 slot value |
@@ -83,7 +107,15 @@ IdentityRegistry.ownerOf(90994)
   calldata: 0x6352211e0000000000000000000000000000000000000000000000000000000000016372
   result:   0x000000000000000000000000270d25d2c59a8bca1b0f40ad95ff7806c0025c27
   decode:   address 0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27
+
+IdentityRegistry.tokenURI(90994)
+  to:       0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+  calldata: 0xc87b56dd0000000000000000000000000000000000000000000000000000000000016372
+  result:   0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000004968747470733a2f2f617277656176652e6e65742f7743304c364c525f494773535f53674151467253626e7a736a566741624f6c775a63565f6c6272705f76382f333830322e6a736f6e0000000000000000000000000000000000000000000000
+  decode:   string "https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json"
 ```
+
+The URI claim is exact equality between live Loopers `erc8004AgentURI(3802)`, direct Identity Registry `tokenURI(90994)`, and the pinned string. It does not claim that fetching the URI succeeds or that its remote content has any particular hash.
 
 The call target must be the proxy, never the implementation. The raw slot word must equal the pinned word; its low 20 bytes must equal the pinned implementation; proxy and implementation byte lengths and hashes must all match. A zero slot, noncanonical high bytes, upgraded implementation, changed proxy shell, call revert, malformed return, trailing return data, or decoded mismatch fails closed. The same checks run at preflight and the canonical receipt block.
 
@@ -145,19 +177,20 @@ Rejected approaches:
 
 ## Architecture boundaries
 
-The only route is `/activate-looper-3802/`. The only browser storage key is `loopers.walletActivation.8453.3802.v1`; no cookie, IndexedDB, session-storage, alternate local-storage key, URL parameter, or remote configuration stores or overrides activation state.
+The only route is `/activate-looper-3802/`. The only browser storage key is `loopers.walletActivation.8453.3802.v1`; no cookie, IndexedDB, session-storage, alternate local-storage key, URL parameter, or remote configuration stores or overrides activation state. The exact Web Locks name is `loopers.walletActivation.8453.3802.submit.v1`.
 
 Keep the implementation split into independently testable units even if the pilot ships as one static document:
 
-1. **Pinset/encoding:** owns immutable addresses, raw slots, ABIs, selectors/topics, exact `createAccount` calldata and hashes, strict ABI encoders/decoders, and expected runtime code. It is pure and has no provider, storage, clock, or DOM access.
-2. **Public RPC transport:** accepts only a typed request union from the controller, maps it to the exact origin/method/parameter allowlist below, performs failover and bounded polling, and returns raw JSON-RPC bytes. It never accesses `window.ethereum`, local storage, or ABI acceptance logic.
+1. **Pinset/encoding:** owns immutable addresses, raw slots, ABIs, selectors/topics, exact `createAccount` calldata and hashes, strict ABI encoders/decoders, and derived future runtime bytes. It is pure and has no provider, storage, clock, or DOM access.
+2. **Public RPC transport:** accepts only a typed request union from the controller, maps it to the exact origin/method/parameter routes below, performs bounded failover/polling, and returns raw JSON-RPC evidence. It never accesses `window.ethereum`, local storage, or ABI acceptance logic.
 3. **Snapshot validator:** strictly decodes one block-anchored set of raw responses and either returns an immutable validated snapshot or one fail-closed error. It has no provider, storage, send, or DOM access.
 4. **Wallet boundary:** wraps the injected provider and exposes only connect, chain check/switch, account read, and `sendPinnedActivation()`. That send method takes no transaction argument and constructs the exact five-key request internally from the pinset.
-5. **Attempt store:** is the sole code allowed to access the one local-storage key. It validates the exact v1 schema and legal state graph, performs one atomic whole-record write per transition, and has no provider, ABI, wallet, or DOM access.
-6. **Receipt/trace verifier:** strictly decodes transaction, receipt, EntryPoint v0.6, UserOperation, Coinbase Smart Wallet, registry-event, call-trace, and receipt-block snapshot evidence. It cannot fetch, persist, render, or submit.
-7. **Controller/renderer:** owns the in-memory mutex, clock, wallet-generation counter, sequencing, and status text. It can call the six interfaces above but cannot call a provider or local storage directly, construct calldata, relax a validator, or accept user-supplied addresses/fields.
+5. **Attempt store:** is the sole code allowed to access the one local-storage key. It validates the exact v1 schema/state graph and performs revisioned whole-record writes/read-backs. It has no RPC, ABI, wallet, Web Locks, or DOM access.
+6. **Cross-tab coordinator:** is the sole code allowed to call the Web Locks API. It owns the exact lock/lease protocol below and asks the attempt store to mutate the embedded lease; it cannot construct calldata or call a provider.
+7. **Receipt/trace verifier:** strictly decodes transaction, receipt, EntryPoint v0.6, UserOperation, Coinbase Smart Wallet, registry-event, call-trace, and receipt-block snapshot evidence. It cannot fetch, persist, render, or submit.
+8. **Controller/renderer:** owns only the per-tab mutex, clock, wallet-generation counter, sequencing, and status text. It can call the seven interfaces above but cannot call a provider, Web Locks, or local storage directly, construct calldata, relax a validator, or accept user-supplied addresses/fields.
 
-Only immutable validated outputs cross a boundary. Unknown object keys, ABI trailing bytes, unsupported variants, transport data passed directly to the wallet, or direct provider/storage access outside its owner unit are test failures and runtime fail-closed errors.
+Only immutable validated outputs cross a boundary. Unknown object keys, ABI trailing bytes, unsupported variants, transport data passed directly to the wallet, or direct provider/lock/storage access outside its owner unit are test failures and runtime fail-closed errors.
 
 ## Page behavior
 
@@ -178,8 +211,9 @@ The page has only:
 
 - `Connect / switch to Base`;
 - `Activate wallet for Looper #3802`;
-- a non-write `Resume verification` action for submitted or uncertain attempts;
-- a strongly warned, one-time `Retry activation` action that appears only for an eligible original `uncertain_hashless` attempt.
+- a non-write `Resume verification` action for submitted, uncertain, superseded-linked, or terminal attempts;
+- a strongly warned, one-time `Retry activation` action that appears only for an eligible original `uncertain_hashless` attempt;
+- `Acknowledge result` for eligible terminal records; it never sends onchain and follows the retention/lock rules below.
 
 There is no editable token ID, address, contract, implementation, salt, chain, calldata, gas field, destination, or value.
 
@@ -217,37 +251,36 @@ Any additional key or mismatched value fails before `eth_sendTransaction`.
 
 ## Read and simulation boundary
 
-Public JSON-RPC origins are exactly `https://mainnet.base.org`, `https://base.drpc.org`, and `https://base-rpc.publicnode.com`, with no credentials, query string, redirect target, runtime override, or user-supplied URL. Standard reads may fail over in that order. `debug_traceTransaction` routes only to `https://base.drpc.org`; the other two were verified not to expose it. Trace unavailability never weakens attribution.
+Public JSON-RPC origins are exactly `https://mainnet.base.org`, `https://base.drpc.org`, and `https://base-rpc.publicnode.com`, with no credentials, query string, redirect target, runtime override, or user-supplied URL. Routing is exact:
 
-The public method allowlist is exactly:
+- `mainnet.base.org` is the primary standard state/simulation source for `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getStorageAt`, `eth_getBalance`, `eth_call`, `eth_estimateGas`, `eth_gasPrice`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`.
+- `base.drpc.org` is the secondary standard state/simulation source and the **sole trusted trace source**. Only it may receive `debug_traceTransaction`, with parameters exactly `[transactionHash,{"tracer":"callTracer","timeout":"20s","tracerConfig":{"onlyTopCall":false,"withLog":true}}]`.
+- `base-rpc.publicnode.com` is used by default only for `eth_chainId`, `eth_getBlockByNumber`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt` as independent head/hash/receipt quorum. It must not supply historical `eth_getCode`, storage, balance, call, or estimate evidence unless that exact deployment first proves archive support for the requested block; at the verification block it returned `Archive requests require a personal token`, so the pilot must not depend on it for historical state.
 
-- normal reads: `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getStorageAt`, `eth_getBalance`, `eth_call`, `eth_estimateGas`, `eth_gasPrice`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`;
-- wrapped-receipt proof only: `debug_traceTransaction`, with parameters exactly `[transactionHash,{"tracer":"callTracer","timeout":"20s","tracerConfig":{"onlyTopCall":false,"withLog":true}}]`.
+No other public method/origin pair is permitted. The injected wallet-provider allowlist is exactly `eth_chainId`, `eth_accounts`, `eth_requestAccounts`, `wallet_switchEthereumChain`, and `eth_sendTransaction`; every other method is rejected before provider invocation. Public RPC never sends, and the wallet provider never supplies validation or receipt evidence.
 
-The injected wallet-provider allowlist is exactly `eth_chainId`, `eth_accounts`, `eth_requestAccounts`, `wallet_switchEthereumChain`, and `eth_sendTransaction`. The wallet boundary rejects every other method before provider invocation. Public RPC never sends; the wallet provider never supplies validation or receipt evidence.
-
-Before enabling activation, obtain a canonical Base block number/hash, re-fetch that number to prove the hash is still canonical, and anchor state reads with EIP-1898 `{blockHash, requireCanonical: true}` where supported. A provider that lacks EIP-1898 may be used only after `eth_getBlockByNumber` immediately before and after the read batch returns the same pinned number/hash. Mixed-block or mixed-hash snapshots are invalid.
+Before enabling activation, read each origin's latest height, choose the minimum, and require all three to return the same non-null hash for that exact height. Anchor state reads to that hash with EIP-1898 `{blockHash, requireCanonical: true}` where supported. A state provider that lacks EIP-1898 may be used only after `eth_getBlockByNumber` immediately before and after its read batch returns the same pinned number/hash. PublicNode remains quorum-only unless its historical capability was explicitly proven as above. Mixed-block or mixed-hash snapshots are invalid.
 
 The snapshot must:
 
-1. Verify public RPC and connected-wallet chain IDs are `0x2105`.
+1. Verify all public RPC and connected-wallet chain IDs are `0x2105`.
 2. Verify connected account and live Loopers `owner()` equal the pinned sponsor.
 3. Verify exact code bytes/length/hash and raw implementation-slot words for Loopers, Adapter8004, Identity Registry, sponsor designator/delegate/implementation, ERC-6551 registry/implementation, and EntryPoint as pinned above.
 4. Verify live Loopers `erc6551Registry()`, `erc6551Implementation()`, and `erc6551Salt()` against the pinned tuple.
 5. Verify `ownerOf(3802)` equals the pinned holder.
 6. Verify `tokenBoundAccount(3802)` and registry `account(...)` both equal the pinned deterministic account.
 7. Require account code `0x` and balance `0x0` before a send. Correct deployed code disables sending and enters completed-account verification; nonzero balance, malformed code, or wrong code blocks for investigation.
-8. Verify Loopers `erc8004BoundByLooper(3802) == true`, `erc8004AgentIdByLooper(3802) == 90994`, and `erc8004AgentURI(3802)` equals the pinned URI.
-9. Execute the four exact Adapter/Identity calls above and require the exact raw and decoded results.
-10. Execute the two exact sponsor calls above and require the exact raw and decoded results.
+8. Verify Loopers `erc8004BoundByLooper(3802) == true`, `erc8004AgentIdByLooper(3802) == 90994`, and `erc8004AgentURI(3802)` equals the pinned shared URI.
+9. Execute the five exact Adapter/Identity calls above, including direct Identity Registry `tokenURI(90994)`, and require exact raw and decoded results.
+10. Execute the two exact sponsor calls above and require exact raw and decoded results.
 11. Construct and validate the exact five-key transaction object.
 12. Run `eth_call` against that transaction at the anchored block and require the sole 32-byte result to decode to the pinned account with no trailing data.
-13. Run `eth_estimateGas`; at design time the direct call estimated `96,286` gas. Reject a missing result or an estimate above `150,000`.
+13. Run `eth_estimateGas`; the reverified nonbinding observation is `96,298` gas (`0x1782a`) at both the pinned block and current head on Mainnet Base RPC and dRPC. Reject a missing result or an estimate above `150,000`.
 14. Display `estimateGas * gasPrice` as a nonbinding estimate. Never add or override wallet fee fields.
 
-On activation click, run the complete anchored preflight, simulation, and gas check again, then acquire a second fresh canonical block and repeat the complete snapshot. Any drift blocks sending. `accountsChanged` or `chainChanged` increments the wallet-generation counter, invalidates readiness, and leaves durable attempts locked for recovery. The in-memory mutex covers preflight through the durable provider outcome and blocks concurrent sends.
+On activation click, run the complete anchored preflight, simulation, and gas check again. Any drift blocks sending. `accountsChanged` or `chainChanged` increments the wallet-generation counter, invalidates readiness, and leaves durable attempts locked for recovery. The per-tab mutex prevents same-tab duplicate work; only the cross-tab protocol below authorizes durable mutation or submission.
 
-## Durable attempt and recovery
+## Durable attempt, cross-tab lock, and recovery
 
 The local-storage value has this exact logical schema. JSON numbers are safe nonnegative integers; quantities and hashes are lowercase `0x` hex; addresses are checksum-normalized when displayed but lowercase in persisted comparison form. Unknown or missing keys are invalid.
 
@@ -255,23 +288,35 @@ The local-storage value has this exact logical schema. JSON numbers are safe non
 StoreV1 {
   schema: "loopers.walletActivation",
   version: 1,
+  revision: integer,
   chainId: 8453,
   tokenId: "3802",
-  activeAttemptId: UUID,                       // names the sole nonsuperseded attempt
-  attempts: AttemptV1[1..2]                    // oldest first; two only after the single retry
+  activeAttemptId: UUID | null,
+  lease: null | {
+    lockName: "loopers.walletActivation.8453.3802.submit.v1",
+    ownerTabId: UUID, leaseId: UUID,
+    purpose: "activate" | "retry" | "resume" | "acknowledge",
+    acquiredAtMs: integer, heartbeatAtMs: integer, expiresAtMs: integer
+  },
+  attempts: AttemptV1[0..2]                  // zero only while leasing a fresh Activate
 }
 AttemptV1 {
   id: UUID, retryOrdinal: 0 | 1,
   state: "prepared" | "submitted" | "uncertain_hashless" | "uncertain_hashed" |
          "confirmed_attributed" | "observed_unattributed" | "reverted" |
          "superseded" | "retry_cancelled",
-  createdAtMs: integer, updatedAtMs: integer, waitUntilMs: integer, // createdAtMs + 600000
+  createdAtMs: integer, updatedAtMs: integer, waitUntilMs: integer,
+  acknowledgedAtMs: integer | null,
   walletGeneration: integer,
   supersedesId: UUID | null, supersededById: UUID | null,
   txHash: bytes32 | null,
   receipt: null | {
     blockNumber, blockHash, discoveredAtMs: integer,
-    confirmationDeadlineMs: integer             // discoveredAtMs + 120000
+    confirmationDeadlineMs: integer,
+    registryLog: null | {
+      receiptArrayIndex: integer, logIndex: quantity,
+      address, topics: bytes32[], data: bytes
+    }
   },
   observation: null | { blockNumber, blockHash, observedAtMs: integer },
   pinset: {
@@ -285,54 +330,80 @@ AttemptV1 {
     accountCode: "0x", accountBalance: "0x0",
     loopersImplementationSlot, adapterImplementationSlot, identityImplementationSlot,
     sponsorDesignator, sponsorImplementationSlot,
-    adapterIdentityRegistryResult, adapterBindingResult,
-    adapterControllerResult, identityOwnerResult,
-    sponsorImplementationResult, sponsorEntryPointResult,
-    simulationResult
+    adapterIdentityRegistryResult, adapterBindingResult, adapterControllerResult,
+    identityOwnerResult, identityTokenURIResult,
+    sponsorImplementationResult, sponsorEntryPointResult, simulationResult
   },
-  history: TransitionV1[1..12]
+  history: TransitionV1[1..20]
 }
 TransitionV1 { from: State | null, to: State, atMs: integer, reason: Reason }
 State = the exact nine-value AttemptV1 state enum above
 Reason = "activate" | "provider_hash" | "provider_rejected_retry" |
-         "provider_ambiguous" | "reload_prepared" | "pre_send_observed" |
-         "pre_send_inconclusive" | "receipt_attributed" |
+         "provider_ambiguous" | "reload_prepared" | "receipt_attributed" |
          "state_observed_unattributed" | "receipt_reverted" |
-         "receipt_timeout" | "confirmation_timeout" | "reorg" |
-         "evidence_incomplete" | "retry_superseded"
+         "receipt_timeout" | "confirmation_timeout" | "canonicality_lost" |
+         "evidence_incomplete" | "retry_superseded" | "late_original_observed"
 ```
 
-Every `pinset`, `transaction`, and fixed raw `preflight` value must equal this specification; dynamic quantities must be canonical and internally consistent. `history[0]` must be `null -> prepared`; every later pair must be contiguous and legal below. `receipt` is required from the instant a receipt is found for any receipt-derived terminal state; `observation` is required for `observed_unattributed`, including when `txHash == null`. Other states use `null` unless evidence has already been discovered and retained. Invalid JSON, wrong schema/version/chain/token, more than two attempts, duplicate IDs, bad UUID/hash/quantity, unknown key, mismatched pin, impossible edge, broken supersession link, impossible receipt/observation combination, or an `activeAttemptId` that does not name the sole nonsuperseded attempt is **corrupt**. Corrupt storage is displayed, never auto-repaired or deleted, and blocks writes until the operator clears this site's browser data outside the page.
+Every fixed value must equal this specification; dynamic quantities must be canonical and internally consistent. `history[0]` is `null -> prepared`; later pairs are contiguous and legal below. `receipt` is persisted immediately when found; `observation` is required for `observed_unattributed`; `registryLog` is required only for `confirmed_attributed`. A store with zero attempts is valid only while a fresh-Activate lease is held and must have `activeAttemptId == null`; otherwise `activeAttemptId` must name the sole nonsuperseded attempt. Invalid JSON, schema/version/chain/token/revision, duplicate IDs, bad UUID/hash/quantity, unknown key, mismatched pin, impossible edge/evidence combination, broken supersession, or invalid active-attempt/empty-store state is **corrupt** and blocks every mutation/send. Corrupt storage is never auto-repaired or deleted.
 
-Immediately before `eth_sendTransaction`, write `prepared` synchronously and read it back byte-for-byte. Invoke the wallet on the next statement with no intervening `await`. If persistence or read-back fails, do not invoke the wallet. Persist a returned syntactically valid hash as `submitted` before starting any receipt request.
+### Cross-tab serialization and lease
 
-The complete state graph is:
+`localStorage` is not compare-and-swap and is never treated as a lock. Every attempt-store mutation and every wallet invocation requires an exclusive Web Lock obtained as:
 
-- no record -> `prepared` on an explicit Activate click after fresh readiness;
-- `prepared` -> `submitted` on a valid provider hash;
-- original `prepared` -> no record only for explicit EIP-1193 rejection code `4001` in the same page lifetime;
-- retry `prepared` -> `retry_cancelled` for explicit code `4001`; this durable state records that the single retry was consumed and remains write-locked;
-- any `prepared` -> `uncertain_hashless` for every other provider error, malformed/missing hash, unload/reload, or wallet-generation race before a valid hash is returned; once a valid hash exists it must be persisted and cannot be discarded because the wallet generation changed;
-- retry `prepared` -> `observed_unattributed` when the final pre-send check finds the correct deployed account and complete canonical state, or -> `uncertain_hashless` when that check is unavailable, conflicting, or finds unexpected state; neither edge invokes the wallet;
+```text
+navigator.locks.request(
+  "loopers.walletActivation.8453.3802.submit.v1",
+  { mode: "exclusive", ifAvailable: true },
+  callback
+)
+```
+
+The callback receives `null` when another tab owns the lock; the action then stops without queuing or writing, so a stale click can never submit later. If `navigator.locks` is absent, throws, or cannot grant exclusivity, the page is read-only: it may fetch and display evidence but cannot mutate attempts, acknowledge, retry, or send. This is the fail-closed fallback.
+
+Each page load creates an in-memory `ownerTabId` with `crypto.randomUUID()`. A fresh lease-only store starts at `revision: 1`; every later whole-store write increments revision by exactly one, and a missing, repeated, decreasing, or unsafe-integer revision is corrupt. After acquiring the Web Lock, the coordinator re-reads and validates the latest store, never a cached copy. A foreign unexpired lease blocks every mutation and submission even though the Web Lock was granted; the tab releases and waits. A foreign lease becomes eligible for takeover only when `Date.now() >= expiresAtMs` **and** the tab holds the Web Lock. Takeover rotates `ownerTabId`/`leaseId`, increments `revision`, preserves every attempt/history entry, and never repeats an interrupted provider invocation. It may run only the explicit state-permitted control selected by the user after fresh revalidation.
+
+The lease TTL is exactly 30 seconds and heartbeat interval is 5 seconds: each heartbeat sets `heartbeatAtMs = now`, `expiresAtMs = now + 30000`, increments `revision`, writes the complete latest store, and reads it back. The Web Lock—not lease time—is authoritative: expiry alone never authorizes mutation or submission, and a throttled heartbeat cannot permit overlap while the lock remains held. Every mutation re-reads the latest store under the lock, verifies the current `leaseId`, merges without dropping attempts/history, increments `revision`, writes the complete value, and synchronously verifies the read-back. A `storage` event invalidates every tab's cached rendering. Normal completion clears `lease` only after the provider outcome or state transition is durable; if a fresh Activate exits before `prepared`, it clears the lease and deletes the zero-attempt store. A crash releases the Web Lock automatically and leaves a takeover-visible lease until expiry.
+
+`Activate` and `Retry` hold the Web Lock from click through the durable provider outcome. `Resume` and `Acknowledge` acquire it for each state mutation. These rules, plus no-queue acquisition and revisioned merge/read-back, are the cross-tab guarantee: two tabs cannot submit concurrently and a stale tab cannot overwrite or lose the other tab's history.
+
+### Durable prepared/send handoff
+
+All asynchronous checks finish **before** writing `prepared`. For an initial activation, while holding the Web Lock and current lease: run the complete fresh preflight and last anchored account-code check; construct the immutable attempt; synchronously write/read back `prepared`; on the next JavaScript statement invoke `const sendPromise = provider.request({method:"eth_sendTransaction",params:[exactTransaction]})`; only then `await sendPromise`. There is no provider/RPC/lock/storage `await` between durable read-back and invocation.
+
+Retry uses the same handoff without contradiction:
+
+1. Acquire the Web Lock/lease, re-read the original `uncertain_hashless` attempt, and re-prove retry eligibility.
+2. Complete the fresh preflight and the **last asynchronous anchored account check before any retry `prepared` record exists**.
+3. If the account is correctly deployed, transition the original to `observed_unattributed`; if evidence is unavailable/conflicting, leave it `uncertain_hashless`; neither case consumes the retry or invokes the wallet.
+4. Only when the last check proves exact undeployed code/balance and unchanged pins, perform one synchronous whole-store write that marks the original `superseded` and appends retryOrdinal `1` as `prepared`; synchronously read back the new revision/lease/links.
+5. On the next statement invoke the fixed wallet request, with no intervening `await`, then await its promise and persist the outcome under the still-held Web Lock.
+
+If the tab crashes after `prepared` but before a hash is durable, reload/takeover converts it to `uncertain_hashless`; it never guesses whether invocation occurred. A valid returned hash is always persisted as `submitted` before receipt work and cannot be discarded because wallet generation changed.
+
+### State graph, waits, acknowledgement, and reorgs
+
+The complete transition rules are:
+
+- no record -> original `prepared` on explicit Activate after the initial handoff checks;
+- any `prepared` -> `submitted` on a valid provider hash;
+- original `prepared` -> no record only for same-lifetime EIP-1193 rejection `4001`;
+- retry `prepared` -> `retry_cancelled` for `4001`; the superseded original and retry remain durable and the retry is permanently consumed;
+- any `prepared` -> `uncertain_hashless` for every other provider error, malformed/missing hash, reload, or pre-hash wallet-generation race;
 - `submitted` -> `confirmed_attributed`, `observed_unattributed`, `reverted`, or `uncertain_hashed` after receipt/recovery evaluation;
-- `uncertain_hashed` -> `confirmed_attributed`, `observed_unattributed`, or `reverted` when later evidence becomes complete; it never becomes retry-eligible;
-- `uncertain_hashless` -> `observed_unattributed` when complete canonical account state is observed;
-- original `uncertain_hashless` -> `superseded` atomically with creation of retry `prepared` after all retry gates pass;
-- `retryOrdinal == 1`, `retry_cancelled`, and retry `uncertain_hashless` can never be superseded, acknowledged away, or retried;
-- terminal `confirmed_attributed`, `observed_unattributed`, or `reverted` -> no record only on explicit acknowledgment. Acknowledging `reverted` permits a later fresh Activate only because a canonical failure and undeployed account were proven; acknowledging either success state does not re-enable activation because live deployed-account preflight still blocks it.
+- `uncertain_hashed` -> `confirmed_attributed`, `observed_unattributed`, or `reverted` when complete canonical evidence returns;
+- any `uncertain_hashless` -> `observed_unattributed` when the exact account and full canonical post-state appear; only original `uncertain_hashless` may atomically -> `superseded` with retry `prepared` at the retry handoff above;
+- terminal `confirmed_attributed` or `reverted` -> `uncertain_hashed` when its receipt, receipt block, trace-required attribution, or canonical post-state disappears;
+- terminal `observed_unattributed` -> `uncertain_hashed` when `txHash != null`, otherwise -> `uncertain_hashless`, when its observation block or canonical post-state disappears;
+- retry `reverted` or `retry_cancelled` -> `observed_unattributed` if a late original later produces the exact account and full canonical post-state; the retry remains consumed.
 
-`observed_unattributed` permits `txHash == null` and is the required hashless-observed state. Its required `observation` block anchors the exact canonical state used for the claim. It asserts only that the deterministic account and every receipt-independent invariant are canonical; it never attributes creation to an attempt. `superseded` is history-only and does not unlock writes while its linked retry is active. `retry_cancelled` is terminal and write-locked with no page control other than non-write inspection.
+After a valid hash, poll transaction/receipt every 2 seconds for 120 seconds, then every 10 seconds until 600 seconds after `createdAtMs`, without overlap; then make one final Mainnet/dRPC read plus PublicNode receipt quorum and become `uncertain_hashed` if incomplete. Persist receipt block/hash/discovery time before confirmations. Poll head every 2 seconds only until persisted `confirmationDeadlineMs = discoveredAtMs + 120000`; three confirmations means `head.number >= receipt.blockNumber + 2` and the receipt block hash remains canonical. The final deadline check never resets the deadline.
 
-### Exact waits, controls, and locks
+`Resume verification` is always non-onchain. It revalidates submitted, uncertain, superseded-linked, and terminal evidence under the persisted deadlines; terminal revalidation runs automatically on every reload and manually on Resume. Any lost canonical terminal evidence takes the explicit uncertain edge above and keeps the write lock. A hashless original becomes retry-eligible only at `waitUntilMs = createdAtMs + 600000`, with `retryOrdinal == 0`, `txHash == null`, exact three-origin head/hash quorum, undeployed zero-balance account, and a complete fresh preflight. Retry is one-time and never automatic.
 
-- After a valid hash, poll transaction and receipt every 2 seconds for 120 seconds, then every 10 seconds until 600 seconds after `createdAtMs`; no overlapping requests. After the deadline, query all three origins once; absence/incomplete evidence becomes `uncertain_hashed`.
-- On finding a receipt, persist `receipt.blockNumber`, `receipt.blockHash`, `discoveredAtMs`, and `confirmationDeadlineMs = discoveredAtMs + 120000` before waiting. Poll the canonical head every 2 seconds only until that persisted deadline. Three confirmations means `head.number >= receipt.blockNumber + 2`; then re-fetch `receipt.blockNumber` and require its hash to equal `receipt.blockHash`. At the deadline make one final check; underconfirmation, timeout, or reorg becomes `uncertain_hashed` without resetting the deadline.
-- `Resume verification` never writes onchain. It performs one immediate full recovery pass; if a known-hash attempt has no receipt and remains before its 600-second deadline, it resumes only that unused receipt-search time. If a persisted receipt remains before its confirmation deadline, it resumes only that unused confirmation time. At or after either applicable deadline it performs one pass and stops; an underconfirmed receipt remains `uncertain_hashed`.
-- A hashless attempt remains write-locked before `waitUntilMs == createdAtMs + 600000`. At or after that exact instant, `Retry activation` appears only when `retryOrdinal == 0`, `txHash == null`, all three RPCs return Base chain ID, and they agree on one canonical block: read each latest height, choose the minimum, then require all three to return the same non-null hash for that exact height. Account code/balance must remain `0x`/`0x0` there and a new complete preflight/simulation must pass.
-- Retry is one-time, explicit, and warned. On click, run another fresh complete snapshot. If the account already exists, transition the original to `observed_unattributed`, persist its observation block, and do not create a retry. Otherwise atomically mark it `superseded`, create the linked `retryOrdinal: 1` `prepared` attempt, and persist/read back. Then perform one final anchored account check: correct deployed account plus complete state -> retry `observed_unattributed`; unavailable/conflicting/unexpected evidence -> retry `uncertain_hashless`; only exact undeployed code/balance and unchanged pins proceed immediately to wallet invocation. A deployment in the remaining check-to-send race may waste retry gas but cannot create a second account.
-- `Activate` is enabled only with no active record and an undeployed, fully valid snapshot. `Resume verification` is the only action for `submitted` or either uncertain state. `Retry activation` follows the gates above. All active, corrupt, success, and superseded-linked states hold the write lock. `reverted` holds it until acknowledgment.
+`Acknowledge result` requires the Web Lock and first performs terminal revalidation. If revalidation fails, it takes the appropriate uncertain transition and does not acknowledge. For `confirmed_attributed`, `observed_unattributed`, `retry_cancelled`, or any retryOrdinal `1` terminal, acknowledgement sets `acknowledgedAtMs` but retains the complete store, supersession links, receipt/observation evidence, and write lock. A retry `reverted` can therefore never delete the superseded original or enable another send; Resume remains available for a late original. Only an isolated original `reverted` record with `attempts.length == 1`, no supersession links, a still-canonical reverted receipt, and an undeployed exact account may be deleted on acknowledgement to unlock a fresh Activate.
 
-If the late original lands before or after retry, deterministic `createAccount` allows only the pinned account. A retry receipt without a registry creation event, or a successful wrapped receipt lacking trace attribution, may become `observed_unattributed` only after full canonical account/post-state verification; otherwise it remains `uncertain_hashed`. Duplicate gas is the sole accepted race cost. No EOA nonce assumption is used for this ERC-4337 wallet.
+A late original before or after retry can create only the pinned deterministic account. A retry receipt without a creation event, a reverted retry followed by a late original, or a successful wrapped receipt lacking trace attribution may become `observed_unattributed` only after full canonical post-state verification. Duplicate gas is the sole accepted race cost. No EOA nonce assumption is used.
 
 ## Receipt and post-state verification
 
@@ -349,7 +420,7 @@ For an ERC-4337-wrapped transaction:
 5. Strictly decode only that selected operation's `callData` against the pinned smart-wallet ABI. Accept only `execute(registry,0,exactCreateAccountCalldata)` or `executeBatch([Call(registry,0,exactCreateAccountCalldata)])`. The array length must be one; target, value, and data must be exact; trailing data is forbidden. Reject `executeWithoutChainIdValidation`, alternate selectors, extra calls, and nonzero value.
 6. Re-verify the complete sponsor designator/delegate/slot/implementation/call-result/EntryPoint pinset at the receipt block.
 7. Fetch the fixed `callTracer` proof through the trace-only RPC route. Require the root to match the same transaction and EntryPoint input. Find exactly one successful EntryPoint-to-sponsor execution frame whose input equals the selected operation's complete `callData` and value is zero. Within that frame, permit only zero-value delegation plumbing through the pinned delegate/implementation before exactly one successful `CALL` to the pinned registry with the exact `createAccount` calldata and zero value; reject any additional wallet-envelope external call, create, target, data, or value.
-8. Require the matching `ERC6551AccountCreated` log to appear in that exact registry call frame's `logs`, and require its address, topics, data, and trace `index` (normalized as a quantity) to equal the same receipt log and `logIndex`. The pinned registry code governs descendants of that frame; any second matching frame or event fails attribution.
+8. Require the matching `ERC6551AccountCreated` log in that exact registry call frame. Normalize trace `index` as an integer `n`, require `0 <= n < receipt.logs.length`, and compare address/topics/data to `receipt.logs[n]`. dRPC trace `index` is the transaction receipt-array ordinal, **not** block-global `logIndex`. Separately require every receipt `logIndex` to be a canonical unique quantity, persist `receiptArrayIndex: n`, the selected log's block-global `logIndex`, address, topics, and data, and require all persisted values to match on every reload/resume. Any second matching frame/event or ordinal/logIndex conflation fails attribution.
 
 Receipt logs alone do not identify which internal call emitted them in a multi-operation bundle. Therefore `confirmed_attributed` for a wrapped transaction **requires** the per-call trace with `withLog: true`; userOpHash and receipt-event correlation alone are insufficient. If the trace RPC is unavailable, omits per-frame logs, returns a different transaction shape, or cannot establish the exact frame ancestry, the page fails closed to `observed_unattributed` only when full canonical deployed-account state is independently proven; otherwise it remains `uncertain_hashed`. It never claims wrapped attribution from receipt position or log ordering.
 
@@ -370,7 +441,7 @@ At the canonical receipt block, re-run every identity, code, slot, configuration
 - `state()` returns `0`;
 - `isValidSigner(holder,0x)` returns `0x523e3260`;
 - account ETH balance remains `0x0`;
-- ERC-8004 identity `90994`, URI, adapter binding, registry ownership, and controller remain exact.
+- ERC-8004 identity `90994`, Loopers URI, direct Identity Registry `tokenURI`, adapter binding, registry ownership, and controller remain exact.
 
 A canonical reverted receipt becomes `reverted` only when the account is still undeployed and every pin remains exact. If the account exists, full canonical state may produce `observed_unattributed`; partial, conflicting, reorged, or unavailable evidence preserves the appropriate uncertain lock. On reload, receipt-derived terminal states recheck the persisted receipt block/hash; `observed_unattributed` rechecks its required observation block/hash and reruns the post-state at that canonical block before being trusted.
 
@@ -378,7 +449,7 @@ A canonical reverted receipt becomes `reverted` only when the account is still u
 
 - The sponsor pays gas but never becomes the token-bound account owner.
 - The Looper holder controls the account through the pinned account implementation's ownership resolution.
-- The transaction carries zero ETH and cannot move NFTs, ERC-20s, or ETH.
+- The direct call, or the selected sponsor UserOperation inside a bundle, carries zero inner value and can execute only the pinned registry call; it cannot move NFTs, ERC-20s, or ETH. No such claim is made about unrelated UserOperations in the same EntryPoint bundle.
 - The page cannot construct another call or activate another token.
 - Existing ERC-8004 identity and controller state are read and verified, never written.
 - No private key, seed phrase, API key, or signing credential enters the page or repository.
@@ -389,24 +460,23 @@ A canonical reverted receipt becomes `reverted` only when the account is still u
 Focused tests must cover:
 
 - standalone/noindex/no external executable script surface;
-- all pinned chain, sponsor designator/delegate/implementation/EntryPoint, Loopers/Adapter/Identity Registry proxies and implementations, ERC-6551 registry/implementation/salt, token, holder, account, code hashes, event topics, selectors, calldata, and calldata hash values;
+- all live and derived pinsets, including the exact 173-byte runtime formula/bytes/hash and proof that pre-activation `eth_getCode` remains `0x`;
+- exact Adapter/Identity calldata/raw/decoded values, including direct `IdentityRegistry.tokenURI(90994)` and equality with Loopers URI;
 - exact five-key zero-value transaction allowlist and rejection of any altered or additional field;
-- wrong wallet, wrong chain, Loopers owner drift, holder transfer, deterministic-address mismatch, configuration drift, sponsor delegation/implementation/EntryPoint drift, every proxy/implementation/code-hash drift, exact ERC-8004 URI/binding/controller/identity-owner drift, and RPC failure;
+- wrong wallet/chain, owner or holder drift, deterministic-address/configuration drift, sponsor/EntryPoint drift, every proxy/implementation/hash/length/slot drift, and ERC-8004 URI/binding/controller/identity-owner drift;
 - active, inactive, unexpectedly funded, malformed-code, and wrong-code account states;
-- block-anchored preflight, exact `eth_call` result, gas estimate, gas cap, post-simulation drift rejection, and wallet-generation races;
-- double-click and account/chain-change handling;
-- the exact v1 storage schema and every legal/illegal transition among `prepared`, `submitted`, `uncertain_hashless`, `uncertain_hashed`, `confirmed_attributed`, `observed_unattributed`, `reverted`, `superseded`, and `retry_cancelled`, including receipt/observation anchors, persisted deadlines, reload normalization, corrupt records, and atomic supersession;
-- explicit rejection versus ambiguous provider failure;
-- direct and ERC-4337 receipt verification, including all-field `handleOps` decoding, local and onchain `getUserOpHash` equality, exactly one sponsor operation/event, exact sponsor `execute`/single-call `executeBatch` decoding, and fixed `callTracer` ancestry/log attribution;
-- rejection of replayable execution, extra calls, bundled cross-attribution, duplicate sponsor operations/events, nonempty init code, alternate target/calldata, nonzero inner value, malformed ABI, trailing data, missing trace logs, wrong frame ancestry, and trace/receipt-log mismatch;
-- exact matching `ERC6551AccountCreated` evidence and rejection of missing, duplicate, malformed, or mismatched logs;
-- canonical confirmation/reorg behavior;
-- receipt-block account bytecode, `token()`, `owner()`, `state()`, `isValidSigner()`, balance, Loopers holder, and ERC-8004 invariants;
-- exact polling/confirmation bounds, ten-minute hashless wait, control visibility and write locks, one-time warned retry, supersession linkage, late-original races, retry receipts with no creation event, and recovery without EOA nonce assumptions;
-- exact public RPC origins/routes/methods/trace parameters and exact wallet method allowlist;
-- boundaries for pinned encoding, public RPC, snapshot validation, wallet invocation, attempt persistence, receipt verification, and page control;
-- absence of forbidden writes, targets, selectors, inputs, automatic retries, and batch behavior.
-
+- block-anchored preflight, exact simulation result, reverified `96,298` gas observation, gas cap, post-simulation drift, and wallet-generation races;
+- exact origin/method routing: dRPC-only trace, PublicNode head/hash/receipt quorum, PublicNode historical-state rejection unless archive capability is proven;
+- Web Locks unavailable/throw/null-lock fail-closed behavior; simultaneous two-tab Activate/Retry; no queued stale action; unexpired foreign lease blocking; expired takeover under Web Lock; heartbeat throttling; crash takeover; revision/read-back checks; storage-event invalidation; stale-tab write rejection; and no lost history;
+- exact initial and retry handoffs, proving the last asynchronous check precedes `prepared` and no `await` occurs between prepared read-back and wallet invocation;
+- every legal/illegal state edge, including retry cancellation/consumption, retry revert retention, late-original observation, acknowledgment rules, persisted deadlines, receipt/observation anchors, corrupt records, and supersession linkage;
+- terminal automatic/manual revalidation and each legal receipt/observation reorg transition to the correct uncertain state without unlocking;
+- complete EntryPoint `handleOps` decoding, local/onchain userOpHash equality, exactly one selected sponsor operation/event, exact wallet call decoding, and fixed callTracer ancestry;
+- trace log `index` as receipt-array ordinal, separately persisted block-global `logIndex`, and rejection of ordinal/logIndex conflation, duplicate indices, changed bytes, wrong ancestry, or missing per-frame logs;
+- rejection of replayable execution, extra calls, bundled cross-attribution, duplicate sponsor operations/events, nonempty init code, alternate target/calldata, nonzero selected-op inner value, malformed ABI, and trailing data;
+- exact registry event plus receipt-block account `token()`, `owner()`, `state()`, `isValidSigner()`, zero balance, holder, and both ERC-8004 URI surfaces;
+- scoped no-asset-movement assertion for only the direct call/selected sponsor UserOperation, with unrelated bundled operations explicitly outside that claim;
+- absence of forbidden writes, targets, selectors, inputs, automatic retries, and collection-wide batch behavior.
 Run the focused page tests, full web test suite, production build, static source scan, and a no-wallet browser smoke test. Before deployment, repeat live read-only identity/hash/state verification. After deployment, compare local build, deployed asset, and fetched production hashes.
 
 ## Deployment and operator flow
