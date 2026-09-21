@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://mainnet.base.org https://base.drpc.org https://base-rpc.publicnode.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+    />
+    <title>Activate Looper #3802 wallet</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #080b12;
+        color: #f4f6fb;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #18203a 0, #080b12 42rem);
+      }
+
+      main {
+        width: min(62rem, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 3rem 0 5rem;
+      }
+
+      h1, h2, p { margin-top: 0; }
+      h1 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 0.75rem; }
+      h2 { font-size: 1.05rem; color: #aeb9d5; }
+
+      .lede {
+        max-width: 50rem;
+        color: #cbd3e8;
+        line-height: 1.6;
+      }
+
+      .warning {
+        margin: 1.5rem 0;
+        padding: 1rem 1.15rem;
+        border: 1px solid #725a20;
+        border-radius: 0.75rem;
+        background: #241d0c;
+        color: #ffe3a0;
+      }
+
+      section {
+        margin-top: 1rem;
+        padding: 1.25rem;
+        border: 1px solid #27304a;
+        border-radius: 0.9rem;
+        background: rgba(13, 18, 31, 0.9);
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 1.3fr);
+        gap: 0.75rem 1rem;
+        margin: 0;
+      }
+
+      dt { color: #95a2c2; }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+
+      button {
+        min-height: 2.75rem;
+        padding: 0.7rem 1rem;
+        border: 1px solid #6f86c8;
+        border-radius: 0.65rem;
+        background: #3155b7;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+      }
+
+      button:disabled { cursor: not-allowed; opacity: 0.45; }
+      button[hidden] { display: none; }
+
+      @media (max-width: 42rem) {
+        main { padding-top: 1.5rem; }
+        dl { grid-template-columns: 1fr; }
+        dd { margin-bottom: 0.5rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Activate Looper #3802 wallet</h1>
+        <p class="lede">
+          Owner-only pilot for sponsoring the single pinned ERC-6551 account deployment for Looper #3802 on Base.
+          This page cannot activate another token or send ETH.
+        </p>
+        <p class="warning">
+          Activation is disabled until every pinned identity, ownership, account-state, simulation, and fee check passes.
+        </p>
+      </header>
+
+      <section aria-labelledby="connection-heading">
+        <h2 id="connection-heading">Connection</h2>
+        <dl>
+          <dt>Network</dt>
+          <dd id="network" data-contract-output>Base mainnet (8453)</dd>
+          <dt>Connected wallet</dt>
+          <dd id="connected-wallet" data-contract-output>Not connected</dd>
+          <dt>Required sponsor</dt>
+          <dd id="sponsor" data-contract-output>0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE</dd>
+        </dl>
+      </section>
+
+      <section aria-labelledby="looper-heading">
+        <h2 id="looper-heading">Pinned Looper</h2>
+        <dl>
+          <dt>Current holder</dt>
+          <dd id="holder" data-contract-output>0x17d7DfA154dc0828AdE4115B9EB8a0A91C0fbDe4</dd>
+          <dt>Loopers proxy</dt>
+          <dd id="loopers-proxy" data-contract-output>0x1649CD37f4748807b4882FC48765bA0B2aFfa94a</dd>
+          <dt>Loopers implementation</dt>
+          <dd id="loopers-implementation" data-contract-output>0x68F22e3563891167D37C86391c4a83449c83e908</dd>
+        </dl>
+      </section>
+
+      <section aria-labelledby="account-heading">
+        <h2 id="account-heading">Pinned token-bound account</h2>
+        <dl>
+          <dt>ERC-6551 registry</dt>
+          <dd id="registry" data-contract-output>0x000000006551c19487814612e58FE06813775758</dd>
+          <dt>Account implementation</dt>
+          <dd id="account-implementation" data-contract-output>0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF</dd>
+          <dt>Salt</dt>
+          <dd id="salt" data-contract-output>0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee</dd>
+          <dt>Expected account</dt>
+          <dd id="account" data-contract-output>0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38</dd>
+          <dt>Deployment state</dt>
+          <dd id="account-deployment-state" data-contract-output>Not checked</dd>
+          <dt>Account balance</dt>
+          <dd id="account-balance" data-contract-output>Not checked</dd>
+        </dl>
+      </section>
+
+      <section aria-labelledby="identity-heading">
+        <h2 id="identity-heading">Existing ERC-8004 identity</h2>
+        <dl>
+          <dt>Identity ID</dt>
+          <dd id="identity-id" data-contract-output>90994</dd>
+          <dt>Identity URI</dt>
+          <dd id="identity-uri" data-contract-output>https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json</dd>
+          <dt>Holder controller status</dt>
+          <dd id="identity-controller-status" data-contract-output>Not checked</dd>
+        </dl>
+      </section>
+
+      <section aria-labelledby="transaction-heading">
+        <h2 id="transaction-heading">Pinned transaction</h2>
+        <dl>
+          <dt>Estimated gas</dt>
+          <dd id="estimated-gas" data-contract-output>Not checked</dd>
+          <dt>Estimated fee</dt>
+          <dd id="estimated-fee" data-contract-output>Not checked</dd>
+          <dt>Semantics</dt>
+          <dd id="transaction-semantics" data-contract-output>0 ETH to the canonical ERC-6551 registry; create only the pinned account for Looper #3802.</dd>
+          <dt>Status</dt>
+          <dd id="status" data-contract-output>Connect the required sponsor wallet to begin read-only validation.</dd>
+          <dt>Transaction</dt>
+          <dd id="transaction" data-contract-output>No transaction submitted.</dd>
+        </dl>
+      </section>
+
+      <section class="actions" aria-label="Activation controls">
+        <button id="connect" type="button">Connect / switch to Base</button>
+        <button id="activate" type="button" disabled>Activate wallet for Looper #3802</button>
+        <button id="resume" type="button" disabled hidden>Resume verification</button>
+        <button id="retry" type="button" disabled hidden>Retry activation</button>
+        <button id="acknowledge" type="button" disabled hidden>Acknowledge result</button>
+      </section>
+    </main>
+
+    <script>/*__ACTIVATE_LOOPER_3802_INLINE__*/</script>
+  </body>
+</html>
