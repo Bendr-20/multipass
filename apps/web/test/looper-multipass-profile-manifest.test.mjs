@@ -28,15 +28,18 @@ function patternedHex(length) {
   return `0x${Buffer.from(Array.from({ length }, (_, index) => (index * 131 + 17) & 0xff)).toString('hex')}`;
 }
 
+let browserUnitsPromise;
 async function loadBrowserUnits() {
-  const context = vm.createContext({ TextDecoder, TextEncoder, Uint8Array });
-  const [namespaceSource, codecsSource] = await Promise.all([
-    readFile(namespacePath, 'utf8'),
-    readFile(codecsPath, 'utf8'),
-  ]);
-  vm.runInContext(namespaceSource, context, { filename: namespacePath });
-  vm.runInContext(codecsSource, context, { filename: codecsPath });
-  return { context, namespaceSource, codecsSource, unit: context.LooperMultipassProfile };
+  browserUnitsPromise ??= (async () => {
+    const [namespaceSource, codecsSource] = await Promise.all([
+      readFile(namespacePath, 'utf8'),
+      readFile(codecsPath, 'utf8'),
+    ]);
+    vm.runInThisContext(namespaceSource, { filename: namespacePath });
+    vm.runInThisContext(codecsSource, { filename: codecsPath });
+    return { context: globalThis, namespaceSource, codecsSource, unit: globalThis.LooperMultipassProfile };
+  })();
+  return browserUnitsPromise;
 }
 
 function clone(value) {
@@ -284,6 +287,23 @@ test('rejects custom prototypes and object accessors without invoking getters', 
   assert.throws(() => unit.validateManifest(inherited, manifestLock), /prototype|plain object/iu);
   assert.equal(getterTrips, 0);
 
+  const proxiedPrototypeCandidate = clone(manifest);
+  let prototypeTrapCalls = 0;
+  const proxiedPrototype = new Proxy(Object.prototype, {
+    getPrototypeOf(target) { prototypeTrapCalls += 1; return Reflect.getPrototypeOf(target); },
+    ownKeys(target) { prototypeTrapCalls += 1; return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, key) { prototypeTrapCalls += 1; return Reflect.getOwnPropertyDescriptor(target, key); },
+  });
+  Object.setPrototypeOf(proxiedPrototypeCandidate, proxiedPrototype);
+  assert.throws(() => unit.validateManifest(proxiedPrototypeCandidate, manifestLock), /prototype|plain object/iu);
+  assert.equal(prototypeTrapCalls, 0);
+
+  const structuralPrototypeCandidate = clone(manifest);
+  const structuralPrototype = Object.create(null);
+  Object.defineProperties(structuralPrototype, Object.getOwnPropertyDescriptors(Object.prototype));
+  Object.setPrototypeOf(structuralPrototypeCandidate, structuralPrototype);
+  assert.throws(() => unit.validateManifest(structuralPrototypeCandidate, manifestLock), /prototype|plain object/iu);
+
   const nullPrototype = clone(manifest);
   Object.setPrototypeOf(nullPrototype, null);
   assert.throws(() => unit.validateManifest(nullPrototype, manifestLock), /prototype|plain object/iu);
@@ -381,8 +401,12 @@ test('classic units expose one fail-fast namespace boundary and no browser side 
     { enumerable: false, writable: false, configurable: false },
   );
   assert.equal(Object.getPrototypeOf(unit), null);
-  assert.throws(() => vm.runInContext(namespaceSource, context), /already|namespace|registered/iu);
-  assert.throws(() => vm.runInContext(codecsSource, context), /already|registered|property/iu);
+
+  const duplicateContext = vm.createContext({ TextDecoder, TextEncoder, Uint8Array });
+  vm.runInContext(namespaceSource, duplicateContext, { filename: namespacePath });
+  assert.throws(() => vm.runInContext(namespaceSource, duplicateContext), /already|namespace|registered/iu);
+  vm.runInContext(codecsSource, duplicateContext, { filename: codecsPath });
+  assert.throws(() => vm.runInContext(codecsSource, duplicateContext), /already|registered|property/iu);
 
   for (const source of [namespaceSource, codecsSource]) {
     assert.doesNotMatch(source, /\b(?:import|export)\b/u);

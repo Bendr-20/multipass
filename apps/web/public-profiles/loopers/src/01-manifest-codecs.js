@@ -12,41 +12,12 @@
   const HTTPS_URL = /^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[1-9][0-9]*)?\/[^\s\\#]*$/u;
   const UINT256_MAX = (1n << 256n) - 1n;
 
-  function sameOwnKeys(left, right) {
-    const leftKeys = Reflect.ownKeys(left);
-    const rightKeys = Reflect.ownKeys(right);
-    return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]);
-  }
-
-  function intrinsicConstructorName(prototype, name) {
-    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'constructor');
-    if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') return false;
-    const nameDescriptor = Object.getOwnPropertyDescriptor(descriptor.value, 'name');
-    return Boolean(nameDescriptor && Object.hasOwn(nameDescriptor, 'value') && nameDescriptor.value === name);
-  }
-
-  function isIntrinsicObjectPrototype(prototype) {
-    return Boolean(
-      prototype
-      && Object.getPrototypeOf(prototype) === null
-      && sameOwnKeys(prototype, Object.prototype)
-      && intrinsicConstructorName(prototype, 'Object')
-    );
-  }
-
   function isPlainObject(value) {
-    return Boolean(value && typeof value === 'object' && !Array.isArray(value) && isIntrinsicObjectPrototype(Object.getPrototypeOf(value)));
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype);
   }
 
   function isPlainArray(value) {
-    if (!Array.isArray(value)) return false;
-    const prototype = Object.getPrototypeOf(value);
-    return Boolean(
-      prototype
-      && isIntrinsicObjectPrototype(Object.getPrototypeOf(prototype))
-      && sameOwnKeys(prototype, Array.prototype)
-      && intrinsicConstructorName(prototype, 'Array')
-    );
+    return Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype;
   }
 
   function deepFreeze(value, seen = new WeakSet()) {
