@@ -22,7 +22,7 @@
     const body = strip(fullHex); const start = tupleByte * 2; if (start + 11 * WORD > body.length) throw new Error('UserOperation tuple is truncated.');
     const get = (index) => `0x${body.slice(start + index * WORD, start + (index + 1) * WORD)}`;
     const initCode = decodeDynamicBytes(fullHex, tupleByte, get(2), 'initCode'); const callData = decodeDynamicBytes(fullHex, tupleByte, get(3), 'callData'); const paymasterAndData = decodeDynamicBytes(fullHex, tupleByte, get(9), 'paymasterAndData'); const signature = decodeDynamicBytes(fullHex, tupleByte, get(10), 'signature');
-    return { operation: ns.deepFreeze({ sender: ns.decodeAddress(get(0)), nonce: ns.decodeUint256(get(1)), initCode: initCode.value, callData: callData.value, callGasLimit: ns.decodeUint256(get(4)), verificationGasLimit: ns.decodeUint256(get(5)), preVerificationGas: ns.decodeUint256(get(6)), maxFeePerGas: ns.decodeUint256(get(7)), maxPriorityFeePerGas: ns.decodeUint256(get(8)), paymasterAndData: paymasterAndData.value }), endByte: Math.max(tupleByte + 11 * 32, initCode.endByte, callData.endByte, paymasterAndData.endByte, signature.endByte) };
+    return { operation: ns.deepFreeze({ sender: ns.decodeAddress(get(0)), nonce: ns.decodeUint256(get(1)), initCode: initCode.value, callData: callData.value, callGasLimit: ns.decodeUint256(get(4)), verificationGasLimit: ns.decodeUint256(get(5)), preVerificationGas: ns.decodeUint256(get(6)), maxFeePerGas: ns.decodeUint256(get(7)), maxPriorityFeePerGas: ns.decodeUint256(get(8)), paymasterAndData: paymasterAndData.value }), signature: signature.value, endByte: Math.max(tupleByte + 11 * 32, initCode.endByte, callData.endByte, paymasterAndData.endByte, signature.endByte) };
   }
   function decodeHandleOps(input) {
     if (!input.startsWith(ns.SELECTORS.handleOps)) throw new Error('Top-level selector is not handleOps.');
@@ -30,12 +30,22 @@
     const arrayOffset = safeNumber(word(args, 0), 'UserOperation array offset'); if (arrayOffset !== 64) throw new Error('UserOperation array offset is noncanonical.'); const beneficiary = ns.decodeAddress(word(args, 1));
     const lengthWordAt = arrayOffset * 2; const count = safeNumber(`0x${body.slice(lengthWordAt, lengthWordAt + WORD)}`, 'UserOperation count'); if (count > 32) throw new Error('UserOperation count exceeds bound.');
     const offsetBaseByte = arrayOffset + 32; const offsetsStart = offsetBaseByte * 2; if (offsetsStart + count * WORD > body.length) throw new Error('UserOperation offsets are truncated.');
-    const operations = []; let endByte = offsetBaseByte + count * 32; let previous = -1;
+    const operations = []; const signatures = []; let endByte = offsetBaseByte + count * 32; let previous = -1;
     for (let index = 0; index < count; index += 1) {
       const relative = safeNumber(`0x${body.slice(offsetsStart + index * WORD, offsetsStart + (index + 1) * WORD)}`, 'UserOperation tuple offset'); if (relative % 32 !== 0 || relative <= previous) throw new Error('UserOperation tuple offsets are noncanonical.'); previous = relative;
-      const decoded = decodeUserOperationTuple(args, offsetBaseByte + relative); operations.push(decoded.operation); endByte = Math.max(endByte, decoded.endByte);
+      const decoded = decodeUserOperationTuple(args, offsetBaseByte + relative); operations.push(decoded.operation); signatures.push(decoded.signature); endByte = Math.max(endByte, decoded.endByte);
     }
-    if (endByte * 2 !== body.length) throw new Error('handleOps has trailing or overlapping bytes.'); return ns.deepFreeze({ operations, beneficiary });
+    if (endByte * 2 !== body.length) throw new Error('handleOps has trailing or overlapping bytes.'); return ns.deepFreeze({ operations, signatures, beneficiary });
+  }
+
+  function encodeDynamicBytes(value) {
+    const body = strip(value); const length = body.length / 2; return `${ns.uint256Word(length)}${body.padEnd(Math.ceil(length / 32) * 64, '0')}`;
+  }
+  function encodeGetUserOpHashCall(operation, signature) {
+    const dynamics = [operation.initCode, operation.callData, operation.paymasterAndData, signature]; let offset = 11 * 32; const tails = []; const offsets = [];
+    for (const value of dynamics) { const encoded = encodeDynamicBytes(value); offsets.push(offset); tails.push(encoded); offset += encoded.length / 2; }
+    const tuple = `${ns.addressWord(operation.sender)}${ns.uint256Word(operation.nonce)}${ns.uint256Word(offsets[0])}${ns.uint256Word(offsets[1])}${ns.uint256Word(operation.callGasLimit)}${ns.uint256Word(operation.verificationGasLimit)}${ns.uint256Word(operation.preVerificationGas)}${ns.uint256Word(operation.maxFeePerGas)}${ns.uint256Word(operation.maxPriorityFeePerGas)}${ns.uint256Word(offsets[2])}${ns.uint256Word(offsets[3])}${tails.join('')}`;
+    return `${ns.SELECTORS.getUserOpHash}${ns.uint256Word(32)}${tuple}`;
   }
 
   function decodeExecute(callData) {
@@ -85,7 +95,7 @@
   }
   async function wrappedAttribution(transaction, receipt, evidence) {
     if (transaction.chainId !== ns.PINSET.chainIdHex || !sameAddress(transaction.to, ns.PINSET.identities.entryPoint.address) || transaction.value !== '0x0') throw new Error('Wrapped top-level transaction mismatch.'); const decoded = decodeHandleOps(transaction.input); const selected = decoded.operations.filter((operation) => sameAddress(operation.sender, ns.PINSET.identities.sponsor.address)); if (selected.length !== 1 || selected[0].initCode !== '0x') throw new Error('Expected one initialized sponsor UserOperation.'); decodeWalletEnvelope(selected[0].callData);
-    const localHash = ns.hashUserOperationV06(selected[0]); if (evidence.onchainUserOpHashResult !== localHash) throw new Error('Local/onchain userOpHash mismatch.'); decodeUserOperationEvent(receipt, selected[0], localHash); return findTraceAttribution(evidence.trace, selected[0].callData, receipt);
+    const localHash = ns.hashUserOperationV06(selected[0]); if (evidence.onchainUserOpHashResult !== localHash) throw new Error('Local/onchain userOpHash mismatch.'); decodeUserOperationEvent(receipt, selected[0], localHash); if (evidence.trace?.input !== transaction.input || BigInt(evidence.trace?.value || '0x0') !== 0n) throw new Error('Trace root transaction input or value mismatch.'); return findTraceAttribution(evidence.trace, selected[0].callData, receipt);
   }
   async function verifyPostState(post) {
     if (!post || post.accountCode !== ns.EXPECTED_ACCOUNT_RUNTIME || await ns.sha256Hex(post.accountCode) !== ns.EXPECTED_ACCOUNT_RUNTIME_SHA256 || post.accountBalance !== '0x0') return false;
@@ -99,5 +109,5 @@
     catch (error) { if (postValid) return ns.deepFreeze({ classification: 'observed_unattributed', registryLog: null, attributionError: String(error.message).slice(0, 240) }); throw error; }
   }
 
-  Object.defineProperties(ns, Object.fromEntries(Object.entries({ decodeHandleOps, decodeWalletEnvelope, decodeRegistryLog, verifyPostState, verifyReceiptEvidence }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
+  Object.defineProperties(ns, Object.fromEntries(Object.entries({ decodeHandleOps, encodeGetUserOpHashCall, decodeWalletEnvelope, decodeRegistryLog, verifyPostState, verifyReceiptEvidence }).map(([key, value]) => [key, { value, enumerable: true, writable: false, configurable: false }])));
 })();

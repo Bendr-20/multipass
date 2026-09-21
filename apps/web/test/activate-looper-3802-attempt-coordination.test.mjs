@@ -47,3 +47,8 @@ test('unexpired foreign lease blocks takeover even while Web Lock is held', asyn
   const coordinator = ns.createCrossTabCoordinator({ locks: { request: async (_n,_o,cb) => cb({}) }, store, crypto: { randomUUID: () => UUID_C }, now: () => 2000, setInterval: () => 1, clearInterval: () => {} });
   await assert.rejects(coordinator.run('resume', async () => {}), /foreign|another tab|lease/i); assert.equal(store.read().revision, 1);
 });
+
+test('attempt history rejects every unlisted state edge', async () => {
+  const ns = await unit(); const value = storeValue(ns); const invalidAttempt = { ...value.attempts[0], state: 'confirmed_attributed', txHash: `0x${'ab'.repeat(32)}`, receipt: { blockNumber: 1, blockHash: `0x${'cd'.repeat(32)}`, discoveredAtMs: 10, confirmationDeadlineMs: 120010, registryLog: { receiptArrayIndex: 0, logIndex: '0x0', address: ns.PINSET.identities.registry.address.toLowerCase(), topics: [ns.TOPICS.erc6551AccountCreated], data: '0x' } }, history: [...value.attempts[0].history, { from: 'prepared', to: 'confirmed_attributed', atMs: 10, reason: 'receipt_attributed' }] };
+  assert.throws(() => ns.validateStoreV1({ ...value, attempts: [invalidAttempt] }), /legal|history/i);
+});

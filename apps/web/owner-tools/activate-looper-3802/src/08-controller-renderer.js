@@ -99,8 +99,13 @@
           if (!tx || !receipt || JSON.stringify(tx) !== JSON.stringify(drpcTx) || JSON.stringify(receipt) !== JSON.stringify(drpcReceipt) || !publicReceipt || publicReceipt.blockHash !== receipt.blockHash || publicReceipt.transactionHash !== receipt.transactionHash) throw new Error('Complete transaction/receipt quorum is unavailable.');
           const anchor = { number: receipt.blockNumber, hash: receipt.blockHash }; const heads = await transport.anchorCanonicalHead(); if (ns.parseQuantity(heads.number) < ns.parseQuantity(receipt.blockNumber) + 2n) throw new Error('Waiting for three canonical confirmations.');
           const postEvidence = await transport.stateBatch(anchor, ns.POST_STATE_PLAN.map(({ request }) => request)); const postState = await ns.validatePostState(postEvidence);
-          let trace = null; if (tx.to?.toLowerCase() === ns.PINSET.identities.entryPoint.address.toLowerCase()) trace = (await transport.request('https://base.drpc.org', { kind: 'trace', hash: attempt.txHash })).result;
-          const verified = await ns.verifyReceiptEvidence({ requestedHash: attempt.txHash, transaction: tx, receipt, postState, trace, onchainUserOpHashResult: null }); const at = now();
+          let trace = null; let onchainUserOpHashResult = null;
+          if (tx.to?.toLowerCase() === ns.PINSET.identities.entryPoint.address.toLowerCase()) {
+            const decoded = ns.decodeHandleOps(tx.input); const index = decoded.operations.findIndex((operation) => operation.sender.toLowerCase() === ns.PINSET.identities.sponsor.address.toLowerCase()); if (index < 0) throw new Error('Wrapped receipt has no selected sponsor operation.');
+            const hashCall = ns.encodeGetUserOpHashCall(decoded.operations[index], decoded.signatures[index]); const hashEvidence = await transport.stateBatch(anchor, [{ kind: 'call', transaction: { to: ns.PINSET.identities.entryPoint.address, data: hashCall } }]); onchainUserOpHashResult = hashEvidence.items[0].result;
+            trace = (await transport.request('https://base.drpc.org', { kind: 'trace', hash: attempt.txHash })).result;
+          }
+          const verified = await ns.verifyReceiptEvidence({ requestedHash: attempt.txHash, transaction: tx, receipt, postState, trace, onchainUserOpHashResult }); const at = now();
           const persistedReceipt = { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, discoveredAtMs: at, confirmationDeadlineMs: at + 120000, registryLog: verified.registryLog || null };
           const observation = verified.classification === 'observed_unattributed' ? { blockNumber: Number(ns.parseQuantity(receipt.blockNumber)), blockHash: receipt.blockHash, observedAtMs: at } : null;
           const reason = verified.classification === 'confirmed_attributed' ? 'receipt_attributed' : verified.classification === 'observed_unattributed' ? 'state_observed_unattributed' : 'receipt_reverted';

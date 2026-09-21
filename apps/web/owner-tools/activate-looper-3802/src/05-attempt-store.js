@@ -77,19 +77,34 @@
     for (const key of PREFLIGHT_KEYS.slice(6)) bytes(value[key], `preflight.${key}`);
     if (value.accountCode !== '0x' || value.accountBalance !== '0x0') throw new Error('Prepared preflight account was not undeployed and zero balance.');
   }
-  function validateHistory(value, state) {
+  function legalEdge(from, to, reason, retryOrdinal) {
+    if (from === null) return to === 'prepared' && reason === 'activate';
+    if (from === 'prepared' && to === 'submitted' && reason === 'provider_hash') return true;
+    if (from === 'prepared' && to === 'retry_cancelled' && reason === 'provider_rejected_retry') return retryOrdinal === 1;
+    if (from === 'prepared' && to === 'uncertain_hashless' && ['provider_ambiguous','reload_prepared'].includes(reason)) return true;
+    if (['submitted','uncertain_hashed'].includes(from) && to === 'confirmed_attributed' && reason === 'receipt_attributed') return true;
+    if (['submitted','uncertain_hashed','uncertain_hashless'].includes(from) && to === 'observed_unattributed' && reason === 'state_observed_unattributed') return true;
+    if (['submitted','uncertain_hashed'].includes(from) && to === 'reverted' && reason === 'receipt_reverted') return true;
+    if (from === 'submitted' && to === 'uncertain_hashed' && ['receipt_timeout','confirmation_timeout','canonicality_lost','evidence_incomplete'].includes(reason)) return true;
+    if (from === 'uncertain_hashless' && to === 'superseded' && reason === 'retry_superseded') return retryOrdinal === 0;
+    if (['confirmed_attributed','reverted'].includes(from) && to === 'uncertain_hashed' && ['canonicality_lost','evidence_incomplete'].includes(reason)) return true;
+    if (from === 'observed_unattributed' && ['uncertain_hashed','uncertain_hashless'].includes(to) && ['canonicality_lost','evidence_incomplete'].includes(reason)) return true;
+    if (retryOrdinal === 1 && ['reverted','retry_cancelled'].includes(from) && to === 'observed_unattributed' && reason === 'late_original_observed') return true;
+    return false;
+  }
+  function validateHistory(value, state, retryOrdinal) {
     if (!Array.isArray(value) || value.length < 1 || value.length > 20) throw new Error('history length is invalid.');
     let previous = null;
     value.forEach((item, index) => {
-      exactKeys(item, HISTORY_KEYS, `history[${index}]`); if (item.from !== previous || (item.from !== null && !STATES.includes(item.from)) || !STATES.includes(item.to) || !REASONS.includes(item.reason)) throw new Error('history is not contiguous or closed.'); integer(item.atMs, 'history.atMs'); previous = item.to;
+      exactKeys(item, HISTORY_KEYS, `history[${index}]`); if (item.from !== previous || (item.from !== null && !STATES.includes(item.from)) || !STATES.includes(item.to) || !REASONS.includes(item.reason) || !legalEdge(item.from, item.to, item.reason, retryOrdinal)) throw new Error('history is not contiguous or legal.'); integer(item.atMs, 'history.atMs'); previous = item.to;
     });
-    if (value[0].from !== null || value[0].to !== 'prepared' || value[0].reason !== 'activate' || previous !== state) throw new Error('history does not match state.');
+    if (previous !== state) throw new Error('history does not match state.');
   }
   function validateAttempt(value) {
     exactKeys(value, ATTEMPT_KEYS, 'attempt'); uuid(value.id, 'attempt.id'); if (value.retryOrdinal !== 0 && value.retryOrdinal !== 1) throw new Error('Invalid retry ordinal.'); if (!STATES.includes(value.state)) throw new Error('Invalid state.');
     integer(value.createdAtMs, 'createdAtMs'); integer(value.updatedAtMs, 'updatedAtMs'); integer(value.waitUntilMs, 'waitUntilMs'); integer(value.walletGeneration, 'walletGeneration'); if (value.updatedAtMs < value.createdAtMs || value.waitUntilMs !== value.createdAtMs + 600000) throw new Error('Invalid attempt timing.');
     if (value.acknowledgedAtMs !== null) integer(value.acknowledgedAtMs, 'acknowledgedAtMs'); nullableUuid(value.supersedesId, 'supersedesId'); nullableUuid(value.supersededById, 'supersededById'); nullableHash(value.txHash, 'txHash'); validateReceipt(value.receipt); validateObservation(value.observation);
-    exactFixedObject(value.pinset, expectedPinset(), 'pinset'); exactFixedObject(value.transaction, expectedTransaction(), 'transaction'); validatePreflight(value.preflight); validateHistory(value.history, value.state);
+    exactFixedObject(value.pinset, expectedPinset(), 'pinset'); exactFixedObject(value.transaction, expectedTransaction(), 'transaction'); validatePreflight(value.preflight); validateHistory(value.history, value.state, value.retryOrdinal);
     if (value.state === 'prepared' && (value.txHash !== null || value.receipt !== null || value.observation !== null)) throw new Error('Prepared evidence mismatch.');
     if (['submitted','uncertain_hashed','confirmed_attributed','reverted'].includes(value.state) && value.txHash === null) throw new Error('Hashed state requires txHash.');
     if (value.state === 'confirmed_attributed' && (!value.receipt?.registryLog || value.observation !== null)) throw new Error('Attributed state requires registry log only.');

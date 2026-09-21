@@ -61,3 +61,12 @@ test('wallet envelope accepts only one zero-value exact registry activation call
   assert.throws(() => ns.decodeWalletEnvelope(wrongTarget), /outside|pinned/i);
   assert.throws(() => ns.decodeWalletEnvelope(`${exact}00`), /trailing/i);
 });
+
+test('encodes the selected v0.6 tuple for the exact onchain getUserOpHash call', async () => {
+  const ns = await unit();
+  const operation = { sender: ns.PINSET.identities.sponsor.address, nonce: 9n, initCode: '0x1234', callData: '0xabcd', callGasLimit: 100n, verificationGasLimit: 200n, preVerificationGas: 300n, maxFeePerGas: 400n, maxPriorityFeePerGas: 500n, paymasterAndData: '0xcafe' };
+  const signature = '0xdeadbeef';
+  const abi = [{ type: 'function', name: 'getUserOpHash', stateMutability: 'view', inputs: [{ name: 'userOp', type: 'tuple', components: [{name:'sender',type:'address'},{name:'nonce',type:'uint256'},{name:'initCode',type:'bytes'},{name:'callData',type:'bytes'},{name:'callGasLimit',type:'uint256'},{name:'verificationGasLimit',type:'uint256'},{name:'preVerificationGas',type:'uint256'},{name:'maxFeePerGas',type:'uint256'},{name:'maxPriorityFeePerGas',type:'uint256'},{name:'paymasterAndData',type:'bytes'},{name:'signature',type:'bytes'}]}], outputs: [{type:'bytes32'}] }];
+  const oracle = encodeFunctionData({ abi, functionName: 'getUserOpHash', args: [{ ...operation, signature }] });
+  assert.equal(ns.encodeGetUserOpHashCall(operation, signature), oracle);
+});
