@@ -1,9 +1,15 @@
-function deepFreeze(value) {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) deepFreeze(child);
-    Object.freeze(value);
+function deepFreeze(value, seen = new WeakSet()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return value;
+  const expectedPrototype = Array.isArray(value) ? Array.prototype : Object.prototype;
+  if (Object.getPrototypeOf(value) !== expectedPrototype) throw new TypeError('Manifest values must use intrinsic prototypes.');
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    if (Array.isArray(value) && key === 'length') continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new TypeError('Manifest values must use own data properties.');
+    deepFreeze(descriptor.value, seen);
   }
-  return value;
+  return Object.freeze(value);
 }
 
 const manifest = {
@@ -133,5 +139,7 @@ const manifest = {
     openSea: 'https://opensea.io/assets/base/0x1649CD37f4748807b4882FC48765bA0B2aFfa94a/3802',
   },
 };
+
+export const MANIFEST_LOCK = '0x211f061bef8a939ab3c538bff693fc02576dec477ef244a78e7a8b35bf39458c';
 
 export default deepFreeze(manifest);

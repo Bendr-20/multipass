@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,9 +14,22 @@ const codecsPath = path.join(webRoot, 'public-profiles/loopers/src/01-manifest-c
 
 const manifestModule = await import(pathToFileURL(manifestPath));
 const manifest = manifestModule.default;
+const manifestLock = manifestModule.MANIFEST_LOCK;
+
+function sha256Oracle(hex) {
+  return `0x${createHash('sha256').update(Buffer.from(hex.slice(2), 'hex')).digest('hex')}`;
+}
+
+function utf8Hex(value) {
+  return `0x${Buffer.from(value, 'utf8').toString('hex')}`;
+}
+
+function patternedHex(length) {
+  return `0x${Buffer.from(Array.from({ length }, (_, index) => (index * 131 + 17) & 0xff)).toString('hex')}`;
+}
 
 async function loadBrowserUnits() {
-  const context = vm.createContext({ TextDecoder, Uint8Array });
+  const context = vm.createContext({ TextDecoder, TextEncoder, Uint8Array });
   const [namespaceSource, codecsSource] = await Promise.all([
     readFile(namespacePath, 'utf8'),
     readFile(codecsPath, 'utf8'),
@@ -58,10 +72,13 @@ function setAt(root, keys, value) {
   parent[keys.at(-1)] = value;
 }
 
-test('exports exactly one recursively frozen plain Looper 3802 manifest', () => {
-  assert.deepEqual(Object.keys(manifestModule), ['default']);
+test('exports one recursively frozen plain Looper 3802 manifest and its profile-owned canonical lock', () => {
+  assert.deepEqual(Object.keys(manifestModule), ['MANIFEST_LOCK', 'default']);
   assert.equal(Object.getPrototypeOf(manifest), Object.prototype);
   assertRecursivelyFrozen(manifest);
+  const canonicalHex = utf8Hex(JSON.stringify(manifest));
+  assert.equal(manifestLock, sha256Oracle(canonicalHex));
+  assert.match(manifestLock, /^0x[0-9a-f]{64}$/u);
 });
 
 test('pins the exact Looper 3802 identity, ERC-6551 runtime, contracts, and ERC-8004 identity', async () => {
@@ -167,40 +184,52 @@ test('pins the exact public content, final artwork, Blockscout, explorer, and Op
 test('validates only the exact manifest and returns a recursively frozen normalized clone', async () => {
   const { unit } = await loadBrowserUnits();
   const candidate = clone(manifest);
-  const validated = unit.validateManifest(candidate);
+  assert.throws(() => unit.validateManifest(candidate), /lock/iu);
+  const validated = unit.validateManifest(candidate, manifestLock);
   assert.deepEqual(clone(validated), candidate);
   assert.notEqual(validated, candidate);
   assertRecursivelyFrozen(validated);
 
   const extraTop = clone(manifest);
   extraTop.unexpected = true;
-  assert.throws(() => unit.validateManifest(extraTop), /unknown|keys|exact/iu);
+  assert.throws(() => unit.validateManifest(extraTop, manifestLock), /unknown|keys|exact/iu);
 
   const extraNested = clone(manifest);
   extraNested.activation.event.unexpected = true;
-  assert.throws(() => unit.validateManifest(extraNested), /unknown|keys|exact/iu);
+  assert.throws(() => unit.validateManifest(extraNested, manifestLock), /unknown|keys|exact/iu);
 
   const hiddenExtra = clone(manifest);
   Object.defineProperty(hiddenExtra, 'hidden', { value: true });
-  assert.throws(() => unit.validateManifest(hiddenExtra), /unknown|keys|exact/iu);
+  assert.throws(() => unit.validateManifest(hiddenExtra, manifestLock), /unknown|keys|exact/iu);
 
   const symbolExtra = clone(manifest);
   symbolExtra[Symbol('unexpected')] = true;
-  assert.throws(() => unit.validateManifest(symbolExtra), /unknown|keys|exact/iu);
+  assert.throws(() => unit.validateManifest(symbolExtra, manifestLock), /unknown|keys|exact/iu);
 
   const missing = clone(manifest);
   delete missing.contracts.adapter8004Proxy.runtimeSha256;
-  assert.throws(() => unit.validateManifest(missing), /missing|keys|exact/iu);
+  assert.throws(() => unit.validateManifest(missing, manifestLock), /missing|keys|exact/iu);
 
   for (const keys of leafPaths(manifest)) {
     const changed = clone(manifest);
     setAt(changed, keys, mutateLeaf(valueAt(changed, keys)));
     assert.throws(
-      () => unit.validateManifest(changed),
+      () => unit.validateManifest(changed, manifestLock),
       undefined,
       `accepted drift at ${keys.join('.')}`,
     );
   }
+});
+
+test('keeps exact profile drift rejection in the profile-owned lock instead of codec literals', async () => {
+  const { codecsSource, unit } = await loadBrowserUnits();
+  const changedProfile = clone(manifest);
+  changedProfile.content.voice = 'compact future-profile voice';
+  const changedLock = sha256Oracle(utf8Hex(JSON.stringify(changedProfile)));
+
+  assert.throws(() => unit.validateManifest(changedProfile, manifestLock), /lock|digest|exact/iu);
+  assert.doesNotThrow(() => unit.validateManifest(changedProfile, changedLock));
+  assert.doesNotMatch(codecsSource, /88a30C57|26408e5614af|90994|f711d4661ab1/iu);
 });
 
 test('rejects sparse arrays, extra own keys, symbols, and accessor-backed array values', async () => {
@@ -220,10 +249,69 @@ test('rejects sparse arrays, extra own keys, symbols, and accessor-backed array 
   for (const mutate of malformedTopics) {
     const candidate = clone(manifest);
     mutate(candidate.activation.event.topics);
-    assert.throws(() => unit.validateManifest(candidate), /array|keys|plain data|exact/iu);
+    assert.throws(() => unit.validateManifest(candidate, manifestLock), /array|keys|plain data|exact/iu);
   }
 
-  assert.doesNotThrow(() => unit.validateManifest(manifest));
+  assert.doesNotThrow(() => unit.validateManifest(manifest, manifestLock));
+});
+
+test('rejects custom prototypes and object accessors without invoking getters', async () => {
+  const { codecsSource, unit } = await loadBrowserUnits();
+  let getterTrips = 0;
+
+  const accessorField = clone(manifest);
+  Object.defineProperty(accessorField, 'chainId', {
+    enumerable: true,
+    get() { getterTrips += 1; return manifest.chainId; },
+  });
+  assert.throws(() => unit.validateManifest(accessorField, manifestLock), /plain data|accessor/iu);
+  assert.equal(getterTrips, 0);
+
+  const extraAccessor = clone(manifest);
+  Object.defineProperty(extraAccessor, 'unexpected', {
+    enumerable: true,
+    get() { getterTrips += 1; return true; },
+  });
+  assert.throws(() => unit.validateManifest(extraAccessor, manifestLock), /keys|exact/iu);
+  assert.equal(getterTrips, 0);
+
+  const inherited = clone(manifest);
+  const inheritedPrototype = {};
+  Object.defineProperty(inheritedPrototype, 'unexpected', {
+    get() { getterTrips += 1; return true; },
+  });
+  Object.setPrototypeOf(inherited, inheritedPrototype);
+  assert.throws(() => unit.validateManifest(inherited, manifestLock), /prototype|plain object/iu);
+  assert.equal(getterTrips, 0);
+
+  const nullPrototype = clone(manifest);
+  Object.setPrototypeOf(nullPrototype, null);
+  assert.throws(() => unit.validateManifest(nullPrototype, manifestLock), /prototype|plain object/iu);
+
+  const tagged = clone(manifest);
+  Object.defineProperty(tagged, Symbol.toStringTag, {
+    get() { getterTrips += 1; return 'Object'; },
+  });
+  assert.throws(() => unit.validateManifest(tagged, manifestLock), /keys|prototype|plain object/iu);
+  assert.equal(getterTrips, 0);
+
+  const customArray = clone(manifest);
+  Object.setPrototypeOf(customArray.activation.event.topics, Object.create(Array.prototype));
+  assert.throws(() => unit.validateManifest(customArray, manifestLock), /prototype|array/iu);
+
+  const freezeAccessor = {};
+  Object.defineProperty(freezeAccessor, 'secret', {
+    enumerable: true,
+    get() { getterTrips += 1; return 'never'; },
+  });
+  assert.throws(() => unit.deepFreeze(freezeAccessor), /plain data|accessor/iu);
+  assert.equal(getterTrips, 0);
+
+  const manifestSource = await readFile(manifestPath, 'utf8');
+  for (const source of [manifestSource, codecsSource]) {
+    assert.doesNotMatch(source, /Object\.values/u);
+    assert.doesNotMatch(source, /Object\.prototype\.toString\.call/u);
+  }
 });
 
 test('rejects malformed and noncanonical manifest data before accepting any pin', async () => {
@@ -245,7 +333,7 @@ test('rejects malformed and noncanonical manifest data before accepting any pin'
   for (const [label, keys, value] of cases) {
     const candidate = clone(manifest);
     setAt(candidate, keys, value);
-    assert.throws(() => unit.validateManifest(candidate), undefined, label);
+    assert.throws(() => unit.validateManifest(candidate, manifestLock), undefined, label);
   }
 });
 
@@ -265,6 +353,24 @@ test('exposes strict pure hex, address, uint256, and SHA-256 helpers', async () 
   assert.throws(() => unit.uint256Word(Number.MAX_SAFE_INTEGER + 1), /safe|integer/iu);
   assert.throws(() => unit.uint256Word(-1), /integer|uint256/iu);
   assert.equal(await unit.sha256Hex(manifest.erc6551.runtime), manifest.erc6551.runtimeSha256);
+});
+
+test('matches independent Node SHA-256 oracles across NIST and padding-boundary vectors', async () => {
+  const { unit } = await loadBrowserUnits();
+  const nist = [
+    ['0x', '0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
+    [utf8Hex('abc'), '0xba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
+    [utf8Hex('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq'), '0x248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1'],
+  ];
+  for (const [hex, expected] of nist) {
+    assert.equal(sha256Oracle(hex), expected);
+    assert.equal(await unit.sha256Hex(hex), expected);
+  }
+
+  for (const length of [55, 56, 63, 64, 65, 130, 163, 173, 177, 571, 685, 12732, 14474, 23210]) {
+    const hex = patternedHex(length);
+    assert.equal(await unit.sha256Hex(hex), sha256Oracle(hex), `SHA-256 mismatch at ${length} bytes`);
+  }
 });
 
 test('classic units expose one fail-fast namespace boundary and no browser side effects', async () => {

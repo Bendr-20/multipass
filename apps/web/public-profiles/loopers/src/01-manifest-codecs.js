@@ -5,15 +5,60 @@
   if (!ns || Object.getPrototypeOf(ns) !== null) throw new Error('LooperMultipassProfile namespace is not registered.');
 
   const HEX_BYTES = /^0x(?:[0-9a-f]{2})*$/u;
+  const HASH = /^0x[0-9a-f]{64}$/u;
   const ADDRESS = /^0x[0-9a-fA-F]{40}$/u;
   const QUANTITY = /^(?:0x0|0x[1-9a-f][0-9a-f]*)$/u;
   const DECIMAL = /^(?:0|[1-9][0-9]*)$/u;
+  const HTTPS_URL = /^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[1-9][0-9]*)?\/[^\s\\#]*$/u;
   const UINT256_MAX = (1n << 256n) - 1n;
+
+  function sameOwnKeys(left, right) {
+    const leftKeys = Reflect.ownKeys(left);
+    const rightKeys = Reflect.ownKeys(right);
+    return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]);
+  }
+
+  function intrinsicConstructorName(prototype, name) {
+    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'constructor');
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') return false;
+    const nameDescriptor = Object.getOwnPropertyDescriptor(descriptor.value, 'name');
+    return Boolean(nameDescriptor && Object.hasOwn(nameDescriptor, 'value') && nameDescriptor.value === name);
+  }
+
+  function isIntrinsicObjectPrototype(prototype) {
+    return Boolean(
+      prototype
+      && Object.getPrototypeOf(prototype) === null
+      && sameOwnKeys(prototype, Object.prototype)
+      && intrinsicConstructorName(prototype, 'Object')
+    );
+  }
+
+  function isPlainObject(value) {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value) && isIntrinsicObjectPrototype(Object.getPrototypeOf(value)));
+  }
+
+  function isPlainArray(value) {
+    if (!Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return Boolean(
+      prototype
+      && isIntrinsicObjectPrototype(Object.getPrototypeOf(prototype))
+      && sameOwnKeys(prototype, Array.prototype)
+      && intrinsicConstructorName(prototype, 'Array')
+    );
+  }
 
   function deepFreeze(value, seen = new WeakSet()) {
     if (!value || typeof value !== 'object' || seen.has(value)) return value;
+    if (!isPlainObject(value) && !isPlainArray(value)) throw new TypeError('Deep-freeze values must use intrinsic prototypes.');
     seen.add(value);
-    for (const child of Object.values(value)) deepFreeze(child, seen);
+    for (const key of Reflect.ownKeys(value)) {
+      if (Array.isArray(value) && key === 'length') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new TypeError('Deep-freeze values must use own plain data properties.');
+      deepFreeze(descriptor.value, seen);
+    }
     return Object.freeze(value);
   }
 
@@ -71,8 +116,7 @@
   ]);
   const rotateRight32 = (value, amount) => (value >>> amount) | (value << (32 - amount));
 
-  async function sha256Hex(value) {
-    const input = hexToBytes(value);
+  function sha256Bytes(input) {
     const bitLength = BigInt(input.length) * 8n;
     const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
     const padded = new Uint8Array(paddedLength);
@@ -111,223 +155,161 @@
     return '0x' + hash.map((word) => word.toString(16).padStart(8, '0')).join('');
   }
 
-  const EXPECTED = deepFreeze({
-  "chainId": 8453,
-  "chainLabel": "Base",
-  "tokenId": "3802",
-  "account": "0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38",
-  "holderAtActivation": "0x17d7DfA154dc0828AdE4115B9EB8a0A91C0fbDe4",
-  "profilePath": "/multipass/loopers/3802",
-  "erc6551": {
-    "registry": "0x000000006551c19487814612e58FE06813775758",
-    "implementation": "0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF",
-    "salt": "0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee",
-    "runtimeBytes": 173,
-    "runtime": "0x363d3d373d3d3d363d731e3787bc9b2e6d7763de1dccf10e9d062f3b43bf5af43d82803e903d91602b57fd5bf3ff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee00000000000000000000000000000000000000000000000000000000000021050000000000000000000000001649cd37f4748807b4882fc48765ba0b2affa94a0000000000000000000000000000000000000000000000000000000000000eda",
-    "runtimeSha256": "0xf711d4661ab10b810b9409543a1e219774af23f67f8f7f0a3db6d6545d4f3b8a"
-  },
-  "contracts": {
-    "loopersProxy": {
-      "address": "0x1649CD37f4748807b4882FC48765bA0B2aFfa94a",
-      "runtimeBytes": 177,
-      "runtimeSha256": "0x6ea05616ee3e471f1a4890f75aebac2410a44a0beb0110821f74e6a977e59662",
-      "implementationSlot": "0x00000000000000000000000068f22e3563891167d37c86391c4a83449c83e908"
-    },
-    "loopersImplementation": {
-      "address": "0x68F22e3563891167D37C86391c4a83449c83e908",
-      "runtimeBytes": 23210,
-      "runtimeSha256": "0x46c2bf5bca689ba1994f06a6b85971e68392e2fc458a1ed09ff20022399644ec",
-      "implementationSlot": null
-    },
-    "erc6551Registry": {
-      "address": "0x000000006551c19487814612e58FE06813775758",
-      "runtimeBytes": 571,
-      "runtimeSha256": "0xd7df998352f46d061e9e27c6a17d5108d7439482cb136c45e0f0733c7bd3da56",
-      "implementationSlot": null
-    },
-    "erc6551Implementation": {
-      "address": "0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF",
-      "runtimeBytes": 685,
-      "runtimeSha256": "0x7994cd119e7aaecf6b8d467e9152cfd0659753fa4919de19be4ff83116d92ee5",
-      "implementationSlot": null
-    },
-    "adapter8004Proxy": {
-      "address": "0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27",
-      "runtimeBytes": 163,
-      "runtimeSha256": "0xa0dc663d4134b47e77e38495310804146fac6b5ae1bc86b485be4f73314cb017",
-      "implementationSlot": "0x0000000000000000000000000f81bd4edd4879734361a1a44460264cbf6f94c9"
-    },
-    "adapter8004Implementation": {
-      "address": "0x0f81bd4EDD4879734361A1A44460264CBf6F94c9",
-      "runtimeBytes": 12732,
-      "runtimeSha256": "0x550ba6b2ab513da8e16b5b23c476c4a9f6ea87b897ba721ddae58410baf094be",
-      "implementationSlot": null
-    },
-    "identityRegistryProxy": {
-      "address": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-      "runtimeBytes": 130,
-      "runtimeSha256": "0xe3b1c1b4c04b34f90557a867aaef6bf2d57c5674e7a9f24994ae498ffd0f6f85",
-      "implementationSlot": "0x0000000000000000000000007274e874ca62410a93bd8bf61c69d8045e399c02"
-    },
-    "identityRegistryImplementation": {
-      "address": "0x7274e874CA62410a93Bd8bf61c69d8045E399c02",
-      "runtimeBytes": 14474,
-      "runtimeSha256": "0x201b7634af2de088c58868052856922ea8534c47e2837f19529460e2fafb4ff1",
-      "implementationSlot": null
-    }
-  },
-  "erc8004": {
-    "identityId": "90994",
-    "identityUri": "https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json",
-    "adapter": "0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27",
-    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
-  },
-  "activation": {
-    "transactionHash": "0x26408e5614af4d5fa507f29a1c4b7f4cc9fdca46057a37870acf9be06a00587c",
-    "blockNumber": "0x3132ee6",
-    "blockHash": "0xd8f0a523075a77026a68e096354ec3165d8605fc6c62b4b84de84c93c78f43f1",
-    "transactionIndex": "0x56",
-    "receiptStatus": "0x1",
-    "event": {
-      "address": "0x000000006551c19487814612e58FE06813775758",
-      "logIndex": "0x106",
-      "transactionHash": "0x26408e5614af4d5fa507f29a1c4b7f4cc9fdca46057a37870acf9be06a00587c",
-      "blockNumber": "0x3132ee6",
-      "blockHash": "0xd8f0a523075a77026a68e096354ec3165d8605fc6c62b4b84de84c93c78f43f1",
-      "transactionIndex": "0x56",
-      "topic0": "0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722",
-      "topics": [
-        "0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722",
-        "0x0000000000000000000000001e3787bc9b2e6d7763de1dccf10e9d062f3b43bf",
-        "0x0000000000000000000000001649cd37f4748807b4882fc48765ba0b2affa94a",
-        "0x0000000000000000000000000000000000000000000000000000000000000eda"
-      ],
-      "data": "0x00000000000000000000000088a30c57f5780f1a8112e6b486b5bfbe89ac9a38ff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee0000000000000000000000000000000000000000000000000000000000002105",
-      "removed": false,
-      "decoded": {
-        "account": "0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38",
-        "implementation": "0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF",
-        "salt": "0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee",
-        "chainId": 8453,
-        "tokenContract": "0x1649CD37f4748807b4882FC48765bA0B2aFfa94a",
-        "tokenId": "3802"
-      }
-    }
-  },
-  "content": {
-    "name": "Looper #3802",
-    "collection": "Loopers",
-    "tagline": "A Looper with its own onchain account",
-    "seoTitle": "Looper #3802 Multipass | Helixa",
-    "seoDescription": "Public onchain wallet and identity profile for Looper #3802",
-    "artworkUrl": "https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net/3ZwkzgHeRr0Chw14FzKmwZf54fyHi6d0KVOZQprgq50",
-    "metadataUri": "https://arweave.net/wC0L6LR_IGsS_SgAQFrSbnzsjVgAbOlwZcV_lbrp_v8/3802.json",
-    "agentClass": "Mercenary / Fixer",
-    "secondaryClass": "Trader / Broker",
-    "specialization": "dealflow operator",
-    "voice": "slow verdicts, heavy pauses, no panic"
-  },
-  "urls": {
-    "canonicalProfile": "https://helixa.xyz/multipass/loopers/3802",
-    "blockscoutAccount": "https://base.blockscout.com/address/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38",
-    "blockscoutErc20Holdings": "https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens?type=ERC-20",
-    "blockscoutNftHoldings": "https://base.blockscout.com/api/v2/addresses/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38/tokens?type=ERC-721%2CERC-1155",
-    "baseScanAccount": "https://basescan.org/address/0x88a30C57f5780F1a8112E6b486b5bFBe89Ac9a38",
-    "baseScanActivation": "https://basescan.org/tx/0x26408e5614af4d5fa507f29a1c4b7f4cc9fdca46057a37870acf9be06a00587c",
-    "baseScanToken": "https://basescan.org/token/0x1649CD37f4748807b4882FC48765bA0B2aFfa94a?a=3802",
-    "openSea": "https://opensea.io/assets/base/0x1649CD37f4748807b4882FC48765bA0B2aFfa94a/3802"
-  }
-});
-  const ADDRESS_PATHS = new Set([
-    'account', 'holderAtActivation', 'erc6551.registry', 'erc6551.implementation',
-    'contracts.loopersProxy.address', 'contracts.loopersImplementation.address',
-    'contracts.erc6551Registry.address', 'contracts.erc6551Implementation.address',
-    'contracts.adapter8004Proxy.address', 'contracts.adapter8004Implementation.address',
-    'contracts.identityRegistryProxy.address', 'contracts.identityRegistryImplementation.address',
-    'erc8004.adapter', 'erc8004.identityRegistry', 'activation.event.address',
-    'activation.event.decoded.account', 'activation.event.decoded.implementation',
-    'activation.event.decoded.tokenContract',
-  ]);
-  const QUANTITY_PATHS = new Set([
-    'activation.blockNumber', 'activation.transactionIndex',
-    'activation.receiptStatus', 'activation.event.logIndex',
-    'activation.event.blockNumber', 'activation.event.transactionIndex',
-  ]);
-  const DECIMAL_PATHS = new Set(['tokenId', 'erc8004.identityId', 'activation.event.decoded.tokenId']);
-
-  function assertCanonicalLeaf(candidate, expectedValue, path) {
-    const label = path.join('.');
-    if (typeof candidate !== typeof expectedValue) throw new TypeError(label + ' has the wrong type.');
-    if (typeof candidate === 'number' && !Number.isSafeInteger(candidate)) throw new TypeError(label + ' must be a safe integer.');
-    if (typeof candidate !== 'string') return;
-    if (ADDRESS_PATHS.has(label)) {
-      if (!ADDRESS.test(candidate)) throw new TypeError(label + ' must be a 20-byte address.');
-      return;
-    }
-    if (QUANTITY_PATHS.has(label)) {
-      if (!QUANTITY.test(candidate)) throw new TypeError(label + ' must be a canonical lowercase quantity.');
-      return;
-    }
-    if (DECIMAL_PATHS.has(label)) {
-      if (!DECIMAL.test(candidate)) throw new TypeError(label + ' must be a canonical decimal integer.');
-      return;
-    }
-    if (label === 'profilePath') {
-      if (!/^\/multipass\/loopers\/[1-9][0-9]*$/u.test(candidate)) throw new TypeError('profilePath must be canonical.');
-      return;
-    }
-    if (expectedValue.startsWith('https://')) {
-      if (!/^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[1-9][0-9]*)?\/[^\s\\#]*$/u.test(candidate) || candidate.includes('@')) {
-        throw new TypeError(label + ' must be a canonical HTTPS URL.');
-      }
-      return;
-    }
-    if (expectedValue.startsWith('0x') && !HEX_BYTES.test(candidate)) {
-      throw new TypeError(label + ' must be lowercase even-length bytes.');
-    }
+  async function sha256Hex(value) {
+    return sha256Bytes(hexToBytes(value));
   }
 
-  function normalizeExact(candidate, expectedValue, path = [], ancestors = new WeakSet()) {
-    if (!expectedValue || typeof expectedValue !== 'object') {
-      assertCanonicalLeaf(candidate, expectedValue, path);
-      if (candidate !== expectedValue) throw new TypeError(path.join('.') + ' differs from the exact Looper 3802 pin.');
+  const CODE_PIN_SCHEMA = deepFreeze({
+    address: 'address',
+    runtimeBytes: 'positiveSafeInteger',
+    runtimeSha256: 'hash',
+    implementationSlot: 'nullableHash',
+  });
+  const MANIFEST_SCHEMA = deepFreeze({
+    chainId: 'positiveSafeInteger',
+    chainLabel: 'string',
+    tokenId: 'decimal',
+    account: 'address',
+    holderAtActivation: 'address',
+    profilePath: 'profilePath',
+    erc6551: {
+      registry: 'address',
+      implementation: 'address',
+      salt: 'hash',
+      runtimeBytes: 'positiveSafeInteger',
+      runtime: 'bytes',
+      runtimeSha256: 'hash',
+    },
+    contracts: {
+      loopersProxy: CODE_PIN_SCHEMA,
+      loopersImplementation: CODE_PIN_SCHEMA,
+      erc6551Registry: CODE_PIN_SCHEMA,
+      erc6551Implementation: CODE_PIN_SCHEMA,
+      adapter8004Proxy: CODE_PIN_SCHEMA,
+      adapter8004Implementation: CODE_PIN_SCHEMA,
+      identityRegistryProxy: CODE_PIN_SCHEMA,
+      identityRegistryImplementation: CODE_PIN_SCHEMA,
+    },
+    erc8004: {
+      identityId: 'decimal',
+      identityUri: 'httpsUrl',
+      adapter: 'address',
+      identityRegistry: 'address',
+    },
+    activation: {
+      transactionHash: 'hash',
+      blockNumber: 'quantity',
+      blockHash: 'hash',
+      transactionIndex: 'quantity',
+      receiptStatus: 'quantity',
+      event: {
+        address: 'address',
+        logIndex: 'quantity',
+        transactionHash: 'hash',
+        blockNumber: 'quantity',
+        blockHash: 'hash',
+        transactionIndex: 'quantity',
+        topic0: 'hash',
+        topics: ['hash', 'hash', 'hash', 'hash'],
+        data: 'bytes',
+        removed: 'boolean',
+        decoded: {
+          account: 'address',
+          implementation: 'address',
+          salt: 'hash',
+          chainId: 'positiveSafeInteger',
+          tokenContract: 'address',
+          tokenId: 'decimal',
+        },
+      },
+    },
+    content: {
+      name: 'string',
+      collection: 'string',
+      tagline: 'string',
+      seoTitle: 'string',
+      seoDescription: 'string',
+      artworkUrl: 'httpsUrl',
+      metadataUri: 'httpsUrl',
+      agentClass: 'string',
+      secondaryClass: 'string',
+      specialization: 'string',
+      voice: 'string',
+    },
+    urls: {
+      canonicalProfile: 'httpsUrl',
+      blockscoutAccount: 'httpsUrl',
+      blockscoutErc20Holdings: 'httpsUrl',
+      blockscoutNftHoldings: 'httpsUrl',
+      baseScanAccount: 'httpsUrl',
+      baseScanActivation: 'httpsUrl',
+      baseScanToken: 'httpsUrl',
+      openSea: 'httpsUrl',
+    },
+  });
+
+  function validateLeaf(value, type, label) {
+    if (type === 'boolean') {
+      if (typeof value !== 'boolean') throw new TypeError(label + ' must be a boolean.');
+      return;
+    }
+    if (type === 'positiveSafeInteger') {
+      if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(label + ' must be a positive safe integer.');
+      return;
+    }
+    if (type === 'nullableHash' && value === null) return;
+    if (typeof value !== 'string') throw new TypeError(label + ' has the wrong type.');
+    if (type === 'string' && value.length === 0) throw new TypeError(label + ' must not be empty.');
+    else if (type === 'decimal' && !DECIMAL.test(value)) throw new TypeError(label + ' must be a canonical decimal integer.');
+    else if (type === 'address' && !ADDRESS.test(value)) throw new TypeError(label + ' must be a 20-byte address.');
+    else if ((type === 'hash' || type === 'nullableHash') && !HASH.test(value)) throw new TypeError(label + ' must be a lowercase 32-byte hash.');
+    else if (type === 'quantity' && !QUANTITY.test(value)) throw new TypeError(label + ' must be a canonical lowercase quantity.');
+    else if (type === 'bytes' && !HEX_BYTES.test(value)) throw new TypeError(label + ' must be lowercase even-length bytes.');
+    else if (type === 'profilePath' && !/^\/multipass\/loopers\/[1-9][0-9]*$/u.test(value)) throw new TypeError(label + ' must be a canonical profile path.');
+    else if (type === 'httpsUrl' && (!HTTPS_URL.test(value) || value.includes('@'))) throw new TypeError(label + ' must be a canonical HTTPS URL.');
+  }
+
+  function normalizeBySchema(candidate, schema, path = [], ancestors = new WeakSet()) {
+    const label = path.join('.') || 'manifest';
+    if (typeof schema === 'string') {
+      validateLeaf(candidate, schema, label);
       return candidate;
     }
-    if (!candidate || typeof candidate !== 'object') throw new TypeError(path.join('.') + ' must be an object or array.');
-    if (ancestors.has(candidate)) throw new TypeError(path.join('.') + ' must not contain cycles.');
+    if (!candidate || typeof candidate !== 'object') throw new TypeError(label + ' must be an object or array.');
+    if (ancestors.has(candidate)) throw new TypeError(label + ' must not contain cycles.');
     ancestors.add(candidate);
     try {
-      if (Array.isArray(expectedValue)) {
-        if (!Array.isArray(candidate) || candidate.length !== expectedValue.length) throw new TypeError(path.join('.') + ' array length is not exact.');
-        const expectedKeys = Reflect.ownKeys(expectedValue);
+      if (Array.isArray(schema)) {
+        if (!isPlainArray(candidate)) throw new TypeError(label + ' must use the intrinsic array prototype.');
+        if (candidate.length !== schema.length) throw new TypeError(label + ' array length is not exact.');
+        const schemaKeys = Reflect.ownKeys(schema);
         const candidateKeys = Reflect.ownKeys(candidate);
-        if (candidateKeys.length !== expectedKeys.length || candidateKeys.some((key, index) => key !== expectedKeys[index])) {
-          throw new TypeError(path.join('.') + ' array keys are not exact.');
+        if (candidateKeys.length !== schemaKeys.length || candidateKeys.some((key, index) => key !== schemaKeys[index])) {
+          throw new TypeError(label + ' array keys are not exact.');
         }
         const normalized = [];
-        for (let index = 0; index < expectedValue.length; index += 1) {
+        for (let index = 0; index < schema.length; index += 1) {
           const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index));
           if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
             throw new TypeError([...path, String(index)].join('.') + ' must be a plain data element.');
           }
-          normalized.push(normalizeExact(descriptor.value, expectedValue[index], [...path, String(index)], ancestors));
+          normalized.push(normalizeBySchema(descriptor.value, schema[index], [...path, String(index)], ancestors));
         }
         return normalized;
       }
-      if (Array.isArray(candidate) || Object.prototype.toString.call(candidate) !== '[object Object]') {
-        throw new TypeError(path.join('.') + ' must be a plain object.');
-      }
-      const expectedKeys = Object.keys(expectedValue);
+      if (!isPlainObject(candidate)) throw new TypeError(label + ' must use the intrinsic plain object prototype.');
+      const schemaKeys = Reflect.ownKeys(schema);
       const candidateKeys = Reflect.ownKeys(candidate);
-      if (candidateKeys.length !== expectedKeys.length || candidateKeys.some((key) => typeof key !== 'string' || !Object.hasOwn(expectedValue, key))) {
-        throw new TypeError(path.join('.') + ' keys are not exact; unknown or missing fields are forbidden.');
+      if (candidateKeys.length !== schemaKeys.length || candidateKeys.some((key) => typeof key !== 'string' || !Object.hasOwn(schema, key))) {
+        throw new TypeError(label + ' keys are not exact; unknown or missing fields are forbidden.');
       }
       const normalized = {};
-      for (const key of expectedKeys) {
-        if (!Object.hasOwn(candidate, key)) throw new TypeError([...path, key].join('.') + ' is missing.');
+      for (const key of schemaKeys) {
         const descriptor = Object.getOwnPropertyDescriptor(candidate, key);
-        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) throw new TypeError([...path, key].join('.') + ' must be plain data.');
-        normalized[key] = normalizeExact(candidate[key], expectedValue[key], [...path, key], ancestors);
+        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
+          throw new TypeError([...path, key].join('.') + ' must be an own plain data field.');
+        }
+        normalized[key] = normalizeBySchema(descriptor.value, schema[key], [...path, key], ancestors);
       }
       return normalized;
     } finally {
@@ -335,8 +317,67 @@
     }
   }
 
-  function validateManifest(candidate) {
-    return deepFreeze(normalizeExact(candidate, EXPECTED));
+  function assertEqual(actual, expected, label) {
+    if (actual !== expected) throw new TypeError(label + ' is internally inconsistent.');
+  }
+
+  function validateRelationships(manifest) {
+    const { activation, contracts, content, erc6551, erc8004, urls } = manifest;
+    const event = activation.event;
+    assertEqual(manifest.profilePath, '/multipass/loopers/' + manifest.tokenId, 'profilePath');
+    assertEqual(content.name, 'Looper #' + manifest.tokenId, 'content.name');
+    assertEqual(erc6551.registry, contracts.erc6551Registry.address, 'erc6551.registry');
+    assertEqual(erc6551.implementation, contracts.erc6551Implementation.address, 'erc6551.implementation');
+    assertEqual(erc8004.adapter, contracts.adapter8004Proxy.address, 'erc8004.adapter');
+    assertEqual(erc8004.identityRegistry, contracts.identityRegistryProxy.address, 'erc8004.identityRegistry');
+    assertEqual(content.metadataUri, erc8004.identityUri, 'content.metadataUri');
+    assertEqual(event.address, erc6551.registry, 'activation.event.address');
+    assertEqual(event.transactionHash, activation.transactionHash, 'activation.event.transactionHash');
+    assertEqual(event.blockNumber, activation.blockNumber, 'activation.event.blockNumber');
+    assertEqual(event.blockHash, activation.blockHash, 'activation.event.blockHash');
+    assertEqual(event.transactionIndex, activation.transactionIndex, 'activation.event.transactionIndex');
+    assertEqual(event.topic0, event.topics[0], 'activation.event.topic0');
+    assertEqual(event.decoded.account, manifest.account, 'activation.event.decoded.account');
+    assertEqual(event.decoded.implementation, erc6551.implementation, 'activation.event.decoded.implementation');
+    assertEqual(event.decoded.salt, erc6551.salt, 'activation.event.decoded.salt');
+    assertEqual(event.decoded.chainId, manifest.chainId, 'activation.event.decoded.chainId');
+    assertEqual(event.decoded.tokenContract, contracts.loopersProxy.address, 'activation.event.decoded.tokenContract');
+    assertEqual(event.decoded.tokenId, manifest.tokenId, 'activation.event.decoded.tokenId');
+
+    const runtime = '0x363d3d373d3d3d363d73'
+      + erc6551.implementation.slice(2).toLowerCase()
+      + '5af43d82803e903d91602b57fd5bf3'
+      + erc6551.salt.slice(2)
+      + uint256Word(manifest.chainId)
+      + addressWord(contracts.loopersProxy.address)
+      + uint256Word(manifest.tokenId);
+    assertEqual(erc6551.runtime, runtime, 'erc6551.runtime');
+    assertEqual(hexToBytes(erc6551.runtime).length, erc6551.runtimeBytes, 'erc6551.runtimeBytes');
+    assertEqual(sha256Bytes(hexToBytes(erc6551.runtime)), erc6551.runtimeSha256, 'erc6551.runtimeSha256');
+
+    assertEqual(event.topics[1], '0x' + addressWord(erc6551.implementation), 'activation.event.topics[1]');
+    assertEqual(event.topics[2], '0x' + addressWord(contracts.loopersProxy.address), 'activation.event.topics[2]');
+    assertEqual(event.topics[3], '0x' + uint256Word(manifest.tokenId), 'activation.event.topics[3]');
+    const eventData = '0x' + addressWord(manifest.account) + erc6551.salt.slice(2) + uint256Word(manifest.chainId);
+    assertEqual(event.data, eventData, 'activation.event.data');
+
+    assertEqual(urls.canonicalProfile, 'https://helixa.xyz' + manifest.profilePath, 'urls.canonicalProfile');
+    assertEqual(urls.blockscoutAccount, 'https://base.blockscout.com/address/' + manifest.account, 'urls.blockscoutAccount');
+    assertEqual(urls.blockscoutErc20Holdings, 'https://base.blockscout.com/api/v2/addresses/' + manifest.account + '/tokens?type=ERC-20', 'urls.blockscoutErc20Holdings');
+    assertEqual(urls.blockscoutNftHoldings, 'https://base.blockscout.com/api/v2/addresses/' + manifest.account + '/tokens?type=ERC-721%2CERC-1155', 'urls.blockscoutNftHoldings');
+    assertEqual(urls.baseScanAccount, 'https://basescan.org/address/' + manifest.account, 'urls.baseScanAccount');
+    assertEqual(urls.baseScanActivation, 'https://basescan.org/tx/' + activation.transactionHash, 'urls.baseScanActivation');
+    assertEqual(urls.baseScanToken, 'https://basescan.org/token/' + contracts.loopersProxy.address + '?a=' + manifest.tokenId, 'urls.baseScanToken');
+    assertEqual(urls.openSea, 'https://opensea.io/assets/base/' + contracts.loopersProxy.address + '/' + manifest.tokenId, 'urls.openSea');
+  }
+
+  function validateManifest(candidate, profileLock) {
+    if (typeof profileLock !== 'string' || !HASH.test(profileLock)) throw new TypeError('Manifest lock must be a lowercase SHA-256 digest.');
+    const normalized = normalizeBySchema(candidate, MANIFEST_SCHEMA);
+    validateRelationships(normalized);
+    const canonicalBytes = new TextEncoder().encode(JSON.stringify(normalized));
+    if (sha256Bytes(canonicalBytes) !== profileLock) throw new TypeError('Manifest differs from its exact profile lock digest.');
+    return deepFreeze(normalized);
   }
 
   const api = {
