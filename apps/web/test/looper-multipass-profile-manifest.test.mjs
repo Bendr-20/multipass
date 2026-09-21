@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +13,11 @@ const webRoot = path.resolve(here, '..');
 const manifestPath = path.join(webRoot, 'public-profiles/loopers/manifests/3802.js');
 const namespacePath = path.join(webRoot, 'public-profiles/loopers/src/00-namespace.js');
 const codecsPath = path.join(webRoot, 'public-profiles/loopers/src/01-manifest-codecs.js');
+const profileSourceRoot = path.join(webRoot, 'public-profiles/loopers/src');
+const profileTemplatePath = path.join(webRoot, 'public-profiles/loopers/index.template.html');
+const profileGeneratedPath = path.join(webRoot, 'public-profiles/loopers/3802/index.html');
+const builderPath = path.join(webRoot, 'scripts/build-looper-multipass-profiles.mjs');
+const activationSourceRoot = path.join(webRoot, 'owner-tools/activate-looper-3802/src');
 
 const manifestModule = await import(pathToFileURL(manifestPath));
 const manifest = manifestModule.default;
@@ -411,5 +418,235 @@ test('classic units expose one fail-fast namespace boundary and no browser side 
   for (const source of [namespaceSource, codecsSource]) {
     assert.doesNotMatch(source, /\b(?:import|export)\b/u);
     assert.doesNotMatch(source, /\b(?:document|window|fetch|XMLHttpRequest|localStorage|sessionStorage|indexedDB|ethereum)\b/u);
+  }
+});
+
+let builderModulePromise;
+function loadBuilder() {
+  builderModulePromise ??= import(pathToFileURL(builderPath));
+  return builderModulePromise;
+}
+
+function extractSingle(html, expression, label) {
+  const matches = [...html.matchAll(expression)];
+  assert.equal(matches.length, 1, `${label} count`);
+  return matches[0][1];
+}
+
+function cspHash(body) {
+  return `'sha256-${createHash('sha256').update(Buffer.from(body, 'utf8')).digest('base64')}'`;
+}
+
+async function withTemporaryWebTree(run) {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'looper-profile-builder-'));
+  const temporaryWebRoot = path.join(temporaryRoot, 'apps/web');
+  try {
+    await mkdir(path.join(temporaryWebRoot, 'public-profiles'), { recursive: true });
+    await cp(path.join(webRoot, 'public-profiles/loopers'), path.join(temporaryWebRoot, 'public-profiles/loopers'), { recursive: true });
+    await mkdir(path.join(temporaryWebRoot, 'owner-tools/activate-looper-3802'), { recursive: true });
+    await cp(activationSourceRoot, path.join(temporaryWebRoot, 'owner-tools/activate-looper-3802/src'), { recursive: true });
+    await run(temporaryWebRoot);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+function runtimeScript(html) {
+  return extractSingle(html, /<script>([\s\S]*?)<\/script>/gu, 'executable inline script');
+}
+
+function jsonLd(html) {
+  const body = extractSingle(html, /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gu, 'JSON-LD script');
+  return JSON.parse(body);
+}
+
+test('generates exact neutral SEO, social, structured-data, and static profile content', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  const html = await buildExpectedHtml({ webRoot });
+  assert.equal(html, await readFile(profileGeneratedPath, 'utf8'));
+  assert.match(html, /<title>Looper #3802 Multipass \| Helixa<\/title>/u);
+  assert.match(html, /<link rel="canonical" href="https:\/\/helixa\.xyz\/multipass\/loopers\/3802">/u);
+  assert.match(html, /<meta name="robots" content="index,follow">/u);
+  assert.doesNotMatch(html, /noindex/iu);
+  assert.match(html, /<meta name="description" content="Public onchain wallet and identity profile for Looper #3802">/u);
+  assert.doesNotMatch(extractSingle(html, /<meta name="description" content="([^"]+)">/gu, 'description'), /verified/iu);
+  assert.match(html, /<meta property="og:type" content="profile">/u);
+  assert.match(html, /<meta property="og:site_name" content="Helixa Multipass">/u);
+  assert.match(html, /<meta property="og:title" content="Looper #3802 Multipass \| Helixa">/u);
+  assert.match(html, /<meta property="og:description" content="Public onchain wallet and identity profile for Looper #3802">/u);
+  assert.match(html, /<meta property="og:url" content="https:\/\/helixa\.xyz\/multipass\/loopers\/3802">/u);
+  assert.match(html, /<meta property="og:image" content="https:\/\/3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq\.arweave\.net\/3ZwkzgHeRr0Chw14FzKmwZf54fyHi6d0KVOZQprgq50">/u);
+  assert.match(html, /<meta name="twitter:card" content="summary_large_image">/u);
+  assert.match(html, /<meta name="twitter:title" content="Looper #3802 Multipass \| Helixa">/u);
+  assert.match(html, /<meta name="twitter:description" content="Public onchain wallet and identity profile for Looper #3802">/u);
+  assert.match(html, /<meta name="twitter:image" content="https:\/\/3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq\.arweave\.net\/3ZwkzgHeRr0Chw14FzKmwZf54fyHi6d0KVOZQprgq50">/u);
+
+  assert.deepEqual(jsonLd(html), {
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    name: manifest.content.seoTitle,
+    description: manifest.content.seoDescription,
+    url: manifest.urls.canonicalProfile,
+    primaryImageOfPage: manifest.content.artworkUrl,
+    mainEntity: {
+      '@type': 'Thing',
+      name: manifest.content.name,
+      identifier: `${manifest.contracts.loopersProxy.address}:${manifest.tokenId}`,
+      url: manifest.urls.openSea,
+      sameAs: [manifest.urls.baseScanToken, manifest.urls.baseScanAccount],
+    },
+  });
+  assert.match(html, /Checking onchain proof/u);
+  assert.match(html, /Looper #3802/u);
+  assert.match(html, /A Looper with its own onchain account/u);
+});
+
+test('hashes the exact LF-normalized inline style and executable script with quoted Base64 CSP sources', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  const html = await buildExpectedHtml({ webRoot });
+  const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/gu)];
+  const scripts = [...html.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/gu)];
+  assert.equal(styles.length, 1);
+  assert.equal(scripts.length, 2, 'one JSON-LD data block and one executable runtime');
+  assert.equal([...html.matchAll(/<script>/gu)].length, 1, 'exactly one executable inline script');
+  const csp = extractSingle(html, /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/gu, 'CSP meta');
+  assert.match(csp, new RegExp(`script-src ${cspHash(runtimeScript(html)).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`));
+  assert.match(csp, new RegExp(`style-src ${cspHash(styles[0][1]).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`));
+  assert.equal(csp, `default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src ${cspHash(runtimeScript(html))}; script-src-attr 'none'; style-src ${cspHash(styles[0][1])}; style-src-attr 'none'; connect-src https://mainnet.base.org https://base.drpc.org https://base.blockscout.com; img-src 'self' https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; upgrade-insecure-requests`);
+  assert.equal(html.includes('\r'), false);
+  assert.equal(html.endsWith('\n'), true);
+  assert.equal(html.endsWith('\n\n'), false);
+});
+
+test('assembles the fixed classic-IIFE allowlist and registers the manifest with its lock between units 01 and 02', async () => {
+  const { SOURCE_UNITS, buildExpectedHtml } = await loadBuilder();
+  assert.deepEqual(SOURCE_UNITS, [
+    '00-namespace.js',
+    '01-manifest-codecs.js',
+    '02-base-rpc.js',
+    '03-proof-verifier.js',
+    '04-holdings.js',
+    '05-renderer.js',
+    '06-bootstrap.js',
+  ]);
+  const source = runtimeScript(await buildExpectedHtml({ webRoot }));
+  const codecAt = source.indexOf('/* profile-unit: 01-manifest-codecs.js */');
+  const registrationAt = source.indexOf('/* profile-manifest: 3802 */');
+  const rpcAt = source.indexOf('/* profile-unit: 02-base-rpc.js */');
+  assert.ok(codecAt >= 0 && codecAt < registrationAt && registrationAt < rpcAt);
+  assert.match(source, /const MANIFEST_LOCK = '0x[0-9a-f]{64}';[\s\S]*?ns\.MANIFEST = ns\.validateManifest\([\s\S]+, MANIFEST_LOCK\);/u);
+  assert.doesNotMatch(source, /^\s*(?:import|export)\s/mu);
+
+  const context = vm.createContext({ TextDecoder, TextEncoder, Uint8Array });
+  vm.runInContext(source, context, { filename: 'generated-profile-runtime.js' });
+  const runtimeNamespace = context.LooperMultipassProfile;
+  assert.deepEqual(JSON.parse(JSON.stringify(runtimeNamespace.MANIFEST)), clone(manifest));
+  assertRecursivelyFrozen(runtimeNamespace.MANIFEST);
+  assert.equal(runtimeNamespace.MANIFEST_LOCK, undefined);
+  for (const name of ['createBaseRpcClient', 'verifyLooperProfileProof', 'createHoldingsClient', 'createProfileRenderer', 'bootstrapLooperMultipassProfile']) {
+    assert.equal(typeof runtimeNamespace[name], 'function');
+    assert.throws(() => runtimeNamespace[name](), /Not implemented/u);
+  }
+});
+
+test('contains no remote executable code, forms, wallet controls, or unsafe inline event attributes', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  const html = await buildExpectedHtml({ webRoot });
+  assert.doesNotMatch(html, /<script[^>]+src=/iu);
+  assert.doesNotMatch(html, /<(?:form|input|textarea|select)\b/iu);
+  assert.doesNotMatch(html, /\son[a-z]+\s*=/iu);
+  assert.doesNotMatch(html, /connect wallet|wallet connect/iu);
+  assert.doesNotMatch(runtimeScript(html), /\b(?:window\.ethereum|ethereum\.request|eth_sendTransaction|localStorage|sessionStorage|indexedDB|document\.cookie)\b/iu);
+});
+
+test('build, check, and source/dist writes are deterministic and hermetic', async () => {
+  const { buildExpectedHtml, checkProfileArtifact, writeProfileArtifact } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const first = await buildExpectedHtml({ webRoot: temporaryWebRoot });
+    const second = await buildExpectedHtml({ webRoot: temporaryWebRoot });
+    assert.equal(first, second);
+    assert.equal(await checkProfileArtifact({ webRoot: temporaryWebRoot }), true);
+
+    const committed = path.join(temporaryWebRoot, 'public-profiles/loopers/3802/index.html');
+    await writeFile(committed, 'stale\n');
+    await assert.rejects(() => checkProfileArtifact({ webRoot: temporaryWebRoot }), /stale/iu);
+    await writeProfileArtifact({ webRoot: temporaryWebRoot, mode: 'source' });
+    assert.equal(await readFile(committed, 'utf8'), first);
+
+    const distRoot = path.join(temporaryWebRoot, 'dist');
+    await mkdir(distRoot, { recursive: true });
+    await writeFile(path.join(distRoot, 'keep.txt'), 'preserved\n');
+    await writeProfileArtifact({ webRoot: temporaryWebRoot, mode: 'dist' });
+    assert.equal(await readFile(path.join(distRoot, 'multipass/loopers/3802/index.html'), 'utf8'), first);
+    assert.equal(await readFile(path.join(distRoot, 'keep.txt'), 'utf8'), 'preserved\n');
+  });
+});
+
+test('evaluates activation pins with Web Crypto but no DOM or network globals', async () => {
+  const { buildExpectedHtml } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const activation = path.join(temporaryWebRoot, 'owner-tools/activate-looper-3802/src/01-pinset-encoding.js');
+    const source = await readFile(activation, 'utf8');
+    const isolationProbe = [
+      "if (!globalThis.crypto || globalThis.crypto.subtle?.constructor?.name !== 'SubtleCrypto') throw new Error('Web Crypto unavailable');",
+      "if (typeof document !== 'undefined' || typeof window !== 'undefined' || typeof fetch !== 'undefined' || typeof XMLHttpRequest !== 'undefined') throw new Error('DOM or network global leaked');",
+    ].join('\n');
+    await writeFile(activation, source.replace("'use strict';", `'use strict';\n${isolationProbe}`));
+    await assert.doesNotReject(() => buildExpectedHtml({ webRoot: temporaryWebRoot }));
+  });
+});
+
+test('rejects unknown manifests, source units, flags, template markers, missing dist, and activation divergence', async () => {
+  const { buildExpectedHtml, writeProfileArtifact } = await loadBuilder();
+  await withTemporaryWebTree(async (temporaryWebRoot) => {
+    const loopersRoot = path.join(temporaryWebRoot, 'public-profiles/loopers');
+    const sourceRoot = path.join(loopersRoot, 'src');
+    const manifestsRoot = path.join(loopersRoot, 'manifests');
+    const template = path.join(loopersRoot, 'index.template.html');
+    const activation = path.join(temporaryWebRoot, 'owner-tools/activate-looper-3802/src/01-pinset-encoding.js');
+
+    await writeFile(path.join(manifestsRoot, '9999.js'), 'export default {};\n');
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /manifest|3802|exact/iu);
+    await unlink(path.join(manifestsRoot, '9999.js'));
+
+    await writeFile(path.join(sourceRoot, '07-unknown.js'), "'use strict';\n");
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /allowlist|source|exact|unknown/iu);
+    await unlink(path.join(sourceRoot, '07-unknown.js'));
+
+    const bootstrap = path.join(sourceRoot, '06-bootstrap.js');
+    const bootstrapSource = await readFile(bootstrap, 'utf8');
+    await unlink(bootstrap);
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /allowlist|source|missing|exact/iu);
+    await writeFile(bootstrap, bootstrapSource);
+
+    const templateSource = await readFile(template, 'utf8');
+    await writeFile(template, templateSource.replace('/* __PROFILE_RUNTIME__ */', '/* __PROFILE_RUNTIME__ */\n/* __PROFILE_RUNTIME__ */'));
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /marker|runtime|exactly one/iu);
+    await writeFile(template, templateSource);
+
+    const activationSource = await readFile(activation, 'utf8');
+    await writeFile(activation, activationSource.replace('0x8da5cb5b', '0x8da5cb5c'));
+    await assert.rejects(() => buildExpectedHtml({ webRoot: temporaryWebRoot }), /activation|selector|diverge|pin/iu);
+    await writeFile(activation, activationSource);
+
+    await assert.rejects(() => writeProfileArtifact({ webRoot: temporaryWebRoot, mode: 'dist' }), /dist.*exist|before.*dist/iu);
+  });
+
+  const unknownFlag = spawnSync(process.execPath, [builderPath, '--unknown'], { encoding: 'utf8' });
+  assert.notEqual(unknownFlag.status, 0);
+  assert.match(`${unknownFlag.stdout}${unknownFlag.stderr}`, /Usage/iu);
+  const conflictingFlags = spawnSync(process.execPath, [builderPath, '--check', '--dist'], { encoding: 'utf8' });
+  assert.notEqual(conflictingFlags.status, 0);
+  assert.match(`${conflictingFlags.stdout}${conflictingFlags.stderr}`, /Usage/iu);
+});
+
+test('rejects every approved receipt fixture drift independently', async () => {
+  const { assertReceiptFixture } = await loadBuilder();
+  assert.doesNotThrow(() => assertReceiptFixture(clone(manifest)));
+  for (const keys of leafPaths(manifest.activation)) {
+    const changed = clone(manifest);
+    const activationKeys = ['activation', ...keys];
+    setAt(changed, activationKeys, mutateLeaf(valueAt(changed, activationKeys)));
+    assert.throws(() => assertReceiptFixture(changed), undefined, `accepted receipt drift at ${keys.join('.')}`);
   }
 });

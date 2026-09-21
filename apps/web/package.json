@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "vite build && node scripts/write-allowlist-entry.mjs && node scripts/build-activate-looper-3802.mjs --dist",
+    "build": "vite build && node scripts/write-allowlist-entry.mjs && node scripts/build-activate-looper-3802.mjs --dist && node scripts/build-looper-multipass-profiles.mjs --dist",
     "build:activate-looper-3802": "node scripts/build-activate-looper-3802.mjs",
+    "build:looper-multipass-profile": "node scripts/build-looper-multipass-profiles.mjs",
     "check:activate-looper-3802": "node scripts/build-activate-looper-3802.mjs --check && node scripts/scan-activate-looper-3802.mjs",
     "smoke:activate-looper-3802-no-wallet": "CHROMIUM_PATH=/snap/bin/chromium node scripts/smoke-activate-looper-3802-no-wallet.mjs",
     "generate:allowlist-preview": "node scripts/render-allowlist-preview.mjs",
