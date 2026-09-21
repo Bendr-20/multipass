@@ -161,7 +161,7 @@
           credentials: 'omit',
           signal: controller.signal,
         });
-        if (response.url !== origin || response.redirected) throw new RpcTransportError('RPC redirect or response URL mismatch.');
+        if ((response.url !== origin && response.url !== `${origin}/`) || response.redirected) throw new RpcTransportError('RPC redirect or response URL mismatch.');
         if (!response.ok) {
           const transient = response.status === 429 || response.status >= 500;
           throw new RpcTransportError(`RPC HTTP ${response.status}.`, { transient });

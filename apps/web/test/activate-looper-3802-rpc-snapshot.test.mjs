@@ -98,6 +98,37 @@ test('routing sends strict POST options without credentials redirects or query s
   assert.ok(Object.isFrozen(evidence));
 });
 
+test('canonical native trailing-slash response URLs are accepted without relaxing URL boundaries', async () => {
+  const unit = await loadActivationUnits();
+  const canonicalFetch = async (url, options) => rpcResponse(`${url}/`, JSON.stringify({
+    jsonrpc: '2.0',
+    id: JSON.parse(options.body).id,
+    result: '0x2105',
+  }));
+  assert.equal(
+    (await createTransport(unit, canonicalFetch).request(MAINNET, Object.freeze({ kind: 'chainId' }))).result,
+    '0x2105',
+  );
+
+  for (const overrides of [
+    { url: `${MAINNET}/rpc` },
+    { url: `${MAINNET}/?key=value` },
+    { url: 'https://user:pass@mainnet.base.org/' },
+    { url: `${DRPC}/` },
+    { url: `${MAINNET}/`, redirected: true },
+  ]) {
+    const fetch = async (url, options) => rpcResponse(url, JSON.stringify({
+      jsonrpc: '2.0',
+      id: JSON.parse(options.body).id,
+      result: '0x2105',
+    }), overrides);
+    await assert.rejects(
+      createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })),
+      /redirect|URL/i,
+    );
+  }
+});
+
 test('envelope validation rejects malformed JSON-RPC shapes and id mismatch', async () => {
   const unit = await loadActivationUnits();
   const cases = [
