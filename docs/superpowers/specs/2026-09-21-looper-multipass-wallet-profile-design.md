@@ -212,7 +212,7 @@ Split the generated runtime into focused units:
    - Owns address, quantity, ABI word, and runtime-hash helpers.
 
 2. **Read-only Base client**
-   - Accepts a closed typed request union for `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt` only.
+   - Accepts a closed typed request union for `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getStorageAt`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt` only.
    - Selects one canonical block, confirms it across both origins, and executes one whole EIP-1898 state batch; it never mixes partial batches from different origins.
    - Uses bounded per-request and whole-refresh timeouts.
    - Never accesses `window.ethereum` and never sends a transaction.
@@ -250,7 +250,7 @@ Exact public origins:
 
 Allowed JSON-RPC methods are exactly `eth_chainId`, `eth_getBlockByNumber`, `eth_getCode`, `eth_getStorageAt`, `eth_getBalance`, `eth_call`, `eth_getTransactionByHash`, and `eth_getTransactionReceipt`. Every request uses fixed parameters constructed from the manifest, the selected current block, or the pinned historical receipt coordinates; the URL, method, address, block, and calldata are never supplied by query strings, storage, remote metadata, or DOM state.
 
-All runtime network reads use JSON-RPC POST or the one exact Blockscout GET without credentials or cookies. RPC uses `redirect: "error"`; the Blockscout URL is exact and uses `redirect: "error"`. There is no runtime metadata request. The artwork and OG image use the exact final Arweave HTTPS URL above; CSP does not wildcard Arweave. `connect-src` is exactly the two RPC origins and Base Blockscout, while `img-src` is exactly `'self'` and the pinned artwork origin.
+All runtime network reads use JSON-RPC POST or the two exact Blockscout GETs without credentials or cookies. RPC uses `redirect: "error"`; both Blockscout URLs are exact and use `redirect: "error"`. There is no runtime metadata request. The artwork and OG image use the exact final Arweave HTTPS URL above; CSP does not wildcard Arweave. `connect-src` is exactly the two RPC origins and Base Blockscout, while `img-src` is exactly `'self'` and the pinned artwork origin.
 
 ## Routing and generation
 
@@ -283,10 +283,14 @@ Nginx receives two exact locations before the general `/multipass/` fallback:
 location = /multipass/loopers/3802 {
     root /var/www/helixa.xyz;
     try_files /multipass/loopers/3802/index.html =404;
+    add_header Content-Security-Policy "frame-ancestors 'none'" always;
+    add_header X-Frame-Options "DENY" always;
 }
 location = /multipass/loopers/3802/ {
     root /var/www/helixa.xyz;
     try_files /multipass/loopers/3802/index.html =404;
+    add_header Content-Security-Policy "frame-ancestors 'none'" always;
+    add_header X-Frame-Options "DENY" always;
 }
 ```
 
@@ -305,9 +309,9 @@ The public profile:
 - does not load remote executable scripts;
 - does not render remote HTML;
 - does not expose private API keys or use credentialed requests;
-- owns its Content Security Policy in an HTML `<meta http-equiv="Content-Security-Policy">`; Nginx does not add or override CSP for this exact route;
+- owns every CSP directive except framing in an HTML `<meta http-equiv="Content-Security-Policy">`; the two exact Nginx locations add a separate `Content-Security-Policy: frame-ancestors 'none'` response header because browsers ignore `frame-ancestors` in meta-delivered policy, plus `X-Frame-Options: DENY` as legacy defense;
 - contains exactly one inline `<style>` and one inline `<script>` with no style/script attributes; the builder computes SHA-256 source hashes for both and injects only those hashes into `style-src` and `script-src`;
-- uses this complete directive model: `default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src <generated-script-hash>; script-src-attr 'none'; style-src <generated-style-hash>; style-src-attr 'none'; connect-src https://mainnet.base.org https://base.drpc.org https://base.blockscout.com; img-src 'self' https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; upgrade-insecure-requests`;
+- uses this complete meta-delivered directive model: `default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src <generated-script-hash>; script-src-attr 'none'; style-src <generated-style-hash>; style-src-attr 'none'; connect-src https://mainnet.base.org https://base.drpc.org https://base.blockscout.com; img-src 'self' https://3wocjtqb3zdl2auhbv4bomvgygl7typ4q6f2o5bjkomufgxavooq.arweave.net; font-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; upgrade-insecure-requests`, combined with the exact Nginx framing policy above;
 - includes no analytics in this slice.
 
 The activation owner page remains separate and no longer acts as the public profile.
