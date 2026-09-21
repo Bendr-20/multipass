@@ -412,6 +412,6 @@ test('receipt-block plan excludes pre-send simulation and gas while adding exact
   const unit = await loadActivationUnits(['00-namespace.js', '01-pinset-encoding.js', '03-snapshot-validator.js']);
   const keys = unit.POST_STATE_PLAN.map(({ key }) => key);
   assert.equal(keys.includes('simulation'), false); assert.equal(keys.includes('estimateGas'), false); assert.equal(keys.includes('gasPrice'), false);
-  assert.deepEqual(keys.filter((key) => key.startsWith('account:')).sort(), ['account:owner','account:state','account:token','account:validSigner']);
+  assert.deepEqual(JSON.parse(JSON.stringify(keys.filter((key) => key.startsWith('account:')).sort())), ['account:owner','account:state','account:token','account:validSigner']);
   assert.equal(unit.ACCOUNT_CALLS.validSigner.data, `${unit.SELECTORS.accountIsValidSigner}${unit.addressWord(unit.PINSET.holder)}${unit.uint256Word(64)}${unit.uint256Word(0)}`);
 });
