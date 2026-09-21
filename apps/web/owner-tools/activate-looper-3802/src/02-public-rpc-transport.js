@@ -138,6 +138,7 @@
     let nextId = 1;
 
     async function request(origin, typedRequest, options = {}) {
+      if (!Object.isFrozen(typedRequest)) throw new RpcTransportError('RPC typed request must be frozen.');
       if (!ORIGINS.includes(origin)) throw new RpcTransportError('Unapproved RPC origin.');
       if (!ROUTE_MATRIX[origin].includes(typedRequest?.kind)) throw new RpcTransportError(`RPC request kind is not permitted for origin ${origin}.`);
       const body = buildRpcRequest(typedRequest, nextId);
@@ -147,13 +148,12 @@
       const maxBytes = trace ? TRANSPORT_BOUNDS.MAX_TRACE_RESPONSE_BYTES : TRANSPORT_BOUNDS.MAX_STANDARD_RESPONSE_BYTES;
       const controller = new AbortControllerImpl();
       const callerSignal = options.signal;
+      if (callerSignal?.aborted) throw new RpcTransportError('RPC caller aborted.', { transient: false, cause: callerSignal.reason });
       const abortFromCaller = () => controller.abort(callerSignal.reason ?? new DOMException('Aborted', 'AbortError'));
-      if (callerSignal?.aborted) abortFromCaller();
-      else callerSignal?.addEventListener?.('abort', abortFromCaller, { once: true });
+      callerSignal?.addEventListener?.('abort', abortFromCaller, { once: true });
       const timer = setTimer(() => controller.abort(new Error(`RPC timeout after ${timeoutMs}ms.`)), timeoutMs);
-      let response;
       try {
-        response = await fetch(origin, {
+        const response = await fetch(origin, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
@@ -161,54 +161,191 @@
           credentials: 'omit',
           signal: controller.signal,
         });
+        if (response.url !== origin || response.redirected) throw new RpcTransportError('RPC redirect or response URL mismatch.');
+        if (!response.ok) {
+          const transient = response.status === 429 || response.status >= 500;
+          throw new RpcTransportError(`RPC HTTP ${response.status}.`, { transient });
+        }
+        const declared = response.headers?.get?.('content-length');
+        if (declared !== null && declared !== undefined && (!/^\d+$/u.test(declared) || Number(declared) > maxBytes)) throw new RpcTransportError('RPC response bytes exceed limit.');
+        const text = await response.text();
+        if (new TextEncoder().encode(text).length > maxBytes) throw new RpcTransportError('RPC response bytes exceed limit.');
+        let envelope;
+        try {
+          envelope = JSON.parse(text);
+        } catch {
+          throw new RpcTransportError('Invalid JSON-RPC JSON response.');
+        }
+        const result = validateEnvelope(envelope, body.id);
+        return ns.deepFreeze({ origin, method: body.method, params: body.params, result });
       } catch (error) {
+        if (error instanceof RpcTransportError) throw error;
         const reason = controller.signal.aborted ? controller.signal.reason : error;
         throw new RpcTransportError(`RPC network/abort failure: ${reason?.message ?? String(reason)}`, { transient: true, cause: reason });
       } finally {
         clearTimer(timer);
         callerSignal?.removeEventListener?.('abort', abortFromCaller);
       }
-      if (response.url !== origin || response.redirected) throw new RpcTransportError('RPC redirect or response URL mismatch.');
-      if (!response.ok) {
-        const transient = response.status === 429 || response.status >= 500;
-        throw new RpcTransportError(`RPC HTTP ${response.status}.`, { transient });
-      }
-      const declared = response.headers?.get?.('content-length');
-      if (declared !== null && declared !== undefined && (!/^\d+$/u.test(declared) || Number(declared) > maxBytes)) throw new RpcTransportError('RPC response bytes exceed limit.');
-      const text = await response.text();
-      if (new TextEncoder().encode(text).length > maxBytes) throw new RpcTransportError('RPC response bytes exceed limit.');
-      let envelope;
-      try {
-        envelope = JSON.parse(text);
-      } catch {
-        throw new RpcTransportError('Invalid JSON-RPC JSON response.');
-      }
-      const result = validateEnvelope(envelope, body.id);
-      return ns.deepFreeze({ origin, method: body.method, params: body.params, result });
     }
 
     async function standard(typedRequest, options = {}) {
       try {
         return await request(MAINNET, typedRequest, options);
       } catch (error) {
-        if (!error?.transient) throw error;
+        if (!error?.transient || options.signal?.aborted) throw error;
         return request(DRPC, typedRequest, options);
       }
     }
 
-    async function notImplemented() {
-      throw new Error('not implemented');
+    function validateBlock(result, expectedNumber = null) {
+      if (!result || typeof result !== 'object' || Array.isArray(result)) throw new RpcTransportError('RPC returned a null or malformed block.');
+      let number;
+      try {
+        number = ns.parseQuantity(result.number);
+      } catch {
+        throw new RpcTransportError('RPC block number is not canonical.');
+      }
+      if (expectedNumber !== null && number !== expectedNumber) throw new RpcTransportError('RPC block number does not match the canonical anchor.');
+      requireBytes32(result.hash, 'block hash');
+      return { number, numberHex: ns.canonicalQuantity(number), hash: result.hash };
+    }
+
+    async function assertChainQuorum(options = {}) {
+      const evidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'chainId' }), options)));
+      if (evidence.some((item) => item.result !== ns.PINSET.chainIdHex)) throw new RpcTransportError('Three-origin chain quorum must equal 0x2105.');
+      return ns.deepFreeze({ chainId: ns.PINSET.chainIdHex, evidence });
+    }
+
+    async function anchorCanonicalHead(options = {}) {
+      await assertChainQuorum(options);
+      const latestEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'latestBlock' }), options)));
+      const latest = latestEvidence.map((item) => validateBlock(item.result));
+      const minimum = latest.reduce((value, item) => item.number < value ? item.number : value, latest[0].number);
+      const exactEvidence = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'blockByNumber', number: minimum }), options)));
+      const exact = exactEvidence.map((item) => validateBlock(item.result, minimum));
+      if (exact.some((item) => item.hash !== exact[0].hash)) throw new RpcTransportError('Canonical block hash quorum disagreement.');
+      return ns.deepFreeze({ number: ns.canonicalQuantity(minimum), hash: exact[0].hash });
+    }
+
+    function stateRequestWithBlockRef(template, blockRef) {
+      if (!template || typeof template !== 'object' || Array.isArray(template)) throw new TypeError('State request template must be an object.');
+      switch (template.kind) {
+        case 'code': exactKeys(template, ['kind', 'address'], 'state code request'); return { ...template, blockRef };
+        case 'storage': exactKeys(template, ['kind', 'address', 'slot'], 'state storage request'); return { ...template, blockRef };
+        case 'balance': exactKeys(template, ['kind', 'address'], 'state balance request'); return { ...template, blockRef };
+        case 'call': exactKeys(template, ['kind', 'transaction'], 'state call request'); return { ...template, blockRef };
+        case 'estimate': exactKeys(template, ['kind', 'transaction'], 'state estimate request'); return { ...template, blockRef };
+        default: throw new TypeError(`Request kind ${template.kind} is not permitted in a state batch.`);
+      }
+    }
+
+    async function runStateRequests(origin, templates, blockRef, options) {
+      const items = [];
+      for (const template of templates) items.push(await request(origin, ns.deepFreeze(stateRequestWithBlockRef(template, blockRef)), options));
+      return items;
+    }
+
+    async function guardedStateBatch(origin, anchor, templates, options) {
+      const number = ns.parseQuantity(anchor.number);
+      const before = validateBlock((await request(origin, Object.freeze({ kind: 'blockByNumber', number }), options)).result, number);
+      if (before.hash !== anchor.hash) throw new RpcTransportError('State batch before-guard hash is not canonical.');
+      const items = await runStateRequests(origin, templates, anchor.number, options);
+      const after = validateBlock((await request(origin, Object.freeze({ kind: 'blockByNumber', number }), options)).result, number);
+      if (after.hash !== anchor.hash) throw new RpcTransportError('State batch after-guard hash is not canonical.');
+      return ns.deepFreeze({ origin, mode: 'number-guarded', anchor: { ...anchor }, items });
+    }
+
+    async function stateBatchAt(origin, anchor, templates, options) {
+      try {
+        const items = await runStateRequests(origin, templates, { blockHash: anchor.hash, requireCanonical: true }, options);
+        return ns.deepFreeze({ origin, mode: 'eip-1898', anchor: { ...anchor }, items });
+      } catch (error) {
+        if (isEip1898Unsupported(error?.rpcError)) return guardedStateBatch(origin, anchor, templates, options);
+        throw error;
+      }
+    }
+
+    async function stateBatch(anchor, templates, options = {}) {
+      exactKeys(anchor, ['number', 'hash'], 'state anchor');
+      const number = ns.parseQuantity(anchor.number);
+      requireBytes32(anchor.hash, 'state anchor hash');
+      if (!Array.isArray(templates) || templates.length === 0) throw new TypeError('State batch must contain requests.');
+      const canonicalAnchor = ns.deepFreeze({ number: ns.canonicalQuantity(number), hash: anchor.hash });
+      try {
+        return await stateBatchAt(MAINNET, canonicalAnchor, templates, options);
+      } catch (error) {
+        if (!error?.transient || options.signal?.aborted) throw error;
+        return stateBatchAt(DRPC, canonicalAnchor, templates, options);
+      }
+    }
+
+    function throwIfAborted(signal) {
+      if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+    }
+
+    async function transactionReceiptPair(origin, hash, signal) {
+      const transaction = await request(origin, Object.freeze({ kind: 'transaction', hash }), { signal });
+      const receipt = await request(origin, Object.freeze({ kind: 'receipt', hash }), { signal });
+      return ns.deepFreeze({ origin, transaction, receipt });
+    }
+
+    async function* pollTransactionReceipt({ hash, createdAtMs, signal } = {}) {
+      requireBytes32(hash, 'poll transaction hash');
+      if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0) throw new TypeError('createdAtMs must be a nonnegative safe integer.');
+      let first = true;
+      while (true) {
+        throwIfAborted(signal);
+        const elapsed = now() - createdAtMs;
+        if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 600000) return;
+        if (!first) {
+          const delay = elapsed < 120000 ? 2000 : 10000;
+          if (elapsed + delay > 600000) return;
+          await sleep(delay, signal);
+          throwIfAborted(signal);
+        }
+        first = false;
+        const mainnet = await transactionReceiptPair(MAINNET, hash, signal);
+        const drpc = await transactionReceiptPair(DRPC, hash, signal);
+        yield ns.deepFreeze({ mainnet, drpc, observedAtMs: now() });
+      }
+    }
+
+    async function* pollHeads({ deadlineMs, signal } = {}) {
+      if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 0) throw new TypeError('deadlineMs must be a nonnegative safe integer.');
+      let first = true;
+      while (true) {
+        throwIfAborted(signal);
+        const current = now();
+        if (!Number.isFinite(current) || current > deadlineMs) return;
+        if (!first) {
+          if (current + 2000 > deadlineMs) return;
+          await sleep(2000, signal);
+          throwIfAborted(signal);
+        }
+        first = false;
+        const heads = await Promise.all(ORIGINS.map((origin) => request(origin, Object.freeze({ kind: 'latestBlock' }), { signal })));
+        yield ns.deepFreeze({ observedAtMs: now(), heads });
+        if (now() >= deadlineMs) return;
+      }
+    }
+
+    async function finalReceiptQuorum(hash, options = {}) {
+      requireBytes32(hash, 'final receipt hash');
+      const mainnet = await transactionReceiptPair(MAINNET, hash, options.signal);
+      const drpc = await transactionReceiptPair(DRPC, hash, options.signal);
+      const publicNodeReceipt = await request(PUBLICNODE, Object.freeze({ kind: 'receipt', hash }), options);
+      return ns.deepFreeze({ mainnet, drpc, publicNodeReceipt });
     }
 
     return ns.deepFreeze({
       request,
       standard,
-      requireChainQuorum: notImplemented,
-      anchorCanonicalHead: notImplemented,
-      stateBatch: notImplemented,
-      pollTransactionReceipt: () => { throw new Error('not implemented'); },
-      pollHeads: () => { throw new Error('not implemented'); },
-      finalReceiptQuorum: notImplemented,
+      requireChainQuorum: assertChainQuorum,
+      anchorCanonicalHead,
+      stateBatch,
+      pollTransactionReceipt,
+      pollHeads,
+      finalReceiptQuorum,
     });
   }
 

@@ -66,18 +66,27 @@ test('origin allowlist rejects forbidden routes before fetch', async () => {
         : kind === 'balance' ? { kind, address: ADDRESS, blockRef: BLOCK_REF }
           : ['call', 'estimate'].includes(kind) ? { kind, transaction: TRANSACTION, blockRef: BLOCK_REF }
             : kind === 'trace' ? { kind, hash: HASH } : { kind };
-    await assert.rejects(transport.request(PUBLICNODE, request), /not permitted/i);
+    await assert.rejects(transport.request(PUBLICNODE, Object.freeze(request)), /not permitted/i);
   }
-  await assert.rejects(transport.request(MAINNET, { kind: 'trace', hash: HASH }), /not permitted/i);
-  await assert.rejects(transport.request('https://example.com', { kind: 'chainId' }), /origin/i);
+  await assert.rejects(transport.request(MAINNET, Object.freeze({ kind: 'trace', hash: HASH })), /not permitted/i);
+  await assert.rejects(transport.request('https://example.com', Object.freeze({ kind: 'chainId' })), /origin/i);
   assert.equal(calls.length, 0);
+});
+
+test('routing accepts only frozen typed request objects', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(() => '0x2105');
+  const transport = createTransport(unit, fetch);
+  await assert.rejects(transport.request(MAINNET, { kind: 'chainId' }), /frozen/i);
+  assert.equal(calls.length, 0);
+  assert.equal((await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }))).result, '0x2105');
 });
 
 test('routing sends strict POST options without credentials redirects or query strings', async () => {
   const unit = await loadActivationUnits();
   const { fetch, calls } = makeRpcFetch(() => '0x2105');
   const transport = createTransport(unit, fetch);
-  const evidence = await transport.request(MAINNET, { kind: 'chainId' });
+  const evidence = await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }));
   assert.equal(evidence.result, '0x2105');
   assert.equal(evidence.origin, MAINNET);
   assert.deepEqual(Object.keys(calls[0].options).sort(), ['body', 'credentials', 'headers', 'method', 'redirect', 'signal'].sort());
@@ -106,7 +115,7 @@ test('envelope validation rejects malformed JSON-RPC shapes and id mismatch', as
       const payload = fixture({ id });
       return rpcResponse(url, typeof payload === 'string' ? payload : JSON.stringify(payload));
     };
-    await assert.rejects(createTransport(unit, fetch).request(MAINNET, { kind: 'chainId' }), /JSON|envelope|id|error/i);
+    await assert.rejects(createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })), /JSON|envelope|id|error/i);
   }
 });
 
@@ -123,9 +132,9 @@ test('response bytes enforce exact standard and trace caps', async () => {
   const fetch = async (url, options) => rpcResponse(url, JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x' }), {
     headers: { get: () => String(1048577) },
   });
-  await assert.rejects(createTransport(unit, fetch).request(MAINNET, { kind: 'chainId' }), /response.*bytes|large/i);
+  await assert.rejects(createTransport(unit, fetch).request(MAINNET, Object.freeze({ kind: 'chainId' })), /response.*bytes|large/i);
   const traceFetch = async (url, options) => rpcResponse(url, 'x'.repeat(4194305), { headers: { get: () => null } });
-  await assert.rejects(createTransport(unit, traceFetch).request(DRPC, { kind: 'trace', hash: HASH }), /response.*bytes|large/i);
+  await assert.rejects(createTransport(unit, traceFetch).request(DRPC, Object.freeze({ kind: 'trace', hash: HASH })), /response.*bytes|large/i);
 });
 
 test('timeout aborts one request with no HTTP retry', async () => {
@@ -140,20 +149,42 @@ test('timeout aborts one request with no HTTP retry', async () => {
     setTimeout: (callback, milliseconds) => { timers.push(milliseconds); queueMicrotask(callback); return 1; },
     clearTimeout: () => {},
   });
-  await assert.rejects(transport.request(MAINNET, { kind: 'chainId' }), /timeout|abort/i);
+  await assert.rejects(transport.request(MAINNET, Object.freeze({ kind: 'chainId' })), /timeout|abort/i);
   assert.deepEqual(timers, [10000]);
   assert.equal(attempts, 1);
+});
+
+test('timeout remains active through response body consumption', async () => {
+  const unit = await loadActivationUnits();
+  let timerCleared = false;
+  const fetch = async (url, options) => ({
+    ok: true,
+    status: 200,
+    redirected: false,
+    url,
+    headers: { get: () => null },
+    text: async () => {
+      assert.equal(timerCleared, false, 'request timer must cover response.text()');
+      return JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(options.body).id, result: '0x2105' });
+    },
+  });
+  const transport = createTransport(unit, fetch, {
+    setTimeout: () => 1,
+    clearTimeout: () => { timerCleared = true; },
+  });
+  assert.equal((await transport.request(MAINNET, Object.freeze({ kind: 'chainId' }))).result, '0x2105');
+  assert.equal(timerCleared, true);
 });
 
 test('semantic errors fail immediately while only bounded transient classes permit standard failover', async () => {
   const unit = await loadActivationUnits();
   for (const error of [
-    { code: -32602, message: 'bad parameter unrelated to EIP objects' },
+    { code: -32602, message: 'malformed input unrelated to EIP objects' },
     { code: -32000, message: 'unknown block' },
-    { code: -32001, message: 'rate limit' },
+    { code: -32001, message: 'unauthorized request' },
   ]) {
     const { fetch, calls } = makeRpcFetch(() => ({ errorEnvelope: error }));
-    await assert.rejects(createTransport(unit, fetch).standard({ kind: 'chainId' }), /RPC|parameter|block|rate/i);
+    await assert.rejects(createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' })), /RPC|input|block|unauthorized/i);
     assert.equal(calls.length, 1);
   }
   for (const error of [
@@ -162,7 +193,7 @@ test('semantic errors fail immediately while only bounded transient classes perm
     { code: -32000, message: 'temporarily busy' },
   ]) {
     const { fetch, calls } = makeRpcFetch(({ url }) => url === MAINNET ? { errorEnvelope: error } : '0x2105');
-    const evidence = await createTransport(unit, fetch).standard({ kind: 'chainId' });
+    const evidence = await createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' }));
     assert.equal(evidence.origin, DRPC);
     assert.deepEqual(calls.map(({ url }) => url), [MAINNET, DRPC]);
   }
@@ -274,5 +305,84 @@ test('EIP-1898 guarded batch rejects changed before or after hash and never uses
   });
   await assert.rejects(createTransport(unit, fetch).stateBatch({ number: '0x64', hash: HASH }, [{ kind: 'code', address: ADDRESS }]), /guard|hash|canonical/i);
   assert.equal(calls.some(({ url, body }) => url === PUBLICNODE && body.method === 'eth_getCode'), false);
+});
+
+test('three-origin chain quorum requires 0x2105 from every origin', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch } = makeRpcFetch(({ url }) => url === PUBLICNODE ? '0x1' : '0x2105');
+  await assert.rejects(createTransport(unit, fetch).requireChainQuorum(), /0x2105|chain/i);
+});
+
+test('receipt poll generator uses exact cadence without overlap', async () => {
+  const unit = await loadActivationUnits();
+  const time = createFakeTime(0);
+  let active = 0;
+  let maximum = 0;
+  const { fetch } = makeRpcFetch(async () => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await Promise.resolve();
+    active -= 1;
+    return null;
+  });
+  const iterator = createTransport(unit, fetch, { sleep: time.sleep, now: time.now }).pollTransactionReceipt({ hash: HASH, createdAtMs: 0 })[Symbol.asyncIterator]();
+  await iterator.next();
+  await iterator.next();
+  await iterator.next();
+  time.set(120000);
+  await iterator.next();
+  assert.deepEqual(time.sleeps, [2000, 2000, 10000]);
+  assert.equal(maximum, 1);
+  await iterator.return();
+});
+
+test('head poll generator stops at fixed deadline with exact two-second sleeps', async () => {
+  const unit = await loadActivationUnits();
+  const time = createFakeTime(0);
+  const { fetch } = makeRpcFetch(() => block(100));
+  const values = [];
+  for await (const item of createTransport(unit, fetch, { sleep: time.sleep, now: time.now }).pollHeads({ deadlineMs: 4000 })) values.push(item);
+  assert.equal(values.length, 3);
+  assert.deepEqual(time.sleeps, [2000, 2000]);
+});
+
+test('abort polling stops before another public request', async () => {
+  const unit = await loadActivationUnits();
+  const controller = new AbortController();
+  let sleeps = 0;
+  const { fetch, calls } = makeRpcFetch(() => null);
+  const transport = createTransport(unit, fetch, {
+    now: () => 0,
+    sleep: async () => { sleeps += 1; controller.abort(new DOMException('Aborted', 'AbortError')); },
+  });
+  const iterator = transport.pollTransactionReceipt({ hash: HASH, createdAtMs: 0, signal: controller.signal })[Symbol.asyncIterator]();
+  await iterator.next();
+  await assert.rejects(iterator.next(), /abort/i);
+  assert.equal(sleeps, 1);
+  assert.equal(calls.length, 4);
+});
+
+test('caller abort stops standard failover before another request', async () => {
+  const unit = await loadActivationUnits();
+  const controller = new AbortController();
+  const { fetch, calls } = makeRpcFetch(() => '0x2105');
+  controller.abort(new DOMException('Aborted', 'AbortError'));
+  await assert.rejects(
+    createTransport(unit, fetch).standard(Object.freeze({ kind: 'chainId' }), { signal: controller.signal }),
+    /abort/i,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('final receipt quorum performs one Mainnet dRPC transaction-receipt pair and one PublicNode receipt', async () => {
+  const unit = await loadActivationUnits();
+  const { fetch, calls } = makeRpcFetch(() => null);
+  const result = await createTransport(unit, fetch).finalReceiptQuorum(HASH);
+  assert.ok(Object.isFrozen(result));
+  assert.deepEqual(calls.map(({ url, body }) => [url, body.method]), [
+    [MAINNET, 'eth_getTransactionByHash'], [MAINNET, 'eth_getTransactionReceipt'],
+    [DRPC, 'eth_getTransactionByHash'], [DRPC, 'eth_getTransactionReceipt'],
+    [PUBLICNODE, 'eth_getTransactionReceipt'],
+  ]);
 });
 
