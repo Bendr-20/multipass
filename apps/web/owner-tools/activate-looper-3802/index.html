@@ -402,12 +402,91 @@ globalThis.ActivateLooper3802 = Object.create(null);
     return true;
   }
 
-  function keccak256Hex() {
-    throw new Error('not implemented');
+  const KECCAK_MASK = (1n << 64n) - 1n;
+  const KECCAK_ROTATIONS = Object.freeze([
+    0, 1, 62, 28, 27,
+    36, 44, 6, 55, 20,
+    3, 10, 43, 25, 39,
+    41, 45, 15, 21, 8,
+    18, 2, 61, 56, 14,
+  ]);
+  const KECCAK_ROUND_CONSTANTS = Object.freeze([
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n,
+  ]);
+
+  function rotateLane(value, amount) {
+    if (amount === 0) return value & KECCAK_MASK;
+    const shift = BigInt(amount);
+    return ((value << shift) | (value >> (64n - shift))) & KECCAK_MASK;
   }
 
-  function hashUserOperationV06() {
-    throw new Error('not implemented');
+  function permuteKeccak(state) {
+    const column = new Array(5);
+    const mixed = new Array(25);
+    for (const roundConstant of KECCAK_ROUND_CONSTANTS) {
+      for (let x = 0; x < 5; x += 1) column[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
+      for (let x = 0; x < 5; x += 1) {
+        const delta = column[(x + 4) % 5] ^ rotateLane(column[(x + 1) % 5], 1);
+        for (let y = 0; y < 5; y += 1) state[x + 5 * y] = (state[x + 5 * y] ^ delta) & KECCAK_MASK;
+      }
+      for (let x = 0; x < 5; x += 1) {
+        for (let y = 0; y < 5; y += 1) {
+          mixed[y + 5 * ((2 * x + 3 * y) % 5)] = rotateLane(state[x + 5 * y], KECCAK_ROTATIONS[x + 5 * y]);
+        }
+      }
+      for (let x = 0; x < 5; x += 1) {
+        for (let y = 0; y < 5; y += 1) {
+          state[x + 5 * y] = (mixed[x + 5 * y] ^ ((~mixed[(x + 1) % 5 + 5 * y]) & mixed[(x + 2) % 5 + 5 * y])) & KECCAK_MASK;
+        }
+      }
+      state[0] = (state[0] ^ roundConstant) & KECCAK_MASK;
+    }
+  }
+
+  function keccak256Hex(value) {
+    const input = hexToBytes(value);
+    const rate = 136;
+    const paddedLength = Math.ceil((input.length + 1) / rate) * rate;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(input);
+    padded[input.length] = 0x01;
+    padded[padded.length - 1] |= 0x80;
+    const state = new Array(25).fill(0n);
+    for (let offset = 0; offset < padded.length; offset += rate) {
+      for (let index = 0; index < rate; index += 1) {
+        state[Math.floor(index / 8)] ^= BigInt(padded[offset + index]) << BigInt((index % 8) * 8);
+      }
+      permuteKeccak(state);
+    }
+    const output = new Uint8Array(32);
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] = Number((state[Math.floor(index / 8)] >> BigInt((index % 8) * 8)) & 0xffn);
+    }
+    return bytesToHex(output);
+  }
+
+  function hashUserOperationV06(operation) {
+    const fields = [
+      'sender', 'nonce', 'initCode', 'callData', 'callGasLimit', 'verificationGasLimit',
+      'preVerificationGas', 'maxFeePerGas', 'maxPriorityFeePerGas', 'paymasterAndData',
+    ];
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) throw new TypeError('UserOperation must be an object.');
+    const keys = Object.keys(operation);
+    if (keys.length !== fields.length || keys.some((key) => !fields.includes(key)) || fields.some((field) => !Object.hasOwn(operation, field))) {
+      throw new TypeError('UserOperation must contain exactly the v0.6 fields.');
+    }
+    if (!ADDRESS.test(operation.sender)) throw new TypeError('UserOperation sender must be an address.');
+    hexToBytes(operation.initCode);
+    hexToBytes(operation.callData);
+    hexToBytes(operation.paymasterAndData);
+    const packed = `0x${addressWord(operation.sender)}${uint256Word(operation.nonce)}${keccak256Hex(operation.initCode).slice(2)}${keccak256Hex(operation.callData).slice(2)}${uint256Word(operation.callGasLimit)}${uint256Word(operation.verificationGasLimit)}${uint256Word(operation.preVerificationGas)}${uint256Word(operation.maxFeePerGas)}${uint256Word(operation.maxPriorityFeePerGas)}${keccak256Hex(operation.paymasterAndData).slice(2)}`;
+    const outer = `0x${keccak256Hex(packed).slice(2)}${addressWord(PINSET.identities.entryPoint.address)}${uint256Word(PINSET.chainId)}`;
+    return keccak256Hex(outer);
   }
 
   Object.defineProperties(ns, Object.fromEntries(Object.entries({
