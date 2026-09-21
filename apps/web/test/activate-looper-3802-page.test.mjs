@@ -69,3 +69,10 @@ test('retry handoff atomically supersedes one eligible original before wallet in
   assert.deepEqual(journal, ['write','read-back','send','await']);
   assert.equal(handoff.stored.attempts[0].state, 'superseded'); assert.equal(handoff.stored.attempts[1].supersedesId, 'original');
 });
+
+test('bootstrap is the sole composition root for browser capabilities', async () => {
+  const ns = await loadActivationUnits(['00-namespace.js','01-pinset-encoding.js','02-public-rpc-transport.js','03-snapshot-validator.js','04-wallet-boundary.js','05-attempt-store.js','06-cross-tab-coordinator.js','07-receipt-trace-verifier.js','08-controller-renderer.js','09-bootstrap.js']);
+  assert.equal(typeof ns.bootstrap, 'function');
+  const controllerSource = await readFile(new URL('../owner-tools/activate-looper-3802/src/08-controller-renderer.js', import.meta.url), 'utf8');
+  for (const forbidden of ['window.ethereum','localStorage','navigator.locks']) assert.equal(controllerSource.includes(forbidden), false, forbidden);
+});
