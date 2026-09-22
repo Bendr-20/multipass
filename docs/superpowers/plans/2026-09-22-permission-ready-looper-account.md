@@ -105,6 +105,9 @@ Tests must prove:
 - transfer disables policy execution before module/target calls;
 - registry pause/removal and codehash mismatch disable execution;
 - pre/post calls enforce exact 32-byte returns and exact magic;
+- the pre hook receives the original external caller as `sessionKey`, the module sees the TBA as `msg.sender`, and the hook receives the exact current owner, policy epoch, target, value, and calldata;
+- the post hook receives those same exact fields plus byte-for-byte target return data;
+- pre-hook, target, and post-hook custom revert bytes are bubbled exactly;
 - pre, target, and post reverts roll back policy accounting, target effects, and account state;
 - reentrancy through owner and policy paths fails;
 - target sees incremented account state and successful execution increments once;
@@ -183,6 +186,8 @@ const account = ethers.getCreateAddress({ from: DEPLOYER, nonce: N + 1 });
 
 Assert transaction 1 deploys `LooperAgentModuleRegistry(LOOPERS_COLLECTION)`, transaction 2 deploys `LooperAgentAccount(registry)`, and the separate owner config transaction points Loopers to the account implementation. Assert the registry expected runtime is patched with the collection immutable and the account expected runtime is patched separately with the implementation self-address and registry immutable. Reject overlapping/unknown immutable references.
 
+Deploy both generated creation transactions into a fresh local Ganache chain from the same deployer/nonce pair and compare `eth_getCode` at both predicted addresses byte-for-byte with the independently patched expected runtimes. This local execution proof is mandatory and must fail for missing, duplicate, out-of-range, wrong-length, or misidentified immutable reference groups.
+
 - [ ] **Step 2: Run deployment tests and verify RED**
 
 Run: `node --test packages/contracts/test/looper-agent-account-deployment.test.mjs`  
@@ -243,6 +248,8 @@ Add ABI/constants for the account policy getters and registry read getters. Exte
 ```js
 {
   moduleRegistry,
+  implementationRuntimeSha256,
+  moduleRegistryRuntimeSha256,
   registryPaused,
   policyModule,
   policyModuleOwner,
@@ -252,7 +259,7 @@ Add ABI/constants for the account policy getters and registry read getters. Exte
 }
 ```
 
-Require both RPC origins to agree at the same block anchor. Controller tests must classify owner-only, permission-hook-paused, module-blocked, ownership-mismatch, and active-policy states without enabling agent writes. Console tests must render the approved Multipass-styled status pill and details; no grant/key controls may exist.
+Require both RPC origins to fetch and agree on implementation code/hash and module-registry code/hash at the same block anchor; `accountRuntimeSha256` remains explicitly the 173-byte proxy hash and cannot substitute for implementation evidence. Controller tests must classify owner-only, permission-hook-paused, module-blocked, ownership-mismatch, and active-policy states without enabling agent writes. Console tests must render the approved Multipass-styled status pill and details; no grant/key controls may exist.
 
 - [ ] **Step 2: Run focused web tests and verify RED**
 
@@ -266,7 +273,9 @@ Expected: FAIL on missing policy fields/statuses.
 
 - [ ] **Step 3: Implement fail-closed policy reads**
 
-Read policy evidence only when the selected implementation matches the reviewed release and its runtime hash. Use exact ABI decoding and treat missing/malformed/disagreeing evidence as wallet-only blocked/read-only state. Do not fall back to latest-block mixing or single-origin evidence. Keep `createLooperAgentWalletController` owner-signing paths limited to activation and standard owner `execute`; do not add `executeWithPolicy` submission or any key material.
+Read policy evidence only when the selected implementation address and fetched implementation runtime hash match the reviewed release. Independently verify the immutable registry address, fetched registry runtime hash, and selected module runtime hash. Use exact ABI decoding and treat missing/malformed/disagreeing evidence as wallet-only blocked/read-only state. Do not fall back to latest-block mixing or single-origin evidence.
+
+Keep `createLooperAgentWalletController` owner-signing paths limited to activation, standard owner `execute`, and the required owner recovery control `setPolicyModule`. Add exact clear/change previews only after a fresh same-block dual-origin check of owner, chain, canonical account, implementation/runtime, registry/runtime, registry pause, selected policy, policy owner, policy epoch, approval, and module codehash. Clearing uses `setPolicyModule(address(0))`; changing requires explicit owner confirmation and an approved exact-codehash module. Do not add `executeWithPolicy` submission, grants, or any key material.
 
 Update compact wallet copy to use `Owner controlled`, `Permission hook paused`, `Policy blocked`, or `Read-only`, preserving the Multipass styling already committed in `32145d4` and `323ee02`.
 
@@ -277,43 +286,43 @@ Run the same four test files. Expected: PASS.
 - [ ] **Step 5: Commit Console/RPC changes**
 
 ```bash
-git add apps/web/src apps/web/test
+git add apps/web/src/looper-agent-wallet.js apps/web/src/looper-agent-wallet-rpc.js apps/web/src/looper-agent-wallet-controller.js apps/web/src/multipass-console.js apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs
 git commit -m "feat: surface Looper permission status"
 ```
 
 ### Task 5: Extend safe agent wallet context
 
 **Files:**
-- Locate and modify the existing API wallet-context adapter under `apps/api/src/`
-- Modify its matching test under `apps/api/test/`
+- Modify: `apps/web/src/looper-agent-wallet-controller.js`
+- Modify: `apps/web/src/console-agent-api.js`
+- Modify: `apps/api/src/index.js`
+- Modify: `apps/web/test/console-agent-api.test.mjs`
+- Modify: `apps/api/test/console-agent-runtime.test.mjs`
 
-- [ ] **Step 1: Locate the exact adapter and write failing context tests**
+- [ ] **Step 1: Write failing context-producer and validator tests**
 
-Run:
+In `apps/web/test/console-agent-api.test.mjs` and `apps/api/test/console-agent-runtime.test.mjs`, assert the context produced by `createReadOnlyLooperWalletContext` and accepted by both validators includes only canonical account, activation/owner status, balances, state, implementation/runtime evidence, policy module, registry pause, approval, module-owner match, and policy epoch. Assert it excludes key material, signatures, grant calldata, private attempts, provider objects, and submit methods.
+
+- [ ] **Step 2: Run the exact context tests and verify RED**
 
 ```bash
-grep -RIn "nativeWei\|accountRuntimeSha256\|looperAgentWallet" apps/api/src apps/api/test
+node --test apps/web/test/console-agent-api.test.mjs apps/api/test/console-agent-runtime.test.mjs
 ```
 
-In the matching existing test, assert the agent context includes only canonical account, activation/owner status, balances, state, policy module, registry pause, approval, module-owner match, and policy epoch. Assert it excludes key material, signatures, grant calldata, private attempts, provider objects, and submit methods.
-
-- [ ] **Step 2: Run the exact API test and verify RED**
-
-Run the discovered `node --test apps/api/test/<exact-file>.test.mjs`.  
 Expected: FAIL on missing policy evidence.
 
 - [ ] **Step 3: Implement minimal read-only context fields**
 
-Map only already-normalized wallet snapshot fields. Do not pass callbacks or raw RPC responses. Any contradictory evidence sets `canTransact: false` and an explicit reason.
+Map only already-normalized wallet snapshot fields in `createReadOnlyLooperWalletContext`. Extend both the browser sender validator and API receiver validator with the exact same allowlisted plain-JSON shape. Do not pass callbacks or raw RPC responses. Any contradictory evidence sets `canTransact: false` and an explicit reason.
 
-- [ ] **Step 4: Run the exact API test and verify GREEN**
+- [ ] **Step 4: Run the exact context tests and verify GREEN**
 
-Expected: PASS.
+Run the same two exact test files. Expected: PASS.
 
 - [ ] **Step 5: Commit agent context changes**
 
 ```bash
-git add apps/api/src apps/api/test
+git add apps/web/src/looper-agent-wallet-controller.js apps/web/src/console-agent-api.js apps/api/src/index.js apps/web/test/console-agent-api.test.mjs apps/api/test/console-agent-runtime.test.mjs
 git commit -m "feat: expose read-only Looper policy context"
 ```
 
@@ -323,40 +332,67 @@ git commit -m "feat: expose read-only Looper policy context"
 
 **Files:**
 - Regenerate: `packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json`
-- Modify only if required by tested schema: related fixture/docs references
+- Create: `packages/contracts/scripts/preflight-looper-agent-account.js`
+- Create: `packages/contracts/test/looper-agent-account-preflight.test.mjs`
+- Modify after final prediction only: `apps/web/src/looper-agent-wallet.js`
+- Modify after final prediction only: `apps/web/test/looper-agent-wallet.test.mjs`
 
-- [ ] **Step 1: Run local deterministic artifact generation**
+- [ ] **Step 1: Implement and test an exact two-origin preflight command**
 
-Use a deliberately labeled preview nonce only after a fresh read-only Base preflight has confirmed deployer nonce and empty predicted addresses across both approved RPC origins. Do not broadcast. Regenerate the unsigned schema-2 artifact with the exact reviewed deployer, owner, and nonce.
+Create a read-only CLI with dependency-injected requester tests. It queries only `https://mainnet.base.org` and `https://base.drpc.org`, anchors to the lowest common block whose hashes agree, and at that exact block queries chain ID, deployer transaction count, predicted registry/account code, current Loopers owner, current ERC-6551 registry/implementation/salt, and legacy account evidence. It rejects origin disagreement, missing results, noncanonical quantities/addresses, nonempty predicted addresses, or owner mismatch.
 
-- [ ] **Step 2: Prove artifact freshness**
+Run: `node --test packages/contracts/test/looper-agent-account-preflight.test.mjs`
+Expected: PASS after observing RED before implementation.
 
-Re-run generation to a temporary path and byte-compare normalized JSON with the tracked artifact. Assert both predicted addresses, constructor args, runtime hashes, transaction nonces, zero values, chain ID, and config calldata.
+- [ ] **Step 2: Run exact preflight and deterministic artifact generation**
 
-- [ ] **Step 3: Run focused and full verification**
+```bash
+node packages/contracts/scripts/preflight-looper-agent-account.js --deployer 0x339559A2d1CD15059365FC7bD36b3047BbA480E0 --owner <CURRENT_LOOPERS_OWNER> --output /tmp/looper-agent-preflight.json
+node packages/contracts/scripts/deploy-looper-agent-account.js --preview --deployer 0x339559A2d1CD15059365FC7bD36b3047BbA480E0 --owner <CURRENT_LOOPERS_OWNER> --nonce <AGREED_PENDING_NONCE> --output packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json
+```
+
+The preview uses the agreed pending nonce from the preflight receipt. Neither command contains a signer or broadcast path.
+
+- [ ] **Step 3: Prove artifact freshness and local runtime truth**
+
+Re-run the exact preview to `/tmp/looper-agent-account-base-mainnet.json` and byte-compare it to the tracked artifact. Deploy both artifact creation transactions on fresh Ganache from the same deployer/nonces and byte-compare actual `eth_getCode` with both expected runtimes. Assert predicted addresses, constructor args, runtime hashes, transaction nonces, zero values, chain ID, and config calldata.
+
+- [ ] **Step 4: Synchronize release constants from the final artifact**
+
+Only now update `RELEASED_ACCOUNT_IMPLEMENTATION`, the implementation runtime SHA-256, the module-registry address/runtime SHA-256, and exact constant tests. Prove these values equal the tracked schema-2 artifact. No provisional nonce-derived value is accepted.
+
+- [ ] **Step 5: Run focused and full verification**
 
 ```bash
 pnpm --filter @helixa/loopers-contracts test
 node --test apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs
+node --test apps/web/test/console-agent-api.test.mjs apps/api/test/console-agent-runtime.test.mjs
 pnpm test
 pnpm web:build
+node --check packages/contracts/scripts/deploy-looper-agent-account.js
+node --check packages/contracts/scripts/preflight-looper-agent-account.js
+node --check apps/web/src/looper-agent-wallet-rpc.js
+node --check apps/web/src/looper-agent-wallet-controller.js
+node --check apps/web/src/console-agent-api.js
+node --check apps/api/src/index.js
 git diff --check
+git status --short
 ```
 
-Expected: all pass. Build warnings already present in third-party bundles are recorded but no new errors are accepted.
+Expected: all pass. Build warnings already present in third-party bundles are recorded but no new errors are accepted. Status may contain only exact reviewed task paths and the pre-existing untracked owner-wallet plan; any other path blocks staging.
 
-- [ ] **Step 4: Perform two-origin read-only preflight**
+- [ ] **Step 6: Re-run two-origin preflight immediately before staging**
 
-Verify Base chain ID, deployer nonce, no code at predicted registry/account addresses, current Loopers owner, current ERC-6551 registry/implementation/salt, and legacy-account inventory through both approved RPC origins. Require exact agreement at a common block anchor.
+Repeat Step 2's preflight command and require the same chain, owner, nonce, block agreement, and empty predicted addresses. Any drift invalidates the tracked artifact and returns to Step 2.
 
-- [ ] **Step 5: Run independent code and release review**
+- [ ] **Step 7: Run independent code and release review**
 
 Dispatch one code reviewer for contract/registry security and one release reviewer for artifact/UI fail-closed behavior. Fix every material finding and rerun affected gates.
 
-- [ ] **Step 6: Commit the unsigned release artifact**
+- [ ] **Step 8: Commit the unsigned release artifact and synchronized constants**
 
 ```bash
-git add packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json
+git add packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json packages/contracts/scripts/preflight-looper-agent-account.js packages/contracts/test/looper-agent-account-preflight.test.mjs apps/web/src/looper-agent-wallet.js apps/web/test/looper-agent-wallet.test.mjs
 git commit -m "chore: stage paused Looper permission release"
 ```
 
