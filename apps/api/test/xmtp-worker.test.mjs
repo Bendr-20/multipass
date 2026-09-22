@@ -275,6 +275,7 @@ test('authorized inbound XMTP message recalls Sibyl, runs inference, publishes r
     tokenContract: IDENTITY.contract,
     tokenId: IDENTITY.tokenId,
     identityAgentId: IDENTITY.erc8004AgentId,
+    wallet: WALLET,
   });
   await memoryClient.saveMemory({ namespace, text: 'Prior mission: watch Base.', tags: ['mission'] });
   const runtime = createConsoleAgentRuntime({

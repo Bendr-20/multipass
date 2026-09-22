@@ -131,7 +131,7 @@ test('authenticated holder owns, activates, names, chats through Bankr, and reca
   assert.equal(message.proposals.every((proposal) => proposal.status === 'review_only'), true);
   assert.equal(message.proposals.every((proposal) => proposal.execute === undefined), true);
   assert.match(message.memory.namespace, /^multipass:eip155:8453:0x1649cd37/);
-  assert.doesNotMatch(message.memory.namespace, new RegExp(holder.address.slice(2), 'i'));
+  assert.match(message.memory.namespace, new RegExp(`:owner:${holder.address.toLowerCase()}$`, 'i'));
 
   const freshSession = await authenticate(api, holder);
   const recallResponse = await api.handleRequest(secureRequest('https://helixa.test/api/multipass/console/agent/message', freshSession, {
