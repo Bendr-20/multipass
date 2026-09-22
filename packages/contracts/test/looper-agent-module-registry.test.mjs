@@ -48,9 +48,14 @@ contract ShortOwnerCollection {
 }
 
 contract LongOwnerCollection {
+    address private immutable projectOwner;
+
+    constructor(address projectOwner_) { projectOwner = projectOwner_; }
+
     fallback() external {
+        address encodedOwner = projectOwner;
         assembly {
-            mstore(0, caller())
+            mstore(0, encodedOwner)
             mstore(32, 0)
             return(0, 64)
         }
@@ -58,21 +63,31 @@ contract LongOwnerCollection {
 }
 
 contract NonCanonicalOwnerCollection {
+    address private immutable projectOwner;
+
+    constructor(address projectOwner_) { projectOwner = projectOwner_; }
+
     fallback() external {
+        address encodedOwner = projectOwner;
         assembly {
-            mstore(0, or(caller(), shl(160, 1)))
+            mstore(0, or(encodedOwner, shl(160, 1)))
             return(0, 32)
         }
     }
 }
 
-contract GasBurningOwnerCollection {
+contract FiniteWorkOwnerCollection {
+    address private immutable projectOwner;
+
+    constructor(address projectOwner_) { projectOwner = projectOwner_; }
+
     function owner() external view returns (address) {
-        uint256 cursor = 1;
-        while (gasleft() > 1_000) {
-            cursor = uint256(keccak256(abi.encode(cursor, block.number)));
+        uint256 cursor = uint256(uint160(projectOwner));
+        for (uint256 index = 0; index < 160; index += 1) {
+            cursor = uint256(keccak256(abi.encode(cursor, index)));
         }
-        return address(uint160(cursor));
+        require(cursor != type(uint256).max, "UNREACHABLE");
+        return projectOwner;
     }
 }
 `;
@@ -108,7 +123,7 @@ function compileAll() {
     shortOwner: artifact(output, 'test/LooperAgentModuleRegistryFixtures.sol', 'ShortOwnerCollection'),
     longOwner: artifact(output, 'test/LooperAgentModuleRegistryFixtures.sol', 'LongOwnerCollection'),
     nonCanonicalOwner: artifact(output, 'test/LooperAgentModuleRegistryFixtures.sol', 'NonCanonicalOwnerCollection'),
-    gasBurningOwner: artifact(output, 'test/LooperAgentModuleRegistryFixtures.sol', 'GasBurningOwnerCollection'),
+    finiteWorkOwner: artifact(output, 'test/LooperAgentModuleRegistryFixtures.sol', 'FiniteWorkOwnerCollection'),
   };
   return compiled;
 }
@@ -158,6 +173,21 @@ async function expectRejected(promise) {
     const transaction = await promise;
     await transaction.wait();
   });
+}
+
+async function expectCustomError(contract, promise, expectedName) {
+  try {
+    await promise;
+    assert.fail(`expected ${expectedName}`);
+  } catch (error) {
+    if (error?.code === 'ERR_ASSERTION') throw error;
+    const data = error?.data?.data
+      ?? error?.data
+      ?? error?.info?.error?.data?.result
+      ?? error?.info?.error?.data;
+    assert.equal(typeof data, 'string', `missing revert data for ${expectedName}`);
+    assert.equal(contract.interface.parseError(data)?.name, expectedName);
+  }
 }
 
 function parseRegistryLogs(registry, receipt) {
@@ -239,7 +269,7 @@ test('authorization follows the collection current owner dynamically', async () 
   assert.equal(await f.registry.approvedModuleCodehash(f.moduleAddress), ethers.ZeroHash);
 });
 
-test('owner evidence fails closed when zero, malformed, reverting, or over the gas cap', async () => {
+test('owner evidence fails closed with InvalidProjectOwner for zero, malformed, or reverting results', async () => {
   const artifacts = compileAll();
   const ganacheProvider = ganache.provider({ logging: { quiet: true } });
   const provider = new ethers.BrowserProvider(ganacheProvider);
@@ -248,27 +278,47 @@ test('owner evidence fails closed when zero, malformed, reverting, or over the g
   const moduleAddress = await module.getAddress();
   const codehash = ethers.keccak256(await provider.getCode(moduleAddress));
 
-  for (const collectionArtifact of [
-    artifacts.zeroOwner,
-    artifacts.revertingOwner,
-    artifacts.shortOwner,
-    artifacts.longOwner,
-    artifacts.nonCanonicalOwner,
-    artifacts.gasBurningOwner,
+  for (const { collectionArtifact, args } of [
+    { collectionArtifact: artifacts.zeroOwner, args: [] },
+    { collectionArtifact: artifacts.revertingOwner, args: [] },
+    { collectionArtifact: artifacts.shortOwner, args: [] },
+    { collectionArtifact: artifacts.longOwner, args: [signer.address] },
+    { collectionArtifact: artifacts.nonCanonicalOwner, args: [signer.address] },
   ]) {
-    const collection = await deploy(collectionArtifact, signer);
+    const collection = await deploy(collectionArtifact, signer, args);
     const registry = await deploy(artifacts.registry, signer, [await collection.getAddress()]);
-    await expectRejected(registry.approveModule(moduleAddress, codehash));
-    await expectRejected(registry.setGlobalPause(false));
-    await expectRejected(registry.removeModule(moduleAddress));
+    await expectCustomError(
+      registry,
+      registry.approveModule.staticCall(moduleAddress, codehash),
+      'InvalidProjectOwner',
+    );
+    await expectCustomError(registry, registry.setGlobalPause.staticCall(false), 'InvalidProjectOwner');
+    await expectCustomError(registry, registry.removeModule.staticCall(moduleAddress), 'InvalidProjectOwner');
   }
+});
+
+test('owner resolution enforces the 30,000 gas cap against finite successful work', async () => {
+  const artifacts = compileAll();
+  const ganacheProvider = ganache.provider({ logging: { quiet: true } });
+  const provider = new ethers.BrowserProvider(ganacheProvider);
+  const signer = await provider.getSigner(0);
+  const collection = await deploy(artifacts.finiteWorkOwner, signer, [signer.address]);
+  assert.equal(await collection.owner.staticCall({ gasLimit: 300_000 }), signer.address);
+  await assert.rejects(collection.owner.staticCall({ gasLimit: 30_000 }));
+
+  const registry = await deploy(artifacts.registry, signer, [await collection.getAddress()]);
+  await expectCustomError(registry, registry.setGlobalPause.staticCall(false), 'InvalidProjectOwner');
 });
 
 test('approval rejects zero and EOA modules, zero hashes, and wrong runtime hashes', async () => {
   const f = await fixture();
   const [, projectOwner, eoa] = f.signers;
   await expectRejected(f.registry.connect(projectOwner).approveModule(ethers.ZeroAddress, f.codehash));
-  await expectRejected(f.registry.connect(projectOwner).approveModule(eoa.address, f.codehash));
+  await expectCustomError(
+    f.registry,
+    f.registry.connect(projectOwner).approveModule.staticCall(eoa.address, ethers.keccak256('0x')),
+    'InvalidModule',
+  );
   await expectRejected(f.registry.connect(projectOwner).approveModule(f.moduleAddress, ethers.ZeroHash));
   await expectRejected(f.registry.connect(projectOwner).approveModule(f.moduleAddress, ethers.id('wrong-runtime')));
   assert.equal(await f.registry.approvedModuleCodehash(f.moduleAddress), ethers.ZeroHash);
