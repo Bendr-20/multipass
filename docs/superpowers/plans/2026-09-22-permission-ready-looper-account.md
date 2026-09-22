@@ -268,7 +268,7 @@ Require both RPC origins to fetch and agree on implementation code/hash and modu
 Run:
 
 ```bash
-node --test apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs
+node --test apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/app.test.mjs
 ```
 
 Expected: FAIL on missing policy fields/statuses.
@@ -283,7 +283,7 @@ Update compact wallet copy to use `Owner controlled`, `Permission hook paused`, 
 
 - [ ] **Step 4: Run focused web tests and verify GREEN**
 
-Run the same four test files. Expected: PASS.
+Run the same five test files. Expected: PASS.
 
 - [ ] **Step 5: Commit Console/RPC changes**
 
