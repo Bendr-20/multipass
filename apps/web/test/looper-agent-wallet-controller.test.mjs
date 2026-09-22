@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { keccak256, sha256 } from 'viem';
+import { getAddress, keccak256, sha256 } from 'viem';
 
 import {
   ACCOUNT_SALT,
@@ -9,6 +9,7 @@ import {
   buildLooperAccountRuntimeCode,
   buildPolicyModuleTransaction,
   buildEthSendTransaction,
+  createOperationScope,
   deriveLooperAccount,
 } from '../src/looper-agent-wallet.js';
 import {
@@ -105,8 +106,17 @@ function deployedSnapshot(overrides = {}) {
   return snapshot({ accountCode, accountRuntimeSha256: sha256(accountCode), accountCodeMatches: true, ...overrides });
 }
 
-function controllerFixture({ snapshots = [], submit, receipt, storage = memoryStorage(), locks = immediateLocks() } = {}) {
+function controllerFixture({
+  snapshots = [],
+  submit,
+  receipt,
+  storage = memoryStorage(),
+  locks = immediateLocks(),
+  getWalletChainId = async () => '0x2105',
+  generateAttemptId,
+} = {}) {
   const phases = [];
+  const requests = [];
   let index = 0;
   const fallback = snapshots.at(-1) ?? snapshot();
   const controller = createLooperAgentWalletController({
@@ -118,8 +128,11 @@ function controllerFixture({ snapshots = [], submit, receipt, storage = memorySt
     },
     storage,
     locks,
+    getWalletChainId,
+    generateAttemptId,
     async readSnapshot(request) {
       phases.push(request.phase);
+      requests.push(structuredClone(request));
       const next = snapshots[index++] ?? fallback;
       if (next instanceof Error) throw next;
       return structuredClone(next);
@@ -132,7 +145,7 @@ function controllerFixture({ snapshots = [], submit, receipt, storage = memorySt
       logs: [],
     })),
   });
-  return { controller, phases, storage };
+  return { controller, phases, requests, storage };
 }
 
 test('inactive activation passes EOA gates at readiness, pre-sign and receipt before attribution', async () => {
@@ -253,10 +266,382 @@ test('attempt state reloads by owner scope and a second tab cannot resubmit term
   const prepared = await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
   await first.controller.submitPrepared(prepared.id, { confirmed: true });
 
-  const second = controllerFixture({ snapshots: [post], storage });
+  const second = controllerFixture({
+    snapshots: [post],
+    storage,
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transactionHash: `0x${'cc'.repeat(32)}`,
+      transaction,
+      logs: [{ eventName: 'StateUpdated', address: active.collectionAccount, state: '1' }],
+    }),
+  });
   const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(restored.send.state, 'confirmed_attributed');
   await assert.rejects(second.controller.submitPrepared(prepared.id, { confirmed: true }), /prepared attempt/i);
+});
+
+test('wallet chain is re-read under the operation lock immediately before every submission', async () => {
+  const cases = [
+    {
+      evidence: snapshot(),
+      prepare: (controller) => controller.prepareActivation(),
+      attempt: 'activation',
+    },
+    {
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' }),
+      attempt: 'send',
+    },
+    {
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.preparePolicyModule({ module: ZERO_ADDRESS }),
+      attempt: 'policy',
+    },
+  ];
+  for (const entry of cases) {
+    const events = [];
+    const f = controllerFixture({
+      snapshots: [entry.evidence, entry.evidence, entry.evidence],
+      getWalletChainId: async () => { events.push('chain'); return '0x1'; },
+      submit: async () => { events.push('submit'); return `0x${'cc'.repeat(32)}`; },
+    });
+    await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    const prepared = await entry.prepare(f.controller);
+    await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /Base|chain/i);
+    assert.deepEqual(events, ['chain']);
+    assert.equal(f.controller.getSnapshot()[entry.attempt].state, 'invalidated');
+    assert.equal(f.controller.getSnapshot()[entry.attempt].preparedId, null);
+  }
+});
+
+test('wallet chain check is the final awaited guard before the EIP-1193 submission boundary', async () => {
+  const active = deployedSnapshot({ state: '0' });
+  const post = deployedSnapshot({ state: '1' });
+  const events = [];
+  const f = controllerFixture({
+    snapshots: [active, active, active, post],
+    getWalletChainId: async () => { events.push('chain'); return '0x2105'; },
+    submit: async () => { events.push('submit'); return `0x${'cc'.repeat(32)}`; },
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transaction,
+      logs: [{ eventName: 'StateUpdated', address: active.collectionAccount, state: '1' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.deepEqual(events, ['chain', 'submit']);
+});
+
+test('persisted preview drift during the final chain read is rejected before wallet submission', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot();
+  let releaseChainRead;
+  let chainReadStarted;
+  const chainStarted = new Promise((resolve) => { chainReadStarted = resolve; });
+  const chainGate = new Promise((resolve) => { releaseChainRead = resolve; });
+  let submissions = 0;
+  const f = controllerFixture({
+    snapshots: [active, active, active],
+    storage,
+    getWalletChainId: async () => {
+      chainReadStarted();
+      await chainGate;
+      return '0x2105';
+    },
+    submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  const submitting = f.controller.submitPrepared(prepared.id, { confirmed: true });
+  await chainStarted;
+  const [key, raw] = [...storage.values.entries()].find(([entry]) => entry.includes('.send.'));
+  const record = JSON.parse(raw);
+  storage.values.set(key, JSON.stringify({ ...record, transaction: { ...record.transaction, data: '0x' } }));
+  releaseChainRead();
+  await assert.rejects(submitting, /persisted|changed|preview/i);
+  assert.equal(submissions, 0);
+  assert.equal(f.controller.getSnapshot().send.state, 'invalidated');
+});
+
+test('cross-tab invalidation during the final wallet chain check blocks submission', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot({ state: '0' });
+  const post = deployedSnapshot({ state: '1' });
+  let submissions = 0;
+  const f = controllerFixture({
+    snapshots: [active, active, active, post],
+    storage,
+    getWalletChainId: async () => {
+      const [key, raw] = [...storage.values.entries()].find(([entry]) => entry.includes('.send.'));
+      const record = JSON.parse(raw);
+      storage.values.set(key, JSON.stringify({
+        ...record,
+        state: 'invalidated',
+        history: [...record.history, { state: 'invalidated', at: Date.now() }],
+      }));
+      return '0x2105';
+    },
+    submit: async () => {
+      submissions += 1;
+      return `0x${'cc'.repeat(32)}`;
+    },
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transaction,
+      logs: [{ eventName: 'StateUpdated', address: active.collectionAccount, state: '1' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /persisted|changed|exact/i);
+  assert.equal(submissions, 0);
+  assert.equal(f.controller.getSnapshot().send.state, 'invalidated');
+});
+
+test('restored prepared attempts are invalidated and malformed persisted attempts are discarded', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot();
+  const first = controllerFixture({ snapshots: [active, active], storage, generateAttemptId: () => 'attempt-a' });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+
+  const second = controllerFixture({ snapshots: [active], storage });
+  const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(restored.send.state, 'invalidated');
+  assert.equal(restored.send.preparedId, null);
+  await assert.rejects(second.controller.submitPrepared(prepared.id, { confirmed: true }), /prepared attempt/i);
+
+  const scope = createOperationScope({ tokenId: TOKEN_ID, account: active.collectionAccount, owner: OWNER, kind: 'send' });
+  const malformed = JSON.parse(storage.getItem(scope.storageKey));
+  storage.setItem(scope.storageKey, JSON.stringify({ ...malformed, unexpected: true }));
+  const third = controllerFixture({ snapshots: [active], storage });
+  const discarded = await third.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(discarded.send.state, 'idle');
+  assert.equal(storage.getItem(scope.storageKey), null);
+});
+
+test('persisted confirmed attribution is restored only after fresh receipt and post-state verification', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot({ state: '0' });
+  const first = controllerFixture({ snapshots: [active, active], storage, generateAttemptId: () => 'attempt-forged' });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  const scope = createOperationScope({ tokenId: TOKEN_ID, account: active.collectionAccount, owner: OWNER, kind: 'send' });
+  const prepared = JSON.parse(storage.getItem(scope.storageKey));
+  const forged = {
+    ...prepared,
+    state: 'confirmed_attributed',
+    attributable: true,
+    txHash: `0x${'cc'.repeat(32)}`,
+    history: [
+      ...prepared.history,
+      { state: 'submitted', at: prepared.history[0].at + 1 },
+      { state: 'confirmed_attributed', at: prepared.history[0].at + 2 },
+    ],
+  };
+  storage.setItem(scope.storageKey, JSON.stringify(forged));
+  let receiptReads = 0;
+  const second = controllerFixture({
+    snapshots: [active],
+    storage,
+    receipt: async () => { receiptReads += 1; throw new Error('No canonical receipt.'); },
+  });
+  const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(receiptReads, 1);
+  assert.equal(restored.send.state, 'idle');
+  assert.equal(storage.getItem(scope.storageKey), null);
+});
+
+test('every operation kind rejects malformed persisted schemas before restore', async () => {
+  const cases = [
+    {
+      kind: 'activation',
+      evidence: snapshot(),
+      prepare: (controller) => controller.prepareActivation(),
+      mutate: (record) => ({ ...record, account: '0x1234' }),
+    },
+    {
+      kind: 'send',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' }),
+      mutate: (record) => ({ ...record, history: [{ state: 'prepared', at: '0' }] }),
+    },
+    {
+      kind: 'policy',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.preparePolicyModule({ module: ZERO_ADDRESS }),
+      mutate: (record) => ({ ...record, targetPolicyModule: '0x1234' }),
+    },
+  ];
+  for (const [index, entry] of cases.entries()) {
+    const storage = memoryStorage();
+    const first = controllerFixture({
+      snapshots: [entry.evidence, entry.evidence],
+      storage,
+      generateAttemptId: () => `schema-case-${index}`,
+    });
+    await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    await entry.prepare(first.controller);
+    const [key, raw] = [...storage.values.entries()].find(([value]) => value.includes(`.${entry.kind}.`));
+    storage.values.set(key, JSON.stringify(entry.mutate(JSON.parse(raw))));
+
+    const second = controllerFixture({ snapshots: [entry.evidence], storage });
+    const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    assert.equal(restored[entry.kind].state, 'idle');
+    assert.equal(storage.getItem(key), null);
+  }
+});
+
+test('attempt ids use the injected collision-resistant generator and persisted transaction drift blocks signing', async () => {
+  const storage = memoryStorage();
+  let submissions = 0;
+  const active = deployedSnapshot();
+  const f = controllerFixture({
+    snapshots: [active, active, active],
+    storage,
+    generateAttemptId: () => '550e8400-e29b-41d4-a716-446655440000',
+    submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  assert.equal(prepared.id, 'send:550e8400-e29b-41d4-a716-446655440000');
+  const [key, raw] = [...storage.values.entries()].find(([entry]) => entry.includes('.send.'));
+  const stored = JSON.parse(raw);
+  storage.values.set(key, JSON.stringify({
+    ...stored,
+    transaction: { ...stored.transaction, to: RECIPIENT },
+  }));
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /exact|persisted|transaction/i);
+  assert.equal(submissions, 0);
+  assert.equal(f.controller.getSnapshot().send.state, 'invalidated');
+});
+
+test('activation, send and policy attempts all reject persisted transaction drift before the wallet boundary', async () => {
+  const cases = [
+    {
+      kind: 'activation',
+      evidence: snapshot(),
+      prepare: (controller) => controller.prepareActivation(),
+    },
+    {
+      kind: 'send',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' }),
+    },
+    {
+      kind: 'policy',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.preparePolicyModule({ module: ZERO_ADDRESS }),
+    },
+  ];
+  for (const [index, entry] of cases.entries()) {
+    const storage = memoryStorage();
+    let submissions = 0;
+    const f = controllerFixture({
+      snapshots: [entry.evidence, entry.evidence, entry.evidence],
+      storage,
+      generateAttemptId: () => `attempt-drift-${index}`,
+      submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+    });
+    await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    const prepared = await entry.prepare(f.controller);
+    const [key, raw] = [...storage.values.entries()].find(([value]) => value.includes(`.${entry.kind}.`));
+    const record = JSON.parse(raw);
+    storage.values.set(key, JSON.stringify({
+      ...record,
+      transaction: { ...record.transaction, data: '0x' },
+    }));
+    await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /exact|persisted|transaction/i);
+    assert.equal(submissions, 0);
+    assert.equal(f.controller.getSnapshot()[entry.kind].state, 'invalidated');
+  }
+});
+
+test('malformed submitted attempts never restore into receipt-trackable state', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot();
+  const first = controllerFixture({ snapshots: [active, active], storage, generateAttemptId: () => 'attempt-b' });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  const [key, raw] = [...storage.values.entries()].find(([entry]) => entry.includes('.send.'));
+  const record = JSON.parse(raw);
+  storage.values.set(key, JSON.stringify({ ...record, state: 'submitted', txHash: '0x1234' }));
+
+  const second = controllerFixture({ snapshots: [active], storage });
+  const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(restored.send.state, 'idle');
+  assert.equal(storage.getItem(key), null);
+});
+
+test('selection changes cannot carry nonterminal or terminal attempts across agent scopes', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot();
+  const f = controllerFixture({ snapshots: [active, active, active], storage });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.select({ tokenId: '618', owner: OWNER }), /pending|nonterminal|operation/i);
+  assert.equal(f.controller.getSnapshot().tokenId, TOKEN_ID);
+  assert.equal(f.controller.getSnapshot().send.state, 'invalidated');
+
+  const otherAccount = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: '618' });
+  const otherCode = buildLooperAccountRuntimeCode({ implementation: IMPLEMENTATION, tokenId: '618' });
+  const other = deployedSnapshot({
+    collectionAccount: otherAccount,
+    registryAccount: otherAccount,
+    accountCode: otherCode,
+    accountRuntimeSha256: sha256(otherCode),
+  });
+  const terminal = controllerFixture({
+    snapshots: [active, active, active, { ...active, state: '1' }, other],
+    storage: memoryStorage(),
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transaction,
+      logs: [{ eventName: 'StateUpdated', address: active.collectionAccount, state: '1' }],
+    }),
+  });
+  await terminal.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await terminal.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await terminal.controller.submitPrepared(prepared.id, { confirmed: true });
+  const selectedOther = await terminal.controller.select({ tokenId: '618', owner: OWNER });
+  assert.equal(selectedOther.tokenId, '618');
+  assert.equal(selectedOther.send.state, 'idle');
+});
+
+test('submitted work blocks agent changes and receipt revalidation stays bound to its original token and account', async () => {
+  const active = deployedSnapshot({ state: '0' });
+  const post = deployedSnapshot({ state: '1' });
+  let releaseReceipt;
+  let receiptStarted;
+  const started = new Promise((resolve) => { receiptStarted = resolve; });
+  const receiptGate = new Promise((resolve) => { releaseReceipt = resolve; });
+  const f = controllerFixture({
+    snapshots: [active, active, active, post],
+    receipt: async ({ transaction }) => {
+      receiptStarted();
+      await receiptGate;
+      return {
+        status: 'success',
+        transaction,
+        logs: [{ eventName: 'StateUpdated', address: active.collectionAccount, state: '1' }],
+      };
+    },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  const submitting = f.controller.submitPrepared(prepared.id, { confirmed: true });
+  await started;
+  assert.equal(f.controller.getSnapshot().send.state, 'submitted');
+  await assert.rejects(f.controller.select({ tokenId: '618', owner: OWNER }), /nonterminal|operation/i);
+  assert.equal(f.controller.getSnapshot().tokenId, TOKEN_ID);
+  releaseReceipt();
+  await submitting;
+  const receiptRequest = f.requests.find((request) => request.phase === 'receipt');
+  assert.deepEqual(receiptRequest.selection, { tokenId: TOKEN_ID, owner: getAddress(OWNER) });
+  assert.equal(receiptRequest.expectedAccount, active.collectionAccount);
 });
 
 test('select and refresh RPC errors replace stale capabilities and prepared work with fail-closed state', async () => {
@@ -468,6 +853,7 @@ test('unknown policy release constants block trust without substituting proxy ru
   const controller = createLooperAgentWalletController({
     releaseConfig: { implementation: IMPLEMENTATION, runtimeSha256: null, moduleRegistry: null, moduleRegistryRuntimeSha256: null },
     readSnapshot: async () => evidence,
+    getWalletChainId: async () => '0x2105',
     submitTransaction: async () => { throw new Error('must not submit'); },
     readReceipt: async () => { throw new Error('must not read receipt'); },
   });

@@ -83,6 +83,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     releaseConfig: activeLooperWalletReleaseConfig,
     readSnapshot: looperWalletRpc.readSnapshot,
     readReceipt: looperWalletRpc.readReceipt,
+    getWalletChainId: () => activeWalletClient.request({ method: 'eth_chainId' }),
     submitTransaction: async (transaction) => {
       if (typeof activeWalletClient.sendTransaction !== 'function') {
         throw new Error('Connected wallet does not expose the guarded Looper transaction action.');
@@ -1188,6 +1189,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
     try {
       const prepared = await activeLooperWalletController.prepareActivation();
+      state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: null } };
+      render(root, state, handlers);
       const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
     } catch (error) {
@@ -1224,6 +1227,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           amountBaseUnits: parseUnits(amount, token.decimals).toString(),
         });
       }
+      state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: null } };
+      render(root, state, handlers);
       const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
     } catch (error) {
@@ -1246,6 +1251,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const module = String(data.get('module') ?? '').trim() || ZERO_ADDRESS;
       const prepared = await activeLooperWalletController.preparePolicyModule({ module });
+      state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: null } };
+      render(root, state, handlers);
       const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
     } catch (error) {
@@ -1259,6 +1266,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function selectConsoleAgent(event) {
     if (state.consoleAgentNameMutation?.status === 'pending') return;
+    if (hasNonterminalLooperWalletWork(state.looperAgentWallet)) {
+      render(root, state, handlers);
+      return;
+    }
     const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
     if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
     return selectAndActivateConsoleAgent(tokenId);
@@ -1274,7 +1285,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function selectAndActivateConsoleAgent(tokenId, { resetSelection = true } = {}) {
     const normalizedTokenId = String(tokenId ?? '').trim();
     if (!normalizedTokenId) return;
-    if (state.consoleAgentNameMutation?.status === 'pending') return;
+    if (state.consoleAgentNameMutation?.status === 'pending' || hasNonterminalLooperWalletWork(state.looperAgentWallet)) return;
     const agent = getConsoleDisplayAgents(state).find((entry) => String(entry?.tokenId ?? '') === normalizedTokenId);
     if (!agent) return;
     const participantAgentIds = resolveConsoleParticipantAgentIds(
@@ -2270,6 +2281,11 @@ function createFailedLooperWalletState({ tokenId = null, owner = null, error = n
     policy: { state: 'idle', preparedId: null },
     error,
   };
+}
+
+function hasNonterminalLooperWalletWork(wallet) {
+  const nonterminal = new Set(['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed']);
+  return ['activation', 'send', 'policy'].some((kind) => nonterminal.has(wallet?.[kind]?.state));
 }
 
 function createConsoleAsyncContext(state = {}, tokenId = null, activationRequestId = null) {

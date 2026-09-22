@@ -93,6 +93,31 @@ test('selected Looper renders an active compact operator wallet under its name',
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
 });
 
+test('agent selection is disabled while any Looper wallet operation is nonterminal', () => {
+  for (const attemptState of ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed']) {
+    const snapshot = createMultipassConsoleSnapshot({
+      agents: sampleAgents(),
+      state: {
+        walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+        consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+        consoleSelectedAgentId: '1',
+        looperAgentWallet: {
+          mode: 'active', tokenId: '1', owner: '0x1234567890aBcdef1234567890aBcdef12345678',
+          account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [],
+          policyStatus: 'owner-only', canTransact: true,
+          activation: { state: 'idle' },
+          send: { state: attemptState },
+          policy: { state: 'idle' },
+        },
+      },
+    });
+    assert.equal(snapshot.session.selectionEnabled, false);
+    assert.equal(snapshot.agents.every((agent) => agent.activationDisabled), true);
+    const root = render(renderMultipassConsole(snapshot));
+    assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
+  }
+});
+
 test('inactive and legacy Looper wallets fail closed in the compact panel', () => {
   const baseState = {
     walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },

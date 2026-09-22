@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
@@ -9,6 +10,11 @@ import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
 const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
+
+test('default Looper wallet controller rechecks the actual wallet provider chain before send', () => {
+  const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /getWalletChainId:\s*\(\)\s*=>\s*activeWalletClient\.request\(\{\s*method:\s*['"]eth_chainId['"]\s*\}\)/);
+});
 
 function sampleData() {
   return {
@@ -2045,6 +2051,67 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
     amountWei: '1500000000000000000',
   }]);
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
+});
+
+test('dedicated Console blocks agent switching while a Looper wallet submission is nonterminal', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const baseWallet = {
+    mode: 'active', tokenId: '617', owner,
+    account: '0x9999999999999999999999999999999999999999', legacyAccount: null,
+    nativeWei: '2000000000000000000', tokens: [], policyStatus: 'owner-only', canTransact: true,
+    activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  let controllerState = { mode: 'read_only', reason: 'not_selected', activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
+  let finishSubmission;
+  const pendingSubmission = new Promise((resolve) => { finishSubmission = resolve; });
+  const calls = [];
+  const looperWalletController = {
+    getSnapshot: () => controllerState,
+    async select(selection) {
+      calls.push(['select', selection]);
+      controllerState = { ...baseWallet, tokenId: String(selection.tokenId) };
+      return controllerState;
+    },
+    async prepareEthSend() {
+      controllerState = { ...controllerState, send: { state: 'prepared', preparedId: 'send:pending' } };
+      return { id: 'send:pending', requiresExplicitConfirmation: true, transaction: { to: controllerState.account } };
+    },
+    async submitPrepared() {
+      await pendingSubmission;
+      controllerState = { ...controllerState, send: { state: 'confirmed_attributed', preparedId: null } };
+      return controllerState;
+    },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
+  }).start();
+  await flushAsyncEvents(20);
+
+  let selector = root.querySelector('[data-action="select-console-agent"]');
+  selector.value = '617';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents(20);
+  const form = root.querySelector('[data-action="send-looper-agent-wallet"]');
+  form.querySelector('[name="recipient"]').value = '0x4444444444444444444444444444444444444444';
+  form.querySelector('[name="amount"]').value = '1';
+  form.querySelector('[name="confirmed"]').checked = true;
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(10);
+
+  selector = root.querySelector('[data-action="select-console-agent"]');
+  assert.equal(selector.disabled, true);
+  selector.value = '812';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents(10);
+  assert.equal(calls.filter(([name]) => name === 'select').length, 1);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '617');
+  finishSubmission();
+  await flushAsyncEvents(20);
 });
 
 test('dedicated Console discards stale wallet capabilities after select or refresh RPC errors', async () => {

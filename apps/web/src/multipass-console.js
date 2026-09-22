@@ -10,6 +10,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const agentRoster = state.consoleOwnedAgents ?? { status: 'idle', error: null, agents: [] };
   const walletConnected = Boolean(wallet.connected && wallet.address);
   const aliasMutationPending = state.consoleAgentNameMutation?.status === 'pending';
+  const walletWorkPending = hasNonterminalLooperWalletWork(state.looperAgentWallet);
   const activeAgents = Array.isArray(agents) ? agents.filter(Boolean).map(normalizeConsoleAgent) : [];
   const activeAgent = selectActiveAgent(activeAgents, state.consoleSelectedAgentId);
   const ownerProfile = state.consoleOwnerProfile ?? null;
@@ -91,7 +92,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         value: agent.tokenId ?? '',
         label: buildAgentOptionLabel(agent),
       })),
-      selectionEnabled: walletConnected && agentRoster.status === 'loaded' && activeAgentCount > 0 && !aliasMutationPending,
+      selectionEnabled: walletConnected && agentRoster.status === 'loaded' && activeAgentCount > 0 && !aliasMutationPending && !walletWorkPending,
       selectionHint: createSelectionHint({ walletConnected, agentRosterStatus: agentRoster.status, activeAgentCount, roomParticipantCount: roomParticipants.length }),
       nextAction: createNextAction({ walletConnected, activeAgentCount, proposalCount, hasMessages: (agentThread.messages?.length ?? 0) > 0, roomParticipantCount: roomParticipants.length }),
       status,
@@ -157,7 +158,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       href: agent.href ?? null,
       selected: String(agent.tokenId ?? '') !== '' && String(agent.tokenId) === String(activeAgent?.tokenId ?? ''),
       inRoom: roomParticipants.some((participant) => String(participant.tokenId ?? '') === String(agent.tokenId ?? '')),
-      activationDisabled: aliasMutationPending,
+      activationDisabled: aliasMutationPending || walletWorkPending,
     })),
     agentRoster,
   };
@@ -447,6 +448,11 @@ function renderIdentityCard(card = {}) {
       }) : ''}
     </section>
   `;
+}
+
+function hasNonterminalLooperWalletWork(wallet) {
+  const nonterminal = new Set(['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed']);
+  return ['activation', 'send', 'policy'].some((kind) => nonterminal.has(wallet?.[kind]?.state));
 }
 
 function normalizeLooperAgentWallet(wallet, tokenId) {

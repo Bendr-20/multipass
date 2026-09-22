@@ -18,27 +18,34 @@ import {
 } from './looper-agent-wallet.js';
 
 const EMPTY_CODE = '0x';
+const ATTEMPT_STATES = new Set([
+  'prepared', 'submitted', 'confirmed_attributed', 'reverted', 'invalidated',
+  'acknowledged_unknown', 'uncertain_hashless', 'uncertain_hashed',
+]);
 const TERMINAL_STATES = new Set(['confirmed_attributed', 'reverted', 'invalidated', 'acknowledged_unknown']);
 
 export function createLooperAgentWalletController({
   releaseConfig,
   readSnapshot,
   submitTransaction,
+  getWalletChainId,
   readReceipt,
   storage = globalThis.localStorage,
   locks = globalThis.navigator?.locks,
   now = () => Date.now(),
+  generateAttemptId = defaultAttemptId,
 } = {}) {
   if (typeof readSnapshot !== 'function') throw new Error('Looper wallet snapshot reader is required.');
   if (typeof submitTransaction !== 'function') throw new Error('Looper wallet submitter is required.');
+  if (typeof getWalletChainId !== 'function') throw new Error('Looper wallet chain reader is required.');
   if (typeof readReceipt !== 'function') throw new Error('Looper wallet receipt reader is required.');
+  if (typeof generateAttemptId !== 'function') throw new Error('Looper wallet attempt ID generator is required.');
   const releasedImplementation = normalizeReleaseAddress(releaseConfig?.implementation);
   const releasedRuntimeHash = normalizeHash(releaseConfig?.runtimeSha256);
   const releasedModuleRegistry = normalizeReleaseAddress(releaseConfig?.moduleRegistry);
   const releasedModuleRegistryRuntimeHash = normalizeHash(releaseConfig?.moduleRegistryRuntimeSha256);
   let selection = null;
   let current = emptySnapshot();
-  let attemptCounter = 0;
   const attempts = { activation: null, send: null, policy: null };
 
   function getSnapshot() {
@@ -46,7 +53,16 @@ export function createLooperAgentWalletController({
   }
 
   async function select(nextSelection) {
-    selection = normalizeSelection(nextSelection);
+    const normalized = normalizeSelection(nextSelection);
+    if (selection && !sameSelection(selection, normalized)) {
+      const nonterminal = Object.values(attempts).filter((record) => record && !TERMINAL_STATES.has(record.state));
+      if (nonterminal.length) {
+        invalidatePreparedAttempts();
+        throw new Error('A nonterminal Looper wallet operation must settle before agent selection can change.');
+      }
+      clearAttempts();
+    }
+    selection = normalized;
     current = { ...emptySnapshot(), tokenId: selection.tokenId, owner: selection.owner, mode: 'loading', reason: null };
     return refresh('readiness');
   }
@@ -56,7 +72,7 @@ export function createLooperAgentWalletController({
     try {
       const evidence = await readSnapshot({ selection: { ...selection }, phase });
       current = buildSnapshot(evidence, phase);
-      restoreAttempts(current.account ?? current.legacyAccount);
+      await restoreAttempts(current.account ?? current.legacyAccount);
       current = attachAttempts(current);
       return getSnapshot();
     } catch (error) {
@@ -74,7 +90,9 @@ export function createLooperAgentWalletController({
       implementation: releasedImplementation,
       tokenId: selection.tokenId,
     });
-    return savePrepared('activation', transaction, evidence);
+    return savePrepared('activation', transaction, evidence, {
+      semantic: { implementation: releasedImplementation },
+    });
   }
 
   async function prepareEthSend({ recipient, amountWei }) {
@@ -86,7 +104,9 @@ export function createLooperAgentWalletController({
       recipient,
       amountWei,
     });
-    return savePrepared('send', transaction, evidence);
+    return savePrepared('send', transaction, evidence, {
+      semantic: { asset: 'native', recipient: getAddress(recipient), amount: canonicalPositiveUint(amountWei, 'ETH amount') },
+    });
   }
 
   async function prepareErc20Send({ token, recipient, amountBaseUnits }) {
@@ -99,7 +119,14 @@ export function createLooperAgentWalletController({
       recipient,
       amountBaseUnits,
     });
-    return savePrepared('send', transaction, evidence);
+    return savePrepared('send', transaction, evidence, {
+      semantic: {
+        asset: 'erc20',
+        token: getAddress(token),
+        recipient: getAddress(recipient),
+        amount: canonicalPositiveUint(amountBaseUnits, 'token amount'),
+      },
+    });
   }
 
   async function preparePolicyModule({ module }) {
@@ -119,6 +146,7 @@ export function createLooperAgentWalletController({
       module: normalizedModule,
     });
     return savePrepared('policy', transaction, evidence, {
+      semantic: { module: normalizedModule },
       targetPolicyModule: normalizedModule,
       policyBaseline: policyBaseline(evidence),
     });
@@ -128,78 +156,109 @@ export function createLooperAgentWalletController({
     if (!confirmed) throw new Error('Explicit transaction confirmation is required.');
     const record = Object.values(attempts).find((entry) => entry?.id === preparedId);
     if (!record || record.state !== 'prepared') throw new Error('No matching prepared attempt is available.');
+    const boundSelection = { tokenId: record.tokenId, owner: record.owner };
+    if (!sameSelection(selection, boundSelection)) {
+      invalidateAttempt(record);
+      throw new Error('Prepared attempt is not bound to the selected Looper agent.');
+    }
     if (!locks || typeof locks.request !== 'function') {
       current = blocked(current, 'locks_unavailable', 'read_only');
       throw new Error('Web Locks are required before a Looper wallet transaction can be signed.');
     }
     const scope = createOperationScope({
-      tokenId: selection.tokenId,
+      tokenId: record.tokenId,
       account: record.account,
-      owner: selection.owner,
+      owner: record.owner,
       kind: record.kind,
     });
     return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
       if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      let expectedTransaction;
       try {
-        const persisted = loadAttempt(scope);
-        if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared') {
-          throw new Error('The prepared attempt changed in another tab.');
+        const persisted = loadAttempt(scope, record.kind);
+        if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared'
+          || stableJson(persisted) !== stableJson(record)) {
+          throw new Error('The persisted prepared attempt is not exact. Preview again.');
         }
+        let evidence;
         if (record.kind === 'policy') {
-          const evidence = await readSnapshot({
-            selection: { ...selection },
+          evidence = await readSnapshot({
+            selection: { ...boundSelection },
+            expectedAccount: record.account,
             phase: 'pre_sign',
             policyModule: record.targetPolicyModule,
           });
-          const validated = buildSnapshot(evidence, 'pre_sign');
-          current = attachAttempts(validated);
+          const validated = buildSnapshot(evidence, 'pre_sign', boundSelection);
+          if (sameSelection(selection, boundSelection)) current = attachAttempts(validated);
           requirePolicyRecoveryEvidence(validated, evidence, record.targetPolicyModule);
-          const expectedTransaction = buildPolicyModuleTransaction({
-            owner: selection.owner,
-            account: validated.account,
-            module: record.targetPolicyModule,
-          });
-          if (stableJson(record.transaction) !== stableJson(expectedTransaction)
-            || stableJson(persisted.transaction) !== stableJson(expectedTransaction)
-            || !sameAddress(record.account, validated.account)) {
-            throw new Error('Prepared permission module transaction is not exact. Preview again.');
-          }
           if (stableJson(policyBaseline(evidence)) !== stableJson(record.policyBaseline)) {
-            current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
+            if (sameSelection(selection, boundSelection)) current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
             throw new Error('Looper policy evidence drifted after preview. Preview again.');
           }
         } else {
-          await readAndRequireWritable('pre_sign', record.kind === 'activation' ? 'inactive' : 'active');
+          evidence = await readAndRequireWritable(
+            'pre_sign',
+            record.kind === 'activation' ? 'inactive' : 'active',
+            boundSelection,
+            record.account,
+          );
+        }
+        expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, evidence.collectionAccount);
+        if (!sameAddress(record.account, evidence.collectionAccount)
+          || stableJson(record.transaction) !== stableJson(expectedTransaction)
+          || stableJson(persisted.transaction) !== stableJson(expectedTransaction)) {
+          throw new Error('Prepared Looper wallet transaction is not exact. Preview again.');
+        }
+        const walletChainId = await getWalletChainId();
+        if (walletChainId !== '0x2105') {
+          throw new Error('Connected wallet changed away from Base before submission.');
+        }
+        const finalPersisted = loadAttempt(scope, record.kind);
+        if (!finalPersisted || finalPersisted.id !== preparedId || finalPersisted.state !== 'prepared'
+          || stableJson(finalPersisted) !== stableJson(record)) {
+          throw new Error('The persisted prepared attempt changed before submission. Preview again.');
         }
       } catch (error) {
         invalidateAttempt(record);
-        forceReadOnly(current.reason ?? 'pre_sign_invalidated');
+        if (sameSelection(selection, boundSelection)) forceReadOnly(current.reason ?? 'pre_sign_invalidated');
         throw error;
       }
 
       let hash;
       try {
-        hash = await submitTransaction(record.transaction);
+        hash = await submitTransaction(expectedTransaction);
       } catch (error) {
         const nextState = isExplicitWalletRejection(error) ? 'reverted' : 'uncertain_hashless';
-        updateAttempt(record.kind, { ...record, state: nextState, history: appendHistory(record, nextState) });
+        updateAttempt(record.kind, { ...record, transaction: expectedTransaction, state: nextState, history: appendHistory(record, nextState) });
         throw error;
       }
-      if (!/^0x[0-9a-fA-F]{64}$/.test(String(hash ?? ''))) {
-        updateAttempt(record.kind, { ...record, state: 'uncertain_hashless', history: appendHistory(record, 'uncertain_hashless') });
+      if (!/^0x[0-9a-f]{64}$/.test(String(hash ?? ''))) {
+        updateAttempt(record.kind, { ...record, transaction: expectedTransaction, state: 'uncertain_hashless', history: appendHistory(record, 'uncertain_hashless') });
         throw new Error('Wallet returned no canonical transaction hash. Outcome is unknown.');
       }
-      const submitted = { ...record, state: 'submitted', txHash: hash, history: appendHistory(record, 'submitted') };
+      const submitted = {
+        ...record,
+        transaction: expectedTransaction,
+        state: 'submitted',
+        txHash: hash,
+        history: appendHistory(record, 'submitted'),
+      };
       updateAttempt(record.kind, submitted);
 
-      const receipt = await readReceipt({ hash, transaction: record.transaction });
-      const postEvidence = await readSnapshot({ selection: { ...selection }, phase: 'receipt', transaction: record.transaction, receipt });
-      const post = buildSnapshot(postEvidence, 'receipt');
+      const receipt = await readReceipt({ hash, transaction: expectedTransaction });
+      const postEvidence = await readSnapshot({
+        selection: { ...boundSelection },
+        expectedAccount: record.account,
+        phase: 'receipt',
+        transaction: expectedTransaction,
+        receipt,
+      });
+      const post = buildSnapshot(postEvidence, 'receipt', boundSelection);
       try {
         attributeReceipt({ record: submitted, receipt, post });
       } catch (error) {
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
-        current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
+        if (sameSelection(selection, boundSelection)) current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
         throw error;
       }
 
@@ -209,7 +268,7 @@ export function createLooperAgentWalletController({
         attributable: true,
         history: appendHistory(submitted, 'confirmed_attributed'),
       });
-      current = attachAttempts(post);
+      if (sameSelection(selection, boundSelection)) current = attachAttempts(post);
       return getSnapshot();
     });
   }
@@ -218,9 +277,10 @@ export function createLooperAgentWalletController({
     const account = kind === 'activation'
       ? deriveLooperAccount({ implementation: releasedImplementation, tokenId: selection.tokenId })
       : evidence.collectionAccount;
-    const id = `${kind}:${now()}:${attemptCounter += 1}`;
+    const id = `${kind}:${normalizeAttemptId(generateAttemptId())}`;
+    if (attempts[kind]?.id === id) throw new Error('Looper wallet attempt ID collision.');
     const record = {
-      version: 1,
+      version: 2,
       id,
       kind,
       state: 'prepared',
@@ -243,15 +303,15 @@ export function createLooperAgentWalletController({
     });
   }
 
-  async function readAndRequireWritable(phase, expectedMode) {
-    const evidence = await readSnapshot({ selection: { ...selection }, phase });
-    const validated = buildSnapshot(evidence, phase);
+  async function readAndRequireWritable(phase, expectedMode, activeSelection = selection, expectedAccount = null) {
+    const evidence = await readSnapshot({ selection: { ...activeSelection }, expectedAccount, phase });
+    const validated = buildSnapshot(evidence, phase, activeSelection);
     if (validated.mode !== expectedMode) {
-      current = attachAttempts(validated);
+      if (sameSelection(selection, activeSelection)) current = attachAttempts(validated);
       if (validated.reason === 'unsupported_wallet') throw new Error('Looper wallet writes require an EOA with empty Base code.');
       throw new Error(`Looper wallet is not ${expectedMode}; ${validated.reason ?? validated.mode}.`);
     }
-    current = attachAttempts(validated);
+    if (sameSelection(selection, activeSelection)) current = attachAttempts(validated);
     return evidence;
   }
 
@@ -306,22 +366,26 @@ export function createLooperAgentWalletController({
       candidatePolicyModuleRuntimeSha256: normalizeHash(evidence.candidatePolicyModuleRuntimeSha256),
       candidatePolicyModuleCodehash: normalizeHash(evidence.candidatePolicyModuleCodehash),
       candidateApprovedModuleCodehash: normalizeHash(evidence.candidateApprovedModuleCodehash),
-      candidatePolicyModuleApproved: evidence.candidatePolicyModuleApproved,
-      candidatePolicyModuleCodehashMatches: evidence.candidatePolicyModuleCodehashMatches,
+      candidatePolicyModuleApproved: typeof evidence.candidatePolicyModuleApproved === 'boolean'
+        ? evidence.candidatePolicyModuleApproved
+        : null,
+      candidatePolicyModuleCodehashMatches: typeof evidence.candidatePolicyModuleCodehashMatches === 'boolean'
+        ? evidence.candidatePolicyModuleCodehashMatches
+        : null,
     };
   }
 
-  function buildSnapshot(evidence, phase) {
-    const base = evidenceToSnapshot(evidence);
+  function buildSnapshot(evidence, phase, activeSelection = selection) {
+    const base = evidenceToSnapshot(evidence, activeSelection);
     if (evidence.chainId !== BASE_CHAIN_ID) return blocked(base, 'wrong_chain');
-    if (!sameAddress(evidence.owner, selection.owner)) return blocked(base, 'owner_changed');
+    if (!sameAddress(evidence.owner, activeSelection.owner)) return blocked(base, 'owner_changed');
     if (!sameAddress(evidence.registry, ERC6551_REGISTRY) || evidence.salt !== ACCOUNT_SALT) {
       return blocked(base, 'config_drift', 'read_only');
     }
 
     const implementation = safeAddress(evidence.implementation);
     if (!implementation) return blocked(base, 'config_drift', 'read_only');
-    const derivedAccount = deriveLooperAccount({ implementation, tokenId: selection.tokenId });
+    const derivedAccount = deriveLooperAccount({ implementation, tokenId: activeSelection.tokenId });
     const accountAgreement = sameAddress(evidence.collectionAccount, derivedAccount)
       && sameAddress(evidence.registryAccount, derivedAccount);
     if (!accountAgreement) return blocked({ ...base, account: derivedAccount }, 'config_drift', 'read_only');
@@ -359,7 +423,7 @@ export function createLooperAgentWalletController({
       return { ...base, account: derivedAccount, mode: 'inactive', reason: null, canTransact: true, policyStatus: 'owner-only' };
     }
 
-    const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation, tokenId: selection.tokenId });
+    const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation, tokenId: activeSelection.tokenId });
     const accountHash = normalizeHash(evidence.accountRuntimeSha256);
     if (accountCode !== expectedAccountCode
       || accountHash !== sha256(accountCode)
@@ -394,7 +458,7 @@ export function createLooperAgentWalletController({
         mode: 'active', reason: null, canTransact: true, policyStatus: 'owner-only',
       };
     }
-    if (!sameAddress(moduleOwner, selection.owner)) {
+    if (!sameAddress(moduleOwner, activeSelection.owner)) {
       return blocked(policyBase, 'ownership_mismatch', 'read_only', 'ownership-mismatch');
     }
     if (!selectedProof.approved || !selectedProof.matches) {
@@ -416,10 +480,10 @@ export function createLooperAgentWalletController({
     return { ...base, mode, reason, canTransact: false, policyStatus };
   }
 
-  function evidenceToSnapshot(evidence = {}) {
+  function evidenceToSnapshot(evidence = {}, activeSelection = selection) {
     return {
-      tokenId: selection.tokenId,
-      owner: selection.owner,
+      tokenId: activeSelection.tokenId,
+      owner: activeSelection.owner,
       account: safeAddress(evidence.collectionAccount),
       legacyAccount: null,
       mode: 'read_only',
@@ -441,7 +505,7 @@ export function createLooperAgentWalletController({
       policyRecoveryAllowed: false,
       policyModule: safeAddress(evidence.policyModule),
       policyModuleOwner: safeAddress(evidence.policyModuleOwner),
-      policyModuleOwnerMatches: sameAddress(evidence.policyModuleOwner, selection.owner),
+      policyModuleOwnerMatches: sameAddress(evidence.policyModuleOwner, activeSelection.owner),
       policyEpoch: canonicalUint(evidence.policyEpoch) ? String(evidence.policyEpoch) : null,
       policyModuleRuntimeSha256: normalizeHash(evidence.policyModuleRuntimeSha256),
       policyModuleCodehash: normalizeHash(evidence.policyModuleCodehash),
@@ -466,15 +530,17 @@ export function createLooperAgentWalletController({
   }
 
   function updateAttempt(kind, record) {
-    attempts[kind] = record;
+    const validated = validateAttemptRecord(record, kind);
+    if (!validated) throw new Error('Looper wallet attempt schema is invalid.');
+    attempts[kind] = validated;
     const scope = createOperationScope({
-      tokenId: selection.tokenId,
-      account: record.account,
-      owner: selection.owner,
+      tokenId: validated.tokenId,
+      account: validated.account,
+      owner: validated.owner,
       kind,
     });
-    storage?.setItem?.(scope.storageKey, JSON.stringify(record));
-    current = attachAttempts(current);
+    storage?.setItem?.(scope.storageKey, JSON.stringify(validated));
+    if (selection && sameSelection(selection, validated)) current = attachAttempts(current);
   }
 
   function invalidateAttempt(record) {
@@ -493,6 +559,10 @@ export function createLooperAgentWalletController({
     }
   }
 
+  function clearAttempts() {
+    for (const kind of ['activation', 'send', 'policy']) attempts[kind] = null;
+  }
+
   function forceReadOnly(reason) {
     current = attachAttempts({
       ...current,
@@ -504,28 +574,158 @@ export function createLooperAgentWalletController({
     });
   }
 
-  function restoreAttempts(account) {
+  async function restoreAttempts(account) {
+    clearAttempts();
     if (!account) return;
     for (const kind of ['activation', 'send', 'policy']) {
       const scope = createOperationScope({ tokenId: selection.tokenId, account, owner: selection.owner, kind });
-      const restored = loadAttempt(scope);
+      const restored = loadAttempt(scope, kind);
       if (!restored) continue;
-      if (restored.kind !== kind || restored.owner.toLowerCase() !== selection.owner.toLowerCase()
-        || restored.tokenId !== selection.tokenId || restored.account.toLowerCase() !== account.toLowerCase()) continue;
+      if (restored.state === 'prepared') {
+        attempts[kind] = restored;
+        invalidateAttempt(restored);
+        continue;
+      }
+      if (restored.state === 'confirmed_attributed') {
+        const verified = await verifyRestoredConfirmation(restored);
+        const finalPersisted = loadAttempt(scope, kind);
+        if (!verified || !finalPersisted || stableJson(finalPersisted) !== stableJson(restored)) {
+          storage?.removeItem?.(scope.storageKey);
+          continue;
+        }
+      }
       attempts[kind] = restored;
     }
   }
 
-  function loadAttempt(scope) {
+  async function verifyRestoredConfirmation(record) {
+    try {
+      const receipt = await readReceipt({ hash: record.txHash, transaction: record.transaction });
+      const boundSelection = { tokenId: record.tokenId, owner: record.owner };
+      const postEvidence = await readSnapshot({
+        selection: boundSelection,
+        expectedAccount: record.account,
+        phase: 'receipt',
+        transaction: record.transaction,
+        receipt,
+      });
+      const post = buildSnapshot(postEvidence, 'receipt', boundSelection);
+      attributeReceipt({ record, receipt, post });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function loadAttempt(scope, kind) {
     try {
       const raw = storage?.getItem?.(scope.storageKey);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      return parsed?.version === 1 ? parsed : null;
+      const validated = validateAttemptRecord(parsed, kind);
+      if (!validated
+        || validated.tokenId !== selection.tokenId
+        || !sameAddress(validated.owner, selection.owner)
+        || !sameAddress(validated.account, scope.key.split(':')[3])) {
+        storage?.removeItem?.(scope.storageKey);
+        return null;
+      }
+      return validated;
     } catch {
-      current = blocked(current, 'corrupt_store');
+      storage?.removeItem?.(scope.storageKey);
       return null;
     }
+  }
+
+  function validateAttemptRecord(record, expectedKind) {
+    if (!isPlainObject(record) || record.version !== 2 || record.kind !== expectedKind) return null;
+    if (!['activation', 'send', 'policy'].includes(record.kind)
+      || !ATTEMPT_STATES.has(record.state)
+      || typeof record.id !== 'string'
+      || !new RegExp(`^${record.kind}:[A-Za-z0-9_-]{8,128}$`).test(record.id)
+      || !canonicalUint(record.tokenId)
+      || canonicalAddress(record.owner) !== record.owner
+      || canonicalAddress(record.account) !== record.account
+      || !canonicalUint(record.preState)
+      || typeof record.attributable !== 'boolean'
+      || record.attributable !== (record.state === 'confirmed_attributed')
+      || !validateAttemptHistory(record.history)
+      || record.history.at(-1).state !== record.state) return null;
+    const hashRequired = ['submitted', 'confirmed_attributed', 'uncertain_hashed', 'acknowledged_unknown'].includes(record.state);
+    if (hashRequired !== Object.hasOwn(record, 'txHash')) return null;
+    if (hashRequired && normalizeHash(record.txHash) !== record.txHash) return null;
+    const expectedKeys = [
+      'account', 'attributable', 'history', 'id', 'kind', 'owner', 'preState', 'semantic',
+      'state', 'tokenId', 'transaction', 'version',
+      ...(record.kind === 'policy' ? ['policyBaseline', 'targetPolicyModule'] : []),
+      ...(hashRequired ? ['txHash'] : []),
+    ];
+    if (!hasExactKeys(record, expectedKeys)) return null;
+    if (!validateAttemptSemantic(record)
+      || !validateCanonicalTransaction(record.transaction)
+      || (record.kind === 'policy' && !validatePolicyBaseline(record.policyBaseline))) return null;
+    let expectedTransaction;
+    try {
+      expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, record.account);
+    } catch {
+      return null;
+    }
+    if (stableJson(record.transaction) !== stableJson(expectedTransaction)) return null;
+    return deepFreeze(structuredClone(record));
+  }
+
+  function validateAttemptSemantic(record) {
+    if (!isPlainObject(record.semantic)) return false;
+    if (record.kind === 'activation') {
+      return hasExactKeys(record.semantic, ['implementation'])
+        && canonicalAddress(record.semantic.implementation) === record.semantic.implementation
+        && sameAddress(record.semantic.implementation, releasedImplementation)
+        && sameAddress(record.account, deriveLooperAccount({ implementation: record.semantic.implementation, tokenId: record.tokenId }));
+    }
+    if (record.kind === 'policy') {
+      return hasExactKeys(record.semantic, ['module'])
+        && canonicalAddress(record.semantic.module) === record.semantic.module
+        && canonicalAddress(record.targetPolicyModule) === record.targetPolicyModule
+        && sameAddress(record.semantic.module, record.targetPolicyModule);
+    }
+    if (record.semantic.asset === 'native') {
+      return hasExactKeys(record.semantic, ['amount', 'asset', 'recipient'])
+        && canonicalAddress(record.semantic.recipient) === record.semantic.recipient
+        && canonicalPositiveUintOrNull(record.semantic.amount) !== null;
+    }
+    return record.semantic.asset === 'erc20'
+      && hasExactKeys(record.semantic, ['amount', 'asset', 'recipient', 'token'])
+      && canonicalAddress(record.semantic.token) === record.semantic.token
+      && canonicalAddress(record.semantic.recipient) === record.semantic.recipient
+      && canonicalPositiveUintOrNull(record.semantic.amount) !== null;
+  }
+
+  function validatePolicyBaseline(baseline) {
+    const keys = [
+      'account', 'accountCode', 'accountRuntimeSha256', 'accountCodeMatches', 'approvedModuleCodehash',
+      'candidateApprovedModuleCodehash', 'candidatePolicyModule', 'candidatePolicyModuleApproved',
+      'candidatePolicyModuleCode', 'candidatePolicyModuleCodehash', 'candidatePolicyModuleCodehashMatches',
+      'candidatePolicyModuleRuntimeSha256', 'chainId', 'implementation', 'implementationCode',
+      'implementationRuntimeSha256', 'moduleRegistry', 'moduleRegistryCode', 'moduleRegistryRuntimeSha256',
+      'owner', 'policyEpoch', 'policyModule', 'policyModuleApproved', 'policyModuleCode',
+      'policyModuleCodehash', 'policyModuleCodehashMatches', 'policyModuleOwner', 'policyModuleRuntimeSha256',
+      'registry', 'registryAccount', 'registryPaused', 'salt',
+    ];
+    if (!isPlainObject(baseline) || !hasExactKeys(baseline, keys) || baseline.chainId !== BASE_CHAIN_ID
+      || baseline.salt !== ACCOUNT_SALT || !canonicalUint(baseline.policyEpoch)) return false;
+    for (const key of ['owner', 'registry', 'account', 'registryAccount', 'implementation', 'moduleRegistry', 'policyModule', 'policyModuleOwner', 'candidatePolicyModule']) {
+      if (baseline[key] !== null && canonicalAddress(baseline[key]) !== baseline[key]) return false;
+    }
+    for (const key of ['implementationCode', 'accountCode', 'moduleRegistryCode', 'policyModuleCode', 'candidatePolicyModuleCode']) {
+      if (baseline[key] !== null && canonicalCodeOrNull(baseline[key], { allowEmpty: true }) !== baseline[key]) return false;
+    }
+    for (const key of ['implementationRuntimeSha256', 'accountRuntimeSha256', 'moduleRegistryRuntimeSha256', 'policyModuleRuntimeSha256', 'policyModuleCodehash', 'approvedModuleCodehash', 'candidatePolicyModuleRuntimeSha256', 'candidatePolicyModuleCodehash', 'candidateApprovedModuleCodehash']) {
+      if (baseline[key] !== null && normalizeHash(baseline[key]) !== baseline[key]) return false;
+    }
+    if (!['accountCodeMatches', 'registryPaused', 'policyModuleApproved', 'policyModuleCodehashMatches']
+      .every((key) => typeof baseline[key] === 'boolean')) return false;
+    return ['candidatePolicyModuleApproved', 'candidatePolicyModuleCodehashMatches']
+      .every((key) => baseline[key] === null || typeof baseline[key] === 'boolean');
   }
 
   function requireMode(mode) {
@@ -600,6 +800,128 @@ function normalizeSelection(selection = {}) {
     tokenId: normalizeTokenId(selection.tokenId).toString(),
     owner: getAddress(selection.owner),
   };
+}
+
+function sameSelection(left, right) {
+  return Boolean(left && right
+    && String(left.tokenId) === String(right.tokenId)
+    && sameAddress(left.owner, right.owner));
+}
+
+function defaultAttemptId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
+    throw new Error('Secure randomness is unavailable for Looper wallet attempt IDs.');
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(24));
+  return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function normalizeAttemptId(value) {
+  const id = String(value ?? '');
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(id)) throw new Error('Looper wallet attempt ID is malformed.');
+  return id;
+}
+
+function reconstructAttemptTransaction(record, releasedImplementation, evidenceAccount) {
+  if (record.kind === 'activation') {
+    if (!sameAddress(record.semantic?.implementation, releasedImplementation)) {
+      throw new Error('Activation implementation drifted.');
+    }
+    const expectedAccount = deriveLooperAccount({ implementation: releasedImplementation, tokenId: record.tokenId });
+    if (!sameAddress(record.account, expectedAccount) || !sameAddress(evidenceAccount, expectedAccount)) {
+      throw new Error('Activation account drifted.');
+    }
+    return buildActivationTransaction({
+      owner: record.owner,
+      implementation: releasedImplementation,
+      tokenId: record.tokenId,
+    });
+  }
+  if (!sameAddress(record.account, evidenceAccount)) throw new Error('Looper account drifted.');
+  if (record.kind === 'policy') {
+    return buildPolicyModuleTransaction({
+      owner: record.owner,
+      account: record.account,
+      module: record.semantic.module,
+    });
+  }
+  if (record.semantic.asset === 'native') {
+    return buildEthSendTransaction({
+      owner: record.owner,
+      account: record.account,
+      recipient: record.semantic.recipient,
+      amountWei: record.semantic.amount,
+    });
+  }
+  return buildErc20SendTransaction({
+    owner: record.owner,
+    account: record.account,
+    token: record.semantic.token,
+    recipient: record.semantic.recipient,
+    amountBaseUnits: record.semantic.amount,
+  });
+}
+
+function validateCanonicalTransaction(transaction) {
+  if (!isPlainObject(transaction)
+    || !hasExactKeys(transaction, ['chainId', 'data', 'from', 'to', 'value'])
+    || transaction.chainId !== '0x2105'
+    || transaction.value !== '0x0'
+    || canonicalAddress(transaction.from) !== transaction.from
+    || canonicalAddress(transaction.to) !== transaction.to) return false;
+  const data = String(transaction.data ?? '');
+  return /^0x(?:[0-9a-f]{2})*$/.test(data);
+}
+
+function validateAttemptHistory(history) {
+  if (!Array.isArray(history) || history.length === 0 || history[0]?.state !== 'prepared') return false;
+  const transitions = {
+    prepared: new Set(['submitted', 'reverted', 'invalidated', 'uncertain_hashless']),
+    submitted: new Set(['confirmed_attributed', 'uncertain_hashed']),
+    uncertain_hashless: new Set(['acknowledged_unknown']),
+    uncertain_hashed: new Set(['acknowledged_unknown']),
+  };
+  for (let index = 0; index < history.length; index += 1) {
+    const entry = history[index];
+    if (!isPlainObject(entry)
+      || !hasExactKeys(entry, ['at', 'state'])
+      || !ATTEMPT_STATES.has(entry.state)
+      || !Number.isSafeInteger(entry.at)
+      || entry.at < 0) return false;
+    if (index > 0 && !transitions[history[index - 1].state]?.has(entry.state)) return false;
+  }
+  return true;
+}
+
+function canonicalAddress(value) {
+  try {
+    const address = getAddress(value);
+    return address === value ? address : null;
+  } catch {
+    return null;
+  }
+}
+
+function canonicalPositiveUint(value, label) {
+  const normalized = canonicalPositiveUintOrNull(value);
+  if (normalized === null) throw new Error(`${label} must be a canonical positive integer.`);
+  return normalized;
+}
+
+function canonicalPositiveUintOrNull(value) {
+  const text = String(value ?? '');
+  return /^[1-9]\d*$/.test(text) && BigInt(text) <= ((1n << 256n) - 1n) ? text : null;
+}
+
+function hasExactKeys(value, expected) {
+  return isPlainObject(value)
+    && Object.keys(value).sort().join(',') === [...expected].sort().join(',');
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype);
 }
 
 function normalizeReleaseAddress(value) {

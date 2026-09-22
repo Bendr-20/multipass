@@ -56,7 +56,7 @@ export function createLooperWalletRpcClient({
 } = {}) {
   const activeRequest = request ?? createFixedRequester(fetchImpl ?? globalThis.fetch);
   const reviewedRelease = normalizeReleaseConfig(releaseConfig);
-  async function readSnapshot({ selection, phase, receipt, policyModule } = {}) {
+  async function readSnapshot({ selection, expectedAccount, phase, receipt, policyModule } = {}) {
     const tokenId = BigInt(String(selection?.tokenId ?? ''));
     const expectedOwner = getAddress(selection?.owner);
     const anchor = phase === 'receipt'
@@ -73,18 +73,22 @@ export function createLooperWalletRpcClient({
       reviewedRelease,
     })));
     requireAgreement(snapshots, 'Base wallet snapshots disagree.');
+    if (expectedAccount && !sameAddress(snapshots[0].collectionAccount, expectedAccount)) {
+      throw new Error('Base wallet snapshot does not match the attempt-bound account.');
+    }
     return { ...snapshots[0], refreshedAt: new Date().toISOString() };
   }
 
   async function readReceipt({ hash }) {
+    const requestedHash = canonicalHash(hash, 'requested transaction hash');
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const evidence = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => {
         const [receipt, transaction] = await Promise.all([
-          activeRequest({ origin, method: 'eth_getTransactionReceipt', params: [hash] }),
-          activeRequest({ origin, method: 'eth_getTransactionByHash', params: [hash] }),
+          activeRequest({ origin, method: 'eth_getTransactionReceipt', params: [requestedHash] }),
+          activeRequest({ origin, method: 'eth_getTransactionByHash', params: [requestedHash] }),
         ]);
         if (!receipt || !transaction) return null;
-        return normalizeReceipt(receipt, transaction);
+        return normalizeReceipt(receipt, transaction, requestedHash);
       }));
       if (evidence.every(Boolean)) {
         requireAgreement(evidence, 'Base transaction receipts disagree.');
@@ -100,10 +104,10 @@ export function createLooperWalletRpcClient({
 
 async function canonicalReceiptAnchor(request, receipt) {
   const numberText = String(receipt?.blockNumber ?? '');
-  const expectedHash = String(receipt?.blockHash ?? '').toLowerCase();
-  if (!/^(0|[1-9]\d*)$/.test(numberText) || !/^0x[0-9a-f]{64}$/.test(expectedHash)) {
+  if (!/^(0|[1-9]\d*)$/.test(numberText)) {
     throw new Error('Canonical receipt block evidence is required.');
   }
+  const expectedHash = canonicalHash(receipt?.blockHash, 'receipt block hash');
   const chainIds = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
   if (chainIds.some((chainId) => chainId !== '0x2105')) throw new Error('Base RPC chain IDs disagree.');
   const number = BigInt(numberText);
@@ -113,33 +117,54 @@ async function canonicalReceiptAnchor(request, receipt) {
     method: 'eth_getBlockByNumber',
     params: [tag, false],
   })));
-  if (blocks.some((block) => !block || BigInt(block.number) !== number || String(block.hash).toLowerCase() !== expectedHash)) {
+  if (blocks.some((block) => !block
+    || BigInt(canonicalHexQuantity(block.number, 'receipt block number')) !== number
+    || canonicalHash(block.hash, 'receipt block hash') !== expectedHash)) {
     throw new Error('Base receipt block hashes disagree.');
   }
-  return { tag, number: number.toString(), hash: expectedHash };
+  return {
+    tag,
+    number: number.toString(),
+    hash: expectedHash,
+    blockRef: Object.freeze({ blockHash: expectedHash, requireCanonical: true }),
+  };
 }
 
 async function canonicalAnchor(request) {
   const chainIds = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
   if (chainIds.some((chainId) => chainId !== '0x2105')) throw new Error('Base RPC chain IDs disagree.');
   const heads = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_blockNumber', params: [] })));
-  const number = heads.map((head) => BigInt(head)).reduce((lowest, head) => head < lowest ? head : lowest);
+  const number = heads
+    .map((head) => BigInt(canonicalHexQuantity(head, 'head block number')))
+    .reduce((lowest, head) => head < lowest ? head : lowest);
   const tag = `0x${number.toString(16)}`;
   const blocks = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({
     origin,
     method: 'eth_getBlockByNumber',
     params: [tag, false],
   })));
-  if (blocks.some((block) => !block || BigInt(block.number) !== number)) throw new Error('Base RPC anchor is incomplete.');
-  requireAgreement(blocks.map((block) => ({ number: block.number, hash: block.hash })), 'Base RPC block hashes disagree.');
-  return { tag, number: number.toString(), hash: blocks[0].hash };
+  if (blocks.some((block) => !block
+    || BigInt(canonicalHexQuantity(block.number, 'anchor block number')) !== number)) {
+    throw new Error('Base RPC anchor is incomplete.');
+  }
+  const anchors = blocks.map((block) => ({
+    number: canonicalHexQuantity(block.number, 'anchor block number'),
+    hash: canonicalHash(block.hash, 'anchor block hash'),
+  }));
+  requireAgreement(anchors, 'Base RPC block hashes disagree.');
+  return {
+    tag,
+    number: number.toString(),
+    hash: anchors[0].hash,
+    blockRef: Object.freeze({ blockHash: anchors[0].hash, requireCanonical: true }),
+  };
 }
 
 async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOwner, candidatePolicyModule, reviewedRelease }) {
   const call = (address, abi, functionName, args = []) => callContract({
     request,
     origin,
-    tag: anchor.tag,
+    blockRef: anchor.blockRef,
     address,
     abi,
     functionName,
@@ -151,10 +176,10 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Implementation'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Salt'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'tokenBoundAccount', [tokenId]),
-    request({ origin, method: 'eth_getCode', params: [expectedOwner, anchor.tag] }),
+    request({ origin, method: 'eth_getCode', params: [expectedOwner, anchor.blockRef] }),
   ]);
   const normalizedImplementation = getAddress(implementation);
-  const rawImplementationCode = await request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.tag] });
+  const rawImplementationCode = await request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.blockRef] });
   const implementationCode = canonicalCode(rawImplementationCode, 'implementation runtime');
   const implementationRuntimeSha256 = sha256(implementationCode);
   const registryAccount = await call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
@@ -166,8 +191,8 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   ]);
   const normalizedAccount = getAddress(collectionAccount);
   const [rawAccountCode, nativeBalance] = await Promise.all([
-    request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.tag] }),
-    request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.tag] }),
+    request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.blockRef] }),
+    request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.blockRef] }),
   ]);
   const accountCode = canonicalCode(rawAccountCode, 'account runtime', { allowEmpty: true });
   const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation: normalizedImplementation, tokenId });
@@ -205,7 +230,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     const rawRegistryCode = await request({
       origin,
       method: 'eth_getCode',
-      params: [moduleRegistry, anchor.tag],
+      params: [moduleRegistry, anchor.blockRef],
     });
     moduleRegistryCode = canonicalCode(rawRegistryCode, 'module registry runtime', { allowEmpty: true });
     moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
@@ -222,7 +247,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     policyModule = getAddress(policyModule);
     policyModuleOwner = getAddress(policyModuleOwner);
     candidateModule ??= policyModule;
-    const rawRegistryCode = await request({ origin, method: 'eth_getCode', params: [moduleRegistry, anchor.tag] });
+    const rawRegistryCode = await request({ origin, method: 'eth_getCode', params: [moduleRegistry, anchor.blockRef] });
     moduleRegistryCode = canonicalCode(rawRegistryCode, 'module registry runtime', { allowEmpty: true });
     moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
     const registryTrusted = sameAddress(moduleRegistry, reviewedRelease.moduleRegistry)
@@ -238,7 +263,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
           continue;
         }
         const [rawCode, approved] = await Promise.all([
-          request({ origin, method: 'eth_getCode', params: [module, anchor.tag] }),
+          request({ origin, method: 'eth_getCode', params: [module, anchor.blockRef] }),
           call(moduleRegistry, MODULE_REGISTRY_ABI, 'approvedModuleCodehash', [module]),
         ]);
         moduleEvidence.set(module.toLowerCase(), moduleProof(
@@ -286,7 +311,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     accountRuntimeSha256,
     accountCodeMatches,
     state: BigInt(state).toString(),
-    nativeWei: BigInt(nativeBalance).toString(),
+    nativeWei: BigInt(canonicalHexQuantity(nativeBalance, 'native balance')).toString(),
     tokens,
     moduleRegistry,
     moduleRegistryCode,
@@ -313,16 +338,18 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
 }
 
 function canonicalCode(value, label, { allowEmpty = false } = {}) {
-  const code = String(value ?? '').toLowerCase();
-  if (!/^0x(?:[0-9a-f]{2})*$/.test(code) || (!allowEmpty && code === '0x')) {
+  const raw = String(value ?? '');
+  const code = raw.toLowerCase();
+  if (raw !== code || !/^0x(?:[0-9a-f]{2})*$/.test(code) || (!allowEmpty && code === '0x')) {
     throw new Error(`Base ${label} is missing or malformed.`);
   }
   return code;
 }
 
 function canonicalHash(value, label) {
-  const hash = String(value ?? '').toLowerCase();
-  if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error(`Base ${label} is malformed.`);
+  const raw = String(value ?? '');
+  const hash = raw.toLowerCase();
+  if (raw !== hash || !/^0x[0-9a-f]{64}$/.test(hash)) throw new Error(`Base ${label} is malformed.`);
   return hash;
 }
 
@@ -340,28 +367,38 @@ function moduleProof(code, approvedCodehash) {
   };
 }
 
-async function callContract({ request, origin, tag, address, abi, functionName, args = [] }) {
+async function callContract({ request, origin, blockRef, address, abi, functionName, args = [] }) {
   const data = encodeFunctionData({ abi, functionName, args });
   const result = await request({
     origin,
     method: 'eth_call',
-    params: [{ to: address, data }, tag],
+    params: [{ to: address, data }, blockRef],
   });
-  const raw = String(result ?? '').toLowerCase();
-  if (!/^0x(?:[0-9a-f]{2})+$/.test(raw)) throw new Error(`Base ${functionName} result is malformed.`);
+  const raw = String(result ?? '');
+  if (raw !== raw.toLowerCase() || !/^0x(?:[0-9a-f]{2})+$/.test(raw)) {
+    throw new Error(`Base ${functionName} result is malformed.`);
+  }
   const decoded = decodeFunctionResult({ abi, functionName, data: raw });
   const canonical = encodeFunctionResult({ abi, functionName, result: decoded }).toLowerCase();
   if (raw !== canonical) throw new Error(`Base ${functionName} result is not canonical.`);
   return decoded;
 }
 
-function normalizeReceipt(receipt, transaction) {
+function normalizeReceipt(receipt, transaction, requestedHash) {
+  const transactionHash = canonicalHash(transaction?.hash, 'transaction hash');
+  const receiptTransactionHash = canonicalHash(receipt?.transactionHash, 'receipt transaction hash');
+  if (transactionHash !== requestedHash || receiptTransactionHash !== requestedHash) {
+    throw new Error('Base transaction hash evidence does not match the requested hash.');
+  }
+  if (!['0x0', '0x1'].includes(receipt?.status)) {
+    throw new Error('Base receipt status is malformed.');
+  }
   const normalizedTransaction = {
-    chainId: transaction.chainId,
+    chainId: canonicalHexQuantity(transaction.chainId, 'transaction chain ID'),
     from: getAddress(transaction.from),
     to: getAddress(transaction.to),
-    value: normalizeHexQuantity(transaction.value),
-    data: String(transaction.input ?? '0x').toLowerCase(),
+    value: canonicalHexQuantity(transaction.value, 'transaction value'),
+    data: canonicalCode(transaction.input ?? '0x', 'transaction input', { allowEmpty: true }),
   };
   const logs = [];
   for (const log of receipt.logs ?? []) {
@@ -381,16 +418,20 @@ function normalizeReceipt(receipt, transaction) {
   }
   return {
     status: receipt.status === '0x1' ? 'success' : 'reverted',
-    transactionHash: receipt.transactionHash,
-    blockNumber: BigInt(receipt.blockNumber).toString(),
-    blockHash: receipt.blockHash,
+    transactionHash: receiptTransactionHash,
+    blockNumber: BigInt(canonicalHexQuantity(receipt.blockNumber, 'receipt block number')).toString(),
+    blockHash: canonicalHash(receipt.blockHash, 'receipt block hash'),
     transaction: normalizedTransaction,
     logs,
   };
 }
 
-function normalizeHexQuantity(value) {
-  return `0x${BigInt(value ?? 0).toString(16)}`;
+function canonicalHexQuantity(value, label) {
+  const quantity = String(value ?? '');
+  if (!/^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(quantity)) {
+    throw new Error(`Base ${label} quantity is malformed.`);
+  }
+  return quantity;
 }
 
 function requireAgreement(values, message) {
@@ -445,17 +486,24 @@ function createFixedRequester(fetchImpl) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
+      const id = nextId;
+      nextId += 1;
       const response = await fetchImpl(origin, {
         method: 'POST',
         redirect: 'error',
         credentials: 'omit',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: nextId += 1, method, params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`Base RPC failed with ${response.status}.`);
       const body = await response.json();
-      if (body?.error || !Object.hasOwn(body ?? {}, 'result')) throw new Error('Base RPC returned an invalid envelope.');
+      const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort() : [];
+      if (body?.jsonrpc !== '2.0'
+        || body?.id !== id
+        || keys.join(',') !== 'id,jsonrpc,result') {
+        throw new Error('Base RPC returned an invalid envelope.');
+      }
       return body.result;
     } finally {
       clearTimeout(timeout);

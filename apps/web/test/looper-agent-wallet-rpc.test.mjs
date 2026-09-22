@@ -41,6 +41,7 @@ function output(type, value) {
 
 function requester({
   disagreeOwner = false,
+  disagreeBlockHash = false,
   disagreeApproval = false,
   disagreeImplementationCode = false,
   disagreeProxyCode = false,
@@ -78,7 +79,12 @@ function requester({
     calls.push({ origin, method, params: structuredClone(params) });
     if (method === 'eth_chainId') return '0x2105';
     if (method === 'eth_blockNumber') return '0x64';
-    if (method === 'eth_getBlockByNumber') return { number: '0x64', hash: BLOCK_HASH };
+    if (method === 'eth_getBlockByNumber') {
+      const hash = disagreeBlockHash && origin === BASE_RPC_ORIGINS[1]
+        ? `0x${'cc'.repeat(32)}`
+        : BLOCK_HASH;
+      return { number: '0x64', hash };
+    }
     if (method === 'eth_getCode') {
       const address = params[0].toLowerCase();
       if (address === OWNER.toLowerCase()) return '0x';
@@ -135,7 +141,8 @@ function requester({
 }
 
 test('anchored Base reader verifies configuration, ownership, account runtime and balances across origins', async () => {
-  const reader = createLooperWalletRpcClient({ request: requester(), releaseConfig: RELEASE_CONFIG });
+  const calls = [];
+  const reader = createLooperWalletRpcClient({ request: requester({ calls }), releaseConfig: RELEASE_CONFIG });
   const result = await reader.readSnapshot({
     selection: { tokenId: TOKEN_ID, owner: OWNER },
     phase: 'readiness',
@@ -169,6 +176,40 @@ test('anchored Base reader verifies configuration, ownership, account runtime an
   assert.equal(result.state, '7');
   assert.equal(result.nativeWei, '1000');
   assert.deepEqual(result.tokens, [{ ...CONFIGURED_TOKENS[0], balanceBaseUnits: '25' }]);
+  const stateReads = calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method));
+  assert.ok(stateReads.length > 0);
+  assert.equal(stateReads.every((call) => {
+    const block = call.params.at(-1);
+    return block?.blockHash === BLOCK_HASH && block?.requireCanonical === true;
+  }), true);
+  assert.equal(stateReads.some((call) => typeof call.params.at(-1) === 'string'), false);
+});
+
+test('anchored Base reader rejects uppercase RPC code and ABI data instead of normalizing it', async (t) => {
+  await t.test('runtime code', async () => {
+    const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }).toLowerCase();
+    const base = requester();
+    const request = async (input) => {
+      const result = await base(input);
+      if (input.method === 'eth_getCode' && input.params[0].toLowerCase() === account) {
+        return `0x${result.slice(2).toUpperCase()}`;
+      }
+      return result;
+    };
+    const reader = createLooperWalletRpcClient({ request, releaseConfig: RELEASE_CONFIG });
+    await assert.rejects(reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER } }), /runtime|malformed/i);
+  });
+
+  await t.test('contract call result', async () => {
+    const base = requester();
+    const request = async (input) => {
+      const result = await base(input);
+      if (input.method === 'eth_call') return String(result).replace(/[a-f]/g, (value) => value.toUpperCase());
+      return result;
+    };
+    const reader = createLooperWalletRpcClient({ request, releaseConfig: RELEASE_CONFIG });
+    await assert.rejects(reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER } }), /result|malformed/i);
+  });
 });
 
 test('inactive account snapshots prove the reviewed module registry runtime across both origins at the anchor', async () => {
@@ -189,7 +230,7 @@ test('inactive account snapshots prove the reviewed module registry runtime acro
     && call.params[0].toLowerCase() === MODULE_REGISTRY.toLowerCase()).length, 2);
   assert.equal(calls.filter((call) => call.method === 'eth_getCode'
     && call.params[0].toLowerCase() === MODULE_REGISTRY.toLowerCase())
-    .every((call) => call.params[1] === '0x64'), true);
+    .every((call) => call.params[1]?.blockHash === BLOCK_HASH && call.params[1]?.requireCanonical === true), true);
 
   const disagreeing = createLooperWalletRpcClient({
     request: requester({ inactiveAccount: true, disagreeRegistryCode: true }),
@@ -222,7 +263,109 @@ test('receipt revalidation pins every ownership and config read to the receipt b
   });
   assert.equal(calls.some((call) => call.method === 'eth_blockNumber'), false);
   assert.equal(calls.filter((call) => call.method === 'eth_getBlockByNumber').every((call) => call.params[0] === '0x63'), true);
-  assert.equal(calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method)).every((call) => call.params.at(-1) === '0x63'), true);
+  assert.equal(calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method)).every((call) => {
+    const block = call.params.at(-1);
+    return block?.blockHash === receiptHash && block?.requireCanonical === true;
+  }), true);
+});
+
+test('anchor hash disagreement fails before any state can be labeled with the old anchor', async () => {
+  const calls = [];
+  const reader = createLooperWalletRpcClient({
+    request: requester({ calls, disagreeBlockHash: true }),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  await assert.rejects(reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  }), /block hashes disagree/i);
+  assert.equal(calls.some((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method)), false);
+});
+
+test('reorg-safe reads fail closed instead of retrying state against a numeric old anchor', async () => {
+  const calls = [];
+  const baseRequest = requester({ calls });
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    request: async (input) => {
+      if (['eth_call', 'eth_getCode', 'eth_getBalance'].includes(input.method)) {
+        const block = input.params.at(-1);
+        if (typeof block === 'string') throw new Error('numeric old anchor was used');
+        if (block?.blockHash === BLOCK_HASH && block?.requireCanonical === true) {
+          throw new Error('canonical block is no longer available');
+        }
+      }
+      return baseRequest(input);
+    },
+  });
+  await assert.rejects(reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  }), /canonical block is no longer available/);
+  assert.equal(calls.some((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method)
+    && typeof call.params.at(-1) === 'string'), false);
+});
+
+test('receipt evidence rejects malformed quantities, statuses, and transaction hash bindings', async () => {
+  const requestedHash = `0x${'cc'.repeat(32)}`;
+  const validTransaction = {
+    hash: requestedHash,
+    chainId: '0x2105',
+    from: OWNER,
+    to: ERC6551_REGISTRY,
+    value: '0x0',
+    input: '0x',
+  };
+  const validReceipt = {
+    status: '0x1',
+    transactionHash: requestedHash,
+    blockNumber: '0x64',
+    blockHash: BLOCK_HASH,
+    logs: [],
+  };
+  for (const mutation of [
+    { receipt: { ...validReceipt, status: '0x2' }, message: /status/i },
+    { receipt: { ...validReceipt, status: '0x01' }, message: /status/i },
+    { receipt: { ...validReceipt, blockNumber: '0x064' }, message: /quantity|block/i },
+    { transaction: { ...validTransaction, chainId: '0x02105' }, message: /quantity|chain/i },
+    { transaction: { ...validTransaction, value: '0x00' }, message: /quantity|value/i },
+    { transaction: { ...validTransaction, input: '0xABcd' }, message: /input|malformed/i },
+    { transaction: { ...validTransaction, hash: requestedHash.toUpperCase().replace('0X', '0x') }, message: /hash/i },
+    { transaction: { ...validTransaction, hash: `0x${'dd'.repeat(32)}` }, message: /hash/i },
+    { receipt: { ...validReceipt, transactionHash: `0x${'ee'.repeat(32)}` }, message: /hash/i },
+  ]) {
+    const transaction = mutation.transaction ?? validTransaction;
+    const receipt = mutation.receipt ?? validReceipt;
+    const reader = createLooperWalletRpcClient({
+      releaseConfig: RELEASE_CONFIG,
+      wait: async () => {},
+      request: async ({ method }) => method === 'eth_getTransactionReceipt' ? receipt : transaction,
+    });
+    await assert.rejects(reader.readReceipt({ hash: requestedHash }), mutation.message);
+  }
+});
+
+test('fixed requester rejects noncanonical JSON-RPC envelopes before consuming results', async () => {
+  const malformedBodies = [
+    ({ id }) => ({ jsonrpc: '2.0', id: id + 1, result: '0x2105' }),
+    ({ id }) => ({ jsonrpc: '1.0', id, result: '0x2105' }),
+    ({ id }) => ({ jsonrpc: '2.0', id, result: '0x2105', extra: true }),
+    ({ id }) => ({ jsonrpc: '2.0', id, error: { code: -32000, message: 'failed' } }),
+    ({ id }) => ({ jsonrpc: '2.0', id }),
+  ];
+  for (const makeBody of malformedBodies) {
+    const reader = createLooperWalletRpcClient({
+      releaseConfig: RELEASE_CONFIG,
+      fetchImpl: async (_origin, options) => {
+        const requestBody = JSON.parse(options.body);
+        return { ok: true, json: async () => makeBody(requestBody) };
+      },
+    });
+    await assert.rejects(reader.readSnapshot({
+      selection: { tokenId: TOKEN_ID, owner: OWNER },
+      phase: 'readiness',
+    }), /envelope/i);
+  }
 });
 
 test('anchored Base reader rejects stale ownership disagreement', async () => {
