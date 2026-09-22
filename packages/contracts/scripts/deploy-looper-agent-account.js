@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import { ethers } from 'ethers';
 import solc from 'solc';
@@ -32,14 +33,16 @@ const CONFIG_INTERFACE = new ethers.Interface([
 const ABI_CODER = ethers.AbiCoder.defaultAbiCoder();
 
 export async function compileLooperReleaseBundle() {
-  const accountSource = await readFile(ACCOUNT_SOURCE_PATH, 'utf8');
-  const registrySource = await readFile(REGISTRY_SOURCE_PATH, 'utf8');
+  return compileCanonicalReleaseBundle();
+}
+
+function compileCanonicalReleaseBundle() {
+  const sourceContents = materializeSourceClosure();
   const input = {
     language: 'Solidity',
-    sources: {
-      [ACCOUNT_SOURCE_NAME]: { content: accountSource },
-      [REGISTRY_SOURCE_NAME]: { content: registrySource },
-    },
+    sources: Object.fromEntries(
+      Object.entries(sourceContents).map(([sourceName, content]) => [sourceName, { content }]),
+    ),
     settings: {
       optimizer: { ...COMPILER_SETTINGS.optimizer },
       evmVersion: COMPILER_SETTINGS.evmVersion,
@@ -58,9 +61,15 @@ export async function compileLooperReleaseBundle() {
     },
   };
   const serializedInput = JSON.stringify(input);
-  const output = JSON.parse(solc.compile(serializedInput, { import: resolveImport }));
+  const output = JSON.parse(solc.compile(serializedInput));
   const errors = output.errors?.filter((entry) => entry.severity === 'error') ?? [];
   if (errors.length) throw new Error(errors.map((entry) => entry.formattedMessage).join('\n'));
+
+  const inputSourceNames = Object.keys(sourceContents);
+  const outputSourceNames = Object.keys(output.sources ?? {}).sort((left, right) => left.localeCompare(right));
+  if (!sameStrings(inputSourceNames, outputSourceNames)) {
+    throw new Error('compiler output source units do not match the materialized standard-json source closure.');
+  }
 
   const account = buildArtifact({
     output,
@@ -87,10 +96,9 @@ export async function compileLooperReleaseBundle() {
       },
       inputSha256: sha256Text(serializedInput),
     },
-    sources: {
-      [ACCOUNT_SOURCE_NAME]: { sha256: sha256Text(accountSource) },
-      [REGISTRY_SOURCE_NAME]: { sha256: sha256Text(registrySource) },
-    },
+    sources: Object.fromEntries(
+      Object.entries(sourceContents).map(([sourceName, content]) => [sourceName, { sha256: sha256Text(content) }]),
+    ),
     contracts: { account, registry },
   };
 }
@@ -192,8 +200,29 @@ export function patchImmutableRuntime({ artifact, immutableValues }) {
   return `0x${body}`;
 }
 
-export function buildDeploymentPreparation({ compiled, deployer, owner, nonce }) {
-  validateBundle(compiled);
+export function buildDeploymentPreparation(compiledOrRequest, legacyOptions) {
+  const canonicalBundle = compileCanonicalReleaseBundle();
+  let options;
+  if (legacyOptions !== undefined) {
+    requireCanonicalEvidence(
+      compiledOrRequest,
+      canonicalBundle.contracts.account,
+      'flat account artifact',
+    );
+    options = legacyOptions;
+  } else {
+    if (!isPlainObject(compiledOrRequest)) {
+      throw new Error('compiled release bundle and preparation options are required.');
+    }
+    const { compiled, deployer, owner, nonce } = compiledOrRequest;
+    requireCanonicalEvidence(compiled, canonicalBundle, 'release bundle');
+    options = { deployer, owner, nonce };
+  }
+
+  return buildCanonicalDeploymentPreparation(canonicalBundle, options);
+}
+
+function buildCanonicalDeploymentPreparation(compiled, { deployer, owner, nonce }) {
   const normalizedDeployer = normalizeAddress(deployer, 'deployer');
   const normalizedOwner = normalizeAddress(owner, 'owner');
   if (!Number.isSafeInteger(nonce) || nonce < 0 || !Number.isSafeInteger(nonce + 1)) {
@@ -408,17 +437,17 @@ function deploymentSection({
   };
 }
 
-function validateBundle(compiled) {
-  if (!compiled || compiled.schemaVersion !== '2.0.0'
-    || compiled.kind !== 'looper-permission-release-compile-bundle') {
-    throw new Error('compiled Looper permission release bundle is required.');
+function requireCanonicalEvidence(candidate, canonical, label) {
+  let candidateDigest;
+  let canonicalDigest;
+  try {
+    candidateDigest = sha256Text(JSON.stringify(candidate));
+    canonicalDigest = sha256Text(JSON.stringify(canonical));
+  } catch {
+    throw new Error(`${label} does not match fresh canonical compiler evidence.`);
   }
-  if (!compiled.contracts?.registry || !compiled.contracts?.account) {
-    throw new Error('compiled registry and account artifacts are required.');
-  }
-  if (compiled.contracts.registry.contractName !== 'LooperAgentModuleRegistry'
-    || compiled.contracts.account.contractName !== 'LooperAgentAccount') {
-    throw new Error('compiled release contract artifacts are invalid.');
+  if (candidateDigest !== canonicalDigest || !isDeepStrictEqual(candidate, canonical)) {
+    throw new Error(`${label} does not match fresh canonical compiler evidence.`);
   }
 }
 
@@ -450,11 +479,43 @@ function sameStrings(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function resolveImport(importPath) {
+function materializeSourceClosure() {
+  const sourceContents = new Map();
+  const visit = (sourceUnitName) => {
+    if (sourceContents.has(sourceUnitName)) return;
+    const content = readSourceUnit(sourceUnitName);
+    sourceContents.set(sourceUnitName, content);
+    for (const imported of extractImports(content)) {
+      visit(resolveSourceUnitName(sourceUnitName, imported));
+    }
+  };
+  visit(ACCOUNT_SOURCE_NAME);
+  visit(REGISTRY_SOURCE_NAME);
+  return Object.fromEntries(
+    [...sourceContents].sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function extractImports(source) {
+  return Array.from(
+    source.matchAll(/\bimport\s+(?:[^'\"]*?\s+from\s+)?['\"]([^'\"]+)['\"]\s*;/g),
+    (match) => match[1],
+  );
+}
+
+function resolveSourceUnitName(importer, imported) {
+  return imported.startsWith('.')
+    ? posix.normalize(posix.join(posix.dirname(importer), imported))
+    : imported;
+}
+
+function readSourceUnit(sourceUnitName) {
+  if (sourceUnitName === ACCOUNT_SOURCE_NAME) return readFileSync(ACCOUNT_SOURCE_PATH, 'utf8');
+  if (sourceUnitName === REGISTRY_SOURCE_NAME) return readFileSync(REGISTRY_SOURCE_PATH, 'utf8');
   try {
-    return { contents: readFileSync(require.resolve(importPath, { paths: [CONTRACT_ROOT] }), 'utf8') };
+    return readFileSync(require.resolve(sourceUnitName, { paths: [CONTRACT_ROOT] }), 'utf8');
   } catch (error) {
-    return { error: `Could not resolve ${importPath}: ${error.message}` };
+    throw new Error(`Could not materialize Solidity source ${sourceUnitName}: ${error.message}`);
   }
 }
 

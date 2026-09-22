@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
@@ -12,6 +14,7 @@ import ganache from 'ganache';
 
 import * as deployment from '../scripts/deploy-looper-agent-account.js';
 
+const require = createRequire(import.meta.url);
 const TEST_ROOT = dirname(fileURLToPath(import.meta.url));
 const CONTRACT_ROOT = resolve(TEST_ROOT, '..');
 const SCRIPT_PATH = resolve(CONTRACT_ROOT, 'scripts/deploy-looper-agent-account.js');
@@ -28,8 +31,71 @@ function sha256Hex(value) {
   return `0x${createHash('sha256').update(Buffer.from(value.slice(2), 'hex')).digest('hex')}`;
 }
 
+function sha256Text(value) {
+  return `0x${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
+
+function extractImports(source) {
+  return Array.from(source.matchAll(/\bimport\s+(?:[^'\"]*?\s+from\s+)?['\"]([^'\"]+)['\"]\s*;/g), (match) => match[1]);
+}
+
+function resolveSourceUnitName(importer, imported) {
+  return imported.startsWith('.')
+    ? posix.normalize(posix.join(posix.dirname(importer), imported))
+    : imported;
+}
+
+function readSourceUnit(sourceUnitName) {
+  const path = sourceUnitName.startsWith('src/')
+    ? resolve(CONTRACT_ROOT, sourceUnitName)
+    : require.resolve(sourceUnitName, { paths: [CONTRACT_ROOT] });
+  return readFileSync(path, 'utf8');
+}
+
+function materializeTestSourceClosure() {
+  const sources = new Map();
+  const visit = (sourceUnitName) => {
+    if (sources.has(sourceUnitName)) return;
+    const content = readSourceUnit(sourceUnitName);
+    sources.set(sourceUnitName, content);
+    for (const imported of extractImports(content)) {
+      visit(resolveSourceUnitName(sourceUnitName, imported));
+    }
+  };
+  visit(ACCOUNT_SOURCE);
+  visit(REGISTRY_SOURCE);
+  return Object.fromEntries([...sources].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function canonicalCompilerInput(sources) {
+  return {
+    language: 'Solidity',
+    sources: Object.fromEntries(Object.entries(sources).map(([sourceName, content]) => [sourceName, { content }])),
+    settings: {
+      optimizer: { enabled: true, runs: 200 },
+      evmVersion: 'paris',
+      metadata: { bytecodeHash: 'none', appendCBOR: false },
+      outputSelection: {
+        '*': {
+          '': ['ast'],
+          '*': [
+            'abi',
+            'evm.bytecode.object',
+            'evm.deployedBytecode.object',
+            'evm.deployedBytecode.immutableReferences',
+          ],
+        },
+      },
+    },
+  };
+}
+
 function clone(value) {
   return structuredClone(value);
+}
+
+function tamperHex(value) {
+  return `${value.slice(0, -2)}${value.endsWith('00') ? '01' : '00'}`;
 }
 
 function independentlyPatchRuntime(artifact, immutableDeclarations, immutableValues) {
@@ -79,9 +145,24 @@ test('release compiler deterministically compiles both exact production contract
     metadata: { bytecodeHash: 'none', appendCBOR: false },
   });
   assertSha256(first.compiler.inputSha256);
-  assert.deepEqual(Object.keys(first.sources), [ACCOUNT_SOURCE, REGISTRY_SOURCE]);
-  assertSha256(first.sources[ACCOUNT_SOURCE].sha256);
-  assertSha256(first.sources[REGISTRY_SOURCE].sha256);
+  const sourceClosure = materializeTestSourceClosure();
+  const sourceNames = Object.keys(sourceClosure);
+  assert.ok(sourceNames.length > 2);
+  assert.ok(sourceNames.includes('@openzeppelin/contracts/interfaces/IERC1271.sol'));
+  assert.deepEqual(Object.keys(first.sources), sourceNames);
+  for (const [sourceName, content] of Object.entries(sourceClosure)) {
+    assert.deepEqual(first.sources[sourceName], { sha256: sha256Text(content) });
+    for (const imported of extractImports(content)) {
+      assert.ok(
+        sourceNames.includes(resolveSourceUnitName(sourceName, imported)),
+        `${sourceName} has unresolved import ${imported}`,
+      );
+    }
+  }
+  assert.equal(
+    first.compiler.inputSha256,
+    sha256Text(JSON.stringify(canonicalCompilerInput(sourceClosure))),
+  );
   assert.deepEqual(Object.keys(first.contracts), ['account', 'registry']);
 
   const expectedContracts = [
@@ -112,6 +193,64 @@ test('release compiler deterministically compiles both exact production contract
 
   const compatible = await deployment.compileLooperAgentAccount();
   assert.deepEqual(compatible, first.contracts.account);
+});
+
+test('preparation rejects every material mutation of compiler evidence', async () => {
+  const compiled = await compileBundle();
+  const mutations = [
+    ['creation bytecode', (bundle) => { bundle.contracts.account.creationBytecode = tamperHex(bundle.contracts.account.creationBytecode); }],
+    ['runtime bytecode', (bundle) => { bundle.contracts.registry.runtimeBytecode = tamperHex(bundle.contracts.registry.runtimeBytecode); }],
+    ['ABI', (bundle) => { bundle.contracts.account.abi.push({ type: 'function', name: 'forged', inputs: [], outputs: [] }); }],
+    ['artifact hash', (bundle) => { bundle.contracts.account.creationSha256 = `0x${'11'.repeat(32)}`; }],
+    ['source evidence', (bundle) => { bundle.sources[ACCOUNT_SOURCE].sha256 = `0x${'22'.repeat(32)}`; }],
+    ['compiler settings', (bundle) => { bundle.compiler.settings.optimizer.runs = 201; }],
+    ['compiler version', (bundle) => { bundle.compiler.version = '0.8.24+forged'; }],
+    ['compiler input hash', (bundle) => { bundle.compiler.inputSha256 = `0x${'33'.repeat(32)}`; }],
+    ['immutable references', (bundle) => {
+      const id = String(bundle.contracts.account.immutableDeclarations._implementation);
+      bundle.contracts.account.immutableReferences[id][0].start += 1;
+    }],
+    ['immutable mapping', (bundle) => {
+      [bundle.contracts.account.immutableDeclarations._implementation, bundle.contracts.account.immutableDeclarations.moduleRegistry]
+        = [bundle.contracts.account.immutableDeclarations.moduleRegistry, bundle.contracts.account.immutableDeclarations._implementation];
+    }],
+    ['contract identity', (bundle) => { bundle.contracts.registry.sourceName = ACCOUNT_SOURCE; }],
+  ];
+
+  for (const [label, mutate] of mutations) {
+    const tampered = clone(compiled);
+    mutate(tampered);
+    assert.throws(
+      () => deployment.buildDeploymentPreparation({ compiled: tampered, deployer: DEPLOYER, owner: OWNER, nonce: 17 }),
+      /fresh canonical compiler evidence/i,
+      label,
+    );
+  }
+});
+
+test('legacy flat account artifact remains accepted by the retained preparation builder', async () => {
+  const compiled = await compileBundle();
+  const flatAccountArtifact = await deployment.compileLooperAgentAccount();
+  assert.deepEqual(flatAccountArtifact, compiled.contracts.account);
+
+  const options = { deployer: DEPLOYER, owner: OWNER, nonce: 17 };
+  const legacyPreview = deployment.buildDeploymentPreparation(flatAccountArtifact, options);
+  const bundlePreview = deployment.buildDeploymentPreparation({ compiled, ...options });
+  assert.deepEqual(legacyPreview, bundlePreview);
+  assert.equal(legacyPreview.schemaVersion, '2.0.0');
+});
+
+test('legacy builder rejects a mismatched flat account artifact', async () => {
+  const flatAccountArtifact = await deployment.compileLooperAgentAccount();
+  flatAccountArtifact.runtimeSha256 = `0x${'44'.repeat(32)}`;
+  assert.throws(
+    () => deployment.buildDeploymentPreparation(flatAccountArtifact, {
+      deployer: DEPLOYER,
+      owner: OWNER,
+      nonce: 17,
+    }),
+    /fresh canonical compiler evidence/i,
+  );
 });
 
 test('preview predicts registry at nonce N and account at N+1 with exact constructor and config calldata', async () => {
