@@ -517,11 +517,33 @@ test('policy recovery permits an exact clear after the configured module is remo
     policyModuleApproved: false,
     policyModuleCodehashMatches: false,
   });
-  const f = controllerFixture({ snapshots: [removed, removed] });
+  const post = deployedSnapshot({ policyEpoch: '5' });
+  const submitted = [];
+  const f = controllerFixture({
+    snapshots: [removed, removed, removed, post],
+    submit: async (transaction) => {
+      submitted.push(transaction);
+      return `0x${'cc'.repeat(32)}`;
+    },
+    receipt: async ({ transaction }) => ({ status: 'success', transaction, logs: [] }),
+  });
   const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(selected.policyStatus, 'module-blocked');
   const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
-  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: removed.collectionAccount, module: ZERO_ADDRESS }));
+  const expectedTransaction = buildPolicyModuleTransaction({ owner: OWNER, account: removed.collectionAccount, module: ZERO_ADDRESS });
+  assert.deepEqual(prepared.transaction, expectedTransaction);
+  assert.equal(prepared.requiresExplicitConfirmation, true);
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: false }), /confirmation/i);
+  const result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.deepEqual(submitted, [expectedTransaction]);
+  assert.deepEqual(f.phases, ['readiness', 'policy_preview', 'pre_sign', 'receipt']);
+  assert.equal(result.policy.state, 'confirmed_attributed');
+  assert.equal(result.policyStatus, 'owner-only');
+  assert.equal(result.policyModule, ZERO_ADDRESS);
+  const [, storedValue] = [...f.storage.values.entries()].find(([key]) => key.includes('.policy.'));
+  const stored = JSON.parse(storedValue);
+  assert.equal(stored.state, 'confirmed_attributed');
+  assert.equal(stored.history.at(-1).state, 'confirmed_attributed');
 });
 
 test('policy recovery permits an exact clear for unpaused deployed module with nonzero approved codehash mismatch', async () => {
@@ -538,11 +560,33 @@ test('policy recovery permits an exact clear for unpaused deployed module with n
     policyModuleApproved: true,
     policyModuleCodehashMatches: false,
   });
-  const f = controllerFixture({ snapshots: [mismatched, mismatched] });
+  const post = deployedSnapshot({ policyEpoch: '5' });
+  const submitted = [];
+  const f = controllerFixture({
+    snapshots: [mismatched, mismatched, mismatched, post],
+    submit: async (transaction) => {
+      submitted.push(transaction);
+      return `0x${'cc'.repeat(32)}`;
+    },
+    receipt: async ({ transaction }) => ({ status: 'success', transaction, logs: [] }),
+  });
   const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(selected.policyStatus, 'module-blocked');
   const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
-  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: mismatched.collectionAccount, module: ZERO_ADDRESS }));
+  const expectedTransaction = buildPolicyModuleTransaction({ owner: OWNER, account: mismatched.collectionAccount, module: ZERO_ADDRESS });
+  assert.deepEqual(prepared.transaction, expectedTransaction);
+  assert.equal(prepared.requiresExplicitConfirmation, true);
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: false }), /confirmation/i);
+  const result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.deepEqual(submitted, [expectedTransaction]);
+  assert.deepEqual(f.phases, ['readiness', 'policy_preview', 'pre_sign', 'receipt']);
+  assert.equal(result.policy.state, 'confirmed_attributed');
+  assert.equal(result.policyStatus, 'owner-only');
+  assert.equal(result.policyModule, ZERO_ADDRESS);
+  const [, storedValue] = [...f.storage.values.entries()].find(([key]) => key.includes('.policy.'));
+  const stored = JSON.parse(storedValue);
+  assert.equal(stored.state, 'confirmed_attributed');
+  assert.equal(stored.history.at(-1).state, 'confirmed_attributed');
 });
 
 test('nonzero policy change requires exact fresh module approval and rejects policy drift before submit', async () => {
