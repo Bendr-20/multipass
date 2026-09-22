@@ -21,7 +21,7 @@ import {
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
-import { CONFIGURED_TOKENS, RELEASED_ACCOUNT_IMPLEMENTATION } from './looper-agent-wallet.js';
+import { CONFIGURED_TOKENS, RELEASED_ACCOUNT_IMPLEMENTATION, RELEASED_ACCOUNT_RUNTIME_SHA256 } from './looper-agent-wallet.js';
 import { createLooperAgentWalletController, createReadOnlyLooperWalletContext } from './looper-agent-wallet-controller.js';
 import { createLooperWalletRpcClient } from './looper-agent-wallet-rpc.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
@@ -64,7 +64,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
   const looperWalletRpc = looperWalletController ? null : createLooperWalletRpcClient({ fetchImpl: fetchImpl ?? globalThis.fetch });
   const activeLooperWalletController = looperWalletController ?? createLooperAgentWalletController({
-    releaseConfig: looperWalletReleaseConfig ?? { implementation: RELEASED_ACCOUNT_IMPLEMENTATION, runtimeSha256: null },
+    releaseConfig: looperWalletReleaseConfig ?? { implementation: RELEASED_ACCOUNT_IMPLEMENTATION, runtimeSha256: RELEASED_ACCOUNT_RUNTIME_SHA256 },
     readSnapshot: looperWalletRpc.readSnapshot,
     readReceipt: looperWalletRpc.readReceipt,
     submitTransaction: async (transaction) => {
