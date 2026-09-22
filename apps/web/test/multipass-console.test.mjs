@@ -77,9 +77,14 @@ test('selected Looper renders an active compact operator wallet under its name',
   assert.match(panel.textContent, /Agent wallet/i);
   assert.match(panel.textContent, /1\.25 ETH/);
   assert.match(panel.textContent, /2\.5 CRED/);
-  assert.equal(panel.querySelector('a')?.href, 'https://basescan.org/address/0x9999999999999999999999999999999999999999');
+  assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
+  assert.equal(panel.querySelector('.console-looper-wallet-primary-balance')?.textContent, '1.25 ETH');
+  const details = panel.querySelector('details.console-looper-wallet-details');
+  assert.ok(details);
+  assert.match(details.querySelector('summary')?.textContent ?? '', /Wallet details/i);
+  assert.equal(details.querySelector('a')?.href, 'https://basescan.org/address/0x9999999999999999999999999999999999999999');
   assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
-  assert.ok(panel.querySelector('[data-action="send-looper-agent-wallet"]'));
+  assert.ok(details.querySelector('[data-action="send-looper-agent-wallet"]'));
   const identityBody = root.querySelector('.console-identity-body');
   assert.equal(identityBody.nextElementSibling, panel);
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');

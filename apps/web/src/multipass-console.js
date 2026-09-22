@@ -469,11 +469,11 @@ function renderLooperAgentWallet(wallet) {
   if (!wallet) return '';
   const account = wallet.account ?? wallet.legacyAccount;
   const modeLabel = wallet.mode === 'active'
-    ? 'Active'
+    ? 'Owner controlled'
     : wallet.mode === 'inactive'
-      ? 'Inactive'
+      ? 'Inactive — activation required'
       : wallet.mode === 'legacy_read_only'
-        ? 'Legacy account - read-only'
+        ? 'Legacy account — read-only'
         : wallet.mode === 'loading'
           ? 'Loading'
           : wallet.mode === 'blocked'
@@ -481,40 +481,58 @@ function renderLooperAgentWallet(wallet) {
             : 'Read-only';
   const busy = ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.activation?.state)
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.send?.state);
+  const nativeBalance = `${formatWalletUnits(wallet.nativeWei, 18)} ETH`;
+  const assetCount = 1 + (wallet.tokens ?? []).length;
   return `
     <section class="console-looper-wallet" aria-label="Selected Looper agent wallet">
       <div class="console-looper-wallet-head">
-        <div><span>Agent wallet</span><strong>${escapeHtml(modeLabel)}</strong></div>
+        <div class="console-looper-wallet-title">
+          <span>Agent wallet</span>
+          <strong class="console-looper-wallet-status" data-wallet-mode="${escapeAttribute(wallet.mode)}">${escapeHtml(modeLabel)}</strong>
+        </div>
         <button type="button" data-action="refresh-looper-agent-wallet" ${busy ? 'disabled' : ''}>Refresh</button>
       </div>
-      ${account ? `
-        <div class="console-looper-wallet-address">
-          <span>Receive</span>
-          <code>${escapeHtml(account)}</code>
-          <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">Explorer</a>
-        </div>
-      ` : ''}
-      <div class="console-looper-wallet-balances">
-        <span>${escapeHtml(formatWalletUnits(wallet.nativeWei, 18))} ETH</span>
-        ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
+      <div class="console-looper-wallet-overview" aria-label="Wallet balance summary">
+        <span>Available balance</span>
+        <strong class="console-looper-wallet-primary-balance">${escapeHtml(nativeBalance)}</strong>
+        <small>${assetCount} tracked ${assetCount === 1 ? 'asset' : 'assets'} on Base</small>
       </div>
-      ${wallet.mode === 'inactive' ? `
-        <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
-          <label><input type="checkbox" name="confirmed" required> Confirm owner-paid activation on Base</label>
-          <button type="submit" ${busy ? 'disabled' : ''}>Activate wallet</button>
-        </form>
-      ` : ''}
-      ${wallet.mode === 'active' ? `
-        <form class="console-looper-wallet-send" data-action="send-looper-agent-wallet">
-          <label><span>Asset</span><select name="asset"><option value="ETH">ETH</option>${(wallet.tokens ?? []).map((token) => `<option value="${escapeAttribute(token.contract)}">${escapeHtml(token.symbol)}</option>`).join('')}</select></label>
-          <label><span>Recipient</span><input name="recipient" inputmode="text" autocomplete="off" required></label>
-          <label><span>Amount</span><input name="amount" inputmode="decimal" autocomplete="off" required></label>
-          <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact transfer</label>
-          <button type="submit" ${busy ? 'disabled' : ''}>Send</button>
-        </form>
-      ` : ''}
-      ${wallet.reason ? `<small>${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}
-      ${wallet.error ? `<p role="alert">${escapeHtml(wallet.error)}</p>` : ''}
+      <details class="console-looper-wallet-details">
+        <summary>
+          <span>Wallet details</span>
+          <small>Address, assets, and actions</small>
+        </summary>
+        <div class="console-looper-wallet-details-body">
+          ${account ? `
+            <div class="console-looper-wallet-address">
+              <span>Receive address</span>
+              <code>${escapeHtml(account)}</code>
+              <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
+            </div>
+          ` : ''}
+          <div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
+            <span>${escapeHtml(nativeBalance)}</span>
+            ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
+          </div>
+          ${wallet.mode === 'inactive' ? `
+            <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
+              <label><input type="checkbox" name="confirmed" required> Confirm owner-paid activation on Base</label>
+              <button type="submit" ${busy ? 'disabled' : ''}>Activate wallet</button>
+            </form>
+          ` : ''}
+          ${wallet.mode === 'active' ? `
+            <form class="console-looper-wallet-send" data-action="send-looper-agent-wallet">
+              <label><span>Asset</span><select name="asset"><option value="ETH">ETH</option>${(wallet.tokens ?? []).map((token) => `<option value="${escapeAttribute(token.contract)}">${escapeHtml(token.symbol)}</option>`).join('')}</select></label>
+              <label><span>Recipient</span><input name="recipient" inputmode="text" autocomplete="off" required></label>
+              <label><span>Amount</span><input name="amount" inputmode="decimal" autocomplete="off" required></label>
+              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact transfer</label>
+              <button type="submit" ${busy ? 'disabled' : ''}>Send</button>
+            </form>
+          ` : ''}
+        </div>
+      </details>
+      ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}
+      ${wallet.error ? `<p class="console-looper-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
   `;
 }
