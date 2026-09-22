@@ -8,7 +8,6 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 
 interface IERC6551Account {
     function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
-    function owner() external view returns (address);
     function state() external view returns (uint256);
     function isValidSigner(address signer, bytes calldata context) external view returns (bytes4 magicValue);
 }

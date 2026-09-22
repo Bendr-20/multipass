@@ -304,6 +304,8 @@ test('fresh create is canonical, immediately owned, and exposes token/state/ERC-
   assert.equal(accountCode.length, 2 + (173 * 2));
   assert.equal(await f.account.supportsInterface('0x01ffc9a7'), true);
   assert.equal(await f.account.supportsInterface('0x1626ba7e'), true);
+  assert.equal(await f.account.supportsInterface('0x6faff5f1'), true);
+  assert.equal(await f.account.supportsInterface(ethers.id('execute(address,uint256,bytes,uint8)').slice(0, 10)), true);
   const accountInterface = selectorXor([
     'execute(address,uint256,bytes,uint8)',
     'token()',
