@@ -18,7 +18,8 @@ export function buildSibylMemoryNamespace({
     const normalizedContract = normalizeNamespacePart(tokenContract, 'unknown-contract');
     const normalizedTokenId = normalizeNamespacePart(tokenId, 'unknown-token');
     const normalizedIdentity = normalizeNamespacePart(identityAgentId, 'unknown-identity');
-    return `multipass:eip155:${normalizedChainId}:${normalizedContract}:${normalizedTokenId}:erc8004:${normalizedIdentity}`;
+    const normalizedOwner = normalizeNamespacePart(wallet, 'unknown-owner');
+    return `multipass:eip155:${normalizedChainId}:${normalizedContract}:${normalizedTokenId}:erc8004:${normalizedIdentity}:owner:${normalizedOwner}`;
   }
   const normalizedWallet = normalizeNamespacePart(wallet, 'unknown-wallet');
   const normalizedAgent = normalizeNamespacePart(agentId, 'unknown-agent');

@@ -522,6 +522,7 @@ async function handleConsoleAgentMessage(request, context) {
   const message = String(body.message ?? '').trim();
   if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
   const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const walletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
   const activation = context.consoleRuntimeRegistry.get(identity);
   if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
   const result = await context.consoleAgentRuntime.handleMessage({
@@ -533,6 +534,7 @@ async function handleConsoleAgentMessage(request, context) {
     canonicalIdentity: activation.identity,
     canonicalConversationId: activation.conversationId,
     message,
+    walletContext,
   });
   if (result?.thread?.conversationId) {
     context.consoleRuntimeRegistry.bindConversation({
@@ -1151,6 +1153,43 @@ async function authorizeConsoleLooper({ tokenId, wallet, context }) {
       throw new ApiForbiddenError(error.message);
     }
     throw error;
+  }
+}
+
+function normalizeConsoleWalletContext(value, { identity, wallet }) {
+  if (value === undefined || value === null) return null;
+  rejectExecutableWalletContext(value);
+  const capabilities = value?.capabilities;
+  const scope = value?.scope;
+  const matchesIdentity = value?.schema_version === '0.1.0'
+    && value?.kind === 'looper_wallet_read_context'
+    && scope?.chainId === LOOPERS_MAINNET_CHAIN_ID
+    && String(scope?.collection ?? '').toLowerCase() === String(identity.contract).toLowerCase()
+    && String(scope?.tokenId ?? '') === String(identity.tokenId)
+    && String(scope?.owner ?? '').toLowerCase() === String(wallet).toLowerCase()
+    && /^0x[a-fA-F0-9]{40}$/.test(String(scope?.account ?? ''))
+    && capabilities?.read === true
+    && capabilities?.sign === false
+    && capabilities?.submit === false
+    && capabilities?.approve === false;
+  if (!matchesIdentity) throw new ApiForbiddenError('Looper wallet context is not owner-scoped read-only evidence.');
+  return JSON.parse(JSON.stringify(value));
+}
+
+function rejectExecutableWalletContext(value, path = '') {
+  if (typeof value === 'function' || typeof value === 'bigint') {
+    throw new ApiForbiddenError('Looper wallet context must contain JSON read evidence only.');
+  }
+  if (!value || typeof value !== 'object') return;
+  if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) {
+    throw new ApiForbiddenError('Looper wallet context must contain plain JSON only.');
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = path ? `${path}.${key}` : key;
+    if (/(?:calldata|transaction|prepared|provider|callback|credential|api.?key|store.?key)/i.test(nextPath)) {
+      throw new ApiForbiddenError('Looper wallet context contains executable or private data.');
+    }
+    rejectExecutableWalletContext(entry, nextPath);
   }
 }
 

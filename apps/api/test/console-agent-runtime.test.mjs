@@ -102,7 +102,13 @@ test('runtime profile preserves the server-derived canonical Looper persona', ()
   assert.equal(profile.displayName, 'Market Ghost');
   assert.equal(profile.persona.canonicalName, 'Looper #1234');
   assert.equal(profile.persona.voice, 'conspiracy energy converted into due diligence');
-  assert.equal(profile.memoryNamespace, 'multipass:eip155:8453:0x1649cd37f4748807b4882fc48765ba0b2affa94a:1234:erc8004:87069');
+  assert.equal(profile.memoryNamespace, 'multipass:eip155:8453:0x1649cd37f4748807b4882fc48765ba0b2affa94a:1234:erc8004:87069:owner:0x1234567890abcdef1234567890abcdef12345678');
+  const transferred = createRuntimeProfile({
+    wallet: '0x9999999999999999999999999999999999999999',
+    agentName: 'Market Ghost',
+    canonicalIdentity: { ...CONSOLE_IDENTITY, owner: '0x9999999999999999999999999999999999999999' },
+  });
+  assert.notEqual(transferred.memoryNamespace, profile.memoryNamespace);
   assert.equal(profile.permissions.trading, 'review_only');
 });
 
@@ -325,6 +331,50 @@ test('Console message route ignores client persona and uses the authorizer canon
   assert.equal(response.status, 200);
   assert.equal(received.canonicalIdentity.persona.canonicalName, 'Looper #1234');
   assert.equal(received.canonicalIdentity.persona.voice, 'trusted token voice');
+});
+
+test('Console message route validates and passes only owner-scoped read-only wallet context', async () => {
+  const consoleRuntimeRegistry = createLooperRuntimeRegistry();
+  consoleRuntimeRegistry.activate({ identity: CONSOLE_IDENTITY, runtimeName: 'Looper #1234' });
+  let received = null;
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    consoleAuthStore: { validateSession: () => ({ wallet: WALLET }) },
+    consoleRuntimeRegistry,
+    loopersAuthorizer: async () => CONSOLE_IDENTITY,
+    consoleAgentRuntime: {
+      async handleMessage(input) {
+        received = input;
+        return { schema_version: '0.1.0', thread: { messages: [] }, proposals: [], missions: [] };
+      },
+    },
+  });
+  const walletContext = {
+    schema_version: '0.1.0',
+    kind: 'looper_wallet_read_context',
+    scope: {
+      chainId: 8453,
+      collection: CONSOLE_IDENTITY.contract,
+      tokenId: CONSOLE_IDENTITY.tokenId,
+      account: '0x1111111111111111111111111111111111111111',
+      owner: WALLET,
+    },
+    native: { symbol: 'ETH', balanceWei: '1' },
+    tokens: [],
+    activity: [],
+    refreshedAt: '2026-09-21T23:59:00.000Z',
+    health: 'verified',
+    capabilities: { read: true, sign: false, submit: false, approve: false },
+  };
+  let response = await api.handleRequest(secureConsoleRequest({ message: 'Wallet status?', walletContext }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(received.walletContext, walletContext);
+
+  response = await api.handleRequest(secureConsoleRequest({
+    message: 'Spoof',
+    walletContext: { ...walletContext, scope: { ...walletContext.scope, owner: '0x9999999999999999999999999999999999999999' } },
+  }));
+  assert.equal(response.status, 403);
 });
 
 test('Bankr key does not call the gateway unless Console inference is explicitly enabled', async () => {

@@ -86,7 +86,8 @@ export function createConsoleAgentRuntime({
       const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
       const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
       const recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
-      const signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory });
+      const walletContext = normalizeWalletContext(input.walletContext);
+      const signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
 
       const userMessage = createThreadMessage({
         id: `msg_${hashish(`${threadId}:human:${message}:${now()}`)}`,
@@ -118,6 +119,7 @@ export function createConsoleAgentRuntime({
           memory: recalledMemory,
           signals,
           history: priorMessages,
+          walletContext,
         });
         agentMessages.push(createThreadMessage({
           id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
@@ -222,6 +224,7 @@ export function createRuntimeProfile(input = {}) {
         tokenContract,
         tokenId,
         identityAgentId: agentId,
+        wallet,
       })
       : buildSibylMemoryNamespace({ wallet, agentId, activationId }),
     permissions: {
@@ -399,6 +402,18 @@ function normalizeRuntimePersona(value, tokenId) {
     if (text) persona[field] = text;
   }
   return Object.keys(persona).length > 1 ? persona : null;
+}
+
+function normalizeWalletContext(value) {
+  if (!value) return null;
+  if (value.kind !== 'looper_wallet_read_context'
+    || value.capabilities?.read !== true
+    || value.capabilities?.sign !== false
+    || value.capabilities?.submit !== false
+    || value.capabilities?.approve !== false) {
+    throw new TypeError('walletContext must be read-only.');
+  }
+  return JSON.parse(JSON.stringify(value));
 }
 
 function requireWallet(value) {
