@@ -1150,14 +1150,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (!isCurrentConsoleAsyncContext(state, context)) return;
       state = {
         ...state,
-        looperAgentWallet: {
-          ...activeLooperWalletController.getSnapshot(),
+        looperAgentWallet: createFailedLooperWalletState({
           tokenId: String(agent.tokenId),
           owner,
-          mode: 'read_only',
-          reason: 'rpc_disagreement',
           error: getSafeConsoleError(error, { phase: 'wallet' }),
-        },
+        }),
       };
     }
     render(root, state, handlers);
@@ -1171,7 +1168,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     } catch (error) {
       state = {
         ...state,
-        looperAgentWallet: { ...state.looperAgentWallet, mode: 'read_only', reason: 'rpc_disagreement', error: getSafeConsoleError(error, { phase: 'wallet' }) },
+        looperAgentWallet: createFailedLooperWalletState({
+          tokenId: state.consoleSelectedAgentId,
+          owner: state.consoleAuthenticatedWallet,
+          error: getSafeConsoleError(error, { phase: 'wallet' }),
+        }),
       };
     }
     render(root, state, handlers);
@@ -2248,6 +2249,26 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
       activation: { state: 'idle' },
       send: { state: 'idle' },
     },
+  };
+}
+
+function createFailedLooperWalletState({ tokenId = null, owner = null, error = null } = {}) {
+  return {
+    mode: 'read_only',
+    reason: 'rpc_disagreement',
+    tokenId: tokenId === null ? null : String(tokenId),
+    owner,
+    account: null,
+    legacyAccount: null,
+    nativeWei: '0',
+    tokens: [],
+    canTransact: false,
+    policyStatus: 'read-only',
+    policyRecoveryAllowed: false,
+    activation: { state: 'idle', preparedId: null },
+    send: { state: 'idle', preparedId: null },
+    policy: { state: 'idle', preparedId: null },
+    error,
   };
 }
 

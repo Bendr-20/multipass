@@ -2047,6 +2047,55 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
 });
 
+test('dedicated Console discards stale wallet capabilities after select or refresh RPC errors', async () => {
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const staleWallet = {
+    mode: 'active', tokenId: '617', owner,
+    account: '0x9999999999999999999999999999999999999999', legacyAccount: null,
+    nativeWei: '100', tokens: [], policyStatus: 'active-policy', policyRecoveryAllowed: true, canTransact: true,
+    activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  let root = setupDom('https://helixa.xyz/multipass/console');
+  let looperWalletController = {
+    getSnapshot: () => staleWallet,
+    async select() { return staleWallet; },
+    async refresh() { throw new Error('Base wallet snapshots disagree.'); },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+  root.querySelector('[data-action="refresh-looper-agent-wallet"]').click();
+  await flushAsyncEvents(20);
+  let panel = root.querySelector('.console-looper-wallet');
+  assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Read-only');
+  assert.equal(panel.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+  assert.equal(panel.querySelector('[data-action="set-looper-policy-module"]'), null);
+  assert.equal(panel.querySelector('[data-action="refresh-looper-agent-wallet"]')?.disabled, false);
+
+  root = setupDom('https://helixa.xyz/multipass/console');
+  looperWalletController = {
+    getSnapshot: () => staleWallet,
+    async select() { throw new Error('Base wallet snapshots disagree.'); },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+  panel = root.querySelector('.console-looper-wallet');
+  assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Read-only');
+  assert.equal(panel.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+  assert.equal(panel.querySelector('[data-action="set-looper-policy-module"]'), null);
+});
+
 test('dedicated Console wires only explicit owner-confirmed policy module recovery', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

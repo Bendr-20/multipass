@@ -120,7 +120,9 @@ function controllerFixture({ snapshots = [], submit, receipt, storage = memorySt
     locks,
     async readSnapshot(request) {
       phases.push(request.phase);
-      return structuredClone(snapshots[index++] ?? fallback);
+      const next = snapshots[index++] ?? fallback;
+      if (next instanceof Error) throw next;
+      return structuredClone(next);
     },
     submitTransaction: submit ?? (async () => '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'),
     readReceipt: receipt ?? (async ({ transaction }) => ({
@@ -155,6 +157,24 @@ test('inactive activation passes EOA gates at readiness, pre-sign and receipt be
   assert.deepEqual(f.phases, ['readiness', 'pre_sign', 'pre_sign', 'receipt']);
 });
 
+test('inactive activation requires exact reviewed module registry address, code and runtime hash', async () => {
+  assert.equal((await controllerFixture({ snapshots: [snapshot()] }).controller.select({ tokenId: TOKEN_ID, owner: OWNER })).canTransact, true);
+  for (const evidence of [
+    snapshot({ moduleRegistry: null, moduleRegistryCode: null, moduleRegistryRuntimeSha256: null }),
+    snapshot({ moduleRegistry: NEXT_OWNER }),
+    snapshot({ moduleRegistryCode: '0x', moduleRegistryRuntimeSha256: null }),
+    snapshot({ moduleRegistryRuntimeSha256: RUNTIME_HASH }),
+  ]) {
+    const f = controllerFixture({ snapshots: [evidence] });
+    const result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    assert.equal(result.mode, 'read_only');
+    assert.equal(result.reason, 'registry_mismatch');
+    assert.equal(result.canTransact, false);
+    assert.equal(result.policyStatus, 'read-only');
+    assert.equal(result.policyRecoveryAllowed, false);
+  }
+});
+
 test('EOA gate rejects contract or delegated operator at readiness and again before signing', async () => {
   let f = controllerFixture({ snapshots: [snapshot({ operatorCode: '0xef0100abcd' })] });
   const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
@@ -171,6 +191,8 @@ test('EOA gate rejects contract or delegated operator at readiness and again bef
   const prepared = await f.controller.prepareActivation();
   await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /EOA|wallet/i);
   assert.equal(submissions, 0);
+  assert.equal(f.controller.getSnapshot().activation.state, 'invalidated');
+  assert.equal(f.controller.getSnapshot().activation.preparedId, null);
 });
 
 test('active ETH send requires exact direct receipt attribution and state increment', async () => {
@@ -235,6 +257,71 @@ test('attempt state reloads by owner scope and a second tab cannot resubmit term
   const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(restored.send.state, 'confirmed_attributed');
   await assert.rejects(second.controller.submitPrepared(prepared.id, { confirmed: true }), /prepared attempt/i);
+});
+
+test('select and refresh RPC errors replace stale capabilities and prepared work with fail-closed state', async () => {
+  const active = deployedSnapshot();
+  let f = controllerFixture({ snapshots: [active, new Error('Base wallet snapshots disagree.')] });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await assert.rejects(f.controller.select({ tokenId: TOKEN_ID, owner: OWNER }), /disagree/i);
+  let failed = f.controller.getSnapshot();
+  assert.equal(failed.mode, 'read_only');
+  assert.equal(failed.reason, 'rpc_disagreement');
+  assert.equal(failed.canTransact, false);
+  assert.equal(failed.policyStatus, 'read-only');
+  assert.equal(failed.policyRecoveryAllowed, false);
+
+  f = controllerFixture({ snapshots: [active, active, new Error('policy read reverted'), active, active] });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const first = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.refresh(), /reverted/i);
+  failed = f.controller.getSnapshot();
+  assert.equal(failed.mode, 'read_only');
+  assert.equal(failed.canTransact, false);
+  assert.equal(failed.policyStatus, 'read-only');
+  assert.equal(failed.policyRecoveryAllowed, false);
+  assert.equal(failed.send.state, 'invalidated');
+  assert.equal(failed.send.preparedId, null);
+  await f.controller.refresh();
+  const replacement = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '2' });
+  assert.notEqual(replacement.id, first.id);
+});
+
+test('every activation, send and policy pre-sign read error invalidates the attempt and permits a fresh preview', async () => {
+  const cases = [
+    {
+      kind: 'activation',
+      evidence: snapshot(),
+      prepare: (controller) => controller.prepareActivation(),
+      attempt: 'activation',
+    },
+    {
+      kind: 'send',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' }),
+      attempt: 'send',
+    },
+    {
+      kind: 'policy',
+      evidence: deployedSnapshot(),
+      prepare: (controller) => controller.preparePolicyModule({ module: ZERO_ADDRESS }),
+      attempt: 'policy',
+    },
+  ];
+  for (const entry of cases) {
+    const f = controllerFixture({
+      snapshots: [entry.evidence, entry.evidence, new Error(`${entry.kind} pre-sign read failed`), entry.evidence, entry.evidence],
+    });
+    await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    const first = await entry.prepare(f.controller);
+    await assert.rejects(f.controller.submitPrepared(first.id, { confirmed: true }), /pre-sign read failed/);
+    const invalidated = f.controller.getSnapshot()[entry.attempt];
+    assert.equal(invalidated.state, 'invalidated');
+    assert.equal(invalidated.preparedId, null);
+    await f.controller.refresh();
+    const replacement = await entry.prepare(f.controller);
+    assert.notEqual(replacement.id, first.id);
+  }
 });
 
 test('ownership transfer and config drift clear write capability while retaining read-only evidence', async () => {
@@ -390,31 +477,72 @@ test('unknown policy release constants block trust without substituting proxy ru
   assert.equal(result.canTransact, false);
 });
 
-test('policy recovery previews exact clear and permits clear while paused, removed or mismatched', async () => {
-  const unhealthy = deployedSnapshot({
+test('policy recovery permits an exact clear while the registry is paused', async () => {
+  const paused = deployedSnapshot({
     policyModule: POLICY_MODULE,
     policyModuleOwner: OWNER,
     policyEpoch: '4',
     registryPaused: true,
-    policyModuleCode: '0x',
-    policyModuleRuntimeSha256: null,
-    approvedModuleCodehash: ZERO_HASH,
-    policyModuleApproved: false,
-    policyModuleCodehashMatches: false,
+    policyModuleCode: MODULE_CODE,
+    policyModuleRuntimeSha256: MODULE_SHA256,
+    policyModuleCodehash: MODULE_CODEHASH,
+    approvedModuleCodehash: MODULE_CODEHASH,
+    policyModuleApproved: true,
+    policyModuleCodehashMatches: true,
   });
   const post = deployedSnapshot({ policyEpoch: '5' });
   const f = controllerFixture({
-    snapshots: [unhealthy, unhealthy, unhealthy, post],
+    snapshots: [paused, paused, paused, post],
     receipt: async ({ transaction }) => ({ status: 'success', transaction, logs: [] }),
   });
   await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
-  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: unhealthy.collectionAccount, module: ZERO_ADDRESS }));
+  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: paused.collectionAccount, module: ZERO_ADDRESS }));
   assert.equal(prepared.requiresExplicitConfirmation, true);
   await assert.rejects(f.controller.submitPrepared(prepared.id), /confirmation/i);
   const result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
   assert.equal(result.policyStatus, 'owner-only');
   assert.deepEqual(f.phases, ['readiness', 'policy_preview', 'pre_sign', 'receipt']);
+});
+
+test('policy recovery permits an exact clear after the configured module is removed', async () => {
+  const removed = deployedSnapshot({
+    policyModule: POLICY_MODULE,
+    policyModuleOwner: OWNER,
+    policyEpoch: '4',
+    policyModuleCode: '0x',
+    policyModuleRuntimeSha256: null,
+    policyModuleCodehash: null,
+    approvedModuleCodehash: ZERO_HASH,
+    policyModuleApproved: false,
+    policyModuleCodehashMatches: false,
+  });
+  const f = controllerFixture({ snapshots: [removed, removed] });
+  const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(selected.policyStatus, 'module-blocked');
+  const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
+  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: removed.collectionAccount, module: ZERO_ADDRESS }));
+});
+
+test('policy recovery permits an exact clear for unpaused deployed module with nonzero approved codehash mismatch', async () => {
+  const mismatchedApproval = `0x${'aa'.repeat(32)}`;
+  const mismatched = deployedSnapshot({
+    policyModule: POLICY_MODULE,
+    policyModuleOwner: OWNER,
+    policyEpoch: '4',
+    registryPaused: false,
+    policyModuleCode: MODULE_CODE,
+    policyModuleRuntimeSha256: MODULE_SHA256,
+    policyModuleCodehash: MODULE_CODEHASH,
+    approvedModuleCodehash: mismatchedApproval,
+    policyModuleApproved: true,
+    policyModuleCodehashMatches: false,
+  });
+  const f = controllerFixture({ snapshots: [mismatched, mismatched] });
+  const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(selected.policyStatus, 'module-blocked');
+  const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
+  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: mismatched.collectionAccount, module: ZERO_ADDRESS }));
 });
 
 test('nonzero policy change requires exact fresh module approval and rejects policy drift before submit', async () => {
@@ -455,6 +583,11 @@ test('nonzero policy change requires exact fresh module approval and rejects pol
   assert.equal(submissions, 0);
   assert.equal(f.controller.getSnapshot().policyStatus, 'read-only');
   assert.equal(f.controller.getSnapshot().canTransact, false);
+  assert.equal(f.controller.getSnapshot().policy.state, 'invalidated');
+  assert.equal(f.controller.getSnapshot().policy.preparedId, null);
+  await f.controller.refresh();
+  const replacement = await f.controller.preparePolicyModule({ module: POLICY_MODULE });
+  assert.notEqual(replacement.id, drifted.id);
 
   f = controllerFixture({
     snapshots: [deployedSnapshot(), healthyTarget, {

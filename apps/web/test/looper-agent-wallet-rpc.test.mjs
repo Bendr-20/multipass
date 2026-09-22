@@ -47,6 +47,7 @@ function requester({
   disagreeRegistryCode = false,
   disagreeRegistryPause = false,
   disagreeModuleCode = false,
+  inactiveAccount = false,
   revertPolicy = false,
   malformedPolicyOwner = false,
   calls = [],
@@ -91,6 +92,7 @@ function requester({
         return disagreeModuleCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : MODULE_CODE;
       }
       if (address === account.toLowerCase()) {
+        if (inactiveAccount) return '0x';
         return disagreeProxyCode && origin === BASE_RPC_ORIGINS[1] ? `${accountCode.slice(0, -2)}00` : accountCode;
       }
       throw new Error(`Unexpected code address ${params[0]}`);
@@ -167,6 +169,36 @@ test('anchored Base reader verifies configuration, ownership, account runtime an
   assert.equal(result.state, '7');
   assert.equal(result.nativeWei, '1000');
   assert.deepEqual(result.tokens, [{ ...CONFIGURED_TOKENS[0], balanceBaseUnits: '25' }]);
+});
+
+test('inactive account snapshots prove the reviewed module registry runtime across both origins at the anchor', async () => {
+  const calls = [];
+  const reader = createLooperWalletRpcClient({
+    request: requester({ inactiveAccount: true, calls }),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  const result = await reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  });
+  assert.equal(result.accountCode, '0x');
+  assert.equal(result.moduleRegistry, getAddress(MODULE_REGISTRY));
+  assert.equal(result.moduleRegistryCode, REGISTRY_CODE);
+  assert.equal(result.moduleRegistryRuntimeSha256, sha256(REGISTRY_CODE));
+  assert.equal(calls.filter((call) => call.method === 'eth_getCode'
+    && call.params[0].toLowerCase() === MODULE_REGISTRY.toLowerCase()).length, 2);
+  assert.equal(calls.filter((call) => call.method === 'eth_getCode'
+    && call.params[0].toLowerCase() === MODULE_REGISTRY.toLowerCase())
+    .every((call) => call.params[1] === '0x64'), true);
+
+  const disagreeing = createLooperWalletRpcClient({
+    request: requester({ inactiveAccount: true, disagreeRegistryCode: true }),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  await assert.rejects(disagreeing.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  }), /disagree/i);
 });
 
 test('receipt revalidation pins every ownership and config read to the receipt block', async () => {

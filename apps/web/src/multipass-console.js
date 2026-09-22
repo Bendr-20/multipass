@@ -451,6 +451,8 @@ function renderIdentityCard(card = {}) {
 
 function normalizeLooperAgentWallet(wallet, tokenId) {
   if (!wallet || String(wallet.tokenId ?? tokenId) !== String(tokenId)) return null;
+  const rpcFailed = wallet.mode === 'read_only' && wallet.reason === 'rpc_disagreement';
+  const idleAttempt = { state: 'idle', txHash: null, attributable: false, preparedId: null };
   return {
     mode: String(wallet.mode ?? 'read_only'),
     reason: wallet.reason ? String(wallet.reason) : null,
@@ -459,14 +461,14 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
     nativeWei: String(wallet.nativeWei ?? '0'),
     tokens: Array.isArray(wallet.tokens) ? wallet.tokens : [],
     refreshedAt: wallet.refreshedAt ? String(wallet.refreshedAt) : null,
-    activation: wallet.activation ?? { state: 'idle' },
-    send: wallet.send ?? { state: 'idle' },
-    policy: wallet.policy ?? { state: 'idle' },
-    policyStatus: String(wallet.policyStatus ?? (wallet.mode === 'active' ? 'owner-only' : 'read-only')),
+    activation: rpcFailed ? idleAttempt : (wallet.activation ?? { state: 'idle' }),
+    send: rpcFailed ? idleAttempt : (wallet.send ?? { state: 'idle' }),
+    policy: rpcFailed ? idleAttempt : (wallet.policy ?? { state: 'idle' }),
+    policyStatus: rpcFailed ? 'read-only' : String(wallet.policyStatus ?? (wallet.mode === 'active' ? 'owner-only' : 'read-only')),
     policyModule: wallet.policyModule ? String(wallet.policyModule) : null,
     policyEpoch: wallet.policyEpoch === null || wallet.policyEpoch === undefined ? null : String(wallet.policyEpoch),
-    policyRecoveryAllowed: Boolean(wallet.policyRecoveryAllowed),
-    canTransact: wallet.canTransact === undefined
+    policyRecoveryAllowed: rpcFailed ? false : Boolean(wallet.policyRecoveryAllowed),
+    canTransact: rpcFailed ? false : wallet.canTransact === undefined
       ? wallet.mode === 'inactive' || wallet.mode === 'active'
       : Boolean(wallet.canTransact),
     error: wallet.error ? String(wallet.error) : null,
@@ -543,7 +545,7 @@ function renderLooperAgentWallet(wallet) {
             </form>
           ` : ''}
           ${wallet.policyRecoveryAllowed ? `
-            <form class="console-looper-wallet-policy" data-action="set-looper-policy-module">
+            <form class="console-looper-wallet-send console-looper-wallet-policy" data-action="set-looper-policy-module">
               <label><span>Permission module</span><input name="module" inputmode="text" autocomplete="off" placeholder="Leave blank to clear"></label>
               <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact permission module recovery</label>
               <button type="submit" ${busy ? 'disabled' : ''}>Update permission hook</button>

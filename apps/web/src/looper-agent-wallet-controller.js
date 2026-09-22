@@ -18,7 +18,7 @@ import {
 } from './looper-agent-wallet.js';
 
 const EMPTY_CODE = '0x';
-const TERMINAL_STATES = new Set(['confirmed_attributed', 'reverted', 'acknowledged_unknown']);
+const TERMINAL_STATES = new Set(['confirmed_attributed', 'reverted', 'invalidated', 'acknowledged_unknown']);
 
 export function createLooperAgentWalletController({
   releaseConfig,
@@ -53,11 +53,17 @@ export function createLooperAgentWalletController({
 
   async function refresh(phase = 'readiness') {
     requireSelection();
-    const evidence = await readSnapshot({ selection: { ...selection }, phase });
-    current = buildSnapshot(evidence, phase);
-    restoreAttempts(current.account ?? current.legacyAccount);
-    current = attachAttempts(current);
-    return getSnapshot();
+    try {
+      const evidence = await readSnapshot({ selection: { ...selection }, phase });
+      current = buildSnapshot(evidence, phase);
+      restoreAttempts(current.account ?? current.legacyAccount);
+      current = attachAttempts(current);
+      return getSnapshot();
+    } catch (error) {
+      invalidatePreparedAttempts();
+      forceReadOnly('rpc_disagreement');
+      throw error;
+    }
   }
 
   async function prepareActivation() {
@@ -134,35 +140,41 @@ export function createLooperAgentWalletController({
     });
     return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
       if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
-      const persisted = loadAttempt(scope);
-      if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared') {
-        throw new Error('The prepared attempt changed in another tab.');
-      }
-      if (record.kind === 'policy') {
-        const evidence = await readSnapshot({
-          selection: { ...selection },
-          phase: 'pre_sign',
-          policyModule: record.targetPolicyModule,
-        });
-        const validated = buildSnapshot(evidence, 'pre_sign');
-        current = attachAttempts(validated);
-        requirePolicyRecoveryEvidence(validated, evidence, record.targetPolicyModule);
-        const expectedTransaction = buildPolicyModuleTransaction({
-          owner: selection.owner,
-          account: validated.account,
-          module: record.targetPolicyModule,
-        });
-        if (stableJson(record.transaction) !== stableJson(expectedTransaction)
-          || stableJson(persisted.transaction) !== stableJson(expectedTransaction)
-          || !sameAddress(record.account, validated.account)) {
-          throw new Error('Prepared permission module transaction is not exact. Preview again.');
+      try {
+        const persisted = loadAttempt(scope);
+        if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared') {
+          throw new Error('The prepared attempt changed in another tab.');
         }
-        if (stableJson(policyBaseline(evidence)) !== stableJson(record.policyBaseline)) {
-          current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
-          throw new Error('Looper policy evidence drifted after preview. Preview again.');
+        if (record.kind === 'policy') {
+          const evidence = await readSnapshot({
+            selection: { ...selection },
+            phase: 'pre_sign',
+            policyModule: record.targetPolicyModule,
+          });
+          const validated = buildSnapshot(evidence, 'pre_sign');
+          current = attachAttempts(validated);
+          requirePolicyRecoveryEvidence(validated, evidence, record.targetPolicyModule);
+          const expectedTransaction = buildPolicyModuleTransaction({
+            owner: selection.owner,
+            account: validated.account,
+            module: record.targetPolicyModule,
+          });
+          if (stableJson(record.transaction) !== stableJson(expectedTransaction)
+            || stableJson(persisted.transaction) !== stableJson(expectedTransaction)
+            || !sameAddress(record.account, validated.account)) {
+            throw new Error('Prepared permission module transaction is not exact. Preview again.');
+          }
+          if (stableJson(policyBaseline(evidence)) !== stableJson(record.policyBaseline)) {
+            current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
+            throw new Error('Looper policy evidence drifted after preview. Preview again.');
+          }
+        } else {
+          await readAndRequireWritable('pre_sign', record.kind === 'activation' ? 'inactive' : 'active');
         }
-      } else {
-        await readAndRequireWritable('pre_sign', record.kind === 'activation' ? 'inactive' : 'active');
+      } catch (error) {
+        invalidateAttempt(record);
+        forceReadOnly(current.reason ?? 'pre_sign_invalidated');
+        throw error;
       }
 
       let hash;
@@ -333,18 +345,7 @@ export function createLooperAgentWalletController({
     }
     const accountCode = canonicalCodeOrNull(evidence.accountCode, { allowEmpty: true });
     if (!accountCode) return blocked({ ...base, account: derivedAccount }, 'proxy_mismatch', 'read_only');
-    if (accountCode === EMPTY_CODE) {
-      return { ...base, account: derivedAccount, mode: 'inactive', reason: null, canTransact: true, policyStatus: 'owner-only' };
-    }
-
     const recoveryBase = { ...base, account: derivedAccount };
-    const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation, tokenId: selection.tokenId });
-    const accountHash = normalizeHash(evidence.accountRuntimeSha256);
-    if (accountCode !== expectedAccountCode
-      || accountHash !== sha256(accountCode)
-      || evidence.accountCodeMatches !== true) {
-      return blocked(recoveryBase, 'proxy_mismatch', 'read_only');
-    }
     const moduleRegistryCode = canonicalCodeOrNull(evidence.moduleRegistryCode, { allowEmpty: true });
     const moduleRegistryHash = normalizeHash(evidence.moduleRegistryRuntimeSha256);
     if (!sameAddress(evidence.moduleRegistry, releasedModuleRegistry)
@@ -353,6 +354,17 @@ export function createLooperAgentWalletController({
       || moduleRegistryHash !== releasedModuleRegistryRuntimeHash
       || sha256(moduleRegistryCode) !== moduleRegistryHash) {
       return blocked(recoveryBase, 'registry_mismatch', 'read_only');
+    }
+    if (accountCode === EMPTY_CODE) {
+      return { ...base, account: derivedAccount, mode: 'inactive', reason: null, canTransact: true, policyStatus: 'owner-only' };
+    }
+
+    const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation, tokenId: selection.tokenId });
+    const accountHash = normalizeHash(evidence.accountRuntimeSha256);
+    if (accountCode !== expectedAccountCode
+      || accountHash !== sha256(accountCode)
+      || evidence.accountCodeMatches !== true) {
+      return blocked(recoveryBase, 'proxy_mismatch', 'read_only');
     }
 
     const module = safeAddress(evidence.policyModule);
@@ -463,6 +475,33 @@ export function createLooperAgentWalletController({
     });
     storage?.setItem?.(scope.storageKey, JSON.stringify(record));
     current = attachAttempts(current);
+  }
+
+  function invalidateAttempt(record) {
+    const active = attempts[record.kind];
+    if (!active || active.id !== record.id || active.state !== 'prepared') return;
+    updateAttempt(record.kind, {
+      ...active,
+      state: 'invalidated',
+      history: appendHistory(active, 'invalidated'),
+    });
+  }
+
+  function invalidatePreparedAttempts() {
+    for (const record of Object.values(attempts)) {
+      if (record?.state === 'prepared') invalidateAttempt(record);
+    }
+  }
+
+  function forceReadOnly(reason) {
+    current = attachAttempts({
+      ...current,
+      mode: 'read_only',
+      reason,
+      canTransact: false,
+      policyStatus: 'read-only',
+      policyRecoveryAllowed: false,
+    });
   }
 
   function restoreAttempts(account) {

@@ -156,6 +156,8 @@ test('Looper permission status and owner-only recovery stay concise and use exis
     assert.equal(root.querySelector('.console-looper-wallet-status')?.textContent, label);
     const form = root.querySelector('[data-action="set-looper-policy-module"]');
     assert.ok(form);
+    assert.equal(form.matches('.console-looper-wallet-send.console-looper-wallet-policy'), true);
+    assert.equal(root.querySelector('form.console-looper-wallet-policy:not(.console-looper-wallet-send)'), null);
     assert.ok(form.querySelector('input[name="module"]'));
     assert.match(form.textContent, /Confirm this exact permission module recovery/i);
     assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]') !== null, policyStatus === 'owner-only' || policyStatus === 'permission-hook-paused');
@@ -178,6 +180,33 @@ test('Looper permission status and owner-only recovery stay concise and use exis
   assert.equal(root.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
   assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /reviewed permission module configured/i);
   assert.doesNotMatch(root.querySelector('.console-looper-wallet')?.textContent ?? '', /agent execution enabled|executeWithPolicy|grant|session key/i);
+});
+
+test('RPC disagreement renders read-only without stale actions, recovery preview or busy lock', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      looperAgentWallet: {
+        mode: 'read_only', reason: 'rpc_disagreement', tokenId: '1',
+        owner: '0x1234567890aBcdef1234567890aBcdef12345678',
+        account: '0x9999999999999999999999999999999999999999', nativeWei: '5', tokens: [],
+        policyStatus: 'active-policy', policyRecoveryAllowed: true, canTransact: true,
+        activation: { state: 'prepared', preparedId: 'activation:stale' },
+        send: { state: 'prepared', preparedId: 'send:stale' },
+        policy: { state: 'prepared', preparedId: 'policy:stale' },
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const panel = root.querySelector('.console-looper-wallet');
+  assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Read-only');
+  assert.equal(panel.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
+  assert.equal(panel.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+  assert.equal(panel.querySelector('[data-action="set-looper-policy-module"]'), null);
+  assert.equal(panel.querySelector('[data-action="refresh-looper-agent-wallet"]')?.disabled, false);
 });
 
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {

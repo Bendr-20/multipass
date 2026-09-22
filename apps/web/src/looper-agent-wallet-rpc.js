@@ -200,6 +200,16 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   const implementationTrusted = reviewedRelease.complete
     && sameAddress(normalizedImplementation, reviewedRelease.implementation)
     && implementationRuntimeSha256 === reviewedRelease.runtimeSha256;
+  if (accountCode === '0x' && implementationTrusted) {
+    moduleRegistry = reviewedRelease.moduleRegistry;
+    const rawRegistryCode = await request({
+      origin,
+      method: 'eth_getCode',
+      params: [moduleRegistry, anchor.tag],
+    });
+    moduleRegistryCode = canonicalCode(rawRegistryCode, 'module registry runtime', { allowEmpty: true });
+    moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
+  }
   if (accountCode !== '0x' && accountCodeMatches && implementationTrusted) {
     [state, moduleRegistry, policyModule, policyModuleOwner, policyEpoch] = await Promise.all([
       call(normalizedAccount, ACCOUNT_EXECUTE_ABI, 'state'),
