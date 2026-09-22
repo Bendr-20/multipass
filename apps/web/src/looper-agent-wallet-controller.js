@@ -47,6 +47,7 @@ export function createLooperAgentWalletController({
   let selection = null;
   let current = emptySnapshot();
   const attempts = { activation: null, send: null, policy: null };
+  const acknowledgeReadiness = { activation: null, send: null, policy: null };
 
   function getSnapshot() {
     return deepFreeze(structuredClone(current));
@@ -252,7 +253,14 @@ export function createLooperAgentWalletController({
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
         throw error;
       }
-      if (['reverted', 0, '0x0'].includes(receipt?.status)) {
+      const reverted = ['reverted', 0, '0x0'].includes(receipt?.status);
+      const bindingMismatch = directTransactionBindingMismatch(receipt?.transaction, expectedTransaction);
+      if (bindingMismatch) {
+        updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
+        const prefix = reverted ? 'Reverted receipt' : 'Receipt';
+        throw new Error(`${prefix} transaction binding ${bindingMismatch}. Outcome remains unknown.`);
+      }
+      if (reverted) {
         updateAttempt(record.kind, { ...submitted, state: 'reverted', history: appendHistory(submitted, 'reverted') });
         throw new Error('Looper wallet transaction reverted on Base.');
       }
@@ -269,7 +277,10 @@ export function createLooperAgentWalletController({
         attributeReceipt({ record: submitted, receipt, post });
       } catch (error) {
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
-        if (post && sameSelection(selection, boundSelection)) current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
+        if (post && sameSelection(selection, boundSelection)) {
+          acknowledgeReadiness[record.kind] = post;
+          current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
+        }
         throw error;
       }
 
@@ -571,7 +582,10 @@ export function createLooperAgentWalletController({
   }
 
   function clearAttempts() {
-    for (const kind of ['activation', 'send', 'policy']) attempts[kind] = null;
+    for (const kind of ['activation', 'send', 'policy']) {
+      attempts[kind] = null;
+      acknowledgeReadiness[kind] = null;
+    }
   }
 
   function acknowledgeUnknown(kind) {
@@ -585,6 +599,9 @@ export function createLooperAgentWalletController({
       state: 'acknowledged_unknown',
       history: appendHistory(record, 'acknowledged_unknown'),
     });
+    const readiness = acknowledgeReadiness[kind];
+    acknowledgeReadiness[kind] = null;
+    if (readiness && sameSelection(selection, record)) current = attachAttempts(readiness);
     return getSnapshot();
   }
 
@@ -909,6 +926,22 @@ function validateCanonicalTransaction(transaction) {
     || canonicalAddress(transaction.to) !== transaction.to) return false;
   const data = String(transaction.data ?? '');
   return /^0x(?:[0-9a-f]{2})*$/.test(data);
+}
+
+function directTransactionBindingMismatch(observed, expected) {
+  if (!isPlainObject(observed)) return 'is missing transaction-by-hash evidence';
+  if (!hasExactKeys(observed, ['chainId', 'data', 'from', 'to', 'value'])) {
+    return 'has a malformed direct envelope mismatch';
+  }
+  const labels = {
+    chainId: 'chain scope',
+    from: 'from',
+    to: 'to',
+    data: 'input',
+    value: 'value',
+  };
+  const mismatches = Object.keys(labels).filter((key) => observed[key] !== expected[key]);
+  return mismatches.length ? `has a ${mismatches.map((key) => labels[key]).join(', ')} mismatch` : null;
 }
 
 function validateAttemptHistory(history) {
