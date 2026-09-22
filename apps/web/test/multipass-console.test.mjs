@@ -51,6 +51,64 @@ function render(html) {
   return new JSDOM(`<!doctype html><main>${html}</main>`).window.document.querySelector('main');
 }
 
+test('selected Looper renders an active compact operator wallet under its name', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      looperAgentWallet: {
+        mode: 'active',
+        tokenId: '1',
+        owner: '0x1234567890aBcdef1234567890aBcdef12345678',
+        account: '0x9999999999999999999999999999999999999999',
+        nativeWei: '1250000000000000000',
+        tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
+        refreshedAt: '2026-09-21T23:59:00.000Z',
+        activation: { state: 'idle' },
+        send: { state: 'idle' },
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const panel = root.querySelector('.console-looper-wallet');
+  assert.ok(panel);
+  assert.match(panel.textContent, /Agent wallet/i);
+  assert.match(panel.textContent, /1\.25 ETH/);
+  assert.match(panel.textContent, /2\.5 CRED/);
+  assert.equal(panel.querySelector('a')?.href, 'https://basescan.org/address/0x9999999999999999999999999999999999999999');
+  assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
+  assert.ok(panel.querySelector('[data-action="send-looper-agent-wallet"]'));
+  const identityBody = root.querySelector('.console-identity-body');
+  assert.equal(identityBody.nextElementSibling, panel);
+  assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
+});
+
+test('inactive and legacy Looper wallets fail closed in the compact panel', () => {
+  const baseState = {
+    walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+    consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+    consoleSelectedAgentId: '1',
+  };
+  let snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: { ...baseState, looperAgentWallet: { mode: 'inactive', account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [] } },
+  });
+  let root = render(renderMultipassConsole(snapshot));
+  assert.ok(root.querySelector('[data-action="activate-looper-agent-wallet"]'));
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /inactive/i);
+
+  snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: { ...baseState, looperAgentWallet: { mode: 'legacy_read_only', legacyAccount: '0x8888888888888888888888888888888888888888', nativeWei: '7', tokens: [] } },
+  });
+  root = render(renderMultipassConsole(snapshot));
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /legacy account.*read-only/i);
+  assert.equal(root.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
+  assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+});
+
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),

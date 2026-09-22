@@ -1988,6 +1988,65 @@ test('dedicated Console route connects wallet and waits for an agent pick', asyn
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, false);
 });
 
+test('dedicated Console binds the selected Looper wallet and requires explicit send confirmation', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletState = {
+    mode: 'active',
+    tokenId: '617',
+    owner,
+    account: '0x9999999999999999999999999999999999999999',
+    legacyAccount: null,
+    nativeWei: '2000000000000000000',
+    tokens: [],
+    refreshedAt: '2026-09-21T23:59:00.000Z',
+    activation: { state: 'idle' },
+    send: { state: 'idle' },
+  };
+  const calls = [];
+  const looperWalletController = {
+    getSnapshot: () => ({ mode: 'read_only', reason: 'not_selected', activation: { state: 'idle' }, send: { state: 'idle' } }),
+    async select(selection) { calls.push(['select', selection]); return walletState; },
+    async refresh() { calls.push(['refresh']); return walletState; },
+    async prepareEthSend(input) {
+      calls.push(['prepareEthSend', input]);
+      return { id: 'send:1', requiresExplicitConfirmation: true, transaction: { to: walletState.account } };
+    },
+    async submitPrepared(id, options) { calls.push(['submitPrepared', id, options]); return { ...walletState, send: { state: 'confirmed_attributed' } }; },
+  };
+  const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } });
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+
+  assert.deepEqual(calls[0], ['select', { tokenId: '617', owner: owner.toLowerCase() }]);
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /2 ETH/);
+  const form = root.querySelector('[data-action="send-looper-agent-wallet"]');
+  form.querySelector('[name="recipient"]').value = '0x4444444444444444444444444444444444444444';
+  form.querySelector('[name="amount"]').value = '1.5';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.equal(calls.some(([name]) => name === 'prepareEthSend'), false);
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /confirmation/i);
+
+  const confirmedForm = root.querySelector('[data-action="send-looper-agent-wallet"]');
+  confirmedForm.querySelector('[name="recipient"]').value = '0x4444444444444444444444444444444444444444';
+  confirmedForm.querySelector('[name="amount"]').value = '1.5';
+  confirmedForm.querySelector('[name="confirmed"]').checked = true;
+  confirmedForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls.find(([name]) => name === 'prepareEthSend'), ['prepareEthSend', {
+    recipient: '0x4444444444444444444444444444444444444444',
+    amountWei: '1500000000000000000',
+  }]);
+  assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
+});
+
 test('dedicated Console route hydrates the canonical XMTP thread returned by activation', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const walletClient = createWalletClientFixture({

@@ -58,6 +58,42 @@ test('owned loading and agent writes rely on cookie session instead of a wallet 
   assert.equal(calls[2].init.headers['x-csrf-token'], 'csrf-1');
 });
 
+test('agent messages include only strict read-only owner-scoped wallet context', async () => {
+  let body;
+  const walletContext = {
+    schema_version: '0.1.0',
+    kind: 'looper_wallet_read_context',
+    scope: {
+      chainId: 8453,
+      collection: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      tokenId: '617',
+      account: '0x1111111111111111111111111111111111111111',
+      owner: WALLET,
+    },
+    native: { symbol: 'ETH', balanceWei: '1' },
+    tokens: [],
+    activity: [],
+    refreshedAt: '2026-09-21T23:59:00.000Z',
+    health: 'verified',
+    capabilities: { read: true, sign: false, submit: false, approve: false },
+  };
+  await sendConsoleAgentMessage({
+    apiBase: 'https://helixa.test', tokenId: '617', message: 'Wallet status?', csrfToken: 'csrf-1', walletContext,
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ thread: { messages: [] } }));
+    },
+  });
+  assert.deepEqual(body.walletContext, walletContext);
+  assert.equal(JSON.stringify(body).includes('calldata'), false);
+
+  await assert.rejects(sendConsoleAgentMessage({
+    apiBase: 'https://helixa.test', tokenId: '617', message: 'Bad', csrfToken: 'csrf-1',
+    walletContext: { ...walletContext, capabilities: { read: true, sign: false, submit: true, approve: false } },
+    fetchImpl: async () => new Response('{}'),
+  }), /read-only/i);
+});
+
 test('activation returns a canonical recovered XMTP thread without sending conversation authority', async () => {
   let activationBody;
   const activated = await activateConsoleAgent({

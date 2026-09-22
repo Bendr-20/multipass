@@ -6,6 +6,7 @@ import {
   createPrivyConnectAction,
   createPrivyConnectionError,
   createPrivyWalletClient,
+  classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
   PRIVY_CONNECT_WALLET_LIST,
   PRIVY_EXTERNAL_WALLET_CONFIG,
@@ -20,6 +21,30 @@ function wallet({ address, connectedAt, provider = { request: async () => '0xsig
     getEthereumProvider: provider === null ? undefined : async () => provider,
   };
 }
+
+test('Privy wallet profile marks Base Account and smart wallets read-only for Looper writes', () => {
+  assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {
+    kind: 'smart_or_delegated',
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+  });
+  assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: 'metamask' }), {
+    kind: 'eoa_candidate',
+    walletClientType: 'metamask',
+  });
+  assert.deepEqual(classifyPrivyWalletProfile(null), { kind: 'unknown', walletClientType: null });
+});
+
+test('named Looper transaction action forwards only eth_sendTransaction payloads', async () => {
+  const client = createPrivyWalletClient();
+  const calls = [];
+  client.setActions({ sendTransaction: async (transaction) => {
+    calls.push(transaction);
+    return '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  } });
+  const transaction = { chainId: '0x2105', from: '0x1', to: '0x2', value: '0x0', data: '0x1234' };
+  assert.match(await client.sendTransaction(transaction), /^0x[a-f0-9]{64}$/);
+  assert.deepEqual(calls, [transaction]);
+});
 
 test('selectEvmWallet prefers wallets with EVM provider and address', () => {
   const evmWallet = wallet({ address: '0xevm', connectedAt: 1 });

@@ -117,6 +117,19 @@ export function createPrivyConnectionError(error) {
   return new Error(message || 'Wallet connection failed. Nothing was changed.');
 }
 
+export function classifyPrivyWalletProfile(wallet) {
+  if (!wallet) return { kind: 'unknown', walletClientType: null };
+  const walletClientType = String(wallet.walletClientType ?? wallet.type ?? wallet.id ?? '').trim().toLowerCase() || null;
+  const smart = walletClientType === PRIVY_BASE_ACCOUNT_WALLET_ID
+    || walletClientType === 'smart_wallet'
+    || walletClientType === 'smart-wallet'
+    || Boolean(wallet.smartWallet);
+  return {
+    kind: smart ? 'smart_or_delegated' : 'eoa_candidate',
+    walletClientType,
+  };
+}
+
 export function selectEvmWallet(wallets = []) {
   let selected = null;
   for (const wallet of wallets) {
@@ -182,6 +195,7 @@ export function createPrivyWalletClient() {
     connect: loadingAction,
     disconnect: async () => setSnapshot({ connected: false, address: null }),
     signMessage: loadingAction,
+    sendTransaction: loadingAction,
     request: loadingAction,
   };
   const subscribers = new Set();
@@ -275,6 +289,7 @@ export function createPrivyWalletClient() {
     connect: (...args) => actions.connect(...args),
     disconnect: (...args) => actions.disconnect(...args),
     signMessage: (...args) => actions.signMessage(...args),
+    sendTransaction: (...args) => actions.sendTransaction(...args),
     request: (...args) => actions.request(...args),
     setSnapshot,
     setActions,
@@ -308,6 +323,7 @@ export function PrivyWalletBridge({ client, configured }) {
       configured: Boolean(configured),
       connected: Boolean(connectedAddress),
       address: connectedAddress,
+      walletProfile: classifyPrivyWalletProfile(activeWallet),
     });
   }, [client, configured, privy?.ready, walletsReady, connectedAddress]);
 
@@ -331,6 +347,22 @@ export function PrivyWalletBridge({ client, configured }) {
         if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
         const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
+      },
+      sendTransaction: async (transaction) => {
+        const wallet = selectEvmWallet(wallets);
+        if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
+        const profile = classifyPrivyWalletProfile(wallet);
+        if (profile.kind === 'smart_or_delegated') throw new Error('Smart and delegated wallets are read-only for Looper wallet writes.');
+        const provider = await wallet.getEthereumProvider();
+        if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
+        const exactKeys = Object.keys(transaction ?? {}).sort().join(',');
+        if (exactKeys !== 'chainId,data,from,to,value' || transaction.chainId !== '0x2105' || transaction.value !== '0x0') {
+          throw new Error('Looper wallet transaction payload is invalid.');
+        }
+        if (normalizeAddressOrNull(transaction.from) !== getWalletAddress(wallet)) {
+          throw new Error('Looper wallet transaction sender changed.');
+        }
+        return provider.request({ method: 'eth_sendTransaction', params: [transaction] });
       },
       request: async (payload) => {
         const wallet = selectEvmWallet(wallets);
