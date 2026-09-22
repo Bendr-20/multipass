@@ -87,6 +87,29 @@ test('anchored Base reader verifies configuration, ownership, account runtime an
   assert.deepEqual(result.tokens, [{ ...CONFIGURED_TOKENS[0], balanceBaseUnits: '25' }]);
 });
 
+test('receipt revalidation pins every ownership and config read to the receipt block', async () => {
+  const calls = [];
+  const baseRequest = requester();
+  const receiptHash = '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+  const reader = createLooperWalletRpcClient({
+    request: async (input) => {
+      calls.push(structuredClone(input));
+      if (input.method === 'eth_getBlockByNumber' && input.params[0] === '0x63') {
+        return { number: '0x63', hash: receiptHash };
+      }
+      return baseRequest(input);
+    },
+  });
+  await reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'receipt',
+    receipt: { blockNumber: '99', blockHash: receiptHash },
+  });
+  assert.equal(calls.some((call) => call.method === 'eth_blockNumber'), false);
+  assert.equal(calls.filter((call) => call.method === 'eth_getBlockByNumber').every((call) => call.params[0] === '0x63'), true);
+  assert.equal(calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method)).every((call) => call.params.at(-1) === '0x63'), true);
+});
+
 test('anchored Base reader rejects stale ownership disagreement', async () => {
   const reader = createLooperWalletRpcClient({ request: requester({ disagreeOwner: true }) });
   await assert.rejects(reader.readSnapshot({

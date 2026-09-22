@@ -47,10 +47,12 @@ export function createLooperWalletRpcClient({
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 } = {}) {
   const activeRequest = request ?? createFixedRequester(fetchImpl ?? globalThis.fetch);
-  async function readSnapshot({ selection, phase } = {}) {
+  async function readSnapshot({ selection, phase, receipt } = {}) {
     const tokenId = BigInt(String(selection?.tokenId ?? ''));
     const expectedOwner = getAddress(selection?.owner);
-    const anchor = await canonicalAnchor(activeRequest);
+    const anchor = phase === 'receipt'
+      ? await canonicalReceiptAnchor(activeRequest, receipt)
+      : await canonicalAnchor(activeRequest);
     const snapshots = await Promise.all(BASE_RPC_ORIGINS.map((origin) => readOriginSnapshot({
       request: activeRequest,
       origin,
@@ -83,6 +85,27 @@ export function createLooperWalletRpcClient({
   }
 
   return { readSnapshot, readReceipt };
+}
+
+async function canonicalReceiptAnchor(request, receipt) {
+  const numberText = String(receipt?.blockNumber ?? '');
+  const expectedHash = String(receipt?.blockHash ?? '').toLowerCase();
+  if (!/^(0|[1-9]\d*)$/.test(numberText) || !/^0x[0-9a-f]{64}$/.test(expectedHash)) {
+    throw new Error('Canonical receipt block evidence is required.');
+  }
+  const chainIds = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
+  if (chainIds.some((chainId) => chainId !== '0x2105')) throw new Error('Base RPC chain IDs disagree.');
+  const number = BigInt(numberText);
+  const tag = `0x${number.toString(16)}`;
+  const blocks = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({
+    origin,
+    method: 'eth_getBlockByNumber',
+    params: [tag, false],
+  })));
+  if (blocks.some((block) => !block || BigInt(block.number) !== number || String(block.hash).toLowerCase() !== expectedHash)) {
+    throw new Error('Base receipt block hashes disagree.');
+  }
+  return { tag, number: number.toString(), hash: expectedHash };
 }
 
 async function canonicalAnchor(request) {
