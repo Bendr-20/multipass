@@ -1,6 +1,8 @@
 import {
   decodeEventLog,
   decodeFunctionResult,
+  encodeAbiParameters,
+  encodeEventTopics,
   encodeFunctionData,
   encodeFunctionResult,
   getAddress,
@@ -105,9 +107,17 @@ export function validateDirectCallTrace(trace) {
 }
 
 export function verifyOperationReceipt({
-  requestedHash, transaction, receipt, prepared, postState = null, revertedState = null, trace = null,
+  requestedHash,
+  transaction,
+  receipt,
+  prepared,
+  postState = null,
+  revertedState = null,
+  trace = null,
+  erc20PostState = null,
 } = {}) {
   const evidence = { binding: null, attribution: null };
+  let logs;
   try {
     canonicalHash(requestedHash, 'requested transaction hash');
     if (canonicalHash(transaction?.hash, 'transaction hash') !== requestedHash
@@ -115,8 +125,16 @@ export function verifyOperationReceipt({
       throw new Error('transaction hash mismatch');
     }
     requireReceiptCoordinates(transaction, receipt);
+    logs = normalizeRawReceiptLogs(receipt);
+    evidence.blockNumber = canonicalHexQuantity(receipt.blockNumber, 'receipt block number');
+    evidence.blockHash = canonicalHash(receipt.blockHash, 'receipt block hash');
+    evidence.transactionIndex = canonicalHexQuantity(receipt.transactionIndex, 'receipt transaction index');
   } catch (error) {
-    return classification('uncertain_hashed', { ...evidence, binding: String(error.message) });
+    const failureEvidence = { ...evidence, binding: String(error.message) };
+    if (prepared?.kind === 'activation' && postStateExact(postState, receipt, prepared)) {
+      return classification('observed_unattributed', failureEvidence);
+    }
+    return classification('uncertain_hashed', failureEvidence);
   }
   const bindingError = operationBindingError(transaction, prepared);
   evidence.binding = bindingError ?? 'exact_direct_eoa';
@@ -133,46 +151,23 @@ export function verifyOperationReceipt({
   if (!postStateExact(postState, receipt, prepared)) return classification('uncertain_hashed', evidence);
   try {
     if (prepared.kind === 'activation') {
-      const matches = (receipt.logs ?? []).filter((log) => log?.eventName === 'AccountCreated'
-        && sameAddress(log.account, prepared.selection.account)
-        && (log.implementation === undefined || sameAddress(log.implementation, prepared.implementation ?? prepared.evidence?.evidence?.implementation))
-        && (log.salt === undefined || log.salt === ACCOUNT_SALT)
-        && (log.chainId === undefined || String(log.chainId) === String(BASE_CHAIN_ID))
-        && (log.tokenContract === undefined || sameAddress(log.tokenContract, LOOPERS_COLLECTION))
-        && (log.tokenId === undefined || String(log.tokenId) === String(prepared.selection.tokenId)));
-      if (matches.length !== 1) throw new Error('expected exactly one matching AccountCreated event');
+      decodeExactAccountCreated(logs, prepared);
       evidence.attribution = 'direct_activation';
       return classification('confirmed_attributed', evidence);
     }
     const nextState = (BigInt(prepared.preState) + 1n).toString();
-    const stateLogs = (receipt.logs ?? []).filter((log) => log?.eventName === 'StateUpdated'
-      && sameAddress(log.address, prepared.selection.account) && String(log.state) === nextState);
-    if (stateLogs.length !== 1 || String(postState.state) !== nextState) throw new Error('StateUpdated evidence is incomplete');
-    validateDirectCallTrace(trace);
-    const matches = [];
-    const walk = (frame) => {
-      if (sameAddress(frame.from, prepared.innerCall.from)
-        && sameAddress(frame.to, prepared.innerCall.to)
-        && frame.input === prepared.innerCall.input
-        && canonicalTraceValue(frame.value) === prepared.innerCall.value
-        && !frame.error) matches.push(frame);
-      for (const child of frame.calls ?? []) walk(child);
-    };
-    walk(trace);
-    if (matches.length !== 1) throw new Error('exact inner CALL ancestry is missing or duplicated');
-    const frameLogs = matches[0].logs;
-    if (!Array.isArray(frameLogs)) throw new Error('selected trace frame lacks per-frame logs');
-    const linked = frameLogs.filter((log) => Number.isInteger(log?.index)
-      && log.index >= 0
-      && receipt.logs[log.index]?.eventName === 'StateUpdated'
-      && sameAddress(receipt.logs[log.index].address, prepared.selection.account)
-      && String(receipt.logs[log.index].state) === nextState
-      && (log.eventName === undefined || log.eventName === 'StateUpdated')
-      && (log.address === undefined || sameAddress(log.address, prepared.selection.account))
-      && (log.state === undefined || String(log.state) === nextState));
-    if (linked.length !== 1) throw new Error('trace StateUpdated log ordinal is missing or ambiguous');
+    if (String(postState.state) !== nextState) throw new Error('StateUpdated post-state is incomplete.');
+    const stateLog = decodeExactStateUpdated(logs, prepared.selection.account, nextState);
+    const innerFrame = verifyDirectSendTrace(trace, prepared, logs, stateLog);
     evidence.attribution = prepared.kind === 'erc20' ? 'direct_erc20_send' : 'direct_eth_send';
-    evidence.delivery = prepared.kind === 'erc20' ? 'executed_observed' : 'exact';
+    if (prepared.kind === 'erc20') {
+      const transferLog = decodeExactTransfer(logs, prepared);
+      requireLinkedTraceLog(innerFrame.logs, transferLog, 'ERC-20 Transfer');
+      validateErc20ReturnBytes(innerFrame.output ?? '0x');
+      evidence.delivery = verifyErc20BalanceEvidence(prepared, erc20PostState);
+    } else {
+      evidence.delivery = 'exact';
+    }
     return classification('confirmed_attributed', evidence);
   } catch (error) {
     return classification(prepared?.kind === 'activation' ? 'observed_unattributed' : 'uncertain_hashed', {
@@ -211,7 +206,209 @@ const STATE_UPDATED_ABI = [{
   name: 'StateUpdated',
   inputs: [{ name: 'state', type: 'uint256', indexed: true }],
 }];
+const ERC20_TRANSFER_ABI = [{
+  type: 'event',
+  name: 'Transfer',
+  inputs: [
+    { name: 'from', type: 'address', indexed: true },
+    { name: 'to', type: 'address', indexed: true },
+    { name: 'value', type: 'uint256', indexed: false },
+  ],
+}];
+const ACCOUNT_CREATED_TOPIC = encodeEventTopics({ abi: ACCOUNT_CREATED_ABI, eventName: 'AccountCreated' })[0];
+const STATE_UPDATED_TOPIC = encodeEventTopics({ abi: STATE_UPDATED_ABI, eventName: 'StateUpdated' })[0];
+const ERC20_TRANSFER_TOPIC = encodeEventTopics({ abi: ERC20_TRANSFER_ABI, eventName: 'Transfer' })[0];
 const ZERO_HASH = `0x${'00'.repeat(32)}`;
+
+function normalizeRawReceiptLogs(receipt) {
+  requireDenseArray(receipt.logs, 'Receipt logs');
+  const seen = new Set();
+  return receipt.logs.map((log, receiptArrayIndex) => {
+    requirePlainObject(log, `Receipt log ${receiptArrayIndex}`);
+    if (Object.hasOwn(log, 'eventName')) throw new Error('Pre-labelled receipt events are forbidden.');
+    const address = getAddress(log.address);
+    requireDenseArray(log.topics, `Receipt log ${receiptArrayIndex} topics`);
+    const topics = log.topics.map((topic, topicIndex) => canonicalHash(topic, `receipt log ${receiptArrayIndex} topic ${topicIndex}`));
+    const data = requireBoundedHex(log.data, TRACE_LIMITS.bytes, `Receipt log ${receiptArrayIndex} data`);
+    const logIndex = canonicalHexQuantity(log.logIndex, `receipt log ${receiptArrayIndex} index`);
+    if (seen.has(logIndex)) throw new Error('Receipt log indices are duplicated.');
+    seen.add(logIndex);
+    if (canonicalHash(log.transactionHash, 'receipt log transaction hash') !== receipt.transactionHash
+      || canonicalHash(log.blockHash, 'receipt log block hash') !== receipt.blockHash
+      || canonicalHexQuantity(log.blockNumber, 'receipt log block number') !== receipt.blockNumber
+      || canonicalHexQuantity(log.transactionIndex, 'receipt log transaction index') !== receipt.transactionIndex
+      || log.removed !== false) {
+      throw new Error('Receipt log coordinates or removal status mismatch.');
+    }
+    return deepFreeze({ address, topics, data, logIndex, receiptArrayIndex });
+  });
+}
+
+function decodeExactAccountCreated(logs, prepared) {
+  const candidates = logs.filter((log) => log.topics[0] === ACCOUNT_CREATED_TOPIC);
+  if (candidates.length !== 1) throw new Error('Expected exactly one canonical AccountCreated event.');
+  const log = candidates[0];
+  if (!sameAddress(log.address, ERC6551_REGISTRY) || log.topics.length !== 4) {
+    throw new Error('AccountCreated emitter or topic shape mismatch.');
+  }
+  const decoded = decodeEventLog({ abi: ACCOUNT_CREATED_ABI, topics: log.topics, data: log.data, strict: true });
+  const implementation = prepared.implementation ?? prepared.evidence?.getters?.implementation
+    ?? prepared.evidence?.evidence?.implementation;
+  const expectedTopics = encodeEventTopics({
+    abi: ACCOUNT_CREATED_ABI,
+    eventName: 'AccountCreated',
+    args: {
+      implementation,
+      tokenContract: LOOPERS_COLLECTION,
+      tokenId: BigInt(prepared.selection.tokenId),
+    },
+  });
+  const expectedData = encodeFunctionResultForEvent(
+    [prepared.selection.account, ACCOUNT_SALT, BigInt(BASE_CHAIN_ID)],
+    ['address', 'bytes32', 'uint256'],
+  );
+  if (stableJson(log.topics) !== stableJson(expectedTopics)
+    || log.data !== expectedData
+    || !sameAddress(decoded.args.account, prepared.selection.account)
+    || !sameAddress(decoded.args.implementation, implementation)
+    || decoded.args.salt !== ACCOUNT_SALT
+    || decoded.args.chainId !== BigInt(BASE_CHAIN_ID)
+    || !sameAddress(decoded.args.tokenContract, LOOPERS_COLLECTION)
+    || decoded.args.tokenId !== BigInt(prepared.selection.tokenId)) {
+    throw new Error('AccountCreated coordinates, account, or tuple mismatch.');
+  }
+  return log;
+}
+
+function encodeFunctionResultForEvent(values, types) {
+  return encodeAbiParameters(types.map((type) => ({ type })), values).toLowerCase();
+}
+
+function decodeExactStateUpdated(logs, account, nextState) {
+  const candidates = logs.filter((log) => log.topics[0] === STATE_UPDATED_TOPIC);
+  if (candidates.length !== 1) throw new Error('Expected exactly one StateUpdated event.');
+  const log = candidates[0];
+  if (!sameAddress(log.address, account) || log.topics.length !== 2 || log.data !== '0x') {
+    throw new Error('StateUpdated emitter or encoding mismatch.');
+  }
+  const decoded = decodeEventLog({ abi: STATE_UPDATED_ABI, topics: log.topics, data: log.data, strict: true });
+  const expectedTopics = encodeEventTopics({
+    abi: STATE_UPDATED_ABI, eventName: 'StateUpdated', args: { state: BigInt(nextState) },
+  });
+  if (stableJson(log.topics) !== stableJson(expectedTopics) || decoded.args.state !== BigInt(nextState)) {
+    throw new Error('StateUpdated counter mismatch.');
+  }
+  return log;
+}
+
+function decodeExactTransfer(logs, prepared) {
+  const candidates = logs.filter((log) => log.topics[0] === ERC20_TRANSFER_TOPIC);
+  if (candidates.length !== 1) throw new Error('Expected exactly one ERC-20 Transfer event.');
+  const log = candidates[0];
+  if (!sameAddress(log.address, prepared.erc20?.token) || log.topics.length !== 3) {
+    throw new Error('ERC-20 Transfer emitter or topic shape mismatch.');
+  }
+  const decoded = decodeEventLog({ abi: ERC20_TRANSFER_ABI, topics: log.topics, data: log.data, strict: true });
+  const expectedTopics = encodeEventTopics({
+    abi: ERC20_TRANSFER_ABI,
+    eventName: 'Transfer',
+    args: { from: prepared.selection.account, to: prepared.erc20?.recipient },
+  });
+  const expectedData = encodeFunctionResultForEvent([BigInt(prepared.erc20?.amountBaseUnits ?? -1)], ['uint256']);
+  if (stableJson(log.topics) !== stableJson(expectedTopics)
+    || log.data !== expectedData
+    || !sameAddress(decoded.args.from, prepared.selection.account)
+    || !sameAddress(decoded.args.to, prepared.erc20?.recipient)
+    || decoded.args.value !== BigInt(prepared.erc20?.amountBaseUnits ?? -1)) {
+    throw new Error('ERC-20 Transfer sender, recipient, or amount mismatch.');
+  }
+  return log;
+}
+
+function verifyDirectSendTrace(trace, prepared, receiptLogs, stateLog) {
+  validateDirectCallTrace(trace);
+  if (String(trace.type ?? 'CALL').toUpperCase() !== 'CALL'
+    || !sameAddress(trace.from, prepared.selection.owner)
+    || !sameAddress(trace.to, prepared.selection.account)
+    || trace.input !== prepared.transaction.data
+    || canonicalTraceValue(trace.value) !== '0x0'
+    || trace.error) {
+    throw new Error('Direct account execution trace root mismatch.');
+  }
+  requireLinkedTraceLog(trace.logs, stateLog, 'StateUpdated');
+  const misplaced = [];
+  const inspectMisplacedState = (frame, root = false) => {
+    if (!root && (frame.logs ?? []).some((log) => log?.topics?.[0] === STATE_UPDATED_TOPIC)) misplaced.push(frame);
+    for (const child of frame.calls ?? []) inspectMisplacedState(child, false);
+  };
+  inspectMisplacedState(trace, true);
+  if (misplaced.length) throw new Error('StateUpdated appeared outside the account execution frame.');
+  const matches = (trace.calls ?? []).filter((frame) => String(frame.type ?? 'CALL').toUpperCase() === 'CALL'
+    && sameAddress(frame.from, prepared.innerCall.from)
+    && sameAddress(frame.to, prepared.innerCall.to)
+    && frame.input === prepared.innerCall.input
+    && canonicalTraceValue(frame.value) === prepared.innerCall.value
+    && !frame.error);
+  if (matches.length !== 1) throw new Error('Exact direct inner CALL ancestry is missing or duplicated.');
+  const linkedReceiptLog = receiptLogs[stateLog.receiptArrayIndex];
+  if (!linkedReceiptLog || linkedReceiptLog !== stateLog) throw new Error('StateUpdated receipt ordinal drifted.');
+  return matches[0];
+}
+
+function requireLinkedTraceLog(frameLogs, receiptLog, label) {
+  requireDenseArray(frameLogs, `${label} trace logs`);
+  const matches = frameLogs.filter((log) => {
+    requirePlainObject(log, `${label} trace log`);
+    return Number.isInteger(log.index)
+      && log.index === receiptLog.receiptArrayIndex
+      && sameAddress(log.address, receiptLog.address)
+      && stableJson(log.topics) === stableJson(receiptLog.topics)
+      && log.data === receiptLog.data;
+  });
+  if (matches.length !== 1) throw new Error(`${label} trace frame receipt ordinal is missing or ambiguous.`);
+}
+
+function validateErc20ReturnBytes(value) {
+  const result = requireBoundedHex(value, 32, 'ERC-20 return');
+  if (result === '0x') return result;
+  if (result === encodeFunctionResult({ abi: ERC20_ABI, functionName: 'transfer', result: true }).toLowerCase()) return result;
+  throw new Error('ERC-20 return must be empty bytes or canonical ABI true.');
+}
+
+export function validateErc20SimulationResult(value) {
+  const raw = requireBoundedHex(value, TRANSPORT_LIMITS.standardBytes, 'ERC-20 simulation result');
+  let decoded;
+  try {
+    decoded = decodeFunctionResult({ abi: ACCOUNT_EXECUTE_ABI, functionName: 'execute', data: raw });
+  } catch {
+    throw new Error('ERC-20 execution simulation return is malformed.');
+  }
+  const canonical = encodeFunctionResult({ abi: ACCOUNT_EXECUTE_ABI, functionName: 'execute', result: decoded }).toLowerCase();
+  if (canonical !== raw) throw new Error('ERC-20 execution simulation return is noncanonical.');
+  return validateErc20ReturnBytes(decoded);
+}
+
+function verifyErc20BalanceEvidence(prepared, postState) {
+  const beforeAccount = canonicalDecimalBigInt(prepared.erc20?.accountBalanceBefore, 'pre-send account token balance');
+  const beforeRecipient = canonicalDecimalBigInt(prepared.erc20?.recipientBalanceBefore, 'pre-send recipient token balance');
+  const afterAccount = canonicalDecimalBigInt(postState?.accountBalance, 'post-send account token balance');
+  const afterRecipient = canonicalDecimalBigInt(postState?.recipientBalance, 'post-send recipient token balance');
+  const amount = canonicalDecimalBigInt(prepared.erc20?.amountBaseUnits, 'prepared token amount');
+  const accountDecreased = afterAccount < beforeAccount;
+  const recipientIncreased = afterRecipient > beforeRecipient;
+  if (!accountDecreased && !recipientIncreased) throw new Error('ERC-20 balances show no transfer.');
+  const exact = beforeAccount >= afterAccount
+    && afterRecipient >= beforeRecipient
+    && beforeAccount - afterAccount === amount
+    && afterRecipient - beforeRecipient === amount;
+  return exact ? 'exact' : 'executed_observed';
+}
+
+function canonicalDecimalBigInt(value, label) {
+  const text = String(value ?? '');
+  if (!/^(0|[1-9]\d*)$/.test(text)) throw new Error(`${label} is malformed.`);
+  return BigInt(text);
+}
 
 export function createLooperWalletRpcClient({
   fetchImpl,
@@ -389,6 +586,8 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
 
   const implementationTrusted = reviewedRelease.complete
     && sameAddress(normalizedImplementation, reviewedRelease.implementation)
+    && implementationCode === reviewedRelease.runtimeCode
+    && codeByteLength(implementationCode) === reviewedRelease.runtimeByteLength
     && implementationRuntimeSha256 === reviewedRelease.runtimeSha256;
   if (accountCode === '0x' && implementationTrusted) {
     moduleRegistry = reviewedRelease.moduleRegistry;
@@ -612,25 +811,40 @@ function stableJson(value) {
 
 function normalizeReleaseConfig(releaseConfig = {}) {
   const implementation = safeAddress(releaseConfig.implementation);
+  const runtimeCode = safeCode(releaseConfig.runtimeCode);
+  const runtimeByteLength = safePositiveInteger(releaseConfig.runtimeByteLength);
   const runtimeSha256 = safeHash(releaseConfig.runtimeSha256);
   const moduleRegistry = safeAddress(releaseConfig.moduleRegistry);
   const moduleRegistryRuntimeSha256 = safeHash(releaseConfig.moduleRegistryRuntimeSha256);
+  const collectionProxyRuntimeByteLength = safePositiveInteger(releaseConfig.collectionProxyRuntimeByteLength);
   const collectionProxyRuntimeSha256 = safeHash(releaseConfig.collectionProxyRuntimeSha256);
   const collectionImplementation = safeAddress(releaseConfig.collectionImplementation);
+  const collectionImplementationRuntimeByteLength = safePositiveInteger(releaseConfig.collectionImplementationRuntimeByteLength);
   const collectionImplementationRuntimeSha256 = safeHash(releaseConfig.collectionImplementationRuntimeSha256);
+  const registryRuntimeByteLength = safePositiveInteger(releaseConfig.registryRuntimeByteLength);
   const registryRuntimeSha256 = safeHash(releaseConfig.registryRuntimeSha256);
+  const exactRuntime = Boolean(runtimeCode
+    && runtimeByteLength === codeByteLength(runtimeCode)
+    && runtimeSha256 === sha256(runtimeCode));
   return {
     implementation,
+    runtimeCode,
+    runtimeByteLength,
     runtimeSha256,
     moduleRegistry,
     moduleRegistryRuntimeSha256,
+    collectionProxyRuntimeByteLength,
     collectionProxyRuntimeSha256,
     collectionImplementation,
+    collectionImplementationRuntimeByteLength,
     collectionImplementationRuntimeSha256,
+    registryRuntimeByteLength,
     registryRuntimeSha256,
-    complete: Boolean(implementation && runtimeSha256 && moduleRegistry && moduleRegistryRuntimeSha256),
-    canonicalComplete: Boolean(implementation && runtimeSha256 && moduleRegistry && moduleRegistryRuntimeSha256
-      && collectionProxyRuntimeSha256 && collectionImplementation && collectionImplementationRuntimeSha256 && registryRuntimeSha256),
+    complete: Boolean(implementation && exactRuntime && moduleRegistry && moduleRegistryRuntimeSha256),
+    canonicalComplete: Boolean(implementation && exactRuntime && moduleRegistry && moduleRegistryRuntimeSha256
+      && collectionProxyRuntimeByteLength && collectionProxyRuntimeSha256
+      && collectionImplementation && collectionImplementationRuntimeByteLength
+      && collectionImplementationRuntimeSha256 && registryRuntimeByteLength && registryRuntimeSha256),
   };
 }
 
@@ -647,6 +861,19 @@ function safeHash(value) {
   return /^0x[0-9a-f]{64}$/.test(hash) ? hash : null;
 }
 
+function safeCode(value) {
+  const code = String(value ?? '');
+  return /^0x(?:[0-9a-f]{2})+$/.test(code) ? code : null;
+}
+
+function safePositiveInteger(value) {
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function codeByteLength(code) {
+  return (code.length - 2) / 2;
+}
+
 function sameAddress(left, right) {
   const a = safeAddress(left);
   const b = safeAddress(right);
@@ -659,18 +886,45 @@ function createHighLevelContext({
   now = () => Date.now(),
   sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   randomUUID = () => globalThis.crypto?.randomUUID?.(),
+  loadDurableOperations = async () => [],
 } = {}) {
-  if (typeof fetchImpl !== 'function' || typeof now !== 'function' || typeof sleep !== 'function' || typeof randomUUID !== 'function') {
+  if (typeof fetchImpl !== 'function' || typeof now !== 'function' || typeof sleep !== 'function'
+    || typeof randomUUID !== 'function' || typeof loadDurableOperations !== 'function') {
     throw new TypeError('Looper wallet RPC dependencies are invalid.');
   }
-  return Object.freeze({ fetchImpl, release: normalizeReleaseConfig(releaseConfig), now, sleep, randomUUID });
+  return Object.freeze({
+    fetchImpl,
+    release: normalizeReleaseConfig(releaseConfig),
+    now,
+    sleep,
+    randomUUID,
+    loadDurableOperations,
+  });
 }
 
-async function readCompleteStateBatch(context, anchor, selection, phase, signal) {
+class OperationDeadlineError extends Error {
+  constructor() {
+    super('Operation evidence deadline expired.');
+    this.name = 'OperationDeadlineError';
+  }
+}
+
+function requireBeforeDeadline(context, deadlineMs) {
+  if (deadlineMs === null || deadlineMs === undefined) return;
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 0 || context.now() >= deadlineMs) {
+    throw new OperationDeadlineError();
+  }
+}
+
+function deadlineExpired(error) {
+  return error instanceof OperationDeadlineError;
+}
+
+async function readCompleteStateBatch(context, anchor, selection, phase, signal, deadlineMs = null) {
   let firstError;
   for (const origin of BASE_RPC_ORIGINS) {
     try {
-      return await readCompleteStateAtOrigin(context, origin, anchor, selection, phase, signal);
+      return await readCompleteStateAtOrigin(context, origin, anchor, selection, phase, signal, deadlineMs);
     } catch (error) {
       if (!firstError) firstError = error;
       if (!error?.transient || origin === BASE_RPC_ORIGINS.at(-1)) throw error;
@@ -679,23 +933,23 @@ async function readCompleteStateBatch(context, anchor, selection, phase, signal)
   throw firstError;
 }
 
-async function readCompleteStateAtOrigin(context, origin, anchor, selection, phase, signal) {
+async function readCompleteStateAtOrigin(context, origin, anchor, selection, phase, signal, deadlineMs = null) {
   const eipBlockRef = Object.freeze({ blockHash: anchor.hash, requireCanonical: true });
   try {
-    return await runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, eipBlockRef, 'eip-1898', signal);
+    return await runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, eipBlockRef, 'eip-1898', signal, deadlineMs);
   } catch (error) {
     if (!isEip1898UnsupportedError(error)) throw error;
-    const before = await rpcMethod(context, origin, 'eth_getBlockByNumber', [anchor.number, false], signal);
+    const before = await rpcMethod(context, origin, 'eth_getBlockByNumber', [anchor.number, false], signal, deadlineMs);
     if (canonicalHash(before?.hash, 'guarded before block hash') !== anchor.hash) throw new Error('Guarded state batch before hash drifted.');
-    const complete = await runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, anchor.number, 'number-guarded', signal);
-    const after = await rpcMethod(context, origin, 'eth_getBlockByNumber', [anchor.number, false], signal);
+    const complete = await runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, anchor.number, 'number-guarded', signal, deadlineMs);
+    const after = await rpcMethod(context, origin, 'eth_getBlockByNumber', [anchor.number, false], signal, deadlineMs);
     if (canonicalHash(after?.hash, 'guarded after block hash') !== anchor.hash) throw new Error('Guarded state batch after hash drifted.');
     return complete;
   }
 }
 
-async function runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, blockRef, mode, signal) {
-  const request = ({ method, params }) => rpcMethod(context, origin, method, params, signal);
+async function runCompleteStateAtBlockRef(context, origin, anchor, selection, phase, blockRef, mode, signal, deadlineMs = null) {
+  const request = ({ method, params }) => rpcMethod(context, origin, method, params, signal, deadlineMs);
   const evidence = await readOriginSnapshot({
     request,
     origin,
@@ -706,11 +960,11 @@ async function runCompleteStateAtBlockRef(context, origin, anchor, selection, ph
     candidatePolicyModule: null,
     reviewedRelease: context.release,
   });
-  const proxyCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [LOOPERS_COLLECTION, blockRef], signal), 'Looper proxy runtime');
-  const proxySlot = canonicalHash(await rpcMethod(context, origin, 'eth_getStorageAt', [LOOPERS_COLLECTION, EIP1967_IMPLEMENTATION_SLOT, blockRef], signal), 'Looper proxy implementation slot');
+  const proxyCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [LOOPERS_COLLECTION, blockRef], signal, deadlineMs), 'Looper proxy runtime');
+  const proxySlot = canonicalHash(await rpcMethod(context, origin, 'eth_getStorageAt', [LOOPERS_COLLECTION, EIP1967_IMPLEMENTATION_SLOT, blockRef], signal, deadlineMs), 'Looper proxy implementation slot');
   const collectionImplementation = getAddress(`0x${proxySlot.slice(-40)}`);
-  const collectionImplementationCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [collectionImplementation, blockRef], signal), 'Looper collection implementation runtime');
-  const registryCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [ERC6551_REGISTRY, blockRef], signal), 'ERC-6551 registry runtime');
+  const collectionImplementationCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [collectionImplementation, blockRef], signal, deadlineMs), 'Looper collection implementation runtime');
+  const registryCode = canonicalCode(await rpcMethod(context, origin, 'eth_getCode', [ERC6551_REGISTRY, blockRef], signal, deadlineMs), 'ERC-6551 registry runtime');
   return deepFreeze({ origin, mode, blockRef, evidence, proxyCode, proxySlot, collectionImplementationCode, registryCode });
 }
 
@@ -724,21 +978,35 @@ function isEip1898UnsupportedError(error) {
 
 async function readAccountPreflight(context, input = {}) {
   requirePlainObject(input, 'Account preflight input');
-  if (!context.release.canonicalComplete) throw new Error('Complete reviewed canonical release pins are required.');
+  if (!context.release.canonicalComplete) {
+    throw new Error('Complete reviewed canonical release pins with exact reviewed implementation runtime bytes, byte count, and SHA-256 are required.');
+  }
   const selection = normalizeHighLevelSelection(input.selection, context.release);
-  const anchor = input.receipt ? await canonicalAnchorForReceipt(context, input.receipt, input.signal) : await canonicalHead3(context, input.signal);
-  const complete = await readCompleteStateBatch(context, anchor, selection, input.receipt ? 'receipt' : 'readiness', input.signal);
+  const anchor = input.receipt
+    ? await canonicalAnchorForReceipt(context, input.receipt, input.signal, input.deadlineMs)
+    : await canonicalHead3(context, input.signal, input.deadlineMs);
+  const complete = await readCompleteStateBatch(
+    context, anchor, selection, input.receipt ? 'receipt' : 'readiness', input.signal, input.deadlineMs,
+  );
   const { evidence, proxyCode, proxySlot, collectionImplementationCode, registryCode } = complete;
   if (!sameAddress(evidence.collectionAccount, selection.account)
     || !sameAddress(evidence.registryAccount, selection.account)) throw new Error('Deterministic account readiness disagrees.');
   const expectedRuntime = buildLooperAccountRuntimeCode({ implementation: evidence.implementation, tokenId: selection.tokenId });
   const blockRef = complete.blockRef;
   const collectionImplementation = getAddress(`0x${proxySlot.slice(-40)}`);
-  if (sha256(proxyCode) !== context.release.collectionProxyRuntimeSha256
+  if (codeByteLength(proxyCode) !== context.release.collectionProxyRuntimeByteLength
+    || sha256(proxyCode) !== context.release.collectionProxyRuntimeSha256
     || !sameAddress(collectionImplementation, context.release.collectionImplementation)
+    || codeByteLength(collectionImplementationCode) !== context.release.collectionImplementationRuntimeByteLength
     || sha256(collectionImplementationCode) !== context.release.collectionImplementationRuntimeSha256
+    || codeByteLength(registryCode) !== context.release.registryRuntimeByteLength
     || sha256(registryCode) !== context.release.registryRuntimeSha256) {
     throw new Error('Canonical proxy, implementation, or registry pins drifted.');
+  }
+  if (evidence.implementationCode !== context.release.runtimeCode
+    || codeByteLength(evidence.implementationCode) !== context.release.runtimeByteLength
+    || evidence.implementationRuntimeSha256 !== context.release.runtimeSha256) {
+    throw new Error('Selected account implementation runtime bytes, byte count, or SHA-256 drifted from the reviewed release.');
   }
   const accountState = evidence.accountCode === '0x' ? 'undeployed'
     : evidence.accountCode === expectedRuntime ? 'active' : 'wrong_runtime';
@@ -747,13 +1015,15 @@ async function readAccountPreflight(context, input = {}) {
     : null);
   let estimatedGas = '0x0';
   let gasPrice = '0x0';
+  let simulationResult = null;
   if (transaction) {
     const [simulation, estimateResult, gasPriceResult] = await Promise.all([
-      rpcMethod(context, complete.origin, 'eth_call', [transaction, blockRef], input.signal),
-      rpcMethod(context, complete.origin, 'eth_estimateGas', [transaction, blockRef], input.signal),
-      rpcMethod(context, complete.origin, 'eth_gasPrice', [], input.signal),
+      rpcMethod(context, complete.origin, 'eth_call', [transaction, blockRef], input.signal, input.deadlineMs),
+      rpcMethod(context, complete.origin, 'eth_estimateGas', [transaction, blockRef], input.signal, input.deadlineMs),
+      rpcMethod(context, complete.origin, 'eth_gasPrice', [], input.signal, input.deadlineMs),
     ]);
     if (simulation === null) throw new Error('Exact transaction simulation is unavailable.');
+    simulationResult = requireBoundedHex(simulation, TRANSPORT_LIMITS.standardBytes, 'exact transaction simulation');
     estimatedGas = canonicalHexQuantity(estimateResult, 'estimated gas');
     gasPrice = canonicalHexQuantity(gasPriceResult, 'gas price');
   }
@@ -761,11 +1031,19 @@ async function readAccountPreflight(context, input = {}) {
     anchor: { number: anchor.number, hash: anchor.hash },
     selection,
     pins: {
+      collectionProxyRuntimeByteLength: codeByteLength(proxyCode),
       proxyCodeHash: sha256(proxyCode),
       proxyImplementationSlot: proxySlot,
+      collectionImplementationRuntimeByteLength: codeByteLength(collectionImplementationCode),
       implementationCodeHash: sha256(collectionImplementationCode),
+      registryRuntimeByteLength: codeByteLength(registryCode),
       registryCodeHash: sha256(registryCode),
       accountImplementationCodeHash: evidence.implementationRuntimeSha256,
+      accountImplementationRuntimeByteLength: codeByteLength(evidence.implementationCode),
+      accountProxyRuntimeByteLength: codeByteLength(expectedRuntime),
+      accountProxyRuntimeSha256: sha256(expectedRuntime),
+      observedAccountRuntimeByteLength: evidence.accountCode === '0x' ? null : codeByteLength(evidence.accountCode),
+      observedAccountRuntimeSha256: evidence.accountRuntimeSha256,
     },
     getters: {
       registry: evidence.registry,
@@ -782,6 +1060,7 @@ async function readAccountPreflight(context, input = {}) {
     estimatedGas,
     gasPrice,
     estimatedFeeWei: (BigInt(estimatedGas) * BigInt(gasPrice)).toString(),
+    simulationResult,
     writeReady: sameAddress(evidence.owner, selection.owner) && evidence.operatorCode === '0x' && accountState !== 'wrong_runtime',
     evidence,
   };
@@ -793,7 +1072,8 @@ async function readWalletSnapshot(context, input = {}) {
   const discovered = await discoverTokens(context, preflight.selection.account, input.signal);
   const tokens = [];
   for (const hint of discovered) tokens.push(await readDiscoveredToken(context, preflight.anchor, preflight.selection.account, hint, input.signal));
-  return deepFreeze({ ...preflight, tokens, activity: normalizeActivity(input.activity) });
+  const activity = await readVerifiedDurableActivity(context, preflight.selection, input.signal);
+  return deepFreeze({ ...preflight, tokens, activity });
 }
 
 async function prepareOperation(context, kind, input = {}) {
@@ -815,19 +1095,33 @@ async function prepareOperation(context, kind, input = {}) {
     if (amount > BigInt(evidence.prefundedWei)) throw new Error('ETH amount exceeds the fresh anchored balance.');
     innerCall = { from: selection.account, to: getAddress(input.recipient), input: '0x', value: `0x${amount.toString(16)}` };
   }
+  let erc20 = null;
   if (kind === 'erc20') {
+    validateErc20SimulationResult(evidence.simulationResult);
+    const token = getAddress(input.token);
+    const recipient = getAddress(input.recipient);
     const tokenEvidence = await readDiscoveredToken(context, evidence.anchor, selection.account, {
-      contract: getAddress(input.token), value: '0', name: null, symbol: null, iconUrl: null,
+      contract: token, value: '0', name: null, symbol: null, iconUrl: null,
     }, input.signal);
     const amount = BigInt(String(input.amountBaseUnits));
     if (!tokenEvidence.sendable || amount > BigInt(tokenEvidence.balanceBaseUnits)) {
       throw new Error('ERC-20 amount exceeds a fresh canonical sendable balance.');
     }
+    const recipientBalanceBefore = await readTokenBalanceAtAnchor(
+      context, evidence.anchor, token, recipient, input.signal,
+    );
     innerCall = {
       from: selection.account,
-      to: getAddress(input.token),
-      input: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [getAddress(input.recipient), amount] }),
+      to: token,
+      input: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [recipient, amount] }),
       value: '0x0',
+    };
+    erc20 = {
+      token,
+      recipient,
+      amountBaseUnits: amount.toString(),
+      accountBalanceBefore: tokenEvidence.balanceBaseUnits,
+      recipientBalanceBefore,
     };
   }
   const id = context.randomUUID();
@@ -845,6 +1139,7 @@ async function prepareOperation(context, kind, input = {}) {
     implementation: kind === 'activation' ? release.implementation : null,
     preState: kind === 'activation' ? null : String(evidence.evidence.state),
     innerCall,
+    erc20,
     estimatedGas: evidence.estimatedGas, gasPrice: evidence.gasPrice, estimatedFeeWei: evidence.estimatedFeeWei,
     createdAtMs, expiresAtMs: createdAtMs + 120_000,
   });
@@ -859,16 +1154,28 @@ async function pollOperation(context, input = {}) {
   const deadline = createdAtMs + 600_000;
   while (context.now() < deadline) {
     if (input.signal?.aborted) throw input.signal.reason ?? new DOMException('Aborted', 'AbortError');
-    const pairs = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => ({
-      transaction: await rpcMethod(context, origin, 'eth_getTransactionByHash', [hash], input.signal),
-      receipt: await rpcMethod(context, origin, 'eth_getTransactionReceipt', [hash], input.signal),
-    })));
+    let pairs;
+    try {
+      pairs = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => ({
+        transaction: await rpcMethod(context, origin, 'eth_getTransactionByHash', [hash], input.signal, deadline),
+        receipt: await rpcMethod(context, origin, 'eth_getTransactionReceipt', [hash], input.signal, deadline),
+      })));
+      requireBeforeDeadline(context, deadline);
+    } catch (error) {
+      if (deadlineExpired(error)) break;
+      throw error;
+    }
     requireAgreement(pairs, 'Base transaction and receipt polling evidence disagrees.');
     if (pairs[0].transaction && pairs[0].receipt) {
       if (!input.prepared) return classification('uncertain_hashed', { binding: 'prepared operation required for attribution' });
-      const result = await revalidateReceipt(context, { hash, prepared: input.prepared, signal: input.signal });
+      const receiptDiscoveredAtMs = context.now();
+      const result = await revalidateReceipt(context, {
+        hash, prepared: input.prepared, signal: input.signal, deadlineMs: deadline,
+      });
       if (['confirmed_attributed', 'observed_unattributed', 'reverted'].includes(result.classification)) {
-        return await waitForConfirmationDepth(context, result, pairs[0].receipt, input.signal);
+        return await waitForConfirmationDepth(
+          context, result, pairs[0].receipt, receiptDiscoveredAtMs, input.signal,
+        );
       }
       return result;
     }
@@ -883,13 +1190,27 @@ async function pollOperation(context, input = {}) {
 
 async function revalidateReceipt(context, input = {}) {
   requirePlainObject(input, 'Receipt revalidation input');
+  if (!Number.isSafeInteger(input.deadlineMs) || input.deadlineMs < 0) {
+    return classification('uncertain_hashed', { binding: 'absolute evidence deadline is required' });
+  }
+  try {
+    requireBeforeDeadline(context, input.deadlineMs);
+    return await revalidateReceiptBeforeDeadline(context, input);
+  } catch (error) {
+    if (deadlineExpired(error)) return classification('uncertain_hashed', { binding: 'evidence deadline expired' });
+    throw error;
+  }
+}
+
+async function revalidateReceiptBeforeDeadline(context, input) {
   const hash = canonicalHash(input.hash, 'operation hash');
   const pairs = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => ({
-    transaction: await rpcMethod(context, origin, 'eth_getTransactionByHash', [hash], input.signal),
-    receipt: await rpcMethod(context, origin, 'eth_getTransactionReceipt', [hash], input.signal),
+    transaction: await rpcMethod(context, origin, 'eth_getTransactionByHash', [hash], input.signal, input.deadlineMs),
+    receipt: await rpcMethod(context, origin, 'eth_getTransactionReceipt', [hash], input.signal, input.deadlineMs),
   })));
   requireAgreement(pairs, 'Base transaction and receipt evidence disagrees.');
-  const publicReceipt = await rpcMethod(context, PUBLICNODE_ORIGIN, 'eth_getTransactionReceipt', [hash], input.signal);
+  requireBeforeDeadline(context, input.deadlineMs);
+  const publicReceipt = await rpcMethod(context, PUBLICNODE_ORIGIN, 'eth_getTransactionReceipt', [hash], input.signal, input.deadlineMs);
   if (!pairs[0].transaction || !pairs[0].receipt || stableJson(publicReceipt) !== stableJson(pairs[0].receipt)) {
     return classification('uncertain_hashed', { binding: 'three-origin final receipt quorum is incomplete' });
   }
@@ -898,10 +1219,25 @@ async function revalidateReceipt(context, input = {}) {
     selection: input.prepared.selection,
     receipt: { blockNumber: receipt.blockNumber, blockHash: receipt.blockHash },
     signal: input.signal,
+    deadlineMs: input.deadlineMs,
   });
   let trace = null;
+  let erc20PostState = null;
   if (input.prepared.kind !== 'activation' && receipt.status === '0x1') {
-    trace = await rpcMethod(context, BASE_RPC_ORIGINS[1], 'debug_traceTransaction', [hash, TRACE_OPTIONS], input.signal);
+    trace = await rpcMethod(context, BASE_RPC_ORIGINS[1], 'debug_traceTransaction', [hash, TRACE_OPTIONS], input.signal, input.deadlineMs);
+  }
+  if (input.prepared.kind === 'erc20' && receipt.status === '0x1') {
+    const [accountBalance, recipientBalance] = await Promise.all([
+      readTokenBalanceAtAnchor(
+        context, state.anchor, input.prepared.erc20.token, input.prepared.selection.account,
+        input.signal, input.deadlineMs,
+      ),
+      readTokenBalanceAtAnchor(
+        context, state.anchor, input.prepared.erc20.token, input.prepared.erc20.recipient,
+        input.signal, input.deadlineMs,
+      ),
+    ]);
+    erc20PostState = { accountBalance, recipientBalance };
   }
   const stateEvidence = {
     anchor: state.anchor,
@@ -918,6 +1254,7 @@ async function revalidateReceipt(context, input = {}) {
     postState: stateEvidence,
     revertedState: stateEvidence,
     trace,
+    erc20PostState,
   });
 }
 
@@ -973,6 +1310,17 @@ async function readDiscoveredToken(context, anchor, account, hint, signal) {
       name: hint.name, symbol: hint.symbol, iconUrl: hint.iconUrl, metadataTrusted: false, sendable: false,
     });
   }
+}
+
+async function readTokenBalanceAtAnchor(context, anchor, token, account, signal, deadlineMs = null) {
+  const blockRef = { blockHash: anchor.hash, requireCanonical: true };
+  const data = encodeFunctionData({ abi: ERC20_ABI, functionName: 'balanceOf', args: [account] });
+  const balances = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => {
+    const result = await rpcMethod(context, origin, 'eth_call', [{ to: token, data }, blockRef], signal, deadlineMs);
+    return decodeCanonicalWord(result, 'token balance').toString();
+  }));
+  requireAgreement(balances, 'Canonical token balances disagree.');
+  return balances[0];
 }
 
 function decodeCanonicalWord(value, label) {
@@ -1043,76 +1391,99 @@ function canonicalTraceValue(value) {
   }
 }
 
-function normalizeActivity(activity) {
-  if (activity === undefined) return Object.freeze([]);
-  requireDenseArray(activity, 'Verified local activity');
-  const allowed = new Set(['txHash', 'classification', 'kind', 'direction', 'assetContract', 'amountBaseUnits', 'blockNumber']);
+async function readVerifiedDurableActivity(context, selection, signal) {
+  const candidates = await context.loadDurableOperations(deepFreeze({ ...selection }));
+  requireDenseArray(candidates, 'Durable operation candidates');
   const verified = [];
-  for (const entry of activity) {
-    requirePlainObject(entry, 'Verified local activity entry');
-    if (Object.keys(entry).some((key) => !allowed.has(key))) throw new Error('Verified local activity has unknown keys.');
-    canonicalHash(entry.txHash, 'activity transaction hash');
-    if (!['confirmed_attributed', 'reverted', 'observed_unattributed'].includes(entry.classification)) continue;
-    verified.push(structuredClone(entry));
-    if (verified.length === 20) break;
+  for (const candidate of candidates.slice(0, 20)) {
+    requirePlainExact(candidate, ['hash', 'prepared'], 'Durable operation candidate');
+    const hash = canonicalHash(candidate.hash, 'durable operation hash');
+    requirePlainObject(candidate.prepared, 'Durable prepared operation');
+    if (!sameAddress(candidate.prepared.selection?.account, selection.account)
+      || !sameAddress(candidate.prepared.selection?.owner, selection.owner)
+      || String(candidate.prepared.selection?.tokenId) !== selection.tokenId) {
+      continue;
+    }
+    const now = context.now();
+    if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(now + 120_000)) {
+      throw new Error('Durable activity verification clock is invalid.');
+    }
+    const result = await revalidateReceipt(context, {
+      hash, prepared: candidate.prepared, signal, deadlineMs: now + 120_000,
+    });
+    if (!['confirmed_attributed', 'reverted', 'observed_unattributed'].includes(result.classification)) continue;
+    const entry = {
+      txHash: hash,
+      classification: result.classification,
+      kind: candidate.prepared.kind,
+      blockNumber: result.evidence.blockNumber,
+    };
+    if (candidate.prepared.kind === 'eth') {
+      entry.direction = 'out';
+      entry.assetContract = null;
+      entry.amountBaseUnits = BigInt(candidate.prepared.innerCall.value).toString();
+    } else if (candidate.prepared.kind === 'erc20') {
+      entry.direction = 'out';
+      entry.assetContract = getAddress(candidate.prepared.erc20.token);
+      entry.amountBaseUnits = String(candidate.prepared.erc20.amountBaseUnits);
+    }
+    verified.push(entry);
   }
   return deepFreeze(verified);
 }
 
-async function waitForConfirmationDepth(context, result, receipt, signal) {
+async function waitForConfirmationDepth(context, result, receipt, receiptDiscoveredAtMs, signal) {
   const receiptNumber = BigInt(canonicalHexQuantity(receipt.blockNumber, 'receipt block number'));
-  const deadline = context.now() + 120_000;
+  if (!Number.isSafeInteger(receiptDiscoveredAtMs) || receiptDiscoveredAtMs < 0
+    || !Number.isSafeInteger(receiptDiscoveredAtMs + 120_000)) {
+    return classification('uncertain_hashed', { binding: 'confirmation discovery time is invalid' });
+  }
+  const deadline = receiptDiscoveredAtMs + 120_000;
   while (context.now() < deadline) {
-    const head = await canonicalHead3(context, signal);
-    if (BigInt(head.number) >= receiptNumber + 2n) return result;
-    await context.sleep(Math.min(2_000, deadline - context.now()), signal);
+    try {
+      const head = await canonicalHead3(context, signal, deadline);
+      requireBeforeDeadline(context, deadline);
+      if (BigInt(head.number) >= receiptNumber + 2n) return result;
+    } catch (error) {
+      if (deadlineExpired(error)) break;
+      throw error;
+    }
+    const waitMs = Math.min(2_000, deadline - context.now());
+    if (waitMs <= 0) break;
+    await context.sleep(waitMs, signal);
   }
   return classification('uncertain_hashed', { binding: 'confirmation depth deadline expired' });
 }
 
 function normalizeHighLevelReceipt(receipt) {
   requirePlainObject(receipt, 'Canonical receipt');
-  const logs = (receipt.logs ?? []).map((log, index) => {
-    if (log?.eventName) return { ...log, receiptArrayIndex: log.receiptArrayIndex ?? index };
-    try {
-      const decoded = decodeEventLog({ abi: ACCOUNT_CREATED_ABI, topics: log.topics, data: log.data, strict: true });
-      return {
-        eventName: 'AccountCreated',
-        account: getAddress(decoded.args.account),
-        implementation: getAddress(decoded.args.implementation),
-        salt: decoded.args.salt,
-        chainId: decoded.args.chainId.toString(),
-        tokenContract: getAddress(decoded.args.tokenContract),
-        tokenId: decoded.args.tokenId.toString(),
-        receiptArrayIndex: index,
-      };
-    } catch {
-      try {
-        const decoded = decodeEventLog({ abi: STATE_UPDATED_ABI, topics: log.topics, data: log.data, strict: true });
-        return { eventName: 'StateUpdated', address: getAddress(log.address), state: decoded.args.state.toString(), receiptArrayIndex: index };
-      } catch {
-        return { eventName: 'Unrelated', receiptArrayIndex: index };
-      }
-    }
-  });
-  return {
+  const normalized = {
     transactionHash: canonicalHash(receipt.transactionHash, 'receipt transaction hash'),
     status: receipt.status,
     blockNumber: canonicalHexQuantity(receipt.blockNumber, 'receipt block number'),
     blockHash: canonicalHash(receipt.blockHash, 'receipt block hash'),
     transactionIndex: canonicalHexQuantity(receipt.transactionIndex, 'receipt transaction index'),
-    logs,
+    logs: receipt.logs,
   };
+  normalizeRawReceiptLogs(normalized);
+  return normalized;
 }
 
-async function canonicalHead3(context, signal) {
-  const chainIds = await Promise.all(ALL_RPC_ORIGINS.map((origin) => rpcMethod(context, origin, 'eth_chainId', [], signal)));
+async function canonicalHead3(context, signal, deadlineMs = null) {
+  const chainIds = await Promise.all(ALL_RPC_ORIGINS.map(
+    (origin) => rpcMethod(context, origin, 'eth_chainId', [], signal, deadlineMs),
+  ));
   if (chainIds.some((value) => value !== '0x2105')) throw new Error('Three-origin Base chain quorum failed.');
-  const heads = await Promise.all(ALL_RPC_ORIGINS.map((origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', ['latest', false], signal)));
+  const heads = await Promise.all(ALL_RPC_ORIGINS.map(
+    (origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', ['latest', false], signal, deadlineMs),
+  ));
   const numbers = heads.map((block) => BigInt(canonicalHexQuantity(block?.number, 'latest block number')));
   const minimum = numbers.reduce((left, right) => left < right ? left : right);
   const number = `0x${minimum.toString(16)}`;
-  const blocks = await Promise.all(ALL_RPC_ORIGINS.map((origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', [number, false], signal)));
+  const blocks = await Promise.all(ALL_RPC_ORIGINS.map(
+    (origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', [number, false], signal, deadlineMs),
+  ));
+  requireBeforeDeadline(context, deadlineMs);
   const hashes = blocks.map((block) => {
     if (canonicalHexQuantity(block?.number, 'anchor block number') !== number) throw new Error('Canonical anchor number mismatches.');
     return canonicalHash(block.hash, 'anchor block hash');
@@ -1121,18 +1492,24 @@ async function canonicalHead3(context, signal) {
   return Object.freeze({ number, hash: hashes[0] });
 }
 
-async function canonicalAnchorForReceipt(context, receipt, signal) {
+async function canonicalAnchorForReceipt(context, receipt, signal, deadlineMs = null) {
   const number = canonicalHexQuantity(receipt?.blockNumber, 'receipt block number');
   const hash = canonicalHash(receipt?.blockHash, 'receipt block hash');
-  const chainIds = await Promise.all(ALL_RPC_ORIGINS.map((origin) => rpcMethod(context, origin, 'eth_chainId', [], signal)));
+  const chainIds = await Promise.all(ALL_RPC_ORIGINS.map(
+    (origin) => rpcMethod(context, origin, 'eth_chainId', [], signal, deadlineMs),
+  ));
   if (chainIds.some((value) => value !== '0x2105')) throw new Error('Three-origin Base chain quorum failed.');
-  const blocks = await Promise.all(ALL_RPC_ORIGINS.map((origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', [number, false], signal)));
+  const blocks = await Promise.all(ALL_RPC_ORIGINS.map(
+    (origin) => rpcMethod(context, origin, 'eth_getBlockByNumber', [number, false], signal, deadlineMs),
+  ));
+  requireBeforeDeadline(context, deadlineMs);
   if (blocks.some((block) => canonicalHexQuantity(block?.number, 'receipt anchor number') !== number
     || canonicalHash(block?.hash, 'receipt anchor hash') !== hash)) throw new Error('Receipt block canonical quorum failed.');
   return Object.freeze({ number, hash });
 }
 
-async function rpcMethod(context, origin, method, params, signal) {
+async function rpcMethod(context, origin, method, params, signal, deadlineMs = null) {
+  requireBeforeDeadline(context, deadlineMs);
   if (!ALL_RPC_ORIGINS.includes(origin)) throw new Error('Unapproved Base RPC origin.');
   const kind = rpcKind(method, params);
   if (!RPC_ROUTES[origin].includes(kind)) throw new Error(`RPC route ${kind} is unavailable at ${origin}.`);
@@ -1141,7 +1518,16 @@ async function rpcMethod(context, origin, method, params, signal) {
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason ?? new DOMException('Aborted', 'AbortError'));
   signal?.addEventListener?.('abort', abort, { once: true });
-  const timer = setTimeout(() => controller.abort(new Error('Base RPC request timed out.')), trace ? TRANSPORT_LIMITS.traceTimeoutMs : TRANSPORT_LIMITS.standardTimeoutMs);
+  const transportTimeout = trace ? TRANSPORT_LIMITS.traceTimeoutMs : TRANSPORT_LIMITS.standardTimeoutMs;
+  const deadlineBudget = deadlineMs === null || deadlineMs === undefined
+    ? transportTimeout
+    : Math.max(1, deadlineMs - context.now());
+  const timer = setTimeout(
+    () => controller.abort(deadlineMs === null || deadlineMs === undefined
+      ? new Error('Base RPC request timed out.')
+      : new OperationDeadlineError()),
+    Math.min(transportTimeout, deadlineBudget),
+  );
   const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER) + 1;
   let semanticPhase = false;
   try {
@@ -1160,6 +1546,7 @@ async function rpcMethod(context, origin, method, params, signal) {
       throw error;
     }
     const text = await boundedResponseText(response, trace ? TRANSPORT_LIMITS.traceBytes : TRANSPORT_LIMITS.standardBytes);
+    requireBeforeDeadline(context, deadlineMs);
     semanticPhase = true;
     const body = JSON.parse(text);
     const envelopeKeys = Object.hasOwn(body ?? {}, 'result') ? ['jsonrpc', 'id', 'result'] : ['jsonrpc', 'id', 'error'];
@@ -1173,9 +1560,11 @@ async function rpcMethod(context, origin, method, params, signal) {
       error.transient = [-32005, -32016].includes(body.error.code) || /rate|limit|busy|capacity|temporar/i.test(body.error.message);
       throw error;
     }
+    requireBeforeDeadline(context, deadlineMs);
     return body.result;
   } catch (error) {
     if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+    if (deadlineExpired(error)) throw error;
     if (error?.rpcError || error?.transient !== undefined || semanticPhase) throw error;
     if (controller.signal.aborted) throw controller.signal.reason ?? error;
     const wrapped = new Error(`Base RPC network failure: ${error?.message ?? String(error)}`);
