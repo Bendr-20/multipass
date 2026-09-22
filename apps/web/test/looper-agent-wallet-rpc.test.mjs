@@ -14,10 +14,14 @@ import {
   LOOPERS_COLLECTION,
   MODULE_REGISTRY_ABI,
   REGISTRY_ABI,
+  buildActivationTransaction,
+  buildEthSendTransaction,
   buildLooperAccountRuntimeCode,
   deriveLooperAccount,
 } from '../src/looper-agent-wallet.js';
-import { BASE_RPC_ORIGINS, createLooperWalletRpcClient } from '../src/looper-agent-wallet-rpc.js';
+import * as walletRpc from '../src/looper-agent-wallet-rpc.js';
+
+const { BASE_RPC_ORIGINS, createLooperWalletRpcClient } = walletRpc;
 
 const IMPLEMENTATION = '0x1111111111111111111111111111111111111111';
 const OWNER = '0x2222222222222222222222222222222222222222';
@@ -33,6 +37,10 @@ const RELEASE_CONFIG = Object.freeze({
   runtimeSha256: sha256(IMPLEMENTATION_CODE),
   moduleRegistry: MODULE_REGISTRY,
   moduleRegistryRuntimeSha256: sha256(REGISTRY_CODE),
+  collectionProxyRuntimeSha256: sha256('0x6004'),
+  collectionImplementation: IMPLEMENTATION,
+  collectionImplementationRuntimeSha256: sha256(IMPLEMENTATION_CODE),
+  registryRuntimeSha256: sha256(REGISTRY_CODE),
 });
 
 function output(type, value) {
@@ -427,4 +435,302 @@ test('unreviewed release constants force baseline-only reads and malformed ABI w
     selection: { tokenId: TOKEN_ID, owner: OWNER },
     phase: 'readiness',
   }), /canonical|malformed/i);
+});
+
+test('transport route matrix is closed and the high-level client exposes no generic request', () => {
+  assert.deepEqual(walletRpc.RPC_ROUTES, {
+    'https://mainnet.base.org': ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt'],
+    'https://base.drpc.org': ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt', 'trace'],
+    'https://base-rpc.publicnode.com': ['chainId', 'latestBlock', 'blockByNumber', 'transaction', 'receipt'],
+  });
+  assert.equal(walletRpc.BLOCKSCOUT_ORIGIN, 'https://base.blockscout.com');
+  assert.equal(typeof walletRpc.createLooperAgentWalletRpc, 'function');
+  const client = walletRpc.createLooperAgentWalletRpc({ fetchImpl: async () => { throw new Error('unused'); } });
+  assert.deepEqual(Object.keys(client), [
+    'readAccountPreflight', 'readWalletSnapshot', 'prepareActivation', 'prepareEthSend',
+    'prepareErc20Send', 'pollOperation', 'revalidateReceipt',
+  ]);
+  assert.equal(client.request, undefined);
+});
+
+test('Blockscout token route schema rejects pagination unknown keys prototypes and sparse items', () => {
+  assert.equal(typeof walletRpc.validateBlockscoutTokenResponse, 'function');
+  const valid = {
+    items: [{
+      token: {
+        address_hash: '0x5555555555555555555555555555555555555555',
+        circulating_market_cap: null, decimals: '18', exchange_rate: null,
+        holders_count: '1', icon_url: 'https://example.com/token.png', name: 'Token',
+        symbol: 'TOK', total_supply: '100', type: 'ERC-20', volume_24h: null,
+      },
+      token_id: null, token_instance: null, value: '25',
+    }],
+    next_page_params: null,
+  };
+  const normalized = walletRpc.validateBlockscoutTokenResponse(valid);
+  assert.equal(normalized[0].contract, getAddress(valid.items[0].token.address_hash));
+  for (const candidate of [
+    { ...valid, next_page_params: {} },
+    { ...valid, extra: true },
+    { ...valid, items: [{ ...valid.items[0], extra: true }] },
+    { ...valid, items: Object.assign([valid.items[0]], { extra: true }) },
+    Object.assign(Object.create({ inherited: true }), valid),
+  ]) assert.throws(() => walletRpc.validateBlockscoutTokenResponse(candidate), /Blockscout|schema|keys|plain|pagination/i);
+  const sparse = { ...valid, items: new Array(1), next_page_params: null };
+  assert.throws(() => walletRpc.validateBlockscoutTokenResponse(sparse), /sparse|Blockscout/i);
+});
+
+test('trace bounds accept exact direct calls and reject every limit plus one', () => {
+  assert.equal(typeof walletRpc.validateDirectCallTrace, 'function');
+  const leaf = { type: 'CALL', from: OWNER, to: IMPLEMENTATION, input: '0x', output: '0x', value: '0x0', logs: [], calls: [] };
+  assert.doesNotThrow(() => walletRpc.validateDirectCallTrace(leaf));
+  const tooManyChildren = { ...leaf, calls: Array.from({ length: 257 }, () => leaf) };
+  assert.throws(() => walletRpc.validateDirectCallTrace(tooManyChildren), /children|256|trace/i);
+  let tooDeep = leaf;
+  for (let index = 0; index < 33; index += 1) tooDeep = { ...leaf, calls: [tooDeep] };
+  assert.throws(() => walletRpc.validateDirectCallTrace(tooDeep), /depth|32|trace/i);
+  assert.throws(() => walletRpc.validateDirectCallTrace({ ...leaf, input: `0x${'00'.repeat(262145)}` }), /bytes|262144|trace/i);
+});
+
+function strictFetchFromRequester(handler, calls = []) {
+  return async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push({ url, options, body });
+    let result;
+    if (body.method === 'eth_getCode' && body.params[0].toLowerCase() === LOOPERS_COLLECTION.toLowerCase()) result = '0x6004';
+    else if (body.method === 'eth_getCode' && body.params[0].toLowerCase() === ERC6551_REGISTRY.toLowerCase()) result = REGISTRY_CODE;
+    else if (body.method === 'eth_getCode' && body.params[0].toLowerCase() === CONFIGURED_TOKENS[0].address.toLowerCase()) result = '0x6005';
+    else if (body.method === 'eth_getStorageAt') result = `0x${'00'.repeat(12)}${IMPLEMENTATION.slice(2).toLowerCase()}`;
+    else if (body.method === 'eth_estimateGas') result = '0x5208';
+    else if (body.method === 'eth_gasPrice') result = '0x2';
+    else if (body.method === 'eth_call' && body.params[0].from) result = '0x';
+    else if (body.method === 'eth_call' && body.params[0].data === '0x313ce567') result = output('uint256', 18n);
+    else result = await handler({ origin: url, method: body.method, params: body.params });
+    const text = JSON.stringify({ jsonrpc: '2.0', id: body.id, result });
+    return {
+      ok: true, status: 200, redirected: false, url,
+      headers: { get: (name) => name.toLowerCase() === 'content-length' ? String(Buffer.byteLength(text)) : null },
+      async text() { return text; },
+    };
+  };
+}
+
+test('anchor readiness uses three-origin quorum and returns complete deterministic account pins', async () => {
+  const calls = [];
+  const client = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: strictFetchFromRequester(requester(), calls),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  const result = await client.readAccountPreflight({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  assert.deepEqual(result.selection, {
+    tokenId: TOKEN_ID,
+    owner: getAddress(OWNER),
+    account: deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }),
+  });
+  assert.equal(result.anchor.number, '0x64');
+  assert.equal(result.anchor.hash, BLOCK_HASH);
+  assert.equal(result.accountState, 'active');
+  assert.equal(result.operatorProfile, 'eoa');
+  assert.match(result.pins.proxyCodeHash, /^0x[0-9a-f]{64}$/);
+  assert.match(result.pins.proxyImplementationSlot, /^0x[0-9a-f]{64}$/);
+  assert.equal(calls.filter(({ body }) => body.method === 'eth_chainId').length, 3);
+  assert.equal(calls.some(({ url, body }) => url.includes('publicnode') && ['eth_call', 'eth_getCode', 'eth_getBalance', 'eth_getStorageAt'].includes(body.method)), false);
+});
+
+test('pre-signature and receipt-block boundaries always issue fresh complete anchored reads', async () => {
+  const calls = [];
+  const client = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: strictFetchFromRequester(requester(), calls),
+    releaseConfig: RELEASE_CONFIG,
+    randomUUID: () => '550e8400-e29b-41d4-a716-446655440000',
+    now: () => 1000,
+  });
+  await client.readAccountPreflight({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  const firstReadCount = calls.length;
+  await client.readAccountPreflight({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  assert.equal(calls.length, firstReadCount * 2);
+  calls.length = 0;
+  await client.readAccountPreflight({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    receipt: { blockNumber: '0x64', blockHash: BLOCK_HASH },
+  });
+  assert.equal(calls.some(({ body }) => body.method === 'eth_getBlockByNumber' && body.params[0] === 'latest'), false);
+  assert.equal(calls.filter(({ body }) => body.method === 'eth_getBlockByNumber' && body.params[0] === '0x64').length, 3);
+});
+
+test('pre-signature preparers independently refresh activation ETH and ERC-20 evidence', async () => {
+  let id = 0;
+  const activeCalls = [];
+  const activeClient = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: strictFetchFromRequester(requester(), activeCalls),
+    releaseConfig: RELEASE_CONFIG,
+    randomUUID: () => `550e8400-e29b-41d4-a716-${String(++id).padStart(12, '0')}`,
+    now: () => 1000,
+  });
+  const eth = await activeClient.prepareEthSend({ selection: { tokenId: TOKEN_ID, owner: OWNER }, recipient: POLICY_MODULE, amountWei: '7' });
+  const afterEth = activeCalls.length;
+  const erc20 = await activeClient.prepareErc20Send({
+    selection: { tokenId: TOKEN_ID, owner: OWNER }, token: CONFIGURED_TOKENS[0].address,
+    recipient: POLICY_MODULE, amountBaseUnits: '7',
+  });
+  assert.ok(activeCalls.length > afterEth);
+  assert.equal(eth.preState, '7');
+  assert.equal(eth.innerCall.value, '0x7');
+  assert.equal(erc20.preState, '7');
+  assert.equal(erc20.innerCall.to, CONFIGURED_TOKENS[0].address);
+  assert.equal(Object.isFrozen(erc20), true);
+
+  const activationCalls = [];
+  const activationClient = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: strictFetchFromRequester(requester({ inactiveAccount: true }), activationCalls),
+    releaseConfig: RELEASE_CONFIG,
+    randomUUID: () => '550e8400-e29b-41d4-a716-446655440000',
+    now: () => 1000,
+  });
+  const activation = await activationClient.prepareActivation({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  assert.equal(activation.kind, 'activation');
+  assert.equal(activation.evidence.accountState, 'undeployed');
+  assert.equal(activeCalls.filter(({ body }) => body.method === 'eth_chainId').length, 6);
+  assert.equal(activationCalls.filter(({ body }) => body.method === 'eth_chainId').length, 3);
+});
+
+test('token discovery uses one exact Blockscout route then proves token reads at the anchor', async () => {
+  const calls = [];
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const token = '0x5555555555555555555555555555555555555555';
+  const rpcFetch = strictFetchFromRequester(requester(), calls);
+  const fetchImpl = async (url, options) => {
+    if (url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN)) {
+      calls.push({ url, options, body: null });
+      const payload = {
+        items: [{
+          token: { address_hash: token, circulating_market_cap: null, decimals: '18', exchange_rate: null, holders_count: '1', icon_url: 'https://example.com/t.png', name: 'Token', symbol: 'TOK', total_supply: '100', type: 'ERC-20', volume_24h: null },
+          token_id: null, token_instance: null, value: '25',
+        }],
+        next_page_params: null,
+      };
+      const text = JSON.stringify(payload);
+      return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(text)) }, async text() { return text; } };
+    }
+    const body = JSON.parse(options.body);
+    if (body.method === 'eth_getCode' && body.params[0].toLowerCase() === token.toLowerCase()) {
+      const text = JSON.stringify({ jsonrpc: '2.0', id: body.id, result: '0x6005' });
+      return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(text)) }, async text() { return text; } };
+    }
+    if (body.method === 'eth_call' && body.params[0].to.toLowerCase() === token.toLowerCase()) {
+      const result = body.params[0].data === '0x313ce567' ? output('uint256', 18n) : output('uint256', 25n);
+      const text = JSON.stringify({ jsonrpc: '2.0', id: body.id, result });
+      return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(text)) }, async text() { return text; } };
+    }
+    return rpcFetch(url, options);
+  };
+  const client = walletRpc.createLooperAgentWalletRpc({ fetchImpl, releaseConfig: RELEASE_CONFIG });
+  const result = await client.readWalletSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  assert.deepEqual(result.tokens, [{
+    contract: getAddress(token), balanceBaseUnits: '25', decimals: 18, name: 'Token', symbol: 'TOK',
+    iconUrl: 'https://example.com/t.png', metadataTrusted: false, sendable: true,
+  }]);
+  const blockscout = calls.find(({ url }) => url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN));
+  assert.equal(blockscout.url, `${walletRpc.BLOCKSCOUT_ORIGIN}/api/v2/addresses/${account}/tokens?type=ERC-20`);
+  assert.deepEqual({ ...blockscout.options, signal: undefined }, { method: 'GET', redirect: 'error', credentials: 'omit', signal: undefined });
+});
+
+test('token read failures stay raw read-only and activity is verified-local-only capped at twenty', async () => {
+  const activities = Array.from({ length: 25 }, (_, index) => ({ txHash: `0x${index.toString(16).padStart(64, '0')}`, classification: 'confirmed_attributed' }));
+  const rpcFetch = strictFetchFromRequester(requester());
+  const fetchImpl = async (url, options) => {
+    if (url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN)) {
+      const text = JSON.stringify({ items: [], next_page_params: null });
+      return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(text)) }, async text() { return text; } };
+    }
+    return rpcFetch(url, options);
+  };
+  const client = walletRpc.createLooperAgentWalletRpc({ fetchImpl, releaseConfig: RELEASE_CONFIG });
+  const result = await client.readWalletSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, activity: activities });
+  assert.equal(result.activity.length, 20);
+  assert.equal(result.activity.every((entry) => entry.classification === 'confirmed_attributed'), true);
+});
+
+test('direct activation receipt classification requires exact EOA envelope event and post-state', () => {
+  assert.equal(typeof walletRpc.verifyOperationReceipt, 'function');
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const preparedTransaction = buildActivationTransaction({ owner: OWNER, implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const hash = `0x${'aa'.repeat(32)}`;
+  const transaction = {
+    hash, chainId: '0x2105', from: OWNER, to: preparedTransaction.to, input: preparedTransaction.data,
+    value: '0x0', blockNumber: '0x64', blockHash: BLOCK_HASH, transactionIndex: '0x0',
+  };
+  const receipt = {
+    transactionHash: hash, status: '0x1', blockNumber: '0x64', blockHash: BLOCK_HASH,
+    transactionIndex: '0x0', logs: [{ eventName: 'AccountCreated', account }],
+  };
+  const prepared = { kind: 'activation', selection: { tokenId: TOKEN_ID, owner: OWNER, account }, transaction: preparedTransaction };
+  const postState = { anchor: { number: '0x64', hash: BLOCK_HASH }, accountState: 'active', account, operatorCode: '0x' };
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState }).classification, 'confirmed_attributed');
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction: { ...transaction, from: POLICY_MODULE }, receipt, prepared, postState }).classification, 'observed_unattributed');
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt: { ...receipt, logs: [...receipt.logs, ...receipt.logs] }, prepared, postState }).classification, 'observed_unattributed');
+});
+
+test('direct send StateUpdated and trace ancestry are mandatory for receipt classification', () => {
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const recipient = POLICY_MODULE;
+  const preparedTransaction = buildEthSendTransaction({ owner: OWNER, account, recipient, amountWei: '7' });
+  const hash = `0x${'bb'.repeat(32)}`;
+  const transaction = {
+    hash, chainId: '0x2105', from: OWNER, to: account, input: preparedTransaction.data, value: '0x0',
+    blockNumber: '0x64', blockHash: BLOCK_HASH, transactionIndex: '0x0',
+  };
+  const receipt = {
+    transactionHash: hash, status: '0x1', blockNumber: '0x64', blockHash: BLOCK_HASH,
+    transactionIndex: '0x0', logs: [{ eventName: 'StateUpdated', address: account, state: '8', receiptArrayIndex: 0 }],
+  };
+  const prepared = {
+    kind: 'eth', selection: { tokenId: TOKEN_ID, owner: OWNER, account }, transaction: preparedTransaction,
+    preState: '7', innerCall: { from: account, to: recipient, input: '0x', value: '0x7' },
+  };
+  const postState = { anchor: { number: '0x64', hash: BLOCK_HASH }, accountState: 'active', account, operatorCode: '0x', state: '8' };
+  const trace = { type: 'CALL', from: OWNER, to: account, input: preparedTransaction.data, output: '0x', value: '0x0', logs: [], calls: [{ type: 'CALL', from: account, to: recipient, input: '0x', output: '0x', value: '0x7', logs: [{ index: 0, eventName: 'StateUpdated', address: account, state: '8' }], calls: [] }] };
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState, trace }).classification, 'confirmed_attributed');
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt: { ...receipt, logs: [] }, prepared, postState, trace }).classification, 'uncertain_hashed');
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState, trace: { ...trace, calls: [] } }).classification, 'uncertain_hashed');
+  const missingFrameLogs = { ...trace, calls: [{ ...trace.calls[0], logs: [] }] };
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState, trace: missingFrameLogs }).classification, 'uncertain_hashed');
+});
+
+test('receipt classification keeps status-zero evidence uncertain until transaction binding is exact', () => {
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const preparedTransaction = buildEthSendTransaction({ owner: OWNER, account, recipient: POLICY_MODULE, amountWei: '7' });
+  const hash = `0x${'cc'.repeat(32)}`;
+  const baseTransaction = { hash, chainId: '0x2105', from: OWNER, to: account, input: preparedTransaction.data, value: '0x0', blockNumber: '0x64', blockHash: BLOCK_HASH, transactionIndex: '0x0' };
+  const receipt = { transactionHash: hash, status: '0x0', blockNumber: '0x64', blockHash: BLOCK_HASH, transactionIndex: '0x0', logs: [] };
+  const prepared = { kind: 'eth', selection: { tokenId: TOKEN_ID, owner: OWNER, account }, transaction: preparedTransaction, preState: '7', innerCall: { from: account, to: POLICY_MODULE, input: '0x', value: '0x7' } };
+  const revertedState = { anchor: { number: '0x64', hash: BLOCK_HASH }, accountState: 'active', account, state: '7', operatorCode: '0x' };
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction: baseTransaction, receipt, prepared, revertedState }).classification, 'reverted');
+  assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction: { ...baseTransaction, input: '0x' }, receipt, prepared, revertedState }).classification, 'uncertain_hashed');
+});
+
+test('polling cadence is immediate then two seconds then ten seconds and stops at the fixed deadline', async () => {
+  let now = 0;
+  const sleeps = [];
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push({ url, body, at: now });
+    const text = JSON.stringify({ jsonrpc: '2.0', id: body.id, result: null });
+    return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(text)) }, async text() { return text; } };
+  };
+  const client = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl,
+    releaseConfig: RELEASE_CONFIG,
+    now: () => now,
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); now += milliseconds; },
+  });
+  const result = await client.pollOperation({ hash: `0x${'dd'.repeat(32)}`, createdAtMs: 0 });
+  assert.equal(result.classification, 'uncertain_hashed');
+  assert.equal(calls[0].at, 0);
+  assert.equal(calls.every(({ at }) => at < 600_000), true);
+  assert.equal(sleeps.slice(0, 60).every((value) => value === 2_000), true);
+  assert.equal(sleeps.slice(60).every((value) => value === 10_000), true);
+  assert.equal(now, 600_000);
+  assert.equal(calls.every(({ url }) => !url.includes('publicnode')), true);
 });
