@@ -253,6 +253,35 @@ test('legacy builder rejects a mismatched flat account artifact', async () => {
   );
 });
 
+test('historical single-object call accepts the canonical flat account artifact', async () => {
+  const flatAccountArtifact = await deployment.compileLooperAgentAccount();
+  const preview = deployment.buildDeploymentPreparation({
+    compiled: flatAccountArtifact,
+    deployer: DEPLOYER,
+    owner: OWNER,
+    nonce: 17,
+  });
+
+  assert.equal(preview.schemaVersion, '2.0.0');
+  assert.equal(preview.compileBundle.kind, 'looper-permission-release-compile-bundle');
+  assert.deepEqual(preview.compileBundle.contracts.account, flatAccountArtifact);
+  assert.ok(preview.compileBundle.contracts.registry);
+});
+
+test('historical single-object call rejects a mismatched flat account artifact', async () => {
+  const flatAccountArtifact = await deployment.compileLooperAgentAccount();
+  flatAccountArtifact.runtimeSha256 = `0x${'55'.repeat(32)}`;
+  assert.throws(
+    () => deployment.buildDeploymentPreparation({
+      compiled: flatAccountArtifact,
+      deployer: DEPLOYER,
+      owner: OWNER,
+      nonce: 17,
+    }),
+    /flat account artifact does not match fresh canonical compiler evidence/i,
+  );
+});
+
 test('preview predicts registry at nonce N and account at N+1 with exact constructor and config calldata', async () => {
   const compiled = await compileBundle();
   const preview = deployment.buildDeploymentPreparation({ compiled, deployer: DEPLOYER, owner: OWNER, nonce: 17 });

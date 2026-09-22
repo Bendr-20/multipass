@@ -215,7 +215,15 @@ export function buildDeploymentPreparation(compiledOrRequest, legacyOptions) {
       throw new Error('compiled release bundle and preparation options are required.');
     }
     const { compiled, deployer, owner, nonce } = compiledOrRequest;
-    requireCanonicalEvidence(compiled, canonicalBundle, 'release bundle');
+    if (isPlainObject(compiled) && Object.hasOwn(compiled, 'contractName')) {
+      requireCanonicalEvidence(
+        compiled,
+        canonicalBundle.contracts.account,
+        'flat account artifact',
+      );
+    } else {
+      requireCanonicalEvidence(compiled, canonicalBundle, 'release bundle');
+    }
     options = { deployer, owner, nonce };
   }
 
