@@ -19,6 +19,7 @@ const COLLECTION = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
 const CANONICAL_REGISTRY = '0x000000006551c19487814612e58FE06813775758';
 const SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee';
 const OWNER = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+const INSPECTION_PATH = resolve(ROOT, 'deployment-prep/looper-agent-account-base-pre-config-inspection.json');
 
 function accountCreatedLog({ tokenId, account, blockNumber = 100, transactionIndex = 1, logIndex = 2 }) {
   const iface = new ethers.Interface([
@@ -44,6 +45,10 @@ function accountCreatedLog({ tokenId, account, blockNumber = 100, transactionInd
     data: encoded.data,
     topics: encoded.topics,
   };
+}
+
+function logParity(log) {
+  return Object.fromEntries(['address', 'blockNumber', 'transactionHash', 'transactionIndex', 'logIndex', 'data', 'topics'].map((key) => [key, log[key]]));
 }
 
 test('release inspection surface is closed and binds the exact schema-v2 preview and deployed pair', async () => {
@@ -126,6 +131,10 @@ test('canonical log quorum fully enumerates bounded primary ranges and matches d
       calls.push({ origin, method: 'eth_getLogs batch', filters: batch });
       return batch.map((filter) => filter.fromBlock === '0x1' ? [log] : []);
     },
+    async blockscoutLogs(filter) {
+      calls.push({ origin: release.RELEASE_BLOCKSCOUT_ORIGIN, method: 'raw logs', filter });
+      return [logParity(log)];
+    },
     async rpc(origin, method, [filter]) {
       calls.push({ origin, method, filter });
       return [log];
@@ -135,21 +144,31 @@ test('canonical log quorum fully enumerates bounded primary ranges and matches d
   assert.deepEqual(result, [log]);
   assert.deepEqual(calls, [
     { origin: release.RELEASE_RPC_ORIGINS[0], method: 'eth_getLogs batch', filters },
-    {
-      origin: release.RELEASE_RPC_ORIGINS[1],
-      method: 'eth_getLogs',
-      filter: { ...filters[0], fromBlock: '0x64', toBlock: '0x64' },
-    },
+    { origin: release.RELEASE_BLOCKSCOUT_ORIGIN, method: 'raw logs', filter: { fromBlock: '0x1', toBlock: '0x4' } },
+    { origin: release.RELEASE_RPC_ORIGINS[1], method: 'eth_getLogs', filter: { fromBlock: '0x64', toBlock: '0x64' } },
   ]);
 
   const disagreeing = {
     async getLogsBatch(origin, batch) { return batch.map(() => [log]); },
+    async blockscoutLogs() { return []; },
     async rpc() { return []; },
   };
   await assert.rejects(
     release.collectCanonicalLogsFromTwoOrigins({ transport: disagreeing, filters: [filters[0]], cap: 10 }),
     /origins disagree/i,
   );
+});
+
+test('canonical peer proof sends the complete historical interval to raw Blockscout logs', async () => {
+  const filters = [{ address: CANONICAL_REGISTRY, fromBlock: '0x1', toBlock: '0x64' }, { address: CANONICAL_REGISTRY, fromBlock: '0x65', toBlock: '0xc8' }];
+  const peer = [];
+  const transport = {
+    async getLogsBatch() { return [[], []]; },
+    async blockscoutLogs(filter) { peer.push(filter); return []; },
+    async rpc() { throw new Error('no event blocks expected'); },
+  };
+  assert.deepEqual(await release.collectCanonicalLogsFromTwoOrigins({ transport, filters }), []);
+  assert.deepEqual(peer, [{ address: CANONICAL_REGISTRY, fromBlock: '0x1', toBlock: '0xc8' }]);
 });
 
 test('Blockscout inventory validator exhausts exact routes and fails closed on malformed pagination and balances', () => {
@@ -274,13 +293,19 @@ test('release verifier rejects drift and emits the deployment document only afte
       estimatedMaximumFeeWei: '1800000000000', transaction,
     },
   };
-  assert.equal(release.validateReleaseInspectionForVerification(inspection), inspection);
+  assert.equal(release.validateReleaseInspectionForVerification(inspection, {
+    expectedSha256: release.computeInspectionSha256(inspection),
+  }), inspection);
   const tampered = structuredClone(inspection);
   tampered.configUpdate.transaction.data = `0x${'00'.repeat(100)}`;
-  assert.throws(() => release.validateReleaseInspectionForVerification(tampered), /transaction|drift/i);
+  assert.throws(() => release.validateReleaseInspectionForVerification(tampered, {
+    expectedSha256: release.computeInspectionSha256(tampered),
+  }), /transaction|drift/i);
   const nonceDrift = structuredClone(inspection);
   nonceDrift.preState.actors.deployerNonce = '7614';
-  assert.throws(() => release.validateReleaseInspectionForVerification(nonceDrift), /deployer nonce|drift/i);
+  assert.throws(() => release.validateReleaseInspectionForVerification(nonceDrift, {
+    expectedSha256: release.computeInspectionSha256(nonceDrift),
+  }), /deployer nonce|drift/i);
 });
 
 test('CLI and package scripts expose closed inspect/verify modes with no broadcast surface', async () => {
@@ -378,4 +403,119 @@ test('Blockscout validator enforces the fixed one-page 10000-item cap', () => {
     value: '0',
   }));
   assert.throws(() => release.validateBlockscoutTokenPage({ items, next_page_params: null }, { type: 'ERC-20' }), /10000|cap/i);
+});
+
+test('reviewed inspection digest binds all pre-config evidence', async () => {
+  const inspection = JSON.parse(await readFile(INSPECTION_PATH, 'utf8'));
+  assert.equal(release.computeInspectionSha256(inspection), release.BOUND_INSPECTION_SHA256);
+  assert.equal(release.assertBoundReleaseInspection(inspection), inspection);
+  for (const mutate of [
+    (value) => { value.anchor.hash = `0x${'99'.repeat(32)}`; },
+    (value) => { value.preState.unrelated.paused = !value.preState.unrelated.paused; },
+    (value) => { value.inventory.accounts[0].runtimeSha256 = `0x${'88'.repeat(32)}`; },
+  ]) {
+    const changed = structuredClone(inspection);
+    mutate(changed);
+    assert.throws(() => release.assertBoundReleaseInspection(changed), /inspection.*sha-256|digest/i);
+  }
+});
+
+test('verified document preserves reviewed and post-config evidence', () => {
+  const inspection = { inventory: { accounts: [{ tokenId: '1' }] } };
+  const postInventory = { accounts: [{ tokenId: '1' }], rangeCount: 2 };
+  const output = release.buildVerifiedReleaseDocument({
+    inspection, inspectionSha256: `0x${'11'.repeat(32)}`,
+    transactionHash: `0x${'22'.repeat(32)}`, transaction: {}, receipt: {}, event: {},
+    anchor: {}, postState: {}, postInventory, invariants: {},
+  });
+  assert.deepEqual(output.preConfigInspection, inspection);
+  assert.deepEqual(output.postConfigInventory, postInventory);
+  assert.equal(output.preConfigInspectionSha256, `0x${'11'.repeat(32)}`);
+});
+
+test('post-config inventory comparison rejects account receipt and runtime drift', () => {
+  const item = {
+    tokenId: '1', account: '0x0000000000000000000000000000000000000001',
+    transactionHash: `0x${'11'.repeat(32)}`, blockNumber: 1, blockHash: `0x${'22'.repeat(32)}`,
+    transactionIndex: 1, logIndex: 2, runtimeBytes: 173, runtimeSha256: `0x${'33'.repeat(32)}`,
+    nativeBalanceWei: '0', blockscout: { erc20: 'empty', erc721: 'empty', erc1155: 'empty' },
+  };
+  const before = { tokenIds: ['1'], accounts: [item] };
+  assert.doesNotThrow(() => release.assertRevalidatedOldInventory(before, structuredClone(before)));
+  for (const [field, value] of [['transactionHash', `0x${'44'.repeat(32)}`], ['runtimeSha256', `0x${'55'.repeat(32)}`]]) {
+    const after = structuredClone(before);
+    after.accounts[0][field] = value;
+    assert.throws(() => release.assertRevalidatedOldInventory(before, after), /inventory.*drift|receipt|runtime/i);
+  }
+});
+
+test('config event validator binds emitter and receipt coordinates', () => {
+  const iface = new ethers.Interface(['event ERC6551ConfigUpdated(address indexed registry,address indexed implementation,bytes32 salt)']);
+  const encoded = iface.encodeEventLog(iface.getEvent('ERC6551ConfigUpdated'), [CANONICAL_REGISTRY, ACCOUNT, SALT]);
+  const log = {
+    address: COLLECTION, transactionHash: `0x${'11'.repeat(32)}`, blockHash: `0x${'22'.repeat(32)}`,
+    blockNumber: '0x64', transactionIndex: '0x3', logIndex: '0x7', removed: false,
+    data: encoded.data, topics: encoded.topics,
+  };
+  const receipt = {
+    transactionHash: log.transactionHash, blockHash: log.blockHash, blockNumberHex: log.blockNumber,
+    transactionIndex: 3, logs: [log],
+  };
+  const expected = { registry: CANONICAL_REGISTRY, implementation: ACCOUNT, salt: SALT };
+  assert.doesNotThrow(() => release.assertExactConfigEvent(log, receipt, expected));
+  for (const [field, value] of [['address', ACCOUNT], ['transactionHash', `0x${'33'.repeat(32)}`], ['removed', true]]) {
+    assert.throws(() => release.assertExactConfigEvent({ ...log, [field]: value }, receipt, expected), /config.*event|emitter|coordinate|removed/i);
+  }
+});
+
+test('frozen-config classification requires exact error data', () => {
+  const exact = Object.assign(new Error('execution reverted'), { rpcData: '0xe46274bc' });
+  assert.equal(release.isExactRpcRevert(exact, '0xe46274bc'), true);
+  assert.equal(release.isExactRpcRevert(new Error('data=0xe46274bc'), '0xe46274bc'), false);
+  assert.equal(release.isExactRpcRevert(Object.assign(new Error('reverted'), { rpcData: '0xe46274bc00' }), '0xe46274bc'), false);
+});
+
+test('closed RPC transport rejects stale and duplicate response ids', async () => {
+  const response = (url, body) => ({
+    ok: true, status: 200, url: new URL(url).href, headers: { get: () => null },
+    async arrayBuffer() { return Buffer.from(JSON.stringify(body)); },
+  });
+  const stale = release.createReleaseReadTransport({ fetchImpl: async (url, options) => {
+    const request = JSON.parse(options.body);
+    return response(url, { jsonrpc: '2.0', id: request.id + 1, result: '0x2105' });
+  } });
+  await assert.rejects(stale.rpc(release.RELEASE_RPC_ORIGINS[2], 'eth_chainId'), /response id mismatch/i);
+  const duplicate = release.createReleaseReadTransport({ fetchImpl: async (url, options) => {
+    const requests = JSON.parse(options.body);
+    const result = { jsonrpc: '2.0', id: requests[0].id, result: [] };
+    return response(url, [result, result]);
+  } });
+  await assert.rejects(duplicate.getLogsBatch(release.RELEASE_RPC_ORIGINS[0], [
+    { fromBlock: '0x1', toBlock: '0x1' }, { fromBlock: '0x2', toBlock: '0x2' },
+  ]), /duplicate|response id/i);
+});
+
+test('raw RPC asset evidence decodes standard inbound candidates', () => {
+  const transfer = new ethers.Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
+  const single = new ethers.Interface(['event TransferSingle(address indexed operator,address indexed from,address indexed to,uint256 id,uint256 value)']);
+  const account = '0x0000000000000000000000000000000000000009';
+  const a = transfer.encodeEventLog(transfer.getEvent('Transfer'), [OWNER, account, 7n]);
+  const b = single.encodeEventLog(single.getEvent('TransferSingle'), [OWNER, OWNER, account, 12n, 1n]);
+  const evidence = release.decodeInboundAssetLogs([
+    { address: '0x0000000000000000000000000000000000000011', topics: a.topics, data: a.data },
+    { address: '0x0000000000000000000000000000000000000012', topics: b.topics, data: b.data },
+  ], account, { cap: 10 });
+  assert.deepEqual(evidence.erc20Or721Contracts, ['0x0000000000000000000000000000000000000011']);
+  assert.deepEqual(evidence.erc1155Items, [{ contract: '0x0000000000000000000000000000000000000012', tokenId: '12' }]);
+  assert.throws(() => release.decodeInboundAssetLogs([{ address: OWNER, topics: a.topics, data: '0x00' }], account), /malformed/i);
+});
+
+test('primary RPC asset scan exhausts every bounded range before Blockscout comparison', async () => {
+  const filters = [{ fromBlock: '0x1', toBlock: '0x2' }, { fromBlock: '0x3', toBlock: '0x4' }];
+  const log = accountCreatedLog({ tokenId: 1n, account: '0x0000000000000000000000000000000000000001' });
+  const calls = [];
+  const transport = { async getLogsBatch(origin, batch) { calls.push({ origin, batch }); return [[log], []]; } };
+  assert.deepEqual(await release.collectCanonicalLogsFromPrimary({ transport, filters, cap: 2 }), [log]);
+  assert.deepEqual(calls, [{ origin: release.RELEASE_RPC_ORIGINS[0], batch: filters }]);
+  await assert.rejects(release.collectCanonicalLogsFromPrimary({ transport, filters, cap: 0 }), /cap/i);
 });

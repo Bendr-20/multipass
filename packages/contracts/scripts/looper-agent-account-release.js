@@ -12,6 +12,7 @@ export const RELEASE_BLOCKSCOUT_ORIGIN = 'https://base.blockscout.com';
 export const BOUND_PREVIEW_SHA256 = '85f3fef7a95c2efad44230dfccc073d2bf0e9c795bd97a13a7f51b6dc4623f63';
 export const REGISTRY_DEPLOYMENT_HASH = '0x7ca7c491fad55b131a3ce5833d329e57a221d1070323d8a384fa3731a686d42b';
 export const ACCOUNT_DEPLOYMENT_HASH = '0x6a61d1869a3ed89913c0ac79bd74f549afd0489a66288c9d0a07d712be37ce5f';
+export const BOUND_INSPECTION_SHA256 = 'e89c9a3c40a003d603da5b46b943b120d2e3cf2fd07672315ebc7167a15bafa5';
 export const VERIFIED_RELEASE_OUTPUT_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../deployments/looper-agent-account-base.json',
@@ -57,11 +58,19 @@ const ACCOUNT_ABI = Object.freeze([
 const ERC20_ABI = Object.freeze(['function balanceOf(address) view returns (uint256)']);
 const ERC721_ABI = Object.freeze(['function ownerOf(uint256) view returns (address)']);
 const ERC1155_ABI = Object.freeze(['function balanceOf(address,uint256) view returns (uint256)']);
+const TRANSFER_INTERFACE = new ethers.Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
+const ERC1155_EVENTS_INTERFACE = new ethers.Interface([
+  'event TransferSingle(address indexed operator,address indexed from,address indexed to,uint256 id,uint256 value)',
+  'event TransferBatch(address indexed operator,address indexed from,address indexed to,uint256[] ids,uint256[] values)',
+]);
 const CONFIG_INTERFACE = new ethers.Interface(COLLECTION_ABI);
 const ACCOUNT_CREATED_INTERFACE = new ethers.Interface(ACCOUNT_CREATED_ABI);
 const MODULE_REGISTRY_INTERFACE = new ethers.Interface(MODULE_REGISTRY_ABI);
 const ACCOUNT_INTERFACE = new ethers.Interface(ACCOUNT_ABI);
 const ACCOUNT_CREATED_TOPIC = ACCOUNT_CREATED_INTERFACE.getEvent('ERC6551AccountCreated').topicHash;
+const TRANSFER_TOPIC = TRANSFER_INTERFACE.getEvent('Transfer').topicHash;
+const TRANSFER_SINGLE_TOPIC = ERC1155_EVENTS_INTERFACE.getEvent('TransferSingle').topicHash;
+const TRANSFER_BATCH_TOPIC = ERC1155_EVENTS_INTERFACE.getEvent('TransferBatch').topicHash;
 const BLOCKSCOUT_TOKEN_KEYS = Object.freeze([
   'address_hash', 'circulating_market_cap', 'decimals', 'exchange_rate', 'holders_count',
   'icon_url', 'name', 'symbol', 'total_supply', 'type', 'volume_24h',
@@ -163,6 +172,64 @@ export function validateBlockscoutTokenPage(value, { type }) {
   return { items: value.items, nextPageParams: null };
 }
 
+function validateBlockscoutRawLogs(value) {
+  requireExactKeys(value, ['message', 'result', 'status'], 'Blockscout raw logs response');
+  if (value.status !== '1' || value.message !== 'OK' || !Array.isArray(value.result) || value.result.length >= 1000) {
+    throw new Error('Blockscout raw logs are incomplete or capped.');
+  }
+  return value.result.map((log) => {
+    requireExactKeys(log, [
+      'address', 'blockNumber', 'data', 'gasPrice', 'gasUsed', 'logIndex', 'timeStamp',
+      'topics', 'transactionHash', 'transactionIndex',
+    ], 'Blockscout raw log');
+    canonicalQuantity(log.gasPrice);
+    canonicalQuantity(log.gasUsed);
+    canonicalQuantity(log.timeStamp);
+    return canonicalLogParity(log);
+  }).sort(compareLogParity);
+}
+
+export function decodeInboundAssetLogs(logs, account, { cap = 10000 } = {}) {
+  if (!Array.isArray(logs) || logs.length > cap) throw new Error('Inbound asset transfer log cap exceeded.');
+  const recipient = ethers.getAddress(account);
+  const recipientTopic = ethers.zeroPadValue(recipient, 32).toLowerCase();
+  const contracts = new Set();
+  const erc1155 = new Map();
+  for (const log of logs) {
+    requirePlainObject(log, 'inbound asset transfer log');
+    if (!Array.isArray(log.topics) || typeof log.data !== 'string' || typeof log.address !== 'string') {
+      throw new Error('Inbound asset transfer log is malformed.');
+    }
+    const topic0 = String(log.topics[0] ?? '').toLowerCase();
+    if (topic0 === TRANSFER_TOPIC.toLowerCase()) {
+      const validShape = (log.topics.length === 3 && /^0x[0-9a-fA-F]{64}$/.test(log.data))
+        || (log.topics.length === 4 && log.data === '0x');
+      if (!validShape || String(log.topics[2]).toLowerCase() !== recipientTopic) throw new Error('Inbound Transfer log is malformed.');
+      contracts.add(ethers.getAddress(log.address));
+      continue;
+    }
+    if (topic0 !== TRANSFER_SINGLE_TOPIC.toLowerCase() && topic0 !== TRANSFER_BATCH_TOPIC.toLowerCase()) {
+      throw new Error('Unknown inbound asset transfer event.');
+    }
+    let parsed;
+    try { parsed = ERC1155_EVENTS_INTERFACE.parseLog({ topics: log.topics, data: log.data }); } catch { throw new Error('Inbound ERC-1155 transfer log is malformed.'); }
+    if (!parsed || ethers.getAddress(parsed.args.to) !== recipient) throw new Error('Inbound ERC-1155 recipient drifted.');
+    const ids = parsed.name === 'TransferSingle' ? [parsed.args.id] : [...parsed.args.ids];
+    const values = parsed.name === 'TransferSingle' ? [parsed.args.value] : [...parsed.args.values];
+    if (ids.length === 0 || ids.length !== values.length || ids.length > cap) throw new Error('Inbound ERC-1155 batch is malformed.');
+    const contract = ethers.getAddress(log.address);
+    for (const id of ids) erc1155.set(`${contract.toLowerCase()}:${id}`, { contract, tokenId: id.toString() });
+  }
+  return {
+    erc20Or721Contracts: [...contracts].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase())),
+    erc1155Items: [...erc1155.values()].sort((left, right) => {
+      const addressOrder = left.contract.toLowerCase().localeCompare(right.contract.toLowerCase());
+      if (addressOrder !== 0) return addressOrder;
+      return BigInt(left.tokenId) < BigInt(right.tokenId) ? -1 : BigInt(left.tokenId) > BigInt(right.tokenId) ? 1 : 0;
+    }),
+  };
+}
+
 export function assertNoSigningEnvironment(environment = process.env) {
   if (environment === null || typeof environment !== 'object' || Array.isArray(environment)) {
     throw new Error('environment must be an object.');
@@ -192,30 +259,42 @@ export function requireCanonicalLogRangeAgreement(primaryRanges, peerRanges, { c
 }
 
 export async function collectCanonicalLogsFromTwoOrigins({ transport, filters, cap = 100000 }) {
-  if (!transport || typeof transport.rpc !== 'function' || typeof transport.getLogsBatch !== 'function' || !Array.isArray(filters)) {
+  if (!transport || typeof transport.rpc !== 'function' || typeof transport.getLogsBatch !== 'function'
+    || typeof transport.blockscoutLogs !== 'function' || !Array.isArray(filters) || filters.length === 0) {
     throw new Error('Canonical log transport and filters are required.');
   }
   const primaryRanges = [];
   for (let index = 0; index < filters.length; index += 3) {
     primaryRanges.push(...await transport.getLogsBatch(RELEASE_RPC_ORIGINS[0], filters.slice(index, index + 3)));
   }
-  const primary = primaryRanges.flat();
+  const primary = primaryRanges.flat().map(canonicalRawEventLog);
   if (primary.length > cap) throw new Error('Canonical log cap exceeded.');
+  const fullFilter = { ...filters[0], fromBlock: filters[0].fromBlock, toBlock: filters.at(-1).toBlock };
+  const indexed = await transport.blockscoutLogs(fullFilter);
+  if (stableJson(primary.map(canonicalLogParity).sort(compareLogParity)) !== stableJson(indexed)) {
+    throw new Error('Canonical log origins disagree: RPC and Blockscout raw logs differ.');
+  }
   const peer = [];
-  const eventBlocks = [...new Set(primary.map((log) => canonicalQuantity(log.blockNumber)))].sort(
-    (left, right) => Number(BigInt(left) - BigInt(right)),
-  );
-  for (const block of eventBlocks) {
-    peer.push(...await transport.rpc(RELEASE_RPC_ORIGINS[1], 'eth_getLogs', [{
-      ...filters[0], fromBlock: block, toBlock: block,
-    }]));
+  for (const block of [...new Set(primary.map((log) => log.blockNumber))]) {
+    peer.push(...await transport.rpc(RELEASE_RPC_ORIGINS[1], 'eth_getLogs', [{ ...filters[0], fromBlock: block, toBlock: block }]));
   }
-  const canonicalPrimary = primary.map(canonicalRawEventLog);
-  const canonicalPeer = peer.map(canonicalRawEventLog);
-  if (stableJson(canonicalPrimary) !== stableJson(canonicalPeer)) {
-    throw new Error('Two origins disagree on canonical AccountCreated logs.');
+  if (stableJson(primary) !== stableJson(peer.map(canonicalRawEventLog))) throw new Error('Canonical RPC origins disagree on discovered logs.');
+  return primary;
+}
+
+export async function collectCanonicalLogsFromPrimary({ transport, filters, cap = 100000 }) {
+  if (!transport || typeof transport.getLogsBatch !== 'function' || !Array.isArray(filters)) {
+    throw new Error('Primary log transport and filters are required.');
   }
-  return canonicalPrimary;
+  if (!Number.isSafeInteger(cap) || cap < 1) throw new Error('Canonical log cap is invalid.');
+  const ranges = [];
+  for (let index = 0; index < filters.length; index += 3) {
+    ranges.push(...await transport.getLogsBatch(RELEASE_RPC_ORIGINS[0], filters.slice(index, index + 3)));
+  }
+  if (ranges.length !== filters.length || ranges.some((logs) => !Array.isArray(logs))) throw new Error('Primary log range set is incomplete.');
+  const flattened = ranges.flat().map(canonicalRawEventLog);
+  if (flattened.length > cap) throw new Error('Canonical log cap exceeded.');
+  return flattened;
 }
 
 function splitLogFilter(filter, rangeSize) {
@@ -301,7 +380,28 @@ export function assertExactConfigTransaction(transaction, expected) {
   return transaction;
 }
 
-export function validateReleaseInspectionForVerification(inspection) {
+export function computeInspectionSha256(inspection) {
+  requirePlainObject(inspection, 'inspection');
+  return createHash('sha256').update(`${JSON.stringify(inspection, null, 2)}\n`).digest('hex');
+}
+
+export function assertBoundReleaseInspection(inspection, { expectedSha256 = BOUND_INSPECTION_SHA256 } = {}) {
+  const observed = computeInspectionSha256(inspection);
+  if (!/^[0-9a-f]{64}$/.test(expectedSha256) || observed !== expectedSha256) {
+    throw new Error(`Inspection SHA-256 digest mismatch (observed ${observed}).`);
+  }
+  return inspection;
+}
+
+export function isExactRpcRevert(error, expectedData) {
+  return error instanceof Error
+    && typeof expectedData === 'string'
+    && /^0x(?:[0-9a-f]{2})+$/.test(expectedData)
+    && error.rpcData === expectedData;
+}
+
+export function validateReleaseInspectionForVerification(inspection, options) {
+  assertBoundReleaseInspection(inspection, options);
   requirePlainObject(inspection, 'inspection');
   if (inspection.schemaVersion !== '2.0.0'
     || inspection.kind !== 'looper-permission-release-pre-config-inspection'
@@ -378,6 +478,64 @@ export function validateReleaseInspectionForVerification(inspection) {
   return inspection;
 }
 
+export function assertExactConfigEvent(log, receipt, expected) {
+  requirePlainObject(log, 'config receipt event');
+  requirePlainObject(receipt, 'config receipt');
+  requirePlainObject(expected, 'expected config event');
+  if (!Array.isArray(receipt.logs) || receipt.logs.length !== 1 || stableJson(log) !== stableJson(receipt.logs[0])) {
+    throw new Error('Config event is not the sole exact receipt log.');
+  }
+  assertAddress(log.address, COLLECTION, 'config event emitter');
+  if (normalizeHash(log.transactionHash, 'config event transaction hash') !== receipt.transactionHash
+    || normalizeHash(log.blockHash, 'config event block hash') !== receipt.blockHash
+    || canonicalQuantity(log.blockNumber) !== receipt.blockNumberHex
+    || Number(parseQuantity(log.transactionIndex, 'config event transaction index')) !== receipt.transactionIndex
+    || log.removed !== false) {
+    throw new Error('Config event receipt coordinates drifted.');
+  }
+  parseQuantity(log.logIndex, 'config event log index');
+  const parsed = CONFIG_INTERFACE.parseLog({ topics: log.topics, data: log.data });
+  if (!parsed || parsed.name !== 'ERC6551ConfigUpdated') throw new Error('Config receipt event is not exact.');
+  assertAddress(parsed.args.registry, expected.registry, 'post registry event');
+  assertAddress(parsed.args.implementation, expected.implementation, 'post implementation event');
+  if (parsed.args.salt.toLowerCase() !== expected.salt.toLowerCase()) throw new Error('Post config salt event drifted.');
+  return parsed;
+}
+
+function inventoryAccountEvidence(inventory) {
+  if (!Array.isArray(inventory?.accounts)) throw new Error('Old inventory accounts are missing.');
+  return inventory.accounts.map((item) => ({
+    tokenId: item.tokenId, account: item.account, transactionHash: item.transactionHash,
+    blockNumber: item.blockNumber, blockHash: item.blockHash, transactionIndex: item.transactionIndex,
+    logIndex: item.logIndex, runtimeBytes: item.runtimeBytes, runtimeSha256: item.runtimeSha256,
+    nativeBalanceWei: item.nativeBalanceWei, blockscout: item.blockscout,
+  }));
+}
+
+export function assertRevalidatedOldInventory(before, after) {
+  if (stableJson(before?.tokenIds) !== stableJson(after?.tokenIds)
+    || stableJson(inventoryAccountEvidence(before)) !== stableJson(inventoryAccountEvidence(after))) {
+    throw new Error('Old-account inventory receipt/runtime evidence drifted.');
+  }
+  return after;
+}
+
+export function buildVerifiedReleaseDocument({
+  inspection, inspectionSha256, transactionHash, transaction, receipt, event,
+  anchor, postState, postInventory, invariants,
+}) {
+  return {
+    schemaVersion: '2.0.0', kind: 'looper-permission-release', chainId: CHAIN_ID,
+    preConfigInspectionSha256: inspectionSha256,
+    preConfigInspection: inspection,
+    configUpdate: { transactionHash, transaction, receipt, event },
+    verifiedAtAnchor: anchor,
+    postState,
+    postConfigInventory: postInventory,
+    invariants,
+  };
+}
+
 export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required.');
   let requestId = 1;
@@ -390,7 +548,8 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
   async function rpc(origin, method, params = [], retryCount = 0) {
     if (!RELEASE_RPC_ORIGINS.includes(origin) || !RPC_METHODS.has(method)) throw new Error('Closed release RPC route rejected.');
     await throttle(origin, origin === RELEASE_RPC_ORIGINS[0] ? 2200 : 100);
-    const body = JSON.stringify({ jsonrpc: '2.0', id: requestId++, method, params });
+    const id = requestId++;
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
     let response;
     try {
       response = await boundedFetch(fetchImpl, origin, {
@@ -401,6 +560,7 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
       throw new Error(`${origin} ${method} request failed: ${error.message}`);
     }
     requirePlainObject(response, 'JSON-RPC response');
+    if (response.jsonrpc !== '2.0' || response.id !== id) throw new Error(`JSON-RPC response id mismatch for ${method}.`);
     if (Object.hasOwn(response, 'error')) {
       const code = response.error?.code;
       const message = typeof response.error?.message === 'string' ? response.error.message.slice(0, 240) : 'unknown';
@@ -408,11 +568,14 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 1500 * (retryCount + 1)));
         return rpc(origin, method, params, retryCount + 1);
       }
-      const data = typeof response.error?.data === 'string' && /^0x[0-9a-fA-F]*$/.test(response.error.data)
-        ? ` data=${response.error.data.toLowerCase()}` : '';
-      throw new Error(`${origin} ${method} JSON-RPC error ${code}: ${message}${data}`);
+      const rpcData = typeof response.error?.data === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(response.error.data)
+        ? response.error.data.toLowerCase() : null;
+      const error = new Error(`${origin} ${method} JSON-RPC error ${code}: ${message}${rpcData === null ? '' : ` data=${rpcData}`}`);
+      error.rpcCode = code;
+      error.rpcData = rpcData;
+      throw error;
     }
-    if (response.jsonrpc !== '2.0' || !Object.hasOwn(response, 'id') || !Object.hasOwn(response, 'result')) {
+    if (!Object.hasOwn(response, 'result')) {
       throw new Error(`Invalid JSON-RPC response for ${method}.`);
     }
     return response.result;
@@ -427,7 +590,14 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
       redirect: 'error', credentials: 'omit',
     }, 25_000, 4 * 1024 * 1024);
     if (!Array.isArray(response) || response.length !== requests.length) throw new Error('Invalid fixed log batch response.');
-    const byId = new Map(response.map((entry) => [entry.id, entry]));
+    const requestIds = new Set(requests.map((request) => request.id));
+    const byId = new Map();
+    for (const entry of response) {
+      if (!isPlainObject(entry) || entry.jsonrpc !== '2.0' || !requestIds.has(entry.id) || byId.has(entry.id)) {
+        throw new Error('Fixed log batch has a duplicate or mismatched response id.');
+      }
+      byId.set(entry.id, entry);
+    }
     const entries = requests.map((request) => byId.get(request.id));
     const retryable = entries.some((entry) => entry?.error?.code === -32016 || /rate limit/i.test(String(entry?.error?.message ?? '')));
     if (retryable && retryCount < 4) {
@@ -441,6 +611,29 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
       return entry.result;
     });
   }
+  async function blockscoutLogs(filter) {
+    requirePlainObject(filter, 'Blockscout raw log filter');
+    if (ethers.getAddress(filter.address) !== ethers.getAddress(CANONICAL_REGISTRY)
+      || !Array.isArray(filter.topics) || filter.topics.length !== 3
+      || filter.topics.some((topic) => typeof topic !== 'string')) {
+      throw new Error('Closed Blockscout raw log filter rejected.');
+    }
+    const query = new URLSearchParams({
+      module: 'logs', action: 'getLogs',
+      fromBlock: parseQuantity(filter.fromBlock, 'Blockscout fromBlock').toString(),
+      toBlock: parseQuantity(filter.toBlock, 'Blockscout toBlock').toString(),
+      address: ethers.getAddress(filter.address),
+      topic0: normalizeHash(filter.topics[0], 'Blockscout topic0'),
+      topic1: normalizeHash(filter.topics[1], 'Blockscout topic1'),
+      topic2: normalizeHash(filter.topics[2], 'Blockscout topic2'),
+      topic0_1_opr: 'and', topic0_2_opr: 'and', topic1_2_opr: 'and',
+    });
+    const url = `${RELEASE_BLOCKSCOUT_ORIGIN}/api?${query}`;
+    await throttle(RELEASE_BLOCKSCOUT_ORIGIN, 1050);
+    return validateBlockscoutRawLogs(await boundedFetch(fetchImpl, url, {
+      method: 'GET', redirect: 'error', credentials: 'omit', headers: {},
+    }, 25_000, 4 * 1024 * 1024));
+  }
   async function blockscout(account, type) {
     const address = ethers.getAddress(account);
     if (!['ERC-20', 'ERC-721', 'ERC-1155'].includes(type)) throw new Error('Unknown Blockscout route type.');
@@ -451,7 +644,7 @@ export function createReleaseReadTransport({ fetchImpl = globalThis.fetch } = {}
     }, 15_000, 1024 * 1024);
     return validateBlockscoutTokenPage(value, { type });
   }
-  return Object.freeze({ rpc, getLogsBatch, blockscout });
+  return Object.freeze({ rpc, getLogsBatch, blockscoutLogs, blockscout });
 }
 
 export async function inspectLooperAccountMigration({
@@ -513,7 +706,7 @@ export async function inspectLooperAccountMigration({
   } catch (error) {
     let peerError;
     try { await transport.rpc(RELEASE_RPC_ORIGINS[1], 'eth_estimateGas', estimateRequest); } catch (caught) { peerError = caught; }
-    if (!String(error.message).includes('0xe46274bc') || !String(peerError?.message).includes('0xe46274bc')) throw error;
+    if (!isExactRpcRevert(error, '0xe46274bc') || !isExactRpcRevert(peerError, '0xe46274bc')) throw error;
     configBlocker = {
       code: 'erc6551_config_frozen',
       revertSelector: '0xe46274bc',
@@ -570,11 +763,7 @@ export async function verifyLooperAgentAccountRelease({ inspection, configTransa
     receiptBlocks.push(normalizeBlock(await transport.rpc(origin, 'eth_getBlockByNumber', [receipt.blockNumberHex, false])));
   }
   if (receiptBlocks.some((block) => block.hash !== receipt.blockHash)) throw new Error('Config receipt block is not canonical on all origins.');
-  const parsed = CONFIG_INTERFACE.parseLog(receipt.logs[0]);
-  if (!parsed || parsed.name !== 'ERC6551ConfigUpdated') throw new Error('Config receipt event is not exact.');
-  assertAddress(parsed.args.registry, inspection.configUpdate.expected.registry, 'post registry event');
-  assertAddress(parsed.args.implementation, inspection.configUpdate.expected.implementation, 'post implementation event');
-  if (parsed.args.salt.toLowerCase() !== inspection.configUpdate.expected.salt.toLowerCase()) throw new Error('Post config salt event drifted.');
+  const parsed = assertExactConfigEvent(receipt.logs[0], receipt, inspection.configUpdate.expected);
 
   const post = await readCollectionSnapshot(transport, anchor);
   assertAddress(post.owner, inspection.preState.owner, 'post owner');
@@ -600,23 +789,26 @@ export async function verifyLooperAgentAccountRelease({ inspection, configTransa
     || sha256Hex(accountCode) !== inspection.deployments.account.runtimeSha256) throw new Error('Deployment runtime drifted.');
   await revalidateStoredDeployment(transport, inspection.deployments.registry, anchor);
   await revalidateStoredDeployment(transport, inspection.deployments.account, anchor);
-  for (const item of inspection.inventory.accounts) {
-    if (await sameStateRead(transport, 'eth_getBalance', [item.account, anchor.numberHex]) !== '0x0') throw new Error('Old-account inventory balance drifted.');
-    for (const type of ['ERC-20', 'ERC-721', 'ERC-1155']) {
-      const page = await transport.blockscout(item.account, type);
-      await crossCheckTokenItems(transport, item.account, type, page.items, anchor);
-    }
-  }
-  return {
-    schemaVersion: '2.0.0', kind: 'looper-permission-release', chainId: CHAIN_ID,
-    preview: inspection.preview, compiler: inspection.compiler, sources: inspection.sources,
-    deployments: inspection.deployments,
-    configUpdate: { transactionHash: hash, transaction: tx, receipt, event: {
+  const postInventory = await enumerateOldInventory(transport, null, inspection.preState, anchor);
+  assertRevalidatedOldInventory(inspection.inventory, postInventory);
+  return buildVerifiedReleaseDocument({
+    inspection,
+    inspectionSha256: `0x${computeInspectionSha256(inspection)}`,
+    transactionHash: hash,
+    transaction: tx,
+    receipt,
+    event: {
       registry: ethers.getAddress(parsed.args.registry), implementation: ethers.getAddress(parsed.args.implementation), salt: parsed.args.salt,
-    } },
-    verifiedAtAnchor: anchor, postState: post,
-    invariants: { unrelatedGettersUnchanged: true, deploymentReceiptsUnchanged: true, deploymentRuntimesUnchanged: true, oldInventoryStillEmpty: true, ownerNonce: ownerNonce.toString(), deployerNonce: deployerNonce.toString() },
-  };
+    },
+    anchor,
+    postState: post,
+    postInventory,
+    invariants: {
+      unrelatedGettersUnchanged: true, deploymentReceiptsUnchanged: true,
+      deploymentRuntimesUnchanged: true, oldInventoryStillEmpty: true,
+      ownerNonce: ownerNonce.toString(), deployerNonce: deployerNonce.toString(),
+    },
+  });
 }
 
 async function revalidateStoredDeployment(transport, deployment, anchor) {
@@ -773,8 +965,17 @@ async function enumerateOldInventory(transport, preview, state, anchor) {
     }
     item.nativeBalanceWei = '0';
     item.blockscout = { erc20: 'empty', erc721: 'empty', erc1155: 'empty' };
+    item.rpcTransferAudit = await auditRpcAssetBalances(transport, item, anchor);
   }
-  return { deploymentBlock, rangeSize, rangeCount: ranges.length, eventCap: 100000, tokenIds: EXPECTED_OLD_TOKEN_IDS, accounts };
+  return {
+    deploymentBlock, rangeSize, rangeCount: ranges.length, eventCap: 100000,
+    accountCreatedEvidence: {
+      completeRangeRpc: RELEASE_RPC_ORIGINS[0],
+      completeRangeRawIndexer: RELEASE_BLOCKSCOUT_ORIGIN,
+      discoveredLogPeerRpc: RELEASE_RPC_ORIGINS[1],
+    },
+    tokenIds: EXPECTED_OLD_TOKEN_IDS, accounts,
+  };
 }
 
 async function revalidateOldAccount(transport, item, state, anchor) {
@@ -802,6 +1003,37 @@ async function revalidateOldAccount(transport, item, state, anchor) {
   if (runtime.toLowerCase() !== expected.toLowerCase() || ethers.dataLength(runtime) !== 173) throw new Error(`Old account ${item.account} runtime proof failed.`);
   item.runtimeBytes = 173;
   item.runtimeSha256 = sha256Hex(runtime);
+}
+
+async function auditRpcAssetBalances(transport, item, anchor) {
+  const rangeSize = 1000;
+  const ranges = planLogRanges(item.blockNumber, anchor.number, { rangeSize, maxRanges: 1000 });
+  const accountTopic = ethers.zeroPadValue(item.account, 32);
+  const transferFilters = ranges.map((range) => ({
+    fromBlock: ethers.toQuantity(range.fromBlock), toBlock: ethers.toQuantity(range.toBlock),
+    topics: [TRANSFER_TOPIC, null, accountTopic],
+  }));
+  const erc1155Filters = ranges.map((range) => ({
+    fromBlock: ethers.toQuantity(range.fromBlock), toBlock: ethers.toQuantity(range.toBlock),
+    topics: [[TRANSFER_SINGLE_TOPIC, TRANSFER_BATCH_TOPIC], null, null, accountTopic],
+  }));
+  const transferLogs = await collectCanonicalLogsFromPrimary({ transport, filters: transferFilters, cap: 10000 });
+  const erc1155Logs = await collectCanonicalLogsFromPrimary({ transport, filters: erc1155Filters, cap: 10000 });
+  const evidence = decodeInboundAssetLogs([...transferLogs, ...erc1155Logs], item.account, { cap: 20000 });
+  for (const contract of evidence.erc20Or721Contracts) {
+    const balance = await callSame(transport, contract, new ethers.Interface(ERC20_ABI), 'balanceOf', [item.account], anchor);
+    if (BigInt(balance) !== 0n) throw new Error(`Anchored RPC confirms an ERC-20/ERC-721 holding in ${item.account}.`);
+  }
+  for (const candidate of evidence.erc1155Items) {
+    const balance = await callSame(transport, candidate.contract, new ethers.Interface(ERC1155_ABI), 'balanceOf', [item.account, candidate.tokenId], anchor);
+    if (BigInt(balance) !== 0n) throw new Error(`Anchored RPC confirms an ERC-1155 holding in ${item.account}.`);
+  }
+  return {
+    fromBlock: item.blockNumber, toBlock: anchor.number, rangeSize, rangeCount: ranges.length,
+    independentSources: [RELEASE_RPC_ORIGINS[0], RELEASE_BLOCKSCOUT_ORIGIN], transferLogCount: transferLogs.length,
+    erc1155LogCount: erc1155Logs.length, erc20Or721ContractsChecked: evidence.erc20Or721Contracts.length,
+    erc1155ItemsChecked: evidence.erc1155Items.length,
+  };
 }
 
 async function crossCheckTokenItems(transport, account, type, items, anchor) {
@@ -943,6 +1175,25 @@ function canonicalRawEventLog(log) {
     data: normalizeHex(log.data, 'log data'),
     topics: log.topics.map((topic) => normalizeHash(topic, 'log topic')),
   };
+}
+
+function canonicalLogParity(log) {
+  requirePlainObject(log, 'raw log parity record');
+  return {
+    address: ethers.getAddress(log.address),
+    blockNumber: canonicalQuantity(log.blockNumber),
+    transactionHash: normalizeHash(log.transactionHash, 'log transaction hash'),
+    transactionIndex: canonicalQuantity(log.transactionIndex),
+    logIndex: canonicalQuantity(log.logIndex),
+    data: normalizeHex(log.data, 'log data'),
+    topics: log.topics.map((topic) => normalizeHash(topic, 'log topic')),
+  };
+}
+
+function compareLogParity(left, right) {
+  return Number(BigInt(left.blockNumber) - BigInt(right.blockNumber))
+    || Number(BigInt(left.transactionIndex) - BigInt(right.transactionIndex))
+    || Number(BigInt(left.logIndex) - BigInt(right.logIndex));
 }
 
 function normalizeLog(log) {
