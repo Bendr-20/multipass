@@ -236,10 +236,12 @@ git commit -m "feat: preview paused Looper permission release"
 - Modify: `apps/web/src/looper-agent-wallet-rpc.js`
 - Modify: `apps/web/src/looper-agent-wallet-controller.js`
 - Modify: `apps/web/src/multipass-console.js`
+- Modify: `apps/web/src/app.js`
 - Modify: `apps/web/test/looper-agent-wallet.test.mjs`
 - Modify: `apps/web/test/looper-agent-wallet-rpc.test.mjs`
 - Modify: `apps/web/test/looper-agent-wallet-controller.test.mjs`
 - Modify: `apps/web/test/multipass-console.test.mjs`
+- Modify: `apps/web/test/app.test.mjs`
 
 - [ ] **Step 1: Write failing status/read tests**
 
@@ -259,7 +261,7 @@ Add ABI/constants for the account policy getters and registry read getters. Exte
 }
 ```
 
-Require both RPC origins to fetch and agree on implementation code/hash and module-registry code/hash at the same block anchor; `accountRuntimeSha256` remains explicitly the 173-byte proxy hash and cannot substitute for implementation evidence. Controller tests must classify owner-only, permission-hook-paused, module-blocked, ownership-mismatch, and active-policy states without enabling agent writes. Console tests must render the approved Multipass-styled status pill and details; no grant/key controls may exist.
+Require both RPC origins to fetch and agree on implementation code/hash and module-registry code/hash at the same block anchor; `accountRuntimeSha256` remains explicitly the 173-byte proxy hash and cannot substitute for implementation evidence. Controller tests must classify owner-only, permission-hook-paused, module-blocked, ownership-mismatch, and active-policy states without enabling agent writes. Console tests must render the approved Multipass-styled status pill and details; no grant/key controls may exist. App-level RED tests must cover clear/change transaction previews, explicit confirmation, immediate pre-sign drift rejection, and successful clearing while the registry is paused, the selected module is removed, or its codehash mismatches.
 
 - [ ] **Step 2: Run focused web tests and verify RED**
 
@@ -286,7 +288,7 @@ Run the same four test files. Expected: PASS.
 - [ ] **Step 5: Commit Console/RPC changes**
 
 ```bash
-git add apps/web/src/looper-agent-wallet.js apps/web/src/looper-agent-wallet-rpc.js apps/web/src/looper-agent-wallet-controller.js apps/web/src/multipass-console.js apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs
+git add apps/web/src/looper-agent-wallet.js apps/web/src/looper-agent-wallet-rpc.js apps/web/src/looper-agent-wallet-controller.js apps/web/src/multipass-console.js apps/web/src/app.js apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/app.test.mjs
 git commit -m "feat: surface Looper permission status"
 ```
 
@@ -334,12 +336,14 @@ git commit -m "feat: expose read-only Looper policy context"
 - Regenerate: `packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json`
 - Create: `packages/contracts/scripts/preflight-looper-agent-account.js`
 - Create: `packages/contracts/test/looper-agent-account-preflight.test.mjs`
+- Create: `packages/contracts/scripts/verify-looper-agent-account-release.js`
+- Create: `packages/contracts/test/looper-agent-account-release.test.mjs`
 - Modify after final prediction only: `apps/web/src/looper-agent-wallet.js`
 - Modify after final prediction only: `apps/web/test/looper-agent-wallet.test.mjs`
 
 - [ ] **Step 1: Implement and test an exact two-origin preflight command**
 
-Create a read-only CLI with dependency-injected requester tests. It queries only `https://mainnet.base.org` and `https://base.drpc.org`, anchors to the lowest common block whose hashes agree, and at that exact block queries chain ID, deployer transaction count, predicted registry/account code, current Loopers owner, current ERC-6551 registry/implementation/salt, and legacy account evidence. It rejects origin disagreement, missing results, noncanonical quantities/addresses, nonempty predicted addresses, or owner mismatch.
+Create a read-only CLI with dependency-injected requester tests. It queries only `https://mainnet.base.org` and `https://base.drpc.org`, anchors read-only collection evidence to the lowest common block whose hashes agree, and at that exact block queries chain ID, current Loopers owner, current ERC-6551 registry/implementation/salt, and legacy account evidence. Separately query `eth_getTransactionCount(deployer, "pending")` from both origins immediately before predicting addresses, require exact agreement, then query code at both predicted registry/account addresses. It rejects origin disagreement, pending-nonce drift, missing results, noncanonical quantities/addresses, nonempty predicted addresses, or owner mismatch. The receipt contains canonical `owner` and decimal `pendingNonce` fields consumed directly by the preview CLI.
 
 Run: `node --test packages/contracts/test/looper-agent-account-preflight.test.mjs`
 Expected: PASS after observing RED before implementation.
@@ -347,15 +351,23 @@ Expected: PASS after observing RED before implementation.
 - [ ] **Step 2: Run exact preflight and deterministic artifact generation**
 
 ```bash
-node packages/contracts/scripts/preflight-looper-agent-account.js --deployer 0x339559A2d1CD15059365FC7bD36b3047BbA480E0 --owner <CURRENT_LOOPERS_OWNER> --output /tmp/looper-agent-preflight.json
-node packages/contracts/scripts/deploy-looper-agent-account.js --preview --deployer 0x339559A2d1CD15059365FC7bD36b3047BbA480E0 --owner <CURRENT_LOOPERS_OWNER> --nonce <AGREED_PENDING_NONCE> --output packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json
+node packages/contracts/scripts/preflight-looper-agent-account.js --deployer 0x339559A2d1CD15059365FC7bD36b3047BbA480E0 --output /tmp/looper-agent-preflight.json
+node packages/contracts/scripts/deploy-looper-agent-account.js --preview --preflight /tmp/looper-agent-preflight.json --output packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json
 ```
 
-The preview uses the agreed pending nonce from the preflight receipt. Neither command contains a signer or broadcast path.
+The preview reads the owner and agreed pending nonce directly from the tested preflight receipt and verifies its deployer, chain, predicted addresses, and freshness. Neither command contains a signer or broadcast path.
 
 - [ ] **Step 3: Prove artifact freshness and local runtime truth**
 
-Re-run the exact preview to `/tmp/looper-agent-account-base-mainnet.json` and byte-compare it to the tracked artifact. Deploy both artifact creation transactions on fresh Ganache from the same deployer/nonces and byte-compare actual `eth_getCode` with both expected runtimes. Assert predicted addresses, constructor args, runtime hashes, transaction nonces, zero values, chain ID, and config calldata.
+Implement a tested read-only release verifier that deploys both artifact creation transactions on fresh Ganache from the artifact's exact deployer/nonces and byte-compares actual `eth_getCode` with both expected runtimes. It also asserts predicted addresses, constructor args, runtime hashes, transaction nonces, zero values, chain ID, and config calldata.
+
+Run the exact commands:
+
+```bash
+node packages/contracts/scripts/deploy-looper-agent-account.js --preview --preflight /tmp/looper-agent-preflight.json --output /tmp/looper-agent-account-base-mainnet.json
+cmp packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json /tmp/looper-agent-account-base-mainnet.json
+node packages/contracts/scripts/verify-looper-agent-account-release.js --artifact packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json
+```
 
 - [ ] **Step 4: Synchronize release constants from the final artifact**
 
@@ -365,12 +377,14 @@ Only now update `RELEASED_ACCOUNT_IMPLEMENTATION`, the implementation runtime SH
 
 ```bash
 pnpm --filter @helixa/loopers-contracts test
-node --test apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs
+node --test packages/contracts/test/looper-agent-account-preflight.test.mjs packages/contracts/test/looper-agent-account-release.test.mjs
+node --test apps/web/test/looper-agent-wallet.test.mjs apps/web/test/looper-agent-wallet-rpc.test.mjs apps/web/test/looper-agent-wallet-controller.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/app.test.mjs
 node --test apps/web/test/console-agent-api.test.mjs apps/api/test/console-agent-runtime.test.mjs
 pnpm test
 pnpm web:build
 node --check packages/contracts/scripts/deploy-looper-agent-account.js
 node --check packages/contracts/scripts/preflight-looper-agent-account.js
+node --check packages/contracts/scripts/verify-looper-agent-account-release.js
 node --check apps/web/src/looper-agent-wallet-rpc.js
 node --check apps/web/src/looper-agent-wallet-controller.js
 node --check apps/web/src/console-agent-api.js
@@ -392,8 +406,17 @@ Dispatch one code reviewer for contract/registry security and one release review
 - [ ] **Step 8: Commit the unsigned release artifact and synchronized constants**
 
 ```bash
-git add packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json packages/contracts/scripts/preflight-looper-agent-account.js packages/contracts/test/looper-agent-account-preflight.test.mjs apps/web/src/looper-agent-wallet.js apps/web/test/looper-agent-wallet.test.mjs
+git add packages/contracts/deployment-prep/looper-agent-account-base-mainnet.json packages/contracts/scripts/preflight-looper-agent-account.js packages/contracts/test/looper-agent-account-preflight.test.mjs packages/contracts/scripts/verify-looper-agent-account-release.js packages/contracts/test/looper-agent-account-release.test.mjs apps/web/src/looper-agent-wallet.js apps/web/test/looper-agent-wallet.test.mjs
 git commit -m "chore: stage paused Looper permission release"
 ```
+
+- [ ] **Step 9: Prove clean tracked release state**
+
+```bash
+test -z "$(git status --porcelain --untracked-files=no)"
+git status --short
+```
+
+The first command must succeed. The second may show only the pre-existing untracked owner-wallet plan; any tracked modification or additional untracked task artifact blocks completion.
 
 Stop here. Deployment and `setERC6551Config` remain separate irreversible actions requiring fresh explicit approval with exact transaction previews.
