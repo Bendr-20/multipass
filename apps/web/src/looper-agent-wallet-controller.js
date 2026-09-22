@@ -48,6 +48,7 @@ export function createLooperAgentWalletController({
   let current = emptySnapshot();
   const attempts = { activation: null, send: null, policy: null };
   const acknowledgeReadiness = { activation: null, send: null, policy: null };
+  let acknowledgedUnknownSendHistory = [];
 
   function getSnapshot() {
     return deepFreeze(structuredClone(current));
@@ -546,7 +547,7 @@ export function createLooperAgentWalletController({
     return {
       ...snapshot,
       activation: publicAttempt(attempts.activation),
-      send: publicAttempt(attempts.send),
+      send: publicAttempt(attempts.send, acknowledgedUnknownSendHistory),
       policy: publicAttempt(attempts.policy),
     };
   }
@@ -586,6 +587,7 @@ export function createLooperAgentWalletController({
       attempts[kind] = null;
       acknowledgeReadiness[kind] = null;
     }
+    acknowledgedUnknownSendHistory = [];
   }
 
   function acknowledgeUnknown(kind) {
@@ -599,6 +601,7 @@ export function createLooperAgentWalletController({
       state: 'acknowledged_unknown',
       history: appendHistory(record, 'acknowledged_unknown'),
     });
+    if (kind === 'send') archiveAcknowledgedUnknownSend(attempts.send);
     const readiness = acknowledgeReadiness[kind];
     acknowledgeReadiness[kind] = null;
     if (readiness && sameSelection(selection, record)) current = attachAttempts(readiness);
@@ -616,13 +619,73 @@ export function createLooperAgentWalletController({
     });
   }
 
+  function acknowledgedUnknownSendHistoryKey(account) {
+    const scope = createOperationScope({
+      tokenId: selection.tokenId,
+      account,
+      owner: selection.owner,
+      kind: 'send',
+    });
+    return `${scope.storageKey}.acknowledgedUnknownHistory`;
+  }
+
+  function archiveAcknowledgedUnknownSend(record) {
+    if (!record || record.kind !== 'send' || record.state !== 'acknowledged_unknown') {
+      throw new Error('Only permanently acknowledged unknown sends can enter send history.');
+    }
+    if (acknowledgedUnknownSendHistory.some((entry) => entry.id === record.id)) return;
+    const next = [...acknowledgedUnknownSendHistory, record];
+    const key = acknowledgedUnknownSendHistoryKey(record.account);
+    const encoded = JSON.stringify(next);
+    storage?.setItem?.(key, encoded);
+    if (storage?.getItem?.(key) !== encoded) {
+      throw new Error('Permanent acknowledged-unknown send history failed read-back verification.');
+    }
+    acknowledgedUnknownSendHistory = next.map((entry) => deepFreeze(structuredClone(entry)));
+    current = attachAttempts(current);
+  }
+
+  function loadAcknowledgedUnknownSendHistory(account) {
+    const key = acknowledgedUnknownSendHistoryKey(account);
+    const raw = storage?.getItem?.(key);
+    if (!raw) return [];
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Permanent acknowledged-unknown send history is corrupt.');
+    }
+    if (!Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Array.prototype) {
+      throw new Error('Permanent acknowledged-unknown send history is malformed.');
+    }
+    const ids = new Set();
+    return parsed.map((entry) => {
+      const validated = validateAttemptRecord(entry, 'send');
+      if (!validated
+        || validated.state !== 'acknowledged_unknown'
+        || validated.tokenId !== selection.tokenId
+        || !sameAddress(validated.owner, selection.owner)
+        || !sameAddress(validated.account, account)
+        || ids.has(validated.id)) {
+        throw new Error('Permanent acknowledged-unknown send history is malformed.');
+      }
+      ids.add(validated.id);
+      return validated;
+    });
+  }
+
   async function restoreAttempts(account) {
     clearAttempts();
     if (!account) return;
+    acknowledgedUnknownSendHistory = loadAcknowledgedUnknownSendHistory(account);
     for (const kind of ['activation', 'send', 'policy']) {
       const scope = createOperationScope({ tokenId: selection.tokenId, account, owner: selection.owner, kind });
       const restored = loadAttempt(scope, kind);
       if (!restored) continue;
+      if (kind === 'send' && restored.state === 'acknowledged_unknown'
+        && !acknowledgedUnknownSendHistory.some((entry) => entry.id === restored.id)) {
+        archiveAcknowledgedUnknownSend(restored);
+      }
       if (restored.state === 'prepared') {
         attempts[kind] = restored;
         invalidateAttempt(restored);
@@ -1094,14 +1157,23 @@ function appendHistory(record, state) {
   return [...(record.history ?? []), { state, at: Date.now() }];
 }
 
-function publicAttempt(record) {
-  if (!record) return idleAttempt();
-  return {
+function publicAttempt(record, permanentHistory = null) {
+  const result = record ? {
     state: record.state,
     txHash: record.txHash ?? null,
     attributable: Boolean(record.attributable),
     preparedId: record.state === 'prepared' ? record.id : null,
-  };
+  } : idleAttempt();
+  if (permanentHistory !== null) {
+    result.permanentHistory = permanentHistory.map((entry) => ({
+      id: entry.id,
+      state: 'acknowledged_unknown',
+      txHash: entry.txHash ?? null,
+      acknowledgedAt: entry.history.at(-1).at,
+      retryEligible: false,
+    }));
+  }
+  return result;
 }
 
 function idleAttempt() {

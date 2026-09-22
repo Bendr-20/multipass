@@ -337,6 +337,37 @@ test('acknowledging an unknown send restores the latest fresh writable readiness
   assert.equal(JSON.parse(storedValue).state, 'acknowledged_unknown');
 });
 
+test('review finding 7: a later send preserves permanent acknowledged-unknown history without retry', async () => {
+  const active = deployedSnapshot({ state: '2' });
+  const storage = memoryStorage();
+  let id = 0;
+  const f = controllerFixture({
+    snapshots: [active, active, active, active],
+    storage,
+    generateAttemptId: () => `attempt-${String(++id).padStart(8, '0')}`,
+    receipt: async () => { throw new Error('receipt unavailable'); },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const first = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.submitPrepared(first.id, { confirmed: true }), /receipt unavailable/i);
+  const acknowledged = f.controller.acknowledgeUnknown('send');
+  assert.equal(acknowledged.send.state, 'acknowledged_unknown');
+  assert.equal(acknowledged.send.permanentHistory.length, 1);
+  assert.equal(acknowledged.send.permanentHistory[0].id, first.id);
+  assert.equal(acknowledged.send.permanentHistory[0].state, 'acknowledged_unknown');
+  assert.equal(acknowledged.send.permanentHistory[0].retryEligible, false);
+
+  const later = await f.controller.prepareEthSend({ recipient: NEXT_OWNER, amountWei: '2' });
+  assert.notEqual(later.id, first.id);
+  const snapshotAfterLaterSend = f.controller.getSnapshot();
+  assert.equal(snapshotAfterLaterSend.send.state, 'prepared');
+  assert.equal(snapshotAfterLaterSend.send.permanentHistory.length, 1);
+  assert.equal(snapshotAfterLaterSend.send.permanentHistory[0].id, first.id);
+  assert.equal(snapshotAfterLaterSend.send.permanentHistory[0].state, 'acknowledged_unknown');
+  assert.equal(snapshotAfterLaterSend.send.permanentHistory[0].retryEligible, false);
+  assert.equal([...storage.values.keys()].some((key) => key.endsWith('.acknowledgedUnknownHistory')), true);
+});
+
 test('attempt state reloads by owner scope and a second tab cannot resubmit terminal work', async () => {
   const storage = memoryStorage();
   const active = deployedSnapshot({ state: '0' });
