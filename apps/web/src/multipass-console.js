@@ -499,6 +499,8 @@ function renderLooperAgentWallet(wallet) {
               : wallet.mode === 'blocked'
                 ? 'Blocked'
                 : 'Read-only';
+  const uncertainAttempts = ['activation', 'send', 'policy']
+    .filter((kind) => ['uncertain_hashless', 'uncertain_hashed'].includes(wallet[kind]?.state));
   const busy = ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.activation?.state)
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.send?.state)
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.policy?.state);
@@ -558,6 +560,12 @@ function renderLooperAgentWallet(wallet) {
             </form>
           ` : ''}
           ${wallet.policyStatus === 'active-policy' ? '<small>Reviewed permission module configured. Console does not enable agent execution.</small>' : ''}
+          ${uncertainAttempts.map((kind) => `
+            <div class="console-looper-wallet-confirm">
+              <small>${wallet[kind]?.txHash ? `Outcome unknown. Verify ${escapeHtml(wallet[kind].txHash)} on BaseScan before continuing.` : 'Wallet submission outcome is unknown. Check your wallet activity before continuing.'}</small>
+              <button type="button" data-action="acknowledge-looper-wallet-outcome" data-attempt-kind="${escapeAttribute(kind)}">I checked — unlock controls</button>
+            </div>
+          `).join('')}
         </div>
       </details>
       ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}

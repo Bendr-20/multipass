@@ -245,20 +245,31 @@ export function createLooperAgentWalletController({
       };
       updateAttempt(record.kind, submitted);
 
-      const receipt = await readReceipt({ hash, transaction: expectedTransaction });
-      const postEvidence = await readSnapshot({
-        selection: { ...boundSelection },
-        expectedAccount: record.account,
-        phase: 'receipt',
-        transaction: expectedTransaction,
-        receipt,
-      });
-      const post = buildSnapshot(postEvidence, 'receipt', boundSelection);
+      let receipt;
       try {
+        receipt = await readReceipt({ hash, transaction: expectedTransaction });
+      } catch (error) {
+        updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
+        throw error;
+      }
+      if (['reverted', 0, '0x0'].includes(receipt?.status)) {
+        updateAttempt(record.kind, { ...submitted, state: 'reverted', history: appendHistory(submitted, 'reverted') });
+        throw new Error('Looper wallet transaction reverted on Base.');
+      }
+      let post;
+      try {
+        const postEvidence = await readSnapshot({
+          selection: { ...boundSelection },
+          expectedAccount: record.account,
+          phase: 'receipt',
+          transaction: expectedTransaction,
+          receipt,
+        });
+        post = buildSnapshot(postEvidence, 'receipt', boundSelection);
         attributeReceipt({ record: submitted, receipt, post });
       } catch (error) {
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
-        if (sameSelection(selection, boundSelection)) current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
+        if (post && sameSelection(selection, boundSelection)) current = attachAttempts(blocked(post, 'receipt_attribution_failed'));
         throw error;
       }
 
@@ -563,6 +574,20 @@ export function createLooperAgentWalletController({
     for (const kind of ['activation', 'send', 'policy']) attempts[kind] = null;
   }
 
+  function acknowledgeUnknown(kind) {
+    if (!['activation', 'send', 'policy'].includes(kind)) throw new Error('Unknown Looper wallet attempt kind.');
+    const record = attempts[kind];
+    if (!record || !['uncertain_hashless', 'uncertain_hashed'].includes(record.state)) {
+      throw new Error('No uncertain Looper wallet outcome is available to acknowledge.');
+    }
+    updateAttempt(kind, {
+      ...record,
+      state: 'acknowledged_unknown',
+      history: appendHistory(record, 'acknowledged_unknown'),
+    });
+    return getSnapshot();
+  }
+
   function forceReadOnly(reason) {
     current = attachAttempts({
       ...current,
@@ -584,6 +609,15 @@ export function createLooperAgentWalletController({
       if (restored.state === 'prepared') {
         attempts[kind] = restored;
         invalidateAttempt(restored);
+        continue;
+      }
+      if (restored.state === 'submitted') {
+        attempts[kind] = restored;
+        updateAttempt(kind, {
+          ...restored,
+          state: 'uncertain_hashed',
+          history: appendHistory(restored, 'uncertain_hashed'),
+        });
         continue;
       }
       if (restored.state === 'confirmed_attributed') {
@@ -651,14 +685,16 @@ export function createLooperAgentWalletController({
       || record.attributable !== (record.state === 'confirmed_attributed')
       || !validateAttemptHistory(record.history)
       || record.history.at(-1).state !== record.state) return null;
-    const hashRequired = ['submitted', 'confirmed_attributed', 'uncertain_hashed', 'acknowledged_unknown'].includes(record.state);
-    if (hashRequired !== Object.hasOwn(record, 'txHash')) return null;
-    if (hashRequired && normalizeHash(record.txHash) !== record.txHash) return null;
+    const hashPresent = Object.hasOwn(record, 'txHash');
+    const hashRequired = ['submitted', 'confirmed_attributed', 'uncertain_hashed'].includes(record.state);
+    const hashOptional = ['reverted', 'acknowledged_unknown'].includes(record.state);
+    if ((hashRequired && !hashPresent) || (!hashRequired && !hashOptional && hashPresent)) return null;
+    if (hashPresent && normalizeHash(record.txHash) !== record.txHash) return null;
     const expectedKeys = [
       'account', 'attributable', 'history', 'id', 'kind', 'owner', 'preState', 'semantic',
       'state', 'tokenId', 'transaction', 'version',
       ...(record.kind === 'policy' ? ['policyBaseline', 'targetPolicyModule'] : []),
-      ...(hashRequired ? ['txHash'] : []),
+      ...(hashPresent ? ['txHash'] : []),
     ];
     if (!hasExactKeys(record, expectedKeys)) return null;
     if (!validateAttemptSemantic(record)
@@ -745,6 +781,7 @@ export function createLooperAgentWalletController({
     prepareErc20Send,
     preparePolicyModule,
     submitPrepared,
+    acknowledgeUnknown,
     getSnapshot,
   };
 }
@@ -878,7 +915,7 @@ function validateAttemptHistory(history) {
   if (!Array.isArray(history) || history.length === 0 || history[0]?.state !== 'prepared') return false;
   const transitions = {
     prepared: new Set(['submitted', 'reverted', 'invalidated', 'uncertain_hashless']),
-    submitted: new Set(['confirmed_attributed', 'uncertain_hashed']),
+    submitted: new Set(['confirmed_attributed', 'reverted', 'uncertain_hashed']),
     uncertain_hashless: new Set(['acknowledged_unknown']),
     uncertain_hashed: new Set(['acknowledged_unknown']),
   };

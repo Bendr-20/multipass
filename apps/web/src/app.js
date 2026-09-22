@@ -1237,6 +1237,20 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
+  function acknowledgeLooperWalletOutcome(event) {
+    const kind = String(event?.currentTarget?.dataset?.attemptKind ?? '');
+    try {
+      const walletState = activeLooperWalletController.acknowledgeUnknown(kind);
+      state = { ...state, looperAgentWallet: { ...walletState, error: null } };
+    } catch (error) {
+      state = {
+        ...state,
+        looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: getSafeConsoleError(error, { phase: 'wallet' }) },
+      };
+    }
+    render(root, state, handlers);
+  }
+
   async function setLooperPolicyModule(event) {
     event?.preventDefault?.();
     const data = createFormData(event?.currentTarget);
@@ -1986,7 +2000,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -4356,6 +4370,9 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelector('[data-action="activate-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.activateLooperAgentWallet?.(event));
   root.querySelector('[data-action="send-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.sendLooperAgentWallet?.(event));
   root.querySelector('[data-action="set-looper-policy-module"]')?.addEventListener('submit', (event) => handlers.setLooperPolicyModule?.(event));
+  root.querySelectorAll('[data-action="acknowledge-looper-wallet-outcome"]').forEach((button) => {
+    button.addEventListener('click', (event) => handlers.acknowledgeLooperWalletOutcome?.(event));
+  });
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
   root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
   root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));

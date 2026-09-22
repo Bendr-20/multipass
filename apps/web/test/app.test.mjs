@@ -2114,6 +2114,45 @@ test('dedicated Console blocks agent switching while a Looper wallet submission 
   await flushAsyncEvents(20);
 });
 
+test('dedicated Console exposes explicit acknowledgment for an unknown wallet outcome', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  let walletState = {
+    mode: 'active', tokenId: '617', owner,
+    account: '0x9999999999999999999999999999999999999999', legacyAccount: null,
+    nativeWei: '0', tokens: [], policyStatus: 'owner-only', canTransact: true,
+    activation: { state: 'idle' },
+    send: { state: 'uncertain_hashed', txHash: `0x${'cc'.repeat(32)}` },
+    policy: { state: 'idle' },
+  };
+  const calls = [];
+  const looperWalletController = {
+    getSnapshot: () => walletState,
+    async select() { return walletState; },
+    acknowledgeUnknown(kind) {
+      calls.push(['acknowledgeUnknown', kind]);
+      walletState = { ...walletState, send: { state: 'acknowledged_unknown', txHash: walletState.send.txHash } };
+      return walletState;
+    },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+
+  const button = root.querySelector('[data-action="acknowledge-looper-wallet-outcome"]');
+  assert.ok(button);
+  button.click();
+  await flushAsyncEvents();
+  assert.deepEqual(calls, [['acknowledgeUnknown', 'send']]);
+  assert.equal(root.querySelector('[data-action="acknowledge-looper-wallet-outcome"]'), null);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, false);
+});
+
 test('dedicated Console discards stale wallet capabilities after select or refresh RPC errors', async () => {
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const staleWallet = {

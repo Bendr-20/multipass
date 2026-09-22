@@ -247,6 +247,33 @@ test('receipt mismatch fails closed instead of inferring success from balances',
   const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
   await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /attribution/i);
   assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashed');
+  assert.equal(f.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
+  const next = await f.controller.select({ tokenId: '618', owner: OWNER });
+  assert.equal(next.tokenId, '618');
+});
+
+test('reverted and unreadable receipts never leave the wallet permanently submitted', async () => {
+  const active = deployedSnapshot({ state: '2' });
+  let f = controllerFixture({
+    snapshots: [active, active, active],
+    receipt: async ({ transaction }) => ({ status: 'reverted', transaction, logs: [] }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  let prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /reverted on Base/i);
+  assert.equal(f.controller.getSnapshot().send.state, 'reverted');
+  assert.equal((await f.controller.select({ tokenId: '618', owner: OWNER })).tokenId, '618');
+
+  f = controllerFixture({
+    snapshots: [active, active, active],
+    receipt: async () => { throw new Error('receipt temporarily unavailable'); },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /temporarily unavailable/i);
+  assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashed');
+  assert.equal(f.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
+  assert.throws(() => f.controller.acknowledgeUnknown('send'), /No uncertain/i);
 });
 
 test('attempt state reloads by owner scope and a second tab cannot resubmit terminal work', async () => {
@@ -421,6 +448,28 @@ test('restored prepared attempts are invalidated and malformed persisted attempt
   const discarded = await third.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(discarded.send.state, 'idle');
   assert.equal(storage.getItem(scope.storageKey), null);
+});
+
+test('restored submitted attempts become explicitly acknowledgeable instead of blocking forever', async () => {
+  const storage = memoryStorage();
+  const active = deployedSnapshot();
+  const first = controllerFixture({ snapshots: [active, active], storage, generateAttemptId: () => 'attempt-submitted' });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  const scope = createOperationScope({ tokenId: TOKEN_ID, account: active.collectionAccount, owner: OWNER, kind: 'send' });
+  const prepared = JSON.parse(storage.getItem(scope.storageKey));
+  storage.setItem(scope.storageKey, JSON.stringify({
+    ...prepared,
+    state: 'submitted',
+    txHash: `0x${'cc'.repeat(32)}`,
+    history: [...prepared.history, { state: 'submitted', at: prepared.history[0].at + 1 }],
+  }));
+
+  const second = controllerFixture({ snapshots: [active], storage });
+  const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(restored.send.state, 'uncertain_hashed');
+  assert.equal(second.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
+  assert.equal((await second.controller.select({ tokenId: '618', owner: OWNER })).tokenId, '618');
 });
 
 test('persisted confirmed attribution is restored only after fresh receipt and post-state verification', async () => {

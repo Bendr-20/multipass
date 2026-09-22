@@ -115,6 +115,9 @@ test('agent selection is disabled while any Looper wallet operation is nontermin
     assert.equal(snapshot.agents.every((agent) => agent.activationDisabled), true);
     const root = render(renderMultipassConsole(snapshot));
     assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
+    const acknowledgment = root.querySelector('[data-action="acknowledge-looper-wallet-outcome"]');
+    assert.equal(Boolean(acknowledgment), attemptState.startsWith('uncertain_'));
+    if (acknowledgment) assert.equal(acknowledgment.dataset.attemptKind, 'send');
   }
 });
 
