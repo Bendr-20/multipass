@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,6 +58,20 @@ test('deployment preparation emits exact unsigned deployment and Loopers config 
   assert.equal(preparation.salt, ACCOUNT_SALT);
   assert.equal(preparation.artifact.runtimeSha256, compiled.runtimeSha256);
   assert.equal(preparation.deployment.expectedAddress, expectedImplementation);
+  assert.equal(ethers.dataLength(preparation.deployment.expectedRuntimeBytecode), compiled.runtimeBytes);
+  for (const reference of compiled.immutableReferences) {
+    const start = 2 + (reference.start * 2);
+    const end = start + (reference.length * 2);
+    assert.equal(
+      preparation.deployment.expectedRuntimeBytecode.slice(start, end),
+      ethers.zeroPadValue(expectedImplementation, reference.length).slice(2).toLowerCase(),
+    );
+  }
+  assert.equal(
+    preparation.deployment.expectedRuntimeSha256,
+    `0x${createHash('sha256').update(Buffer.from(preparation.deployment.expectedRuntimeBytecode.slice(2), 'hex')).digest('hex')}`,
+  );
+  assert.notEqual(preparation.deployment.expectedRuntimeSha256, compiled.runtimeSha256);
   assert.deepEqual(preparation.deployment.transaction, {
     chainId: '0x2105',
     from: DEPLOYER,

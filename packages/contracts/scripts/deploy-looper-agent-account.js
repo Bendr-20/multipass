@@ -32,7 +32,7 @@ export async function compileLooperAgentAccount() {
       evmVersion: 'paris',
       metadata: { bytecodeHash: 'none', appendCBOR: false },
       outputSelection: {
-        '*': { '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object', 'metadata'] },
+        '*': { '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object', 'evm.deployedBytecode.immutableReferences', 'metadata'] },
       },
     },
   };
@@ -59,6 +59,10 @@ export async function compileLooperAgentAccount() {
     runtimeBytecode,
     runtimeBytes: ethers.dataLength(runtimeBytecode),
     runtimeSha256: sha256Hex(runtimeBytecode),
+    immutableReferences: Object.values(contract.evm.deployedBytecode.immutableReferences ?? {})
+      .flat()
+      .map(({ start, length }) => ({ start, length }))
+      .sort((left, right) => left.start - right.start),
     abi: contract.abi,
   };
 }
@@ -70,6 +74,11 @@ export function buildDeploymentPreparation({ compiled, deployer, owner, nonce })
   if (!Number.isSafeInteger(nonce) || nonce < 0) throw new Error('nonce must be a non-negative safe integer.');
 
   const expectedAddress = ethers.getCreateAddress({ from: normalizedDeployer, nonce });
+  const expectedRuntimeBytecode = applyImmutableReferences(
+    compiled.runtimeBytecode,
+    compiled.immutableReferences,
+    expectedAddress,
+  );
   const configData = CONFIG_INTERFACE.encodeFunctionData('setERC6551Config', [
     ERC6551_REGISTRY,
     expectedAddress,
@@ -84,6 +93,9 @@ export function buildDeploymentPreparation({ compiled, deployer, owner, nonce })
     artifact: compiled,
     deployment: {
       expectedAddress,
+      expectedRuntimeBytecode,
+      expectedRuntimeBytes: ethers.dataLength(expectedRuntimeBytecode),
+      expectedRuntimeSha256: sha256Hex(expectedRuntimeBytecode),
       transaction: {
         chainId: '0x2105',
         from: normalizedDeployer,
@@ -115,6 +127,20 @@ export async function writeDeploymentPreparation(preparation, outputPath) {
   await mkdir(dirname(resolve(outputPath)), { recursive: true });
   await writeFile(resolve(outputPath), `${JSON.stringify(preparation, null, 2)}\n`);
   return resolve(outputPath);
+}
+
+function applyImmutableReferences(runtimeBytecode, references, address) {
+  let body = runtimeBytecode.slice(2).toLowerCase();
+  const replacementFor = (length) => ethers.zeroPadValue(address, length).slice(2).toLowerCase();
+  for (const reference of references ?? []) {
+    if (!Number.isSafeInteger(reference.start) || !Number.isSafeInteger(reference.length) || reference.length <= 0) {
+      throw new Error('compiled immutable reference is invalid.');
+    }
+    const start = reference.start * 2;
+    const end = start + (reference.length * 2);
+    body = `${body.slice(0, start)}${replacementFor(reference.length)}${body.slice(end)}`;
+  }
+  return `0x${body}`;
 }
 
 function validateCompiled(compiled) {
