@@ -7,6 +7,8 @@
     "compile": "node scripts/compile-loopers.js",
     "compile:agent-account": "node scripts/deploy-looper-agent-account.js --artifact-only",
     "preview:agent-account": "node scripts/deploy-looper-agent-account.js --preview",
+    "inspect:agent-account": "node scripts/deploy-looper-agent-account.js --inspect-release",
+    "verify:agent-account": "node scripts/deploy-looper-agent-account.js --verify-release",
     "deploy": "node scripts/deploy-loopers.js",
     "sale": "node scripts/manage-loopers-sale.js",
     "verify:deployment": "node scripts/verify-loopers-deployment.js",

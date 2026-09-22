@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,52 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { ethers } from 'ethers';
 import solc from 'solc';
+
+import {
+  ACCOUNT_DEPLOYMENT_HASH,
+  BOUND_PREVIEW_SHA256,
+  REGISTRY_DEPLOYMENT_HASH,
+  RELEASE_BLOCKSCOUT_ORIGIN,
+  RELEASE_RPC_ORIGINS,
+  VERIFIED_RELEASE_OUTPUT_PATH,
+  assertExactConfigTransaction,
+  assertNoSigningEnvironment,
+  buildUnsignedConfigUpdate,
+  collectCanonicalLogsFromTwoOrigins,
+  createReleaseReadTransport,
+  decodeCanonicalAccountCreatedLogs,
+  inspectLooperAccountMigration,
+  planLogRanges,
+  requireCanonicalLogRangeAgreement,
+  validateBlockscoutTokenPage,
+  validateBoundReleasePreview,
+  validateOldAccountReceiptLog,
+  validateReleaseInspectionForVerification,
+  verifyLooperAgentAccountRelease,
+} from './looper-agent-account-release.js';
+
+export {
+  ACCOUNT_DEPLOYMENT_HASH,
+  BOUND_PREVIEW_SHA256,
+  REGISTRY_DEPLOYMENT_HASH,
+  RELEASE_BLOCKSCOUT_ORIGIN,
+  RELEASE_RPC_ORIGINS,
+  VERIFIED_RELEASE_OUTPUT_PATH,
+  assertExactConfigTransaction,
+  assertNoSigningEnvironment,
+  buildUnsignedConfigUpdate,
+  collectCanonicalLogsFromTwoOrigins,
+  createReleaseReadTransport,
+  decodeCanonicalAccountCreatedLogs,
+  inspectLooperAccountMigration,
+  planLogRanges,
+  requireCanonicalLogRangeAgreement,
+  validateBlockscoutTokenPage,
+  validateBoundReleasePreview,
+  validateOldAccountReceiptLog,
+  validateReleaseInspectionForVerification,
+  verifyLooperAgentAccountRelease,
+};
 
 const require = createRequire(import.meta.url);
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -530,56 +576,86 @@ function readSourceUnit(sourceUnitName) {
 function parseArguments(argv) {
   const values = new Map();
   let mode = null;
+  const modes = new Set(['--artifact-only', '--preview', '--inspect-release', '--verify-release']);
+  const valueFlags = new Set([
+    '--deployer', '--owner', '--nonce', '--output', '--preview-file', '--registry-hash',
+    '--account-hash', '--inspection', '--config-hash',
+  ]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--artifact-only' || argument === '--preview') {
+    if (argument === '--') continue;
+    if (modes.has(argument)) {
       if (mode) throw new Error('Choose exactly one mode.');
       mode = argument;
       continue;
     }
-    if (!['--deployer', '--owner', '--nonce', '--output'].includes(argument)) {
-      throw new Error(`Unknown argument: ${argument}`);
-    }
+    if (!valueFlags.has(argument)) throw new Error(`Unknown argument: ${argument}`);
     if (values.has(argument)) throw new Error(`Duplicate argument: ${argument}`);
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value.`);
     values.set(argument, value);
     index += 1;
   }
-  if (!mode) throw new Error('Use --artifact-only or --preview.');
-
-  if (mode === '--artifact-only') {
-    for (const argument of ['--deployer', '--owner', '--nonce']) {
-      if (values.has(argument)) throw new Error(`${argument} is not valid with --artifact-only.`);
-    }
-    return { mode, values };
+  if (!mode) throw new Error('Use --artifact-only, --preview, --inspect-release, or --verify-release.');
+  const allowedByMode = {
+    '--artifact-only': ['--output'],
+    '--preview': ['--deployer', '--owner', '--nonce', '--output'],
+    '--inspect-release': ['--preview-file', '--registry-hash', '--account-hash', '--output'],
+    '--verify-release': ['--inspection', '--config-hash', '--output'],
+  };
+  for (const key of values.keys()) {
+    if (!allowedByMode[mode].includes(key)) throw new Error(`${key} is not valid with ${mode}.`);
   }
-
-  for (const argument of ['--deployer', '--owner', '--nonce', '--output']) {
-    if (!values.has(argument)) throw new Error(`${argument} is required with --preview.`);
+  if (mode === '--artifact-only') return { mode, values };
+  for (const required of allowedByMode[mode]) {
+    if (!values.has(required)) throw new Error(`${required} is required with ${mode}.`);
   }
-  const nonceValue = values.get('--nonce');
-  if (!/^(0|[1-9]\d*)$/.test(nonceValue)) {
-    throw new Error('--nonce must be a canonical decimal integer.');
+  if (mode === '--preview') {
+    const nonceValue = values.get('--nonce');
+    if (!/^(0|[1-9]\d*)$/.test(nonceValue)) throw new Error('--nonce must be a canonical decimal integer.');
+    const nonce = Number(nonceValue);
+    if (!Number.isSafeInteger(nonce) || !Number.isSafeInteger(nonce + 1)) throw new Error('--nonce must be a safe integer with room for two deployments.');
+    return { mode, values, nonce };
   }
-  const nonce = Number(nonceValue);
-  if (!Number.isSafeInteger(nonce) || !Number.isSafeInteger(nonce + 1)) {
-    throw new Error('--nonce must be a safe integer with room for two deployments.');
-  }
-  return { mode, values, nonce };
+  return { mode, values };
 }
 
 async function main() {
   const { mode, values, nonce } = parseArguments(process.argv.slice(2));
+  assertNoSigningEnvironment(process.env);
+  const outputPath = values.get('--output') ?? resolve(CONTRACT_ROOT, 'build/LooperAgentPermissionRelease.json');
+  if (mode === '--inspect-release') {
+    const previewBytes = await readFile(resolve(values.get('--preview-file')));
+    const inspection = await inspectLooperAccountMigration({
+      previewBytes,
+      registryTransactionHash: values.get('--registry-hash'),
+      accountTransactionHash: values.get('--account-hash'),
+      canonicalCompileBundle: await compileLooperReleaseBundle(),
+    });
+    await writeDeploymentPreparation(inspection, outputPath);
+    process.stdout.write(`${JSON.stringify(inspection, null, 2)}\n`);
+    return;
+  }
+  if (mode === '--verify-release') {
+    if (resolve(outputPath) !== VERIFIED_RELEASE_OUTPUT_PATH) {
+      throw new Error('--verify-release output must be packages/contracts/deployments/looper-agent-account-base.json.');
+    }
+    const inspection = JSON.parse(await readFile(resolve(values.get('--inspection')), 'utf8'));
+    const verified = await verifyLooperAgentAccountRelease({
+      inspection,
+      configTransactionHash: values.get('--config-hash'),
+    });
+    await writeDeploymentPreparation(verified, outputPath);
+    process.stdout.write(`${JSON.stringify(verified, null, 2)}\n`);
+    return;
+  }
+
   const compiled = await compileLooperReleaseBundle();
-  const outputPath = values.get('--output')
-    ?? resolve(CONTRACT_ROOT, 'build/LooperAgentPermissionRelease.json');
   if (mode === '--artifact-only') {
     await writeDeploymentPreparation(compiled, outputPath);
     process.stdout.write(`${JSON.stringify(compiled, null, 2)}\n`);
     return;
   }
-
   const preparation = buildDeploymentPreparation({
     compiled,
     deployer: values.get('--deployer'),
