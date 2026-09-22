@@ -11,7 +11,15 @@ import solc from 'solc';
 const require = createRequire(import.meta.url);
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const CONTRACT_ROOT = resolve(dirname(SCRIPT_PATH), '..');
-const SOURCE_PATH = resolve(CONTRACT_ROOT, 'src/LooperAgentAccount.sol');
+const ACCOUNT_SOURCE_NAME = 'src/LooperAgentAccount.sol';
+const REGISTRY_SOURCE_NAME = 'src/LooperAgentModuleRegistry.sol';
+const ACCOUNT_SOURCE_PATH = resolve(CONTRACT_ROOT, ACCOUNT_SOURCE_NAME);
+const REGISTRY_SOURCE_PATH = resolve(CONTRACT_ROOT, REGISTRY_SOURCE_NAME);
+const COMPILER_SETTINGS = Object.freeze({
+  optimizer: Object.freeze({ enabled: true, runs: 200 }),
+  evmVersion: 'paris',
+  metadata: Object.freeze({ bytecodeHash: 'none', appendCBOR: false }),
+});
 
 export const BASE_CHAIN_ID = 8453;
 export const ERC6551_REGISTRY = '0x000000006551c19487814612e58FE06813775758';
@@ -21,98 +29,244 @@ export const ACCOUNT_SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b218
 const CONFIG_INTERFACE = new ethers.Interface([
   'function setERC6551Config(address registry,address implementation,bytes32 salt)',
 ]);
+const ABI_CODER = ethers.AbiCoder.defaultAbiCoder();
 
-export async function compileLooperAgentAccount() {
-  const source = await readFile(SOURCE_PATH, 'utf8');
+export async function compileLooperReleaseBundle() {
+  const accountSource = await readFile(ACCOUNT_SOURCE_PATH, 'utf8');
+  const registrySource = await readFile(REGISTRY_SOURCE_PATH, 'utf8');
   const input = {
     language: 'Solidity',
-    sources: { 'src/LooperAgentAccount.sol': { content: source } },
+    sources: {
+      [ACCOUNT_SOURCE_NAME]: { content: accountSource },
+      [REGISTRY_SOURCE_NAME]: { content: registrySource },
+    },
     settings: {
-      optimizer: { enabled: true, runs: 200 },
-      evmVersion: 'paris',
-      metadata: { bytecodeHash: 'none', appendCBOR: false },
+      optimizer: { ...COMPILER_SETTINGS.optimizer },
+      evmVersion: COMPILER_SETTINGS.evmVersion,
+      metadata: { ...COMPILER_SETTINGS.metadata },
       outputSelection: {
-        '*': { '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object', 'evm.deployedBytecode.immutableReferences', 'metadata'] },
+        '*': {
+          '': ['ast'],
+          '*': [
+            'abi',
+            'evm.bytecode.object',
+            'evm.deployedBytecode.object',
+            'evm.deployedBytecode.immutableReferences',
+          ],
+        },
       },
     },
   };
-  const output = JSON.parse(solc.compile(JSON.stringify(input), { import: resolveImport }));
+  const serializedInput = JSON.stringify(input);
+  const output = JSON.parse(solc.compile(serializedInput, { import: resolveImport }));
   const errors = output.errors?.filter((entry) => entry.severity === 'error') ?? [];
   if (errors.length) throw new Error(errors.map((entry) => entry.formattedMessage).join('\n'));
 
-  const contract = output.contracts['src/LooperAgentAccount.sol']?.LooperAgentAccount;
-  if (!contract) throw new Error('LooperAgentAccount compiler output is missing.');
-  const creationBytecode = `0x${contract.evm.bytecode.object}`;
-  const runtimeBytecode = `0x${contract.evm.deployedBytecode.object}`;
-  return {
+  const account = buildArtifact({
+    output,
+    sourceName: ACCOUNT_SOURCE_NAME,
     contractName: 'LooperAgentAccount',
+    immutableNames: ['_implementation', 'moduleRegistry'],
+  });
+  const registry = buildArtifact({
+    output,
+    sourceName: REGISTRY_SOURCE_NAME,
+    contractName: 'LooperAgentModuleRegistry',
+    immutableNames: ['collection'],
+  });
+
+  return {
+    schemaVersion: '2.0.0',
+    kind: 'looper-permission-release-compile-bundle',
     compiler: {
       version: solc.version(),
-      optimizer: { enabled: true, runs: 200 },
-      evmVersion: 'paris',
-      metadata: { bytecodeHash: 'none', appendCBOR: false },
+      settings: {
+        optimizer: { ...COMPILER_SETTINGS.optimizer },
+        evmVersion: COMPILER_SETTINGS.evmVersion,
+        metadata: { ...COMPILER_SETTINGS.metadata },
+      },
+      inputSha256: sha256Text(serializedInput),
     },
-    sourceSha256: sha256Text(source),
-    creationBytecode,
-    creationBytes: ethers.dataLength(creationBytecode),
-    creationSha256: sha256Hex(creationBytecode),
-    runtimeBytecode,
-    runtimeBytes: ethers.dataLength(runtimeBytecode),
-    runtimeSha256: sha256Hex(runtimeBytecode),
-    immutableReferences: Object.values(contract.evm.deployedBytecode.immutableReferences ?? {})
-      .flat()
-      .map(({ start, length }) => ({ start, length }))
-      .sort((left, right) => left.start - right.start),
-    abi: contract.abi,
+    sources: {
+      [ACCOUNT_SOURCE_NAME]: { sha256: sha256Text(accountSource) },
+      [REGISTRY_SOURCE_NAME]: { sha256: sha256Text(registrySource) },
+    },
+    contracts: { account, registry },
   };
 }
 
+export async function compileLooperAgentAccount() {
+  return (await compileLooperReleaseBundle()).contracts.account;
+}
+
+export function patchImmutableRuntime({ artifact, immutableValues }) {
+  if (!artifact || typeof artifact !== 'object') throw new Error('compiled contract artifact is required.');
+  const runtimeBytecode = artifact.runtimeBytecode;
+  if (!ethers.isHexString(runtimeBytecode) || runtimeBytecode === '0x') {
+    throw new Error('compiled runtime bytecode is invalid.');
+  }
+  const runtimeBytes = ethers.dataLength(runtimeBytecode);
+  if (artifact.runtimeBytes !== runtimeBytes) throw new Error('compiled runtime byte length is inconsistent.');
+
+  const declarations = artifact.immutableDeclarations;
+  const references = artifact.immutableReferences;
+  if (!isPlainObject(declarations) || !isPlainObject(references)) {
+    throw new Error('compiled immutable declaration groups are invalid.');
+  }
+  if (!isPlainObject(immutableValues)) throw new Error('immutable values are required.');
+
+  const targetNames = Object.keys(declarations);
+  const valueNames = Object.keys(immutableValues);
+  for (const name of targetNames) {
+    if (!Object.hasOwn(immutableValues, name)) throw new Error(`missing immutable value for ${name}.`);
+  }
+  for (const name of valueNames) {
+    if (!Object.hasOwn(declarations, name)) throw new Error(`unknown immutable value ${name}.`);
+  }
+
+  const targetIds = new Map();
+  for (const name of targetNames) {
+    const declarationId = declarations[name];
+    if (!Number.isSafeInteger(declarationId) || declarationId < 0) {
+      throw new Error(`immutable declaration ID for ${name} is invalid.`);
+    }
+    const key = String(declarationId);
+    if (targetIds.has(key)) {
+      throw new Error(`immutable declaration group ${key} is reused by multiple targets.`);
+    }
+    targetIds.set(key, name);
+  }
+  for (const key of Object.keys(references)) {
+    if (!targetIds.has(key)) throw new Error(`unknown immutable declaration ID ${key}.`);
+  }
+  for (const key of targetIds.keys()) {
+    if (!Object.hasOwn(references, key)) throw new Error(`missing immutable declaration group ${key}.`);
+  }
+
+  const normalizedValues = new Map();
+  for (const name of targetNames) {
+    normalizedValues.set(name, normalizeAddress(immutableValues[name], `immutable ${name}`));
+  }
+
+  const patches = [];
+  for (const [declarationId, name] of targetIds) {
+    const group = references[declarationId];
+    if (!Array.isArray(group) || group.length === 0) {
+      throw new Error(`immutable declaration group ${declarationId} must exist exactly once and contain references.`);
+    }
+    for (const reference of group) {
+      if (!isPlainObject(reference)
+        || !Number.isSafeInteger(reference.start)
+        || !Number.isSafeInteger(reference.length)
+        || reference.start < 0
+        || reference.length <= 0) {
+        throw new Error(`immutable reference for ${name} is invalid.`);
+      }
+      if (reference.length !== 32) throw new Error(`address immutable ${name} must use a 32-byte slot.`);
+      const end = reference.start + reference.length;
+      if (!Number.isSafeInteger(end) || end > runtimeBytes) {
+        throw new Error(`immutable reference for ${name} is out of range.`);
+      }
+      patches.push({
+        start: reference.start,
+        end,
+        name,
+        replacement: ethers.zeroPadValue(normalizedValues.get(name), 32).slice(2).toLowerCase(),
+      });
+    }
+  }
+
+  patches.sort((left, right) => left.start - right.start || left.end - right.end);
+  for (let index = 1; index < patches.length; index += 1) {
+    if (patches[index].start < patches[index - 1].end) {
+      throw new Error(`immutable references for ${patches[index - 1].name} and ${patches[index].name} overlap.`);
+    }
+  }
+
+  let body = runtimeBytecode.slice(2).toLowerCase();
+  for (const patch of patches) {
+    const start = patch.start * 2;
+    const end = patch.end * 2;
+    body = `${body.slice(0, start)}${patch.replacement}${body.slice(end)}`;
+  }
+  return `0x${body}`;
+}
+
 export function buildDeploymentPreparation({ compiled, deployer, owner, nonce }) {
-  validateCompiled(compiled);
+  validateBundle(compiled);
   const normalizedDeployer = normalizeAddress(deployer, 'deployer');
   const normalizedOwner = normalizeAddress(owner, 'owner');
-  if (!Number.isSafeInteger(nonce) || nonce < 0) throw new Error('nonce must be a non-negative safe integer.');
+  if (!Number.isSafeInteger(nonce) || nonce < 0 || !Number.isSafeInteger(nonce + 1)) {
+    throw new Error('nonce must be a non-negative safe integer with room for two deployments.');
+  }
 
-  const expectedAddress = ethers.getCreateAddress({ from: normalizedDeployer, nonce });
-  const expectedRuntimeBytecode = applyImmutableReferences(
-    compiled.runtimeBytecode,
-    compiled.immutableReferences,
-    expectedAddress,
-  );
+  const registryArtifact = compiled.contracts.registry;
+  const accountArtifact = compiled.contracts.account;
+  const expectedRegistry = ethers.getCreateAddress({ from: normalizedDeployer, nonce });
+  const expectedAccount = ethers.getCreateAddress({ from: normalizedDeployer, nonce: nonce + 1 });
+  const registryCreationData = ethers.concat([
+    registryArtifact.creationBytecode,
+    ABI_CODER.encode(['address'], [LOOPERS_COLLECTION]),
+  ]);
+  const accountCreationData = ethers.concat([
+    accountArtifact.creationBytecode,
+    ABI_CODER.encode(['address'], [expectedRegistry]),
+  ]);
+  const expectedRegistryRuntime = patchImmutableRuntime({
+    artifact: registryArtifact,
+    immutableValues: { collection: LOOPERS_COLLECTION },
+  });
+  const expectedAccountRuntime = patchImmutableRuntime({
+    artifact: accountArtifact,
+    immutableValues: {
+      _implementation: expectedAccount,
+      moduleRegistry: expectedRegistry,
+    },
+  });
   const configData = CONFIG_INTERFACE.encodeFunctionData('setERC6551Config', [
     ERC6551_REGISTRY,
-    expectedAddress,
+    expectedAccount,
     ACCOUNT_SALT,
   ]);
+
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '2.0.0',
     chainId: BASE_CHAIN_ID,
     registry: ERC6551_REGISTRY,
+    canonicalRegistry: ERC6551_REGISTRY,
     collection: LOOPERS_COLLECTION,
     salt: ACCOUNT_SALT,
-    artifact: compiled,
-    deployment: {
-      expectedAddress,
-      expectedRuntimeBytecode,
-      expectedRuntimeBytes: ethers.dataLength(expectedRuntimeBytecode),
-      expectedRuntimeSha256: sha256Hex(expectedRuntimeBytecode),
-      transaction: {
-        chainId: '0x2105',
-        from: normalizedDeployer,
-        to: null,
-        nonce: ethers.toBeHex(nonce),
-        value: '0x0',
-        data: compiled.creationBytecode,
-      },
+    compileBundle: compiled,
+    sourceCompilerEvidence: {
+      compiler: compiled.compiler,
+      sources: compiled.sources,
     },
+    registryDeployment: deploymentSection({
+      artifact: registryArtifact,
+      expectedAddress: expectedRegistry,
+      constructorArgs: { collection: LOOPERS_COLLECTION },
+      creationData: registryCreationData,
+      expectedRuntimeBytecode: expectedRegistryRuntime,
+      from: normalizedDeployer,
+      nonce,
+    }),
+    accountDeployment: deploymentSection({
+      artifact: accountArtifact,
+      expectedAddress: expectedAccount,
+      constructorArgs: { moduleRegistry: expectedRegistry },
+      creationData: accountCreationData,
+      expectedRuntimeBytecode: expectedAccountRuntime,
+      from: normalizedDeployer,
+      nonce: nonce + 1,
+    }),
     configUpdate: {
       expected: {
         registry: ERC6551_REGISTRY,
-        implementation: expectedAddress,
+        implementation: expectedAccount,
         salt: ACCOUNT_SALT,
       },
       transaction: {
-        chainId: '0x2105',
+        chainId: BASE_CHAIN_ID,
         from: normalizedOwner,
         to: LOOPERS_COLLECTION,
         value: '0x0',
@@ -124,32 +278,147 @@ export function buildDeploymentPreparation({ compiled, deployer, owner, nonce })
 
 export async function writeDeploymentPreparation(preparation, outputPath) {
   if (!outputPath || typeof outputPath !== 'string') throw new Error('output path is required.');
-  await mkdir(dirname(resolve(outputPath)), { recursive: true });
-  await writeFile(resolve(outputPath), `${JSON.stringify(preparation, null, 2)}\n`);
-  return resolve(outputPath);
+  const resolved = resolve(outputPath);
+  await mkdir(dirname(resolved), { recursive: true });
+  await writeFile(resolved, `${JSON.stringify(preparation, null, 2)}\n`, { flag: 'wx' });
+  return resolved;
 }
 
-function applyImmutableReferences(runtimeBytecode, references, address) {
-  let body = runtimeBytecode.slice(2).toLowerCase();
-  const replacementFor = (length) => ethers.zeroPadValue(address, length).slice(2).toLowerCase();
-  for (const reference of references ?? []) {
-    if (!Number.isSafeInteger(reference.start) || !Number.isSafeInteger(reference.length) || reference.length <= 0) {
-      throw new Error('compiled immutable reference is invalid.');
+function buildArtifact({ output, sourceName, contractName, immutableNames }) {
+  const contract = output.contracts?.[sourceName]?.[contractName];
+  const ast = output.sources?.[sourceName]?.ast;
+  if (!contract) throw new Error(`${contractName} compiler output is missing.`);
+  if (!ast) throw new Error(`${contractName} AST output is missing.`);
+
+  const immutableDeclarations = findImmutableDeclarations(ast, contractName, immutableNames);
+  const immutableReferences = normalizeImmutableReferences(
+    contract.evm?.deployedBytecode?.immutableReferences,
+  );
+  const expectedIds = Object.values(immutableDeclarations).map(String).sort(compareNumericStrings);
+  const actualIds = Object.keys(immutableReferences).sort(compareNumericStrings);
+  if (!sameStrings(expectedIds, actualIds)) {
+    const unknown = actualIds.filter((id) => !expectedIds.includes(id));
+    const missing = expectedIds.filter((id) => !actualIds.includes(id));
+    throw new Error(
+      `${contractName} immutable reference IDs do not match AST declarations`
+      + ` (unknown: ${unknown.join(',') || 'none'}; missing: ${missing.join(',') || 'none'}).`,
+    );
+  }
+
+  const creationBytecode = `0x${contract.evm.bytecode.object}`;
+  const runtimeBytecode = `0x${contract.evm.deployedBytecode.object}`;
+  const artifact = {
+    contractName,
+    sourceName,
+    abi: contract.abi,
+    creationBytecode,
+    creationBytes: ethers.dataLength(creationBytecode),
+    creationSha256: sha256Hex(creationBytecode),
+    runtimeBytecode,
+    runtimeBytes: ethers.dataLength(runtimeBytecode),
+    runtimeSha256: sha256Hex(runtimeBytecode),
+    runtimePatched: false,
+    immutableDeclarations,
+    immutableReferences,
+  };
+  patchImmutableRuntime({
+    artifact,
+    immutableValues: Object.fromEntries(immutableNames.map((name) => [name, ethers.ZeroAddress])),
+  });
+  return artifact;
+}
+
+function findImmutableDeclarations(ast, contractName, expectedNames) {
+  const contractDefinitions = (ast.nodes ?? []).filter(
+    (node) => node.nodeType === 'ContractDefinition' && node.name === contractName,
+  );
+  if (contractDefinitions.length !== 1) {
+    throw new Error(`AST must contain exactly one ${contractName} declaration.`);
+  }
+  const immutableVariables = (contractDefinitions[0].nodes ?? []).filter(
+    (node) => node.nodeType === 'VariableDeclaration'
+      && node.stateVariable === true
+      && node.mutability === 'immutable',
+  );
+  const expectedSet = new Set(expectedNames);
+  const unknown = immutableVariables.filter((node) => !expectedSet.has(node.name));
+  if (unknown.length) {
+    throw new Error(`${contractName} contains unknown immutable state variables: ${unknown.map((node) => node.name).join(', ')}.`);
+  }
+
+  const declarations = {};
+  for (const name of expectedNames) {
+    const matches = immutableVariables.filter((node) => node.name === name);
+    if (matches.length !== 1) {
+      throw new Error(`${contractName}.${name} must have exactly one immutable state-variable declaration.`);
     }
-    const start = reference.start * 2;
-    const end = start + (reference.length * 2);
-    body = `${body.slice(0, start)}${replacementFor(reference.length)}${body.slice(end)}`;
+    if (!Number.isSafeInteger(matches[0].id) || matches[0].id < 0) {
+      throw new Error(`${contractName}.${name} has an invalid AST declaration ID.`);
+    }
+    declarations[name] = matches[0].id;
   }
-  return `0x${body}`;
+  if (new Set(Object.values(declarations)).size !== expectedNames.length) {
+    throw new Error(`${contractName} immutable declaration IDs must be unique.`);
+  }
+  return declarations;
 }
 
-function validateCompiled(compiled) {
-  if (!compiled || compiled.contractName !== 'LooperAgentAccount') throw new Error('compiled account artifact is required.');
-  if (!ethers.isHexString(compiled.creationBytecode) || compiled.creationBytecode === '0x') {
-    throw new Error('compiled creation bytecode is invalid.');
+function normalizeImmutableReferences(rawReferences) {
+  if (!isPlainObject(rawReferences)) throw new Error('compiler immutable references are missing.');
+  const normalized = {};
+  for (const declarationId of Object.keys(rawReferences).sort(compareNumericStrings)) {
+    const group = rawReferences[declarationId];
+    if (!Array.isArray(group)) throw new Error(`immutable declaration group ${declarationId} is invalid.`);
+    normalized[declarationId] = group
+      .map(({ start, length }) => ({ start, length }))
+      .sort((left, right) => left.start - right.start || left.length - right.length);
   }
-  if (!ethers.isHexString(compiled.runtimeBytecode) || compiled.runtimeBytecode === '0x') {
-    throw new Error('compiled runtime bytecode is invalid.');
+  return normalized;
+}
+
+function deploymentSection({
+  artifact,
+  expectedAddress,
+  constructorArgs,
+  creationData,
+  expectedRuntimeBytecode,
+  from,
+  nonce,
+}) {
+  return {
+    contractName: artifact.contractName,
+    sourceName: artifact.sourceName,
+    artifact,
+    expectedAddress,
+    constructorArgs,
+    creationData,
+    creationBytes: ethers.dataLength(creationData),
+    creationSha256: sha256Hex(creationData),
+    expectedRuntimeBytecode,
+    expectedRuntimeBytes: ethers.dataLength(expectedRuntimeBytecode),
+    expectedRuntimeSha256: sha256Hex(expectedRuntimeBytecode),
+    transaction: {
+      chainId: BASE_CHAIN_ID,
+      from,
+      to: null,
+      nonce: String(nonce),
+      value: '0x0',
+      data: creationData,
+    },
+  };
+}
+
+function validateBundle(compiled) {
+  if (!compiled || compiled.schemaVersion !== '2.0.0'
+    || compiled.kind !== 'looper-permission-release-compile-bundle') {
+    throw new Error('compiled Looper permission release bundle is required.');
+  }
+  if (!compiled.contracts?.registry || !compiled.contracts?.account) {
+    throw new Error('compiled registry and account artifacts are required.');
+  }
+  if (compiled.contracts.registry.contractName !== 'LooperAgentModuleRegistry'
+    || compiled.contracts.account.contractName !== 'LooperAgentAccount') {
+    throw new Error('compiled release contract artifacts are invalid.');
   }
 }
 
@@ -167,6 +436,18 @@ function sha256Text(value) {
 
 function sha256Hex(value) {
   return `0x${createHash('sha256').update(Buffer.from(value.slice(2), 'hex')).digest('hex')}`;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function compareNumericStrings(left, right) {
+  return Number(left) - Number(right);
+}
+
+function sameStrings(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function resolveImport(importPath) {
@@ -190,32 +471,51 @@ function parseArguments(argv) {
     if (!['--deployer', '--owner', '--nonce', '--output'].includes(argument)) {
       throw new Error(`Unknown argument: ${argument}`);
     }
+    if (values.has(argument)) throw new Error(`Duplicate argument: ${argument}`);
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value.`);
     values.set(argument, value);
     index += 1;
   }
   if (!mode) throw new Error('Use --artifact-only or --preview.');
-  return { mode, values };
+
+  if (mode === '--artifact-only') {
+    for (const argument of ['--deployer', '--owner', '--nonce']) {
+      if (values.has(argument)) throw new Error(`${argument} is not valid with --artifact-only.`);
+    }
+    return { mode, values };
+  }
+
+  for (const argument of ['--deployer', '--owner', '--nonce', '--output']) {
+    if (!values.has(argument)) throw new Error(`${argument} is required with --preview.`);
+  }
+  const nonceValue = values.get('--nonce');
+  if (!/^(0|[1-9]\d*)$/.test(nonceValue)) {
+    throw new Error('--nonce must be a canonical decimal integer.');
+  }
+  const nonce = Number(nonceValue);
+  if (!Number.isSafeInteger(nonce) || !Number.isSafeInteger(nonce + 1)) {
+    throw new Error('--nonce must be a safe integer with room for two deployments.');
+  }
+  return { mode, values, nonce };
 }
 
 async function main() {
-  const { mode, values } = parseArguments(process.argv.slice(2));
-  const compiled = await compileLooperAgentAccount();
-  const outputPath = values.get('--output') ?? resolve(CONTRACT_ROOT, 'build/LooperAgentAccount.json');
+  const { mode, values, nonce } = parseArguments(process.argv.slice(2));
+  const compiled = await compileLooperReleaseBundle();
+  const outputPath = values.get('--output')
+    ?? resolve(CONTRACT_ROOT, 'build/LooperAgentPermissionRelease.json');
   if (mode === '--artifact-only') {
     await writeDeploymentPreparation(compiled, outputPath);
     process.stdout.write(`${JSON.stringify(compiled, null, 2)}\n`);
     return;
   }
 
-  const nonceValue = values.get('--nonce');
-  if (!nonceValue || !/^\d+$/.test(nonceValue)) throw new Error('--nonce must be a canonical decimal integer.');
   const preparation = buildDeploymentPreparation({
     compiled,
     deployer: values.get('--deployer'),
     owner: values.get('--owner'),
-    nonce: Number(nonceValue),
+    nonce,
   });
   await writeDeploymentPreparation(preparation, outputPath);
   process.stdout.write(`${JSON.stringify(preparation, null, 2)}\n`);
