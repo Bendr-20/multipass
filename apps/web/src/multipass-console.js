@@ -461,6 +461,14 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
     refreshedAt: wallet.refreshedAt ? String(wallet.refreshedAt) : null,
     activation: wallet.activation ?? { state: 'idle' },
     send: wallet.send ?? { state: 'idle' },
+    policy: wallet.policy ?? { state: 'idle' },
+    policyStatus: String(wallet.policyStatus ?? (wallet.mode === 'active' ? 'owner-only' : 'read-only')),
+    policyModule: wallet.policyModule ? String(wallet.policyModule) : null,
+    policyEpoch: wallet.policyEpoch === null || wallet.policyEpoch === undefined ? null : String(wallet.policyEpoch),
+    policyRecoveryAllowed: Boolean(wallet.policyRecoveryAllowed),
+    canTransact: wallet.canTransact === undefined
+      ? wallet.mode === 'inactive' || wallet.mode === 'active'
+      : Boolean(wallet.canTransact),
     error: wallet.error ? String(wallet.error) : null,
   };
 }
@@ -468,19 +476,24 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
 function renderLooperAgentWallet(wallet) {
   if (!wallet) return '';
   const account = wallet.account ?? wallet.legacyAccount;
-  const modeLabel = wallet.mode === 'active'
-    ? 'Owner controlled'
-    : wallet.mode === 'inactive'
-      ? 'Inactive — activation required'
-      : wallet.mode === 'legacy_read_only'
-        ? 'Legacy account — read-only'
-        : wallet.mode === 'loading'
-          ? 'Loading'
-          : wallet.mode === 'blocked'
-            ? 'Blocked'
-            : 'Read-only';
+  const modeLabel = wallet.mode === 'inactive'
+    ? 'Inactive — activation required'
+    : wallet.mode === 'legacy_read_only'
+      ? 'Legacy account — read-only'
+      : wallet.mode === 'loading'
+        ? 'Loading'
+        : wallet.policyStatus === 'permission-hook-paused'
+          ? 'Permission hook paused'
+          : wallet.policyStatus === 'module-blocked'
+            ? 'Policy blocked'
+            : wallet.policyStatus === 'owner-only' || wallet.policyStatus === 'active-policy'
+              ? 'Owner controlled'
+              : wallet.mode === 'blocked'
+                ? 'Blocked'
+                : 'Read-only';
   const busy = ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.activation?.state)
-    || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.send?.state);
+    || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.send?.state)
+    || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.policy?.state);
   const nativeBalance = `${formatWalletUnits(wallet.nativeWei, 18)} ETH`;
   const assetCount = 1 + (wallet.tokens ?? []).length;
   return `
@@ -514,13 +527,13 @@ function renderLooperAgentWallet(wallet) {
             <span>${escapeHtml(nativeBalance)}</span>
             ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
           </div>
-          ${wallet.mode === 'inactive' ? `
+          ${wallet.mode === 'inactive' && wallet.canTransact ? `
             <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
               <label><input type="checkbox" name="confirmed" required> Confirm owner-paid activation on Base</label>
               <button type="submit" ${busy ? 'disabled' : ''}>Activate wallet</button>
             </form>
           ` : ''}
-          ${wallet.mode === 'active' ? `
+          ${wallet.mode === 'active' && wallet.canTransact ? `
             <form class="console-looper-wallet-send" data-action="send-looper-agent-wallet">
               <label><span>Asset</span><select name="asset"><option value="ETH">ETH</option>${(wallet.tokens ?? []).map((token) => `<option value="${escapeAttribute(token.contract)}">${escapeHtml(token.symbol)}</option>`).join('')}</select></label>
               <label><span>Recipient</span><input name="recipient" inputmode="text" autocomplete="off" required></label>
@@ -529,6 +542,14 @@ function renderLooperAgentWallet(wallet) {
               <button type="submit" ${busy ? 'disabled' : ''}>Send</button>
             </form>
           ` : ''}
+          ${wallet.policyRecoveryAllowed ? `
+            <form class="console-looper-wallet-policy" data-action="set-looper-policy-module">
+              <label><span>Permission module</span><input name="module" inputmode="text" autocomplete="off" placeholder="Leave blank to clear"></label>
+              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact permission module recovery</label>
+              <button type="submit" ${busy ? 'disabled' : ''}>Update permission hook</button>
+            </form>
+          ` : ''}
+          ${wallet.policyStatus === 'active-policy' ? '<small>Reviewed permission module configured. Console does not enable agent execution.</small>' : ''}
         </div>
       </details>
       ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}
@@ -551,6 +572,15 @@ function formatWalletReason(reason) {
   const labels = {
     legacy_implementation: 'The configured legacy account is visible but cannot execute.',
     config_drift: 'Wallet writes are disabled until the reviewed account implementation is configured.',
+    release_unset: 'Policy release evidence is not configured. This wallet is read-only.',
+    implementation_mismatch: 'The selected implementation does not match the reviewed release.',
+    proxy_mismatch: 'The selected account is not the canonical reviewed proxy.',
+    registry_mismatch: 'The module registry does not match the reviewed release.',
+    malformed_policy: 'Permission evidence is incomplete or contradictory. This wallet is read-only.',
+    module_blocked: 'The configured permission module is not currently approved.',
+    ownership_mismatch: 'The configured permission module belongs to a previous owner.',
+    permission_hook_paused: 'Permission hooks are paused. Owner recovery remains available.',
+    policy_drift: 'Policy evidence changed. Preview the recovery again.',
     unsupported_wallet: 'Smart or delegated wallets are read-only in this release.',
     owner_changed: 'Ownership changed. Reconnect as the current Looper owner.',
     wrong_runtime: 'The deployed account runtime does not match the reviewed release.',

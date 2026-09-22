@@ -21,7 +21,14 @@ import {
 import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteFragments, renderPublicRoutesManagerPanel, renderPublicRoutesPanel } from './route-manager.js';
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
-import { CONFIGURED_TOKENS, RELEASED_ACCOUNT_IMPLEMENTATION, RELEASED_ACCOUNT_RUNTIME_SHA256 } from './looper-agent-wallet.js';
+import {
+  CONFIGURED_TOKENS,
+  REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+  REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
+  REVIEWED_POLICY_MODULE_REGISTRY,
+  REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
+  ZERO_ADDRESS,
+} from './looper-agent-wallet.js';
 import { createLooperAgentWalletController, createReadOnlyLooperWalletContext } from './looper-agent-wallet-controller.js';
 import { createLooperWalletRpcClient } from './looper-agent-wallet-rpc.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
@@ -62,9 +69,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
-  const looperWalletRpc = looperWalletController ? null : createLooperWalletRpcClient({ fetchImpl: fetchImpl ?? globalThis.fetch });
+  const activeLooperWalletReleaseConfig = looperWalletReleaseConfig ?? {
+    implementation: REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+    runtimeSha256: REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
+    moduleRegistry: REVIEWED_POLICY_MODULE_REGISTRY,
+    moduleRegistryRuntimeSha256: REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
+  };
+  const looperWalletRpc = looperWalletController ? null : createLooperWalletRpcClient({
+    fetchImpl: fetchImpl ?? globalThis.fetch,
+    releaseConfig: activeLooperWalletReleaseConfig,
+  });
   const activeLooperWalletController = looperWalletController ?? createLooperAgentWalletController({
-    releaseConfig: looperWalletReleaseConfig ?? { implementation: RELEASED_ACCOUNT_IMPLEMENTATION, runtimeSha256: RELEASED_ACCOUNT_RUNTIME_SHA256 },
+    releaseConfig: activeLooperWalletReleaseConfig,
     readSnapshot: looperWalletRpc.readSnapshot,
     readReceipt: looperWalletRpc.readReceipt,
     submitTransaction: async (transaction) => {
@@ -1215,6 +1231,31 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
+  async function setLooperPolicyModule(event) {
+    event?.preventDefault?.();
+    const data = createFormData(event?.currentTarget);
+    if (data.get('confirmed') !== 'on') {
+      state = {
+        ...state,
+        looperAgentWallet: { ...state.looperAgentWallet, error: 'Explicit permission module confirmation is required.' },
+      };
+      render(root, state, handlers);
+      return;
+    }
+    try {
+      const module = String(data.get('module') ?? '').trim() || ZERO_ADDRESS;
+      const prepared = await activeLooperWalletController.preparePolicyModule({ module });
+      const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
+      state = { ...state, looperAgentWallet: { ...walletState, error: null } };
+    } catch (error) {
+      state = {
+        ...state,
+        looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: getSafeConsoleError(error, { phase: 'wallet' }) },
+      };
+    }
+    render(root, state, handlers);
+  }
+
   async function selectConsoleAgent(event) {
     if (state.consoleAgentNameMutation?.status === 'pending') return;
     const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
@@ -1933,7 +1974,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -4277,6 +4318,7 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelector('[data-action="refresh-looper-agent-wallet"]')?.addEventListener('click', () => handlers.refreshLooperAgentWallet?.());
   root.querySelector('[data-action="activate-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.activateLooperAgentWallet?.(event));
   root.querySelector('[data-action="send-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.sendLooperAgentWallet?.(event));
+  root.querySelector('[data-action="set-looper-policy-module"]')?.addEventListener('submit', (event) => handlers.setLooperPolicyModule?.(event));
   root.querySelector('[data-action="connect-looper-mint-wallet"]')?.addEventListener('click', () => handlers.connectLooperMintWallet?.());
   root.querySelector('[data-action="refresh-looper-mint"]')?.addEventListener('click', () => handlers.refreshLooperMint?.());
   root.querySelector('[data-action="mint-loopers"]')?.addEventListener('submit', (event) => handlers.submitLooperMint?.(event));

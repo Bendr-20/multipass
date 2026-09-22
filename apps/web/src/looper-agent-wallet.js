@@ -15,6 +15,12 @@ export const ACCOUNT_SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b218
 export const LEGACY_ACCOUNT_IMPLEMENTATION = getAddress('0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF');
 export const RELEASED_ACCOUNT_IMPLEMENTATION = getAddress('0xc998EFE23D48d5a2B26CEeec5E62158B2E79966C');
 export const RELEASED_ACCOUNT_RUNTIME_SHA256 = '0x2eaf357d9163ada271718f6c46bc1831f008ddb7bbd968f9ab224af9d50560d2';
+// Task 6 replaces these only after the final two-contract artifact is reviewed.
+export const REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION = null;
+export const REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256 = null;
+export const REVIEWED_POLICY_MODULE_REGISTRY = null;
+export const REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256 = null;
+export const ZERO_ADDRESS = getAddress('0x0000000000000000000000000000000000000000');
 export const BASE_EXPLORER = 'https://basescan.org';
 export const CONFIGURED_TOKENS = Object.freeze([
   Object.freeze({
@@ -72,6 +78,31 @@ export const ACCOUNT_EXECUTE_ABI = Object.freeze([
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: 'state', type: 'uint256' }],
+  },
+]);
+
+export const ACCOUNT_POLICY_ABI = Object.freeze([
+  ...['moduleRegistry', 'policyModule', 'policyModuleOwner'].map((name) => ({
+    type: 'function', name, stateMutability: 'view', inputs: [], outputs: [{ name, type: 'address' }],
+  })),
+  {
+    type: 'function', name: 'policyEpoch', stateMutability: 'view', inputs: [],
+    outputs: [{ name: 'policyEpoch', type: 'uint256' }],
+  },
+  {
+    type: 'function', name: 'setPolicyModule', stateMutability: 'nonpayable',
+    inputs: [{ name: 'module', type: 'address' }], outputs: [],
+  },
+]);
+
+export const MODULE_REGISTRY_ABI = Object.freeze([
+  {
+    type: 'function', name: 'globallyPaused', stateMutability: 'view', inputs: [],
+    outputs: [{ name: 'globallyPaused', type: 'bool' }],
+  },
+  {
+    type: 'function', name: 'approvedModuleCodehash', stateMutability: 'view',
+    inputs: [{ name: 'module', type: 'address' }], outputs: [{ name: 'codehash', type: 'bytes32' }],
   },
 ]);
 
@@ -142,15 +173,7 @@ export function normalizeTokenId(value) {
 export function deriveLooperAccount({ implementation, tokenId }) {
   const normalizedImplementation = normalizeAddress(implementation, 'implementation');
   const normalizedTokenId = normalizeTokenId(tokenId);
-  const footer = encodeAbiParameters(
-    [
-      { name: 'salt', type: 'bytes32' },
-      { name: 'chainId', type: 'uint256' },
-      { name: 'tokenContract', type: 'address' },
-      { name: 'tokenId', type: 'uint256' },
-    ],
-    [ACCOUNT_SALT, BigInt(BASE_CHAIN_ID), LOOPERS_COLLECTION, normalizedTokenId],
-  );
+  const footer = buildAccountFooter(normalizedTokenId);
   const creationCode = concatHex([
     CREATION_PREFIX,
     RUNTIME_PREFIX,
@@ -172,6 +195,17 @@ export function deriveLooperAccount({ implementation, tokenId }) {
     salt: createSalt,
     bytecodeHash: keccak256(creationCode),
   });
+}
+
+export function buildLooperAccountRuntimeCode({ implementation, tokenId }) {
+  const normalizedImplementation = normalizeAddress(implementation, 'implementation');
+  const normalizedTokenId = normalizeTokenId(tokenId);
+  return concatHex([
+    RUNTIME_PREFIX,
+    normalizedImplementation,
+    RUNTIME_SUFFIX,
+    buildAccountFooter(normalizedTokenId),
+  ]).toLowerCase();
 }
 
 export function buildActivationTransaction({ owner, implementation, tokenId }) {
@@ -227,8 +261,22 @@ export function buildErc20SendTransaction({ owner, account, token, recipient, am
   });
 }
 
+export function buildPolicyModuleTransaction({ owner, account, module }) {
+  return Object.freeze({
+    chainId: '0x2105',
+    from: normalizeAddress(owner, 'owner'),
+    to: normalizeAddress(account, 'account'),
+    value: '0x0',
+    data: encodeFunctionData({
+      abi: ACCOUNT_POLICY_ABI,
+      functionName: 'setPolicyModule',
+      args: [normalizeAddress(module, 'module')],
+    }),
+  });
+}
+
 export function createOperationScope({ tokenId, account, owner, kind }) {
-  if (!['activation', 'send'].includes(kind)) throw new Error('Unknown operation scope kind.');
+  if (!['activation', 'send', 'policy'].includes(kind)) throw new Error('Unknown operation scope kind.');
   const scope = [
     BASE_CHAIN_ID,
     LOOPERS_COLLECTION.toLowerCase(),
@@ -255,6 +303,18 @@ function buildExecuteTransaction({ owner, account, to, value, data }) {
       args: [to, value, data, 0],
     }),
   });
+}
+
+function buildAccountFooter(tokenId) {
+  return encodeAbiParameters(
+    [
+      { name: 'salt', type: 'bytes32' },
+      { name: 'chainId', type: 'uint256' },
+      { name: 'tokenContract', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
+    ],
+    [ACCOUNT_SALT, BigInt(BASE_CHAIN_ID), LOOPERS_COLLECTION, tokenId],
+  );
 }
 
 function normalizePositiveInteger(value, label) {

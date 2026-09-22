@@ -66,8 +66,11 @@ test('selected Looper renders an active compact operator wallet under its name',
         nativeWei: '1250000000000000000',
         tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
+        policyStatus: 'owner-only',
+        canTransact: true,
         activation: { state: 'idle' },
         send: { state: 'idle' },
+        policy: { state: 'idle' },
       },
     },
   });
@@ -112,6 +115,69 @@ test('inactive and legacy Looper wallets fail closed in the compact panel', () =
   assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /legacy account.*read-only/i);
   assert.equal(root.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
   assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+});
+
+test('Looper permission status and owner-only recovery stay concise and use existing neutral controls', () => {
+  const baseState = {
+    walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+    consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+    consoleSelectedAgentId: '1',
+  };
+  const cases = [
+    ['owner-only', 'Owner controlled'],
+    ['permission-hook-paused', 'Permission hook paused'],
+    ['module-blocked', 'Policy blocked'],
+    ['ownership-mismatch', 'Read-only'],
+  ];
+  for (const [policyStatus, label] of cases) {
+    const snapshot = createMultipassConsoleSnapshot({
+      agents: sampleAgents(),
+      state: {
+        ...baseState,
+        looperAgentWallet: {
+          mode: policyStatus === 'module-blocked' || policyStatus === 'ownership-mismatch' ? 'read_only' : 'active',
+          tokenId: '1',
+          owner: '0x1234567890aBcdef1234567890aBcdef12345678',
+          account: '0x9999999999999999999999999999999999999999',
+          nativeWei: '0',
+          tokens: [],
+          policyStatus,
+          policyModule: policyStatus === 'owner-only' ? '0x0000000000000000000000000000000000000000' : '0x7777777777777777777777777777777777777777',
+          policyEpoch: '4',
+          policyRecoveryAllowed: true,
+          canTransact: policyStatus !== 'module-blocked' && policyStatus !== 'ownership-mismatch',
+          activation: { state: 'idle' },
+          send: { state: 'idle' },
+          policy: { state: 'idle' },
+        },
+      },
+    });
+    const root = render(renderMultipassConsole(snapshot));
+    assert.equal(root.querySelector('.console-looper-wallet-status')?.textContent, label);
+    const form = root.querySelector('[data-action="set-looper-policy-module"]');
+    assert.ok(form);
+    assert.ok(form.querySelector('input[name="module"]'));
+    assert.match(form.textContent, /Confirm this exact permission module recovery/i);
+    assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]') !== null, policyStatus === 'owner-only' || policyStatus === 'permission-hook-paused');
+  }
+
+  const activePolicy = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      ...baseState,
+      looperAgentWallet: {
+        mode: 'active', tokenId: '1', owner: baseState.walletSnapshot.address,
+        account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [],
+        policyStatus: 'active-policy', policyModule: '0x7777777777777777777777777777777777777777',
+        policyEpoch: '5', policyRecoveryAllowed: true, canTransact: true,
+        activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(activePolicy));
+  assert.equal(root.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /reviewed permission module configured/i);
+  assert.doesNotMatch(root.querySelector('.console-looper-wallet')?.textContent ?? '', /agent execution enabled|executeWithPolicy|grant|session key/i);
 });
 
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {

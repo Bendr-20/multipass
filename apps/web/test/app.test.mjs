@@ -2047,6 +2047,69 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
 });
 
+test('dedicated Console wires only explicit owner-confirmed policy module recovery', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletState = {
+    mode: 'read_only', reason: 'module_blocked', policyStatus: 'module-blocked', canTransact: false,
+    policyRecoveryAllowed: true, policyModule: '0x7777777777777777777777777777777777777777', policyEpoch: '4',
+    tokenId: '617', owner, account: '0x9999999999999999999999999999999999999999', legacyAccount: null,
+    nativeWei: '0', tokens: [], refreshedAt: '2026-09-22T09:00:00.000Z',
+    activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  const calls = [];
+  let preparedCounter = 0;
+  const looperWalletController = {
+    getSnapshot: () => ({ mode: 'read_only', reason: 'not_selected', activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } }),
+    async select(selection) { calls.push(['select', selection]); return walletState; },
+    async refresh() { return walletState; },
+    async preparePolicyModule(input) {
+      calls.push(['preparePolicyModule', input]);
+      preparedCounter += 1;
+      return { id: `policy:${preparedCounter}`, requiresExplicitConfirmation: true, transaction: { to: walletState.account, value: '0x0', data: '0xdeadbeef' } };
+    },
+    async submitPrepared(id, options) {
+      calls.push(['submitPrepared', id, options]);
+      return { ...walletState, mode: 'active', reason: null, policyStatus: 'owner-only', canTransact: true, policyModule: '0x0000000000000000000000000000000000000000' };
+    },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+
+  let form = root.querySelector('[data-action="set-looper-policy-module"]');
+  form.querySelector('[name="module"]').value = '';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.equal(calls.some(([name]) => name === 'preparePolicyModule'), false);
+  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /explicit permission module confirmation/i);
+
+  form = root.querySelector('[data-action="set-looper-policy-module"]');
+  form.querySelector('[name="module"]').value = '';
+  form.querySelector('[name="confirmed"]').checked = true;
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls.find(([name]) => name === 'preparePolicyModule'), ['preparePolicyModule', { module: '0x0000000000000000000000000000000000000000' }]);
+  assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'policy:1', { confirmed: true }]);
+  assert.equal(root.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
+
+  form = root.querySelector('[data-action="set-looper-policy-module"]');
+  form.querySelector('[name="module"]').value = '0x8888888888888888888888888888888888888888';
+  form.querySelector('[name="confirmed"]').checked = true;
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls.filter(([name]) => name === 'preparePolicyModule').at(-1), [
+    'preparePolicyModule',
+    { module: '0x8888888888888888888888888888888888888888' },
+  ]);
+  assert.deepEqual(calls.filter(([name]) => name === 'submitPrepared').at(-1), ['submitPrepared', 'policy:2', { confirmed: true }]);
+});
+
 test('dedicated Console route hydrates the canonical XMTP thread returned by activation', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const walletClient = createWalletClientFixture({

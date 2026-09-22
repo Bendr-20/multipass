@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { decodeFunctionData, getAddress } from 'viem';
+import { decodeFunctionData, getAddress, sha256 } from 'viem';
 
 import {
   ACCOUNT_EXECUTE_ABI,
+  ACCOUNT_POLICY_ABI,
   ACCOUNT_SALT,
   BASE_CHAIN_ID,
   ERC20_ABI,
@@ -15,9 +16,16 @@ import {
   LOOPERS_ABI,
   LOOPERS_COLLECTION,
   REGISTRY_ABI,
+  MODULE_REGISTRY_ABI,
+  REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+  REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
+  REVIEWED_POLICY_MODULE_REGISTRY,
+  REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
   buildActivationTransaction,
   buildErc20SendTransaction,
   buildEthSendTransaction,
+  buildLooperAccountRuntimeCode,
+  buildPolicyModuleTransaction,
   createOperationScope,
   deriveLooperAccount,
   normalizeTokenId,
@@ -110,4 +118,54 @@ test('wallet constants preserve current legacy account as read-only evidence onl
   assert.equal(RELEASED_ACCOUNT_IMPLEMENTATION, '0xc998EFE23D48d5a2B26CEeec5E62158B2E79966C');
   assert.equal(RELEASED_ACCOUNT_RUNTIME_SHA256, '0x2eaf357d9163ada271718f6c46bc1831f008ddb7bbd968f9ab224af9d50560d2');
   assert.ok(LOOPERS_ABI.some((entry) => entry.name === 'setERC6551Config'));
+});
+
+test('policy ABIs expose only exact account recovery and registry reads', () => {
+  assert.deepEqual(ACCOUNT_POLICY_ABI.map((entry) => entry.name), [
+    'moduleRegistry',
+    'policyModule',
+    'policyModuleOwner',
+    'policyEpoch',
+    'setPolicyModule',
+  ]);
+  assert.deepEqual(MODULE_REGISTRY_ABI.map((entry) => entry.name), [
+    'globallyPaused',
+    'approvedModuleCodehash',
+  ]);
+  assert.equal(ACCOUNT_POLICY_ABI.find((entry) => entry.name === 'setPolicyModule')?.inputs?.[0]?.type, 'address');
+  assert.equal(MODULE_REGISTRY_ABI.find((entry) => entry.name === 'approvedModuleCodehash')?.outputs?.[0]?.type, 'bytes32');
+  assert.equal(REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION, null);
+  assert.equal(REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256, null);
+  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY, null);
+  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256, null);
+  assert.doesNotMatch(JSON.stringify({ ACCOUNT_POLICY_ABI, MODULE_REGISTRY_ABI }), /executeWithPolicy|grant|session/i);
+});
+
+test('policy recovery transaction is exact setPolicyModule calldata to the canonical account', () => {
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: '617' });
+  const clear = buildPolicyModuleTransaction({ owner: OWNER, account, module: '0x0000000000000000000000000000000000000000' });
+  assert.deepEqual(clear, {
+    chainId: '0x2105',
+    from: getAddress(OWNER),
+    to: account,
+    value: '0x0',
+    data: clear.data,
+  });
+  let decoded = decodeFunctionData({ abi: ACCOUNT_POLICY_ABI, data: clear.data });
+  assert.equal(decoded.functionName, 'setPolicyModule');
+  assert.deepEqual(decoded.args, ['0x0000000000000000000000000000000000000000']);
+
+  const change = buildPolicyModuleTransaction({ owner: OWNER, account, module: TOKEN });
+  decoded = decodeFunctionData({ abi: ACCOUNT_POLICY_ABI, data: change.data });
+  assert.deepEqual(decoded.args, [getAddress(TOKEN)]);
+});
+
+test('canonical account proxy runtime remains distinct from implementation runtime evidence', () => {
+  const runtime = buildLooperAccountRuntimeCode({ implementation: IMPLEMENTATION, tokenId: '617' });
+  assert.equal((runtime.length - 2) / 2, 173);
+  assert.match(runtime, /^0x363d3d373d3d3d363d73/i);
+  assert.match(runtime, new RegExp(IMPLEMENTATION.slice(2), 'i'));
+  assert.match(runtime, new RegExp(ACCOUNT_SALT.slice(2), 'i'));
+  assert.match(sha256(runtime), /^0x[0-9a-f]{64}$/);
+  assert.notEqual(sha256(runtime), RELEASED_ACCOUNT_RUNTIME_SHA256);
 });

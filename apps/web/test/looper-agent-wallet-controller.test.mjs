@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { keccak256, sha256 } from 'viem';
 
 import {
   ACCOUNT_SALT,
   ERC6551_REGISTRY,
   LEGACY_ACCOUNT_IMPLEMENTATION,
+  buildLooperAccountRuntimeCode,
+  buildPolicyModuleTransaction,
   buildEthSendTransaction,
   deriveLooperAccount,
 } from '../src/looper-agent-wallet.js';
@@ -17,7 +20,17 @@ const IMPLEMENTATION = '0x1111111111111111111111111111111111111111';
 const OWNER = '0x2222222222222222222222222222222222222222';
 const NEXT_OWNER = '0x3333333333333333333333333333333333333333';
 const RECIPIENT = '0x4444444444444444444444444444444444444444';
-const RUNTIME_HASH = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const IMPLEMENTATION_CODE = '0x6001';
+const RUNTIME_HASH = sha256(IMPLEMENTATION_CODE);
+const MODULE_REGISTRY = '0x6666666666666666666666666666666666666666';
+const REGISTRY_CODE = '0x6002';
+const REGISTRY_HASH = sha256(REGISTRY_CODE);
+const POLICY_MODULE = '0x7777777777777777777777777777777777777777';
+const MODULE_CODE = '0x6003';
+const MODULE_SHA256 = sha256(MODULE_CODE);
+const MODULE_CODEHASH = keccak256(MODULE_CODE);
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const ZERO_HASH = `0x${'00'.repeat(32)}`;
 const TOKEN_ID = '617';
 
 function memoryStorage() {
@@ -62,6 +75,22 @@ function snapshot(overrides = {}) {
     operatorCode: '0x',
     accountCode: '0x',
     accountRuntimeSha256: null,
+    implementationCode: IMPLEMENTATION_CODE,
+    implementationRuntimeSha256: RUNTIME_HASH,
+    moduleRegistry: MODULE_REGISTRY,
+    moduleRegistryCode: REGISTRY_CODE,
+    moduleRegistryRuntimeSha256: REGISTRY_HASH,
+    registryPaused: false,
+    policyModule: ZERO_ADDRESS,
+    policyModuleOwner: ZERO_ADDRESS,
+    policyEpoch: '0',
+    policyModuleCode: '0x',
+    policyModuleRuntimeSha256: null,
+    policyModuleCodehash: null,
+    approvedModuleCodehash: ZERO_HASH,
+    policyModuleApproved: false,
+    policyModuleCodehashMatches: false,
+    policyEvidenceRead: true,
     state: '0',
     nativeWei: '1000',
     tokens: [{ contract: '0x5555555555555555555555555555555555555555', symbol: 'CRED', decimals: 18, balanceBaseUnits: '25' }],
@@ -70,12 +99,23 @@ function snapshot(overrides = {}) {
   };
 }
 
+function deployedSnapshot(overrides = {}) {
+  const implementation = overrides.implementation ?? IMPLEMENTATION;
+  const accountCode = buildLooperAccountRuntimeCode({ implementation, tokenId: TOKEN_ID });
+  return snapshot({ accountCode, accountRuntimeSha256: sha256(accountCode), accountCodeMatches: true, ...overrides });
+}
+
 function controllerFixture({ snapshots = [], submit, receipt, storage = memoryStorage(), locks = immediateLocks() } = {}) {
   const phases = [];
   let index = 0;
   const fallback = snapshots.at(-1) ?? snapshot();
   const controller = createLooperAgentWalletController({
-    releaseConfig: { implementation: IMPLEMENTATION, runtimeSha256: RUNTIME_HASH },
+    releaseConfig: {
+      implementation: IMPLEMENTATION,
+      runtimeSha256: RUNTIME_HASH,
+      moduleRegistry: MODULE_REGISTRY,
+      moduleRegistryRuntimeSha256: REGISTRY_HASH,
+    },
     storage,
     locks,
     async readSnapshot(request) {
@@ -94,7 +134,7 @@ function controllerFixture({ snapshots = [], submit, receipt, storage = memorySt
 }
 
 test('inactive activation passes EOA gates at readiness, pre-sign and receipt before attribution', async () => {
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH });
+  const active = deployedSnapshot();
   const f = controllerFixture({
     snapshots: [snapshot(), snapshot(), snapshot(), active],
     receipt: async ({ transaction }) => ({
@@ -134,8 +174,8 @@ test('EOA gate rejects contract or delegated operator at readiness and again bef
 });
 
 test('active ETH send requires exact direct receipt attribution and state increment', async () => {
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH, state: '7' });
-  const post = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH, state: '8', nativeWei: '900' });
+  const active = deployedSnapshot({ state: '7' });
+  const post = deployedSnapshot({ state: '8', nativeWei: '900' });
   const f = controllerFixture({
     snapshots: [active, active, active, post],
     receipt: async ({ transaction }) => ({
@@ -159,7 +199,7 @@ test('active ETH send requires exact direct receipt attribution and state increm
 });
 
 test('receipt mismatch fails closed instead of inferring success from balances', async () => {
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH, state: '2' });
+  const active = deployedSnapshot({ state: '2' });
   const f = controllerFixture({
     snapshots: [active, active, active, { ...active, state: '3', nativeWei: '1' }],
     receipt: async ({ transaction }) => ({
@@ -176,7 +216,7 @@ test('receipt mismatch fails closed instead of inferring success from balances',
 
 test('attempt state reloads by owner scope and a second tab cannot resubmit terminal work', async () => {
   const storage = memoryStorage();
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH, state: '0' });
+  const active = deployedSnapshot({ state: '0' });
   const post = { ...active, state: '1' };
   const first = controllerFixture({
     snapshots: [active, active, active, post],
@@ -198,7 +238,7 @@ test('attempt state reloads by owner scope and a second tab cannot resubmit term
 });
 
 test('ownership transfer and config drift clear write capability while retaining read-only evidence', async () => {
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH });
+  const active = deployedSnapshot();
   const f = controllerFixture({ snapshots: [active, { ...active, owner: NEXT_OWNER }] });
   await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   const moved = await f.controller.refresh();
@@ -209,14 +249,15 @@ test('ownership transfer and config drift clear write capability while retaining
   const drift = controllerFixture({ snapshots: [snapshot({ implementation: '0x6666666666666666666666666666666666666666' })] });
   const drifted = await drift.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(drifted.mode, 'read_only');
-  assert.equal(drifted.reason, 'config_drift');
+  assert.equal(drifted.reason, 'implementation_mismatch');
+
+  const configDrift = controllerFixture({ snapshots: [snapshot({ registry: ZERO_ADDRESS })] });
+  assert.equal((await configDrift.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).reason, 'config_drift');
 });
 
 test('legacy configured account is surfaced read-only and never offered activation', async () => {
-  const legacy = snapshot({
+  const legacy = deployedSnapshot({
     implementation: LEGACY_ACCOUNT_IMPLEMENTATION,
-    accountCode: '0x1234',
-    accountRuntimeSha256: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
   });
   const f = controllerFixture({ snapshots: [legacy] });
   const result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
@@ -226,7 +267,7 @@ test('legacy configured account is surfaced read-only and never offered activati
 });
 
 test('read-only agent context is owner scoped and excludes attempts, calldata and capabilities', async () => {
-  const active = snapshot({ accountCode: '0x1234', accountRuntimeSha256: RUNTIME_HASH });
+  const active = deployedSnapshot();
   const f = controllerFixture({ snapshots: [active] });
   const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   const context = createReadOnlyLooperWalletContext(selected);
@@ -238,4 +279,198 @@ test('read-only agent context is owner scoped and excludes attempts, calldata an
   assert.equal(JSON.stringify(context).includes('transaction'), false);
   assert.equal(JSON.stringify(context).includes('prepared'), false);
   assert.equal(Object.isFrozen(context), true);
+});
+
+test('policy status is fail-closed across owner-only, paused, blocked, ownership mismatch and active policy', async () => {
+  const base = deployedSnapshot();
+  let f = controllerFixture({ snapshots: [base] });
+  let result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.policyStatus, 'owner-only');
+  assert.equal(result.canTransact, true);
+
+  const configured = {
+    ...base,
+    policyModule: POLICY_MODULE,
+    policyModuleOwner: OWNER,
+    policyEpoch: '3',
+    policyModuleCode: MODULE_CODE,
+    policyModuleRuntimeSha256: MODULE_SHA256,
+    policyModuleCodehash: MODULE_CODEHASH,
+    approvedModuleCodehash: MODULE_CODEHASH,
+    policyModuleApproved: true,
+    policyModuleCodehashMatches: true,
+  };
+  f = controllerFixture({ snapshots: [snapshot({ ...configured, registryPaused: true })] });
+  result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.policyStatus, 'permission-hook-paused');
+  assert.equal(result.canTransact, true);
+
+  f = controllerFixture({ snapshots: [snapshot({
+    ...configured,
+    approvedModuleCodehash: ZERO_HASH,
+    policyModuleApproved: false,
+    policyModuleCodehashMatches: false,
+  })] });
+  result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.policyStatus, 'module-blocked');
+  assert.equal(result.mode, 'read_only');
+  assert.equal(result.canTransact, false);
+  assert.equal(result.policyRecoveryAllowed, true);
+
+  f = controllerFixture({ snapshots: [snapshot({ ...configured, policyModuleOwner: NEXT_OWNER })] });
+  result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.policyStatus, 'ownership-mismatch');
+  assert.equal(result.canTransact, false);
+
+  f = controllerFixture({ snapshots: [snapshot(configured)] });
+  result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.policyStatus, 'active-policy');
+  assert.equal(result.canTransact, true);
+  assert.equal(result.implementationRuntimeSha256, RUNTIME_HASH);
+  assert.equal(result.accountRuntimeSha256, sha256(base.accountCode));
+  assert.equal(result.moduleRegistryRuntimeSha256, REGISTRY_HASH);
+  assert.equal(result.policyModuleRuntimeSha256, MODULE_SHA256);
+  assert.equal(result.policyModuleCodehash, MODULE_CODEHASH);
+  assert.equal(result.approvedModuleCodehash, MODULE_CODEHASH);
+  assert.equal(result.policyModuleApproved, true);
+  assert.equal(result.policyModuleOwnerMatches, true);
+});
+
+test('malformed or contradictory runtime and policy evidence never enables owner writes', async () => {
+  const active = deployedSnapshot();
+  const cases = [
+    { ...active, implementationRuntimeSha256: REGISTRY_HASH },
+    { ...active, accountRuntimeSha256: RUNTIME_HASH },
+    { ...active, moduleRegistryRuntimeSha256: RUNTIME_HASH },
+    { ...active, policyModuleOwner: OWNER },
+    {
+      ...active,
+      policyModule: POLICY_MODULE,
+      policyModuleOwner: OWNER,
+      policyEpoch: '01',
+      policyModuleCode: MODULE_CODE,
+      policyModuleRuntimeSha256: MODULE_SHA256,
+      policyModuleCodehash: MODULE_CODEHASH,
+      approvedModuleCodehash: MODULE_CODEHASH,
+      policyModuleApproved: true,
+      policyModuleCodehashMatches: true,
+    },
+    {
+      ...active,
+      policyModule: POLICY_MODULE,
+      policyModuleOwner: OWNER,
+      policyEpoch: '1',
+      policyModuleCode: MODULE_CODE,
+      policyModuleRuntimeSha256: MODULE_SHA256,
+      policyModuleCodehash: MODULE_CODEHASH,
+      approvedModuleCodehash: ZERO_HASH,
+      policyModuleApproved: true,
+      policyModuleCodehashMatches: true,
+    },
+  ];
+  for (const evidence of cases) {
+    const f = controllerFixture({ snapshots: [evidence] });
+    const result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    assert.equal(result.canTransact, false);
+    assert.notEqual(result.mode, 'active');
+  }
+});
+
+test('unknown policy release constants block trust without substituting proxy runtime hash', async () => {
+  const evidence = deployedSnapshot();
+  const controller = createLooperAgentWalletController({
+    releaseConfig: { implementation: IMPLEMENTATION, runtimeSha256: null, moduleRegistry: null, moduleRegistryRuntimeSha256: null },
+    readSnapshot: async () => evidence,
+    submitTransaction: async () => { throw new Error('must not submit'); },
+    readReceipt: async () => { throw new Error('must not read receipt'); },
+  });
+  const result = await controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(result.mode, 'read_only');
+  assert.equal(result.reason, 'release_unset');
+  assert.equal(result.canTransact, false);
+});
+
+test('policy recovery previews exact clear and permits clear while paused, removed or mismatched', async () => {
+  const unhealthy = deployedSnapshot({
+    policyModule: POLICY_MODULE,
+    policyModuleOwner: OWNER,
+    policyEpoch: '4',
+    registryPaused: true,
+    policyModuleCode: '0x',
+    policyModuleRuntimeSha256: null,
+    approvedModuleCodehash: ZERO_HASH,
+    policyModuleApproved: false,
+    policyModuleCodehashMatches: false,
+  });
+  const post = deployedSnapshot({ policyEpoch: '5' });
+  const f = controllerFixture({
+    snapshots: [unhealthy, unhealthy, unhealthy, post],
+    receipt: async ({ transaction }) => ({ status: 'success', transaction, logs: [] }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.preparePolicyModule({ module: ZERO_ADDRESS });
+  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: unhealthy.collectionAccount, module: ZERO_ADDRESS }));
+  assert.equal(prepared.requiresExplicitConfirmation, true);
+  await assert.rejects(f.controller.submitPrepared(prepared.id), /confirmation/i);
+  const result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.equal(result.policyStatus, 'owner-only');
+  assert.deepEqual(f.phases, ['readiness', 'policy_preview', 'pre_sign', 'receipt']);
+});
+
+test('nonzero policy change requires exact fresh module approval and rejects policy drift before submit', async () => {
+  const healthyTarget = deployedSnapshot({
+    candidatePolicyModule: POLICY_MODULE,
+    candidatePolicyModuleCode: MODULE_CODE,
+    candidatePolicyModuleRuntimeSha256: MODULE_SHA256,
+    candidatePolicyModuleCodehash: MODULE_CODEHASH,
+    candidateApprovedModuleCodehash: MODULE_CODEHASH,
+    candidatePolicyModuleApproved: true,
+    candidatePolicyModuleCodehashMatches: true,
+  });
+  let f = controllerFixture({ snapshots: [deployedSnapshot(), healthyTarget] });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.preparePolicyModule({ module: POLICY_MODULE });
+  assert.deepEqual(prepared.transaction, buildPolicyModuleTransaction({ owner: OWNER, account: healthyTarget.collectionAccount, module: POLICY_MODULE }));
+
+  let submissions = 0;
+  f = controllerFixture({
+    snapshots: [deployedSnapshot(), healthyTarget, healthyTarget],
+    submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const tampered = await f.controller.preparePolicyModule({ module: POLICY_MODULE });
+  const [policyKey, storedValue] = [...f.storage.values.entries()].find(([key]) => key.includes('.policy.'));
+  const stored = JSON.parse(storedValue);
+  f.storage.values.set(policyKey, JSON.stringify({ ...stored, transaction: { ...stored.transaction, data: '0x' } }));
+  await assert.rejects(f.controller.submitPrepared(tampered.id, { confirmed: true }), /not exact/i);
+  assert.equal(submissions, 0);
+
+  f = controllerFixture({
+    snapshots: [deployedSnapshot(), healthyTarget, { ...healthyTarget, policyEpoch: '1' }],
+    submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const drifted = await f.controller.preparePolicyModule({ module: POLICY_MODULE });
+  await assert.rejects(f.controller.submitPrepared(drifted.id, { confirmed: true }), /drift/i);
+  assert.equal(submissions, 0);
+  assert.equal(f.controller.getSnapshot().policyStatus, 'read-only');
+  assert.equal(f.controller.getSnapshot().canTransact, false);
+
+  f = controllerFixture({
+    snapshots: [deployedSnapshot(), healthyTarget, {
+      ...healthyTarget,
+      candidateApprovedModuleCodehash: ZERO_HASH,
+      candidatePolicyModuleApproved: false,
+      candidatePolicyModuleCodehashMatches: false,
+    }],
+    submit: async () => { submissions += 1; return `0x${'cc'.repeat(32)}`; },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const approvalDrift = await f.controller.preparePolicyModule({ module: POLICY_MODULE });
+  await assert.rejects(f.controller.submitPrepared(approvalDrift.id, { confirmed: true }), /approved|drift/i);
+  assert.equal(submissions, 0);
+
+  const blocked = controllerFixture({ snapshots: [deployedSnapshot(), { ...healthyTarget, registryPaused: true }] });
+  await blocked.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await assert.rejects(blocked.controller.preparePolicyModule({ module: POLICY_MODULE }), /paused|approved|module/i);
 });

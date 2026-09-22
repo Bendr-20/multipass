@@ -2,12 +2,15 @@ import {
   decodeEventLog,
   decodeFunctionResult,
   encodeFunctionData,
+  encodeFunctionResult,
   getAddress,
+  keccak256,
   sha256,
 } from 'viem';
 
 import {
   ACCOUNT_EXECUTE_ABI,
+  ACCOUNT_POLICY_ABI,
   ACCOUNT_SALT,
   BASE_CHAIN_ID,
   CONFIGURED_TOKENS,
@@ -15,7 +18,10 @@ import {
   ERC6551_REGISTRY,
   LOOPERS_ABI,
   LOOPERS_COLLECTION,
+  MODULE_REGISTRY_ABI,
   REGISTRY_ABI,
+  ZERO_ADDRESS,
+  buildLooperAccountRuntimeCode,
 } from './looper-agent-wallet.js';
 
 export const BASE_RPC_ORIGINS = Object.freeze([
@@ -40,14 +46,17 @@ const STATE_UPDATED_ABI = [{
   name: 'StateUpdated',
   inputs: [{ name: 'state', type: 'uint256', indexed: true }],
 }];
+const ZERO_HASH = `0x${'00'.repeat(32)}`;
 
 export function createLooperWalletRpcClient({
   fetchImpl,
   request,
+  releaseConfig,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 } = {}) {
   const activeRequest = request ?? createFixedRequester(fetchImpl ?? globalThis.fetch);
-  async function readSnapshot({ selection, phase, receipt } = {}) {
+  const reviewedRelease = normalizeReleaseConfig(releaseConfig);
+  async function readSnapshot({ selection, phase, receipt, policyModule } = {}) {
     const tokenId = BigInt(String(selection?.tokenId ?? ''));
     const expectedOwner = getAddress(selection?.owner);
     const anchor = phase === 'receipt'
@@ -60,6 +69,8 @@ export function createLooperWalletRpcClient({
       tokenId,
       expectedOwner,
       phase,
+      candidatePolicyModule: policyModule ? getAddress(policyModule) : null,
+      reviewedRelease,
     })));
     requireAgreement(snapshots, 'Base wallet snapshots disagree.');
     return { ...snapshots[0], refreshedAt: new Date().toISOString() };
@@ -124,7 +135,7 @@ async function canonicalAnchor(request) {
   return { tag, number: number.toString(), hash: blocks[0].hash };
 }
 
-async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOwner }) {
+async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOwner, candidatePolicyModule, reviewedRelease }) {
   const call = (address, abi, functionName, args = []) => callContract({
     request,
     origin,
@@ -142,28 +153,110 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'tokenBoundAccount', [tokenId]),
     request({ origin, method: 'eth_getCode', params: [expectedOwner, anchor.tag] }),
   ]);
+  const normalizedImplementation = getAddress(implementation);
+  const rawImplementationCode = await request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.tag] });
+  const implementationCode = canonicalCode(rawImplementationCode, 'implementation runtime');
+  const implementationRuntimeSha256 = sha256(implementationCode);
   const registryAccount = await call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
-    implementation,
+    normalizedImplementation,
     ACCOUNT_SALT,
     BigInt(BASE_CHAIN_ID),
     LOOPERS_COLLECTION,
     tokenId,
   ]);
-  const [accountCode, nativeBalance] = await Promise.all([
-    request({ origin, method: 'eth_getCode', params: [collectionAccount, anchor.tag] }),
-    request({ origin, method: 'eth_getBalance', params: [collectionAccount, anchor.tag] }),
+  const normalizedAccount = getAddress(collectionAccount);
+  const [rawAccountCode, nativeBalance] = await Promise.all([
+    request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.tag] }),
+    request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.tag] }),
   ]);
+  const accountCode = canonicalCode(rawAccountCode, 'account runtime', { allowEmpty: true });
+  const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation: normalizedImplementation, tokenId });
+  const accountRuntimeSha256 = accountCode === '0x' ? null : sha256(accountCode);
+  const accountCodeMatches = accountCode === '0x' ? null : accountCode === expectedAccountCode;
+
   let state = 0n;
-  if (accountCode !== '0x') {
-    try {
-      state = await call(collectionAccount, ACCOUNT_EXECUTE_ABI, 'state');
-    } catch {
-      state = 0n;
+  let moduleRegistry = null;
+  let policyModule = null;
+  let policyModuleOwner = null;
+  let policyEpoch = null;
+  let moduleRegistryCode = null;
+  let moduleRegistryRuntimeSha256 = null;
+  let registryPaused = null;
+  let policyModuleCode = null;
+  let policyModuleRuntimeSha256 = null;
+  let policyModuleCodehash = null;
+  let approvedModuleCodehash = null;
+  let policyModuleApproved = null;
+  let policyModuleCodehashMatches = null;
+  let candidateModule = candidatePolicyModule;
+  let candidateModuleCode = null;
+  let candidatePolicyModuleRuntimeSha256 = null;
+  let candidatePolicyModuleCodehash = null;
+  let candidateApprovedCodehash = null;
+  let candidatePolicyModuleApproved = null;
+  let candidatePolicyModuleCodehashMatches = null;
+  let policyEvidenceRead = false;
+
+  const implementationTrusted = reviewedRelease.complete
+    && sameAddress(normalizedImplementation, reviewedRelease.implementation)
+    && implementationRuntimeSha256 === reviewedRelease.runtimeSha256;
+  if (accountCode !== '0x' && accountCodeMatches && implementationTrusted) {
+    [state, moduleRegistry, policyModule, policyModuleOwner, policyEpoch] = await Promise.all([
+      call(normalizedAccount, ACCOUNT_EXECUTE_ABI, 'state'),
+      call(normalizedAccount, ACCOUNT_POLICY_ABI, 'moduleRegistry'),
+      call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyModule'),
+      call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyModuleOwner'),
+      call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyEpoch'),
+    ]);
+    moduleRegistry = getAddress(moduleRegistry);
+    policyModule = getAddress(policyModule);
+    policyModuleOwner = getAddress(policyModuleOwner);
+    candidateModule ??= policyModule;
+    const rawRegistryCode = await request({ origin, method: 'eth_getCode', params: [moduleRegistry, anchor.tag] });
+    moduleRegistryCode = canonicalCode(rawRegistryCode, 'module registry runtime', { allowEmpty: true });
+    moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
+    const registryTrusted = sameAddress(moduleRegistry, reviewedRelease.moduleRegistry)
+      && moduleRegistryRuntimeSha256 === reviewedRelease.moduleRegistryRuntimeSha256;
+    if (registryTrusted) {
+      registryPaused = await call(moduleRegistry, MODULE_REGISTRY_ABI, 'globallyPaused');
+      if (typeof registryPaused !== 'boolean') throw new Error('Base registry pause evidence is malformed.');
+      const modules = [...new Set([policyModule, candidateModule].filter(Boolean).map((value) => getAddress(value)))];
+      const moduleEvidence = new Map();
+      for (const module of modules) {
+        if (sameAddress(module, ZERO_ADDRESS)) {
+          moduleEvidence.set(module.toLowerCase(), moduleProof('0x', ZERO_HASH));
+          continue;
+        }
+        const [rawCode, approved] = await Promise.all([
+          request({ origin, method: 'eth_getCode', params: [module, anchor.tag] }),
+          call(moduleRegistry, MODULE_REGISTRY_ABI, 'approvedModuleCodehash', [module]),
+        ]);
+        moduleEvidence.set(module.toLowerCase(), moduleProof(
+          canonicalCode(rawCode, 'policy module runtime', { allowEmpty: true }),
+          canonicalHash(approved, 'approved module codehash'),
+        ));
+      }
+      const selected = moduleEvidence.get(policyModule.toLowerCase());
+      policyModuleCode = selected.code;
+      policyModuleRuntimeSha256 = selected.runtimeSha256;
+      policyModuleCodehash = selected.codehash;
+      approvedModuleCodehash = selected.approvedCodehash;
+      policyModuleApproved = selected.approved;
+      policyModuleCodehashMatches = selected.matches;
+      const candidate = moduleEvidence.get(getAddress(candidateModule).toLowerCase());
+      candidateModuleCode = candidate.code;
+      candidatePolicyModuleRuntimeSha256 = candidate.runtimeSha256;
+      candidatePolicyModuleCodehash = candidate.codehash;
+      candidateApprovedCodehash = candidate.approvedCodehash;
+      candidatePolicyModuleApproved = candidate.approved;
+      candidatePolicyModuleCodehashMatches = candidate.matches;
+      policyEvidenceRead = true;
     }
   }
+
   const tokens = [];
   for (const token of CONFIGURED_TOKENS) {
-    const balance = await call(token.address, ERC20_ABI, 'balanceOf', [collectionAccount]);
+    const balance = await call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount]);
     tokens.push({ ...token, balanceBaseUnits: BigInt(balance).toString() });
   }
   return {
@@ -172,16 +265,68 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     blockHash: anchor.hash,
     owner: getAddress(owner),
     registry: getAddress(registry),
-    implementation: getAddress(implementation),
+    implementation: normalizedImplementation,
+    implementationCode,
+    implementationRuntimeSha256,
     salt,
-    collectionAccount: getAddress(collectionAccount),
+    collectionAccount: normalizedAccount,
     registryAccount: getAddress(registryAccount),
-    operatorCode: String(operatorCode).toLowerCase(),
-    accountCode: String(accountCode).toLowerCase(),
-    accountRuntimeSha256: accountCode === '0x' ? null : sha256(accountCode),
+    operatorCode: canonicalCode(operatorCode, 'operator runtime', { allowEmpty: true }),
+    accountCode,
+    accountRuntimeSha256,
+    accountCodeMatches,
     state: BigInt(state).toString(),
     nativeWei: BigInt(nativeBalance).toString(),
     tokens,
+    moduleRegistry,
+    moduleRegistryCode,
+    moduleRegistryRuntimeSha256,
+    registryPaused,
+    policyModule,
+    policyModuleOwner,
+    policyEpoch: policyEpoch === null ? null : BigInt(policyEpoch).toString(),
+    policyModuleCode,
+    policyModuleRuntimeSha256,
+    policyModuleCodehash,
+    approvedModuleCodehash,
+    policyModuleApproved,
+    policyModuleCodehashMatches,
+    candidatePolicyModule: candidateModule ? getAddress(candidateModule) : null,
+    candidatePolicyModuleCode: candidateModuleCode,
+    candidatePolicyModuleRuntimeSha256,
+    candidatePolicyModuleCodehash,
+    candidateApprovedModuleCodehash: candidateApprovedCodehash,
+    candidatePolicyModuleApproved,
+    candidatePolicyModuleCodehashMatches,
+    policyEvidenceRead,
+  };
+}
+
+function canonicalCode(value, label, { allowEmpty = false } = {}) {
+  const code = String(value ?? '').toLowerCase();
+  if (!/^0x(?:[0-9a-f]{2})*$/.test(code) || (!allowEmpty && code === '0x')) {
+    throw new Error(`Base ${label} is missing or malformed.`);
+  }
+  return code;
+}
+
+function canonicalHash(value, label) {
+  const hash = String(value ?? '').toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error(`Base ${label} is malformed.`);
+  return hash;
+}
+
+function moduleProof(code, approvedCodehash) {
+  const runtimeSha256 = code === '0x' ? null : sha256(code);
+  const codehash = code === '0x' ? null : keccak256(code);
+  const approved = approvedCodehash !== ZERO_HASH;
+  return {
+    code,
+    runtimeSha256,
+    codehash,
+    approvedCodehash,
+    approved,
+    matches: approved && codehash !== null && approvedCodehash === codehash,
   };
 }
 
@@ -192,7 +337,12 @@ async function callContract({ request, origin, tag, address, abi, functionName, 
     method: 'eth_call',
     params: [{ to: address, data }, tag],
   });
-  return decodeFunctionResult({ abi, functionName, data: result });
+  const raw = String(result ?? '').toLowerCase();
+  if (!/^0x(?:[0-9a-f]{2})+$/.test(raw)) throw new Error(`Base ${functionName} result is malformed.`);
+  const decoded = decodeFunctionResult({ abi, functionName, data: raw });
+  const canonical = encodeFunctionResult({ abi, functionName, result: decoded }).toLowerCase();
+  if (raw !== canonical) throw new Error(`Base ${functionName} result is not canonical.`);
+  return decoded;
 }
 
 function normalizeReceipt(receipt, transaction) {
@@ -242,6 +392,39 @@ function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (!value || typeof value !== 'object') return JSON.stringify(value);
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+}
+
+function normalizeReleaseConfig(releaseConfig = {}) {
+  const implementation = safeAddress(releaseConfig.implementation);
+  const runtimeSha256 = safeHash(releaseConfig.runtimeSha256);
+  const moduleRegistry = safeAddress(releaseConfig.moduleRegistry);
+  const moduleRegistryRuntimeSha256 = safeHash(releaseConfig.moduleRegistryRuntimeSha256);
+  return {
+    implementation,
+    runtimeSha256,
+    moduleRegistry,
+    moduleRegistryRuntimeSha256,
+    complete: Boolean(implementation && runtimeSha256 && moduleRegistry && moduleRegistryRuntimeSha256),
+  };
+}
+
+function safeAddress(value) {
+  try {
+    return value ? getAddress(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeHash(value) {
+  const hash = String(value ?? '').toLowerCase();
+  return /^0x[0-9a-f]{64}$/.test(hash) ? hash : null;
+}
+
+function sameAddress(left, right) {
+  const a = safeAddress(left);
+  const b = safeAddress(right);
+  return Boolean(a && b && a.toLowerCase() === b.toLowerCase());
 }
 
 function createFixedRequester(fetchImpl) {
