@@ -16,6 +16,12 @@ const SALT = ethers.id('looper-agent-account-test');
 const ERC1271_MAGIC = '0x1626ba7e';
 const ERC6551_SIGNER_MAGIC = ethers.id('isValidSigner(address,bytes)').slice(0, 10);
 const INVALID_MAGIC = '0xffffffff';
+const PRE_MAGIC = ethers.id('preAuthorizeAndConsume(address,address,uint256,address,uint256,bytes)').slice(0, 10);
+const POST_MAGIC = ethers.id('postValidate(address,address,uint256,address,uint256,bytes,bytes)').slice(0, 10);
+const POLICY_INTERFACE_ID = selectorXor([
+  'preAuthorizeAndConsume(address,address,uint256,address,uint256,bytes)',
+  'postValidate(address,address,uint256,address,uint256,bytes,bytes)',
+]);
 
 const FIXTURES = `
 // SPDX-License-Identifier: MIT
@@ -24,6 +30,18 @@ pragma solidity ^0.8.24;
 interface IAccountState { function state() external view returns (uint256); }
 interface IAgentAccount {
     function execute(address to, uint256 value, bytes calldata data, uint8 operation) external returns (bytes memory);
+}
+interface IAgentPolicyAccount {
+    function executeWithPolicy(address to, uint256 value, bytes calldata data) external payable returns (bytes memory);
+    function setPolicyModule(address module) external;
+}
+
+contract MockModuleRegistry {
+    bool public globallyPaused = true;
+    mapping(address => bytes32) public approvedModuleCodehash;
+
+    function setGlobalPause(bool paused) external { globallyPaused = paused; }
+    function setApproval(address module, bytes32 codehash) external { approvedModuleCodehash[module] = codehash; }
 }
 
 contract MockNFT {
@@ -58,6 +76,9 @@ contract MockERC20 {
 
 contract MockTarget {
     uint256 public observedState;
+    uint256 public calls;
+    uint256 public lastValue;
+    bytes32 public lastPayloadHash;
 
     function observe(address account) external returns (bytes4) {
         observedState = IAccountState(account).state();
@@ -70,6 +91,17 @@ contract MockTarget {
 
     function revertExact() external pure {
         assembly { mstore(0, shl(224, 0xdeadbeef)) revert(0, 4) }
+    }
+
+    function record(address account, bytes calldata payload) external payable {
+        calls += 1;
+        observedState = IAccountState(account).state();
+        lastValue = msg.value;
+        lastPayloadHash = keccak256(payload);
+        assembly {
+            calldatacopy(0, payload.offset, payload.length)
+            return(0, payload.length)
+        }
     }
 
     receive() external payable {}
@@ -96,7 +128,173 @@ contract Mock1271Owner {
         return IAgentAccount(account).execute(to, value, data, operation);
     }
 
+    function reenterAccount(address account, address to) external {
+        IAgentAccount(account).execute(to, 0, hex"", 0);
+    }
+
+    function setPolicyAccount(address account, address module) external {
+        IAgentPolicyAccount(account).setPolicyModule(module);
+    }
+
     receive() external payable {}
+}
+
+contract MockPolicy {
+    bytes4 private constant PRE_MAGIC = bytes4(keccak256("preAuthorizeAndConsume(address,address,uint256,address,uint256,bytes)"));
+    bytes4 private constant POST_MAGIC = bytes4(keccak256("postValidate(address,address,uint256,address,uint256,bytes,bytes)"));
+
+    uint8 public supportMode;
+    uint8 public preMode;
+    uint8 public postMode;
+    uint256 public preCalls;
+    address public lastHookCaller;
+    bytes32 public lastPreDigest;
+
+    address public expectedAccount;
+    address public expectedSessionKey;
+    address public expectedOwner;
+    uint256 public expectedEpoch;
+    address public expectedTo;
+    uint256 public expectedValue;
+    bytes32 public expectedDataHash;
+    bytes32 public expectedResultHash;
+
+    function setModes(uint8 supportMode_, uint8 preMode_, uint8 postMode_) external {
+        supportMode = supportMode_;
+        preMode = preMode_;
+        postMode = postMode_;
+    }
+
+    function setExpected(
+        address account,
+        address sessionKey,
+        address owner,
+        uint256 epoch,
+        address to,
+        uint256 value,
+        bytes32 dataHash,
+        bytes32 resultHash
+    ) external {
+        expectedAccount = account;
+        expectedSessionKey = sessionKey;
+        expectedOwner = owner;
+        expectedEpoch = epoch;
+        expectedTo = to;
+        expectedValue = value;
+        expectedDataHash = dataHash;
+        expectedResultHash = resultHash;
+    }
+
+    function supportsInterface(bytes4 interfaceId) external view returns (bool) {
+        if (supportMode == 1) return false;
+        if (supportMode == 2) {
+            assembly { mstore(0, 1) return(0, 1) }
+        }
+        if (supportMode == 3) {
+            assembly { mstore(0, 1) mstore(0x20, 0) return(0, 0x40) }
+        }
+        if (supportMode == 4) {
+            assembly { mstore(0, shl(224, 0x0badcafe)) revert(0, 4) }
+        }
+        if (supportMode == 5) {
+            require(gasleft() > 25_000 && gasleft() <= 30_000, "ERC165_GAS_CAP");
+            require(_finiteWork(bytes32(interfaceId), 2) != bytes32(0), "ERC165_WORK");
+        }
+        if (supportMode == 6) {
+            assembly { mstore(0, 2) return(0, 0x20) }
+        }
+        return interfaceId == (PRE_MAGIC ^ POST_MAGIC);
+    }
+
+    function preAuthorizeAndConsume(
+        address sessionKey,
+        address owner,
+        uint256 epoch,
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bytes4) {
+        if (preMode == 5) {
+            require(gasleft() > 110_000 && gasleft() <= 120_000, "PRE_GAS_CAP");
+            require(_finiteWork(keccak256(data), 2) != bytes32(0), "PRE_WORK");
+        }
+        require(msg.sender == expectedAccount, "PRE_ACCOUNT");
+        require(sessionKey == expectedSessionKey, "PRE_SESSION");
+        require(owner == expectedOwner, "PRE_OWNER");
+        require(epoch == expectedEpoch, "PRE_EPOCH");
+        require(to == expectedTo, "PRE_TO");
+        require(value == expectedValue, "PRE_VALUE");
+        require(keccak256(data) == expectedDataHash, "PRE_DATA");
+        if (preMode == 6) IAgentPolicyAccount(msg.sender).executeWithPolicy(to, value, data);
+        if (preMode == 7) IAgentAccount(msg.sender).execute(to, value, data, 0);
+        preCalls += 1;
+        lastHookCaller = msg.sender;
+        lastPreDigest = keccak256(abi.encode(sessionKey, owner, epoch, to, value, keccak256(data)));
+        if (preMode == 1) return bytes4(0x01020304);
+        if (preMode == 2) {
+            bytes4 magic = PRE_MAGIC;
+            assembly { mstore(0, magic) return(0, 4) }
+        }
+        if (preMode == 3) {
+            bytes4 magic = PRE_MAGIC;
+            assembly { mstore(0, magic) mstore(0x20, 0) return(0, 0x40) }
+        }
+        if (preMode == 4) {
+            assembly { mstore(0, shl(224, 0xaabbccdd)) revert(0, 4) }
+        }
+        if (preMode == 8) {
+            bytes32 dirty = bytes32(PRE_MAGIC) | bytes32(uint256(1));
+            assembly { mstore(0, dirty) return(0, 0x20) }
+        }
+        return PRE_MAGIC;
+    }
+
+    function postValidate(
+        address sessionKey,
+        address owner,
+        uint256 epoch,
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bytes calldata result
+    ) external view returns (bytes4) {
+        if (postMode == 5) {
+            require(gasleft() > 50_000 && gasleft() <= 60_000, "POST_GAS_CAP");
+            require(_finiteWork(keccak256(result), 2) != bytes32(0), "POST_WORK");
+        }
+        require(msg.sender == expectedAccount, "POST_ACCOUNT");
+        require(sessionKey == expectedSessionKey, "POST_SESSION");
+        require(owner == expectedOwner, "POST_OWNER");
+        require(epoch == expectedEpoch, "POST_EPOCH");
+        require(to == expectedTo, "POST_TO");
+        require(value == expectedValue, "POST_VALUE");
+        require(keccak256(data) == expectedDataHash, "POST_DATA");
+        require(keccak256(result) == expectedResultHash, "POST_RESULT");
+        if (postMode == 1) return bytes4(0x05060708);
+        if (postMode == 2) {
+            bytes4 magic = POST_MAGIC;
+            assembly { mstore(0, magic) return(0, 4) }
+        }
+        if (postMode == 3) {
+            bytes4 magic = POST_MAGIC;
+            assembly { mstore(0, magic) mstore(0x20, 0) return(0, 0x40) }
+        }
+        if (postMode == 4) {
+            assembly { mstore(0, shl(224, 0xfaceb00c)) revert(0, 4) }
+        }
+        if (postMode == 6) {
+            bytes32 dirty = bytes32(POST_MAGIC) | bytes32(uint256(1));
+            assembly { mstore(0, dirty) return(0, 0x20) }
+        }
+        return POST_MAGIC;
+    }
+
+    function _finiteWork(bytes32 seed, uint256 iterations) private pure returns (bytes32 result) {
+        result = seed;
+        for (uint256 index; index < iterations; index += 1) {
+            result = keccak256(abi.encode(result, index));
+        }
+    }
 }
 
 contract DelegateHarness {
@@ -184,6 +382,8 @@ function compileAll() {
   compiled = {
     account: artifact(output, 'src/LooperAgentAccount.sol', 'LooperAgentAccount'),
     registry: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'CanonicalERC6551Registry'),
+    moduleRegistry: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'MockModuleRegistry'),
+    policy: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'MockPolicy'),
     nft: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'MockNFT'),
     erc20: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'MockERC20'),
     target: artifact(output, 'test/LooperAgentAccountFixtures.sol', 'MockTarget'),
@@ -226,7 +426,8 @@ async function fixture({ tokenId = 1n, ownerIndex = 1 } = {}) {
   });
   const provider = new ethers.BrowserProvider(ganacheProvider);
   const signers = await Promise.all([...Array(8).keys()].map((index) => provider.getSigner(index)));
-  const implementation = await deploy(artifacts.account, signers[0]);
+  const moduleRegistry = await deploy(artifacts.moduleRegistry, signers[0]);
+  const implementation = await deploy(artifacts.account, signers[0], [await moduleRegistry.getAddress()]);
   const registry = await deploy(artifacts.registry, signers[0]);
   const nft = await deploy(artifacts.nft, signers[0]);
   const erc20 = await deploy(artifacts.erc20, signers[0]);
@@ -237,7 +438,48 @@ async function fixture({ tokenId = 1n, ownerIndex = 1 } = {}) {
   const predicted = await registry.account(await implementation.getAddress(), SALT, chainId, await nft.getAddress(), tokenId);
   await (await registry.createAccount(await implementation.getAddress(), SALT, chainId, await nft.getAddress(), tokenId)).wait();
   const account = new ethers.Contract(predicted, artifacts.account.abi, owner);
-  return { artifacts, ganacheProvider, provider, signers, implementation, registry, nft, erc20, target, owner, tokenId, chainId, account };
+  return {
+    artifacts,
+    ganacheProvider,
+    provider,
+    signers,
+    implementation,
+    registry,
+    moduleRegistry,
+    nft,
+    erc20,
+    target,
+    owner,
+    tokenId,
+    chainId,
+    account,
+  };
+}
+
+async function approvePolicy(f, policy) {
+  const codehash = ethers.keccak256(await f.provider.getCode(await policy.getAddress()));
+  await (await f.moduleRegistry.setApproval(await policy.getAddress(), codehash)).wait();
+  await (await f.moduleRegistry.setGlobalPause(false)).wait();
+  return codehash;
+}
+
+async function deployApprovedPolicy(f) {
+  const policy = await deploy(f.artifacts.policy, f.signers[0]);
+  const codehash = await approvePolicy(f, policy);
+  return { policy, codehash };
+}
+
+async function configurePolicyCall(f, policy, caller, to, value, data, result) {
+  await (await policy.setExpected(
+    await f.account.getAddress(),
+    caller.address,
+    await f.account.owner(),
+    await f.account.policyEpoch(),
+    to,
+    value,
+    ethers.keccak256(data),
+    ethers.keccak256(result),
+  )).wait();
 }
 
 function selectorXor(signatures) {
@@ -264,23 +506,50 @@ test('account compiler and surface are exact and contain no upgrade or delegatec
     .sort();
   assert.deepEqual(functions, [
     'execute(address,uint256,bytes,uint8)',
+    'executeWithPolicy(address,uint256,bytes)',
     'isValidSignature(bytes32,bytes)',
     'isValidSigner(address,bytes)',
+    'moduleRegistry()',
     'owner()',
+    'policyEpoch()',
+    'policyModule()',
+    'policyModuleOwner()',
+    'setPolicyModule(address)',
     'state()',
     'supportsInterface(bytes4)',
     'token()',
   ]);
+  const constructor = artifacts.account.abi.find((entry) => entry.type === 'constructor');
+  assert.deepEqual(constructor.inputs.map((input) => input.type), ['address']);
   const execute = artifacts.account.abi.find((entry) => entry.type === 'function' && entry.name === 'execute');
   assert.deepEqual(execute.outputs.map((output) => output.type), ['bytes']);
+  const executeWithPolicy = artifacts.account.abi.find(
+    (entry) => entry.type === 'function' && entry.name === 'executeWithPolicy',
+  );
+  assert.equal(executeWithPolicy.stateMutability, 'payable');
+  assert.deepEqual(executeWithPolicy.outputs.map((output) => output.type), ['bytes']);
   assert.equal(artifacts.account.abi.filter((entry) => entry.type === 'receive').length, 1);
   assert.deepEqual(
-    artifacts.account.abi.filter((entry) => entry.type === 'event').map((entry) => entry.name),
-    ['StateUpdated'],
+    artifacts.account.abi.filter((entry) => entry.type === 'event').map((entry) => entry.name).sort(),
+    ['PolicyModuleUpdated', 'StateUpdated'],
   );
   const source = readFileSync(SOURCE_PATH, 'utf8');
-  assert.doesNotMatch(source, /\b(initializer|reinitializer|beacon|uups|upgradeTo|entrypoint|useroperation|factory|module|admin|selfdestruct)\b/i);
+  assert.match(source, /interface ILooperAgentPolicy\s*{/);
+  assert.doesNotMatch(source, /\b(initializer|reinitializer|beacon|uups|upgradeTo|entrypoint|useroperation|factory|admin|selfdestruct)\b/i);
   assert.doesNotMatch(source, /\bdelegatecall\b/i);
+});
+
+test('constructor pins a deployed module registry and rejects zero or non-contract addresses', async () => {
+  const artifacts = compileAll();
+  const ganacheProvider = ganache.provider({ logging: { quiet: true }, wallet: { totalAccounts: 2 } });
+  const provider = new ethers.BrowserProvider(ganacheProvider);
+  const deployer = await provider.getSigner(0);
+  const eoa = await provider.getSigner(1);
+  const moduleRegistry = await deploy(artifacts.moduleRegistry, deployer);
+  const implementation = await deploy(artifacts.account, deployer, [await moduleRegistry.getAddress()]);
+  assert.equal(await implementation.moduleRegistry(), await moduleRegistry.getAddress());
+  await assert.rejects(deploy(artifacts.account, deployer, [ethers.ZeroAddress]));
+  await assert.rejects(deploy(artifacts.account, deployer, [eoa.address]));
 });
 
 test('fresh create is canonical, immediately owned, and exposes token/state/ERC-165', async () => {
@@ -301,6 +570,10 @@ test('fresh create is canonical, immediately owned, and exposes token/state/ERC-
   assert.deepEqual([...await f.account.token()], [f.chainId, await f.nft.getAddress(), 42n]);
   assert.equal(await f.account.owner(), f.owner.address);
   assert.equal(await f.account.state(), 0n);
+  assert.equal(await f.account.moduleRegistry(), await f.moduleRegistry.getAddress());
+  assert.equal(await f.account.policyModule(), ethers.ZeroAddress);
+  assert.equal(await f.account.policyModuleOwner(), ethers.ZeroAddress);
+  assert.equal(await f.account.policyEpoch(), 0n);
   assert.equal(accountCode.length, 2 + (173 * 2));
   assert.equal(await f.account.supportsInterface('0x01ffc9a7'), true);
   assert.equal(await f.account.supportsInterface('0x1626ba7e'), true);
@@ -315,6 +588,275 @@ test('fresh create is canonical, immediately owned, and exposes token/state/ERC-
   ]);
   assert.equal(await f.account.supportsInterface(accountInterface), true);
   assert.equal(await f.account.supportsInterface('0xffffffff'), false);
+});
+
+test('only the current NFT owner can set or clear policy and every success advances epoch with exact event data', async () => {
+  const f = await fixture();
+  const { policy, codehash } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const accountAddress = await f.account.getAddress();
+  const attacker = f.signers[4];
+
+  await assert.rejects(f.account.connect(attacker).setPolicyModule(ethers.ZeroAddress));
+  await assert.rejects(f.account.connect(attacker).setPolicyModule(policyAddress));
+
+  const firstReceipt = await (await f.account.setPolicyModule(policyAddress)).wait();
+  const event = f.account.interface.getEvent('PolicyModuleUpdated');
+  const firstLogs = firstReceipt.logs.filter((log) => log.address === accountAddress && log.topics[0] === event.topicHash);
+  assert.equal(firstLogs.length, 1);
+  assert.equal(firstLogs[0].topics.length, 4);
+  assert.equal(firstLogs[0].data, '0x');
+  assert.deepEqual([...f.account.interface.parseLog(firstLogs[0]).args], [policyAddress, f.owner.address, 1n]);
+  assert.equal(await f.account.policyModule(), policyAddress);
+  assert.equal(await f.account.policyModuleOwner(), f.owner.address);
+  assert.equal(await f.account.policyEpoch(), 1n);
+
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  assert.equal(await f.account.policyEpoch(), 2n);
+  assert.equal(await f.account.policyModuleOwner(), f.owner.address);
+
+  await (await f.moduleRegistry.setGlobalPause(true)).wait();
+  const pausedClear = await (await f.account.setPolicyModule(ethers.ZeroAddress)).wait();
+  assert.deepEqual(
+    [...f.account.interface.parseLog(pausedClear.logs.find((log) => log.topics[0] === event.topicHash)).args],
+    [ethers.ZeroAddress, ethers.ZeroAddress, 3n],
+  );
+
+  await (await f.moduleRegistry.setGlobalPause(false)).wait();
+  await (await f.moduleRegistry.setApproval(policyAddress, codehash)).wait();
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await (await f.moduleRegistry.setApproval(policyAddress, ethers.ZeroHash)).wait();
+  await (await f.account.setPolicyModule(ethers.ZeroAddress)).wait();
+  assert.equal(await f.account.policyEpoch(), 5n);
+
+  await (await f.moduleRegistry.setApproval(policyAddress, codehash)).wait();
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await (await f.moduleRegistry.setApproval(policyAddress, ethers.id('changed-code'))).wait();
+  await (await f.account.setPolicyModule(ethers.ZeroAddress)).wait();
+  assert.equal(await f.account.policyEpoch(), 7n);
+  assert.equal(await f.account.policyModule(), ethers.ZeroAddress);
+  assert.equal(await f.account.policyModuleOwner(), ethers.ZeroAddress);
+});
+
+test('nonzero policy selection fails closed on pause, approval, code, codehash, and strict capped ERC-165', async () => {
+  const f = await fixture();
+  const policy = await deploy(f.artifacts.policy, f.signers[0]);
+  const policyAddress = await policy.getAddress();
+  const codehash = ethers.keccak256(await f.provider.getCode(policyAddress));
+
+  await assert.rejects(f.account.setPolicyModule(policyAddress));
+  await (await f.moduleRegistry.setGlobalPause(false)).wait();
+  await assert.rejects(f.account.setPolicyModule(policyAddress));
+
+  await (await f.moduleRegistry.setApproval(f.signers[6].address, codehash)).wait();
+  await assert.rejects(f.account.setPolicyModule(f.signers[6].address));
+
+  await (await f.moduleRegistry.setApproval(policyAddress, ethers.id('wrong-codehash'))).wait();
+  await assert.rejects(f.account.setPolicyModule(policyAddress));
+  await (await f.moduleRegistry.setApproval(policyAddress, codehash)).wait();
+
+  for (const supportMode of [1, 2, 3, 4, 6]) {
+    await (await policy.setModes(supportMode, 0, 0)).wait();
+    await assert.rejects(f.account.setPolicyModule(policyAddress));
+  }
+
+  await (await policy.setModes(5, 0, 0)).wait();
+  await (await f.account.setPolicyModule(policyAddress, { gasLimit: 500_000 })).wait();
+  assert.equal(await f.account.policyModule(), policyAddress);
+  assert.equal(POLICY_INTERFACE_ID, selectorXor([
+    'preAuthorizeAndConsume(address,address,uint256,address,uint256,bytes)',
+    'postValidate(address,address,uint256,address,uint256,bytes,bytes)',
+  ]));
+});
+
+test('policy execution passes exact context/result, caps hooks, increments before target, and returns exact bytes', async () => {
+  const f = await fixture();
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const accountAddress = await f.account.getAddress();
+  const sessionKey = f.signers[4];
+  const payload = '0x00112233445566778899aabbccddeeff';
+  const value = 17n;
+  const targetAddress = await f.target.getAddress();
+  const callData = f.target.interface.encodeFunctionData('record', [accountAddress, payload]);
+
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await (await policy.setModes(5, 5, 5)).wait();
+  await configurePolicyCall(f, policy, sessionKey, targetAddress, value, callData, payload);
+
+  assert.equal(
+    await f.account.connect(sessionKey).executeWithPolicy.staticCall(targetAddress, value, callData, { value: 100n }),
+    payload,
+  );
+  const receipt = await (
+    await f.account.connect(sessionKey).executeWithPolicy(targetAddress, value, callData, {
+      value: 100n,
+      gasLimit: 900_000,
+    })
+  ).wait();
+  const stateLogs = receipt.logs.filter(
+    (log) => log.address === accountAddress && log.topics[0] === f.account.interface.getEvent('StateUpdated').topicHash,
+  );
+  assert.equal(stateLogs.length, 1);
+  assert.equal(await f.account.state(), 1n);
+  assert.equal(await f.target.calls(), 1n);
+  assert.equal(await f.target.observedState(), 1n);
+  assert.equal(await f.target.lastValue(), value);
+  assert.equal(await f.target.lastPayloadHash(), ethers.keccak256(payload));
+  assert.equal(await policy.preCalls(), 1n);
+  assert.equal(await policy.lastHookCaller(), accountAddress);
+  assert.equal(
+    await policy.lastPreDigest(),
+    ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+      ['address', 'address', 'uint256', 'address', 'uint256', 'bytes32'],
+      [sessionKey.address, f.owner.address, 1n, targetAddress, value, ethers.keccak256(callData)],
+    )),
+  );
+  assert.equal(await f.provider.getBalance(accountAddress), 83n);
+  assert.equal(PRE_MAGIC, policy.interface.getFunction('preAuthorizeAndConsume').selector);
+  assert.equal(POST_MAGIC, policy.interface.getFunction('postValidate').selector);
+});
+
+test('transfer, pause, removal, and codehash mismatch block policy before either hook or target', async () => {
+  for (const blockedBy of ['transfer', 'pause', 'removal', 'codehash']) {
+    const f = await fixture();
+    const { policy } = await deployApprovedPolicy(f);
+    const policyAddress = await policy.getAddress();
+    const targetAddress = await f.target.getAddress();
+    const data = f.target.interface.encodeFunctionData('record', [await f.account.getAddress(), '0x12']);
+    await (await f.account.setPolicyModule(policyAddress)).wait();
+    await configurePolicyCall(f, policy, f.signers[4], targetAddress, 0n, data, '0x12');
+
+    if (blockedBy === 'transfer') {
+      await (await f.nft.connect(f.owner).transferFrom(f.owner.address, f.signers[2].address, f.tokenId)).wait();
+    } else if (blockedBy === 'pause') {
+      await (await f.moduleRegistry.setGlobalPause(true)).wait();
+    } else if (blockedBy === 'removal') {
+      await (await f.moduleRegistry.setApproval(policyAddress, ethers.ZeroHash)).wait();
+    } else {
+      await (await f.moduleRegistry.setApproval(policyAddress, ethers.id('mismatch'))).wait();
+    }
+
+    await assert.rejects(async () => {
+      const transaction = await f.account
+        .connect(f.signers[4])
+        .executeWithPolicy(targetAddress, 0, data, { gasLimit: 600_000 });
+      await transaction.wait();
+    });
+    assert.equal(await policy.preCalls(), 0n);
+    assert.equal(await f.target.calls(), 0n);
+    assert.equal(await f.account.state(), 0n);
+    if (blockedBy === 'transfer') {
+      await (await f.account.connect(f.signers[2]).setPolicyModule(ethers.ZeroAddress)).wait();
+      assert.equal(await f.account.policyEpoch(), 2n);
+      assert.equal(await f.account.policyModuleOwner(), ethers.ZeroAddress);
+    }
+  }
+});
+
+test('pre hook enforces exact return length/magic, bubbles exact revert bytes, and rolls all state back', async () => {
+  const f = await fixture();
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const sessionKey = f.signers[4];
+  const targetAddress = await f.target.getAddress();
+  const data = f.target.interface.encodeFunctionData('record', [await f.account.getAddress(), '0x99']);
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await configurePolicyCall(f, policy, sessionKey, targetAddress, 0n, data, '0x99');
+
+  for (const preMode of [1, 2, 3, 8]) {
+    await (await policy.setModes(0, preMode, 0)).wait();
+    await assert.rejects(async () => {
+      const transaction = await f.account
+        .connect(sessionKey)
+        .executeWithPolicy(targetAddress, 0, data, { gasLimit: 600_000 });
+      await transaction.wait();
+    });
+  }
+  await (await policy.setModes(0, 4, 0)).wait();
+  assert.equal(
+    await revertData(f.account.connect(sessionKey).executeWithPolicy.staticCall(targetAddress, 0, data)),
+    '0xaabbccdd',
+  );
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
+});
+
+test('target and post failures bubble exact bytes and roll back pre accounting, target effects, and account state', async () => {
+  const f = await fixture();
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const sessionKey = f.signers[4];
+  const targetAddress = await f.target.getAddress();
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+
+  const targetRevert = f.target.interface.encodeFunctionData('revertExact');
+  await configurePolicyCall(f, policy, sessionKey, targetAddress, 0n, targetRevert, '0x');
+  assert.equal(
+    await revertData(f.account.connect(sessionKey).executeWithPolicy.staticCall(targetAddress, 0, targetRevert)),
+    '0xdeadbeef',
+  );
+
+  const data = f.target.interface.encodeFunctionData('record', [await f.account.getAddress(), '0x7788']);
+  await configurePolicyCall(f, policy, sessionKey, targetAddress, 0n, data, '0x7788');
+  for (const postMode of [1, 2, 3, 6]) {
+    await (await policy.setModes(0, 0, postMode)).wait();
+    await assert.rejects(async () => {
+      const transaction = await f.account
+        .connect(sessionKey)
+        .executeWithPolicy(targetAddress, 0, data, { gasLimit: 700_000 });
+      await transaction.wait();
+    });
+  }
+  await (await policy.setModes(0, 0, 4)).wait();
+  assert.equal(
+    await revertData(f.account.connect(sessionKey).executeWithPolicy.staticCall(targetAddress, 0, data)),
+    '0xfaceb00c',
+  );
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
+});
+
+test('one shared guard blocks owner-path and both policy-path reentrancy attempts', async () => {
+  const f = await fixture();
+  const contractOwner = await deploy(f.artifacts.contractOwner, f.signers[0]);
+  const accountAddress = await f.account.getAddress();
+  const contractOwnerAddress = await contractOwner.getAddress();
+  await (await f.nft.connect(f.owner).transferFrom(f.owner.address, contractOwnerAddress, f.tokenId)).wait();
+  const ownerReentry = contractOwner.interface.encodeFunctionData('reenterAccount', [accountAddress, f.signers[7].address]);
+  await assert.rejects(async () => {
+    const transaction = await contractOwner.executeAccount(
+      accountAddress,
+      contractOwnerAddress,
+      0,
+      ownerReentry,
+      0,
+      { gasLimit: 700_000 },
+    );
+    await transaction.wait();
+  });
+  assert.equal(await f.account.state(), 0n);
+
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  await (await contractOwner.setPolicyAccount(accountAddress, policyAddress)).wait();
+  const targetAddress = await f.target.getAddress();
+  const data = f.target.interface.encodeFunctionData('record', [accountAddress, '0x01']);
+  await configurePolicyCall(f, policy, f.signers[4], targetAddress, 0n, data, '0x01');
+  for (const preMode of [6, 7]) {
+    await (await policy.setModes(0, preMode, 0)).wait();
+    await assert.rejects(async () => {
+      const transaction = await f.account
+        .connect(f.signers[4])
+        .executeWithPolicy(targetAddress, 0, data, { gasLimit: 700_000 });
+      await transaction.wait();
+    });
+  }
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
 });
 
 test('fresh create receives ETH and owner executes ETH with exact return data', async () => {
@@ -427,6 +969,37 @@ test('direct implementation and malformed noncanonical delegate context fail clo
   assert.equal(await malformed.owner(), ethers.ZeroAddress);
   assert.equal(await malformed.isValidSignature(ethers.ZeroHash, '0x'), INVALID_MAGIC);
   await assert.rejects(malformed.execute(f.signers[4].address, 0, '0x', 0));
+});
+
+test('canonical wrong-chain binding exposes token data but has no owner, signer, or execution authority', async () => {
+  const f = await fixture({ tokenId: 70n });
+  const wrongChainTokenId = 71n;
+  const wrongChainId = f.chainId + 1n;
+  await (await f.nft.mint(f.owner.address, wrongChainTokenId)).wait();
+  const predicted = await f.registry.account(
+    await f.implementation.getAddress(),
+    SALT,
+    wrongChainId,
+    await f.nft.getAddress(),
+    wrongChainTokenId,
+  );
+  await (await f.registry.createAccount(
+    await f.implementation.getAddress(),
+    SALT,
+    wrongChainId,
+    await f.nft.getAddress(),
+    wrongChainTokenId,
+  )).wait();
+  const account = new ethers.Contract(predicted, f.artifacts.account.abi, f.owner);
+
+  assert.deepEqual([...await account.token()], [wrongChainId, await f.nft.getAddress(), wrongChainTokenId]);
+  assert.equal(await account.owner(), ethers.ZeroAddress);
+  assert.equal(await account.isValidSigner(f.owner.address, '0x'), INVALID_MAGIC);
+  assert.equal(await account.isValidSignature(ethers.ZeroHash, '0x'), INVALID_MAGIC);
+  await (await f.signers[6].sendTransaction({ to: predicted, value: 1n })).wait();
+  await assert.rejects(account.execute(f.signers[5].address, 0, '0x', 0));
+  await assert.rejects(account.setPolicyModule(ethers.ZeroAddress));
+  await assert.rejects(account.executeWithPolicy(f.signers[5].address, 0, '0x'));
 });
 
 test('burned token fails closed and arbitrary senders may still fund the account', async () => {

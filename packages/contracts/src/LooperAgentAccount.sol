@@ -19,7 +19,41 @@ interface IERC6551Executable {
         returns (bytes memory result);
 }
 
+interface ILooperAgentPolicy {
+    function preAuthorizeAndConsume(
+        address sessionKey,
+        address owner,
+        uint256 policyEpoch,
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bytes4);
+
+    function postValidate(
+        address sessionKey,
+        address owner,
+        uint256 policyEpoch,
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bytes calldata result
+    ) external view returns (bytes4);
+}
+
+interface ILooperAgentModuleRegistry {
+    function globallyPaused() external view returns (bool);
+    function approvedModuleCodehash(address module) external view returns (bytes32);
+}
+
 contract LooperAgentAccount is IERC165, IERC1271, IERC6551Account, IERC6551Executable {
+    struct PolicyContext {
+        address sessionKey;
+        address owner;
+        uint256 epoch;
+        address to;
+        uint256 value;
+    }
+
     bytes4 private constant _ERC1271_MAGIC = IERC1271.isValidSignature.selector;
     bytes4 private constant _INVALID_MAGIC = 0xffffffff;
     bytes4 private constant _COMBINED_INTERFACE_ID = 0xb39e6aed;
@@ -29,13 +63,43 @@ contract LooperAgentAccount is IERC165, IERC1271, IERC6551Account, IERC6551Execu
     uint256 private constant _TOKEN_FOOTER_OFFSET = 77;
 
     address private immutable _implementation = address(this);
+    address public immutable moduleRegistry;
 
     uint256 public state;
+    address public policyModule;
+    address public policyModuleOwner;
+    uint256 public policyEpoch;
+    uint256 private _executionGuard;
 
     error InvalidOperation(uint8 operation);
     error InvalidSigner(address caller, address owner);
+    error InvalidModuleRegistry(address registry);
+    error InvalidPolicyModule(address module);
+    error PolicyRegistryPaused();
+    error PolicyModuleNotApproved(address module);
+    error PolicyModuleCodehashMismatch(address module, bytes32 approved, bytes32 actual);
+    error PolicyInterfaceUnsupported(address module);
+    error PolicyOwnerChanged(address selectedOwner, address currentOwner);
+    error PolicyHookFailed(bytes4 selector);
+    error InvalidPolicyMagic(bytes4 selector);
+    error ReentrantExecution();
 
     event StateUpdated(uint256 indexed state);
+    event PolicyModuleUpdated(address indexed module, address indexed owner, uint256 indexed policyEpoch);
+
+    constructor(address moduleRegistry_) {
+        if (moduleRegistry_ == address(0) || moduleRegistry_.code.length == 0) {
+            revert InvalidModuleRegistry(moduleRegistry_);
+        }
+        moduleRegistry = moduleRegistry_;
+    }
+
+    modifier nonReentrantExecution() {
+        if (_executionGuard != 0) revert ReentrantExecution();
+        _executionGuard = 1;
+        _;
+        _executionGuard = 0;
+    }
 
     receive() external payable {
         if (!_hasCanonicalContext()) revert InvalidSigner(msg.sender, address(0));
@@ -67,6 +131,7 @@ contract LooperAgentAccount is IERC165, IERC1271, IERC6551Account, IERC6551Execu
     function execute(address to, uint256 value, bytes calldata data, uint8 operation)
         external
         payable
+        nonReentrantExecution
         returns (bytes memory result)
     {
         address currentOwner = owner();
@@ -85,6 +150,86 @@ contract LooperAgentAccount is IERC165, IERC1271, IERC6551Account, IERC6551Execu
                 revert(add(result, 0x20), mload(result))
             }
         }
+    }
+
+    function setPolicyModule(address module) external {
+        address currentOwner = owner();
+        if (currentOwner == address(0) || msg.sender != currentOwner) {
+            revert InvalidSigner(msg.sender, currentOwner);
+        }
+
+        address selectedOwner;
+        if (module != address(0)) {
+            _requireApprovedPolicy(module);
+            selectedOwner = currentOwner;
+        }
+
+        policyModule = module;
+        policyModuleOwner = selectedOwner;
+        policyEpoch += 1;
+        emit PolicyModuleUpdated(module, selectedOwner, policyEpoch);
+    }
+
+    function executeWithPolicy(address to, uint256 value, bytes calldata data)
+        external
+        payable
+        nonReentrantExecution
+        returns (bytes memory result)
+    {
+        address currentOwner = owner();
+        address module = policyModule;
+
+        if (module == address(0)) revert InvalidPolicyModule(module);
+        if (currentOwner == address(0) || currentOwner != policyModuleOwner) {
+            revert PolicyOwnerChanged(policyModuleOwner, currentOwner);
+        }
+        _requireApprovedPolicy(module);
+
+        PolicyContext memory context = PolicyContext(msg.sender, currentOwner, policyEpoch, to, value);
+        _callPre(module, context, data);
+
+        state += 1;
+        emit StateUpdated(state);
+
+        bool success;
+        (success, result) = to.call{value: value}(data);
+        if (!success) _bubble(result);
+
+        _callPost(module, context, data, result);
+    }
+
+    function _callPre(address module, PolicyContext memory context, bytes calldata data) private {
+        (bool success, bytes memory result) = module.call{gas: 120_000}(
+            abi.encodeWithSelector(
+                ILooperAgentPolicy.preAuthorizeAndConsume.selector,
+                context.sessionKey,
+                context.owner,
+                context.epoch,
+                context.to,
+                context.value,
+                data
+            )
+        );
+        _requireHookResult(success, result, ILooperAgentPolicy.preAuthorizeAndConsume.selector);
+    }
+
+    function _callPost(address module, PolicyContext memory context, bytes calldata data, bytes memory targetResult)
+        private
+        view
+    {
+        (bool success, bytes memory result) = module.staticcall{gas: 60_000}(
+            abi.encodeWithSelector(
+                ILooperAgentPolicy.postValidate.selector,
+                context.sessionKey,
+                context.owner,
+                context.epoch,
+                context.to,
+                context.value,
+                data,
+                targetResult
+            )
+        );
+        _requireHookResult(success, result, ILooperAgentPolicy.postValidate.selector);
     }
 
     function isValidSigner(address signer, bytes calldata) external view returns (bytes4 magicValue) {
@@ -107,6 +252,62 @@ contract LooperAgentAccount is IERC165, IERC1271, IERC6551Account, IERC6551Execu
             || interfaceId == type(IERC6551Account).interfaceId
             || interfaceId == type(IERC6551Executable).interfaceId
             || interfaceId == _COMBINED_INTERFACE_ID;
+    }
+
+    function _requireApprovedPolicy(address module) private view {
+        if (module.code.length == 0) revert InvalidPolicyModule(module);
+
+        (bool success, bytes memory result) = moduleRegistry.staticcall(
+            abi.encodeWithSelector(ILooperAgentModuleRegistry.globallyPaused.selector)
+        );
+        if (!success || result.length != 32) revert PolicyRegistryPaused();
+        uint256 pausedWord;
+        assembly {
+            pausedWord := mload(add(result, 0x20))
+        }
+        if (pausedWord != 0) revert PolicyRegistryPaused();
+
+        (success, result) = moduleRegistry.staticcall(
+            abi.encodeWithSelector(ILooperAgentModuleRegistry.approvedModuleCodehash.selector, module)
+        );
+        if (!success || result.length != 32) revert PolicyModuleNotApproved(module);
+        bytes32 approved;
+        assembly {
+            approved := mload(add(result, 0x20))
+        }
+        if (approved == bytes32(0)) revert PolicyModuleNotApproved(module);
+
+        bytes32 actual = module.codehash;
+        if (actual != approved) revert PolicyModuleCodehashMismatch(module, approved, actual);
+
+        (success, result) = module.staticcall{gas: 30_000}(
+            abi.encodeWithSelector(IERC165.supportsInterface.selector, type(ILooperAgentPolicy).interfaceId)
+        );
+        if (!success || result.length != 32) revert PolicyInterfaceUnsupported(module);
+        uint256 supportedWord;
+        assembly {
+            supportedWord := mload(add(result, 0x20))
+        }
+        if (supportedWord != 1) revert PolicyInterfaceUnsupported(module);
+    }
+
+    function _requireHookResult(bool success, bytes memory result, bytes4 expected) private pure {
+        if (!success) {
+            if (result.length != 0) _bubble(result);
+            revert PolicyHookFailed(expected);
+        }
+        if (result.length != 32) revert InvalidPolicyMagic(expected);
+        bytes32 returnedWord;
+        assembly {
+            returnedWord := mload(add(result, 0x20))
+        }
+        if (returnedWord != bytes32(expected)) revert InvalidPolicyMagic(expected);
+    }
+
+    function _bubble(bytes memory result) private pure {
+        assembly {
+            revert(add(result, 0x20), mload(result))
+        }
     }
 
     function _hasCanonicalContext() private view returns (bool valid) {
