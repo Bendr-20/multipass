@@ -149,6 +149,9 @@ contract MockPolicy {
     uint256 public preCalls;
     address public lastHookCaller;
     bytes32 public lastPreDigest;
+    uint256 public supportWorkIterations;
+    uint256 public preWorkIterations;
+    uint256 public postWorkIterations;
 
     address public expectedAccount;
     address public expectedSessionKey;
@@ -163,6 +166,12 @@ contract MockPolicy {
         supportMode = supportMode_;
         preMode = preMode_;
         postMode = postMode_;
+    }
+
+    function setWorkIterations(uint256 support_, uint256 pre_, uint256 post_) external {
+        supportWorkIterations = support_;
+        preWorkIterations = pre_;
+        postWorkIterations = post_;
     }
 
     function setExpected(
@@ -186,6 +195,9 @@ contract MockPolicy {
     }
 
     function supportsInterface(bytes4 interfaceId) external view returns (bool) {
+        if (supportWorkIterations != 0) {
+            require(_finiteWork(bytes32(interfaceId), supportWorkIterations) != bytes32(0), "ERC165_WORK");
+        }
         if (supportMode == 1) return false;
         if (supportMode == 2) {
             assembly { mstore(0, 1) return(0, 1) }
@@ -197,7 +209,7 @@ contract MockPolicy {
             assembly { mstore(0, shl(224, 0x0badcafe)) revert(0, 4) }
         }
         if (supportMode == 5) {
-            require(gasleft() > 25_000 && gasleft() <= 30_000, "ERC165_GAS_CAP");
+            require(gasleft() > 18_000 && gasleft() <= 30_000, "ERC165_GAS_CAP");
             require(_finiteWork(bytes32(interfaceId), 2) != bytes32(0), "ERC165_WORK");
         }
         if (supportMode == 6) {
@@ -214,6 +226,9 @@ contract MockPolicy {
         uint256 value,
         bytes calldata data
     ) external returns (bytes4) {
+        if (preWorkIterations != 0) {
+            require(_finiteWork(keccak256(data), preWorkIterations) != bytes32(0), "PRE_WORK");
+        }
         if (preMode == 5) {
             require(gasleft() > 110_000 && gasleft() <= 120_000, "PRE_GAS_CAP");
             require(_finiteWork(keccak256(data), 2) != bytes32(0), "PRE_WORK");
@@ -258,6 +273,9 @@ contract MockPolicy {
         bytes calldata data,
         bytes calldata result
     ) external view returns (bytes4) {
+        if (postWorkIterations != 0) {
+            require(_finiteWork(keccak256(result), postWorkIterations) != bytes32(0), "POST_WORK");
+        }
         if (postMode == 5) {
             require(gasleft() > 50_000 && gasleft() <= 60_000, "POST_GAS_CAP");
             require(_finiteWork(keccak256(result), 2) != bytes32(0), "POST_WORK");
@@ -291,8 +309,13 @@ contract MockPolicy {
 
     function _finiteWork(bytes32 seed, uint256 iterations) private pure returns (bytes32 result) {
         result = seed;
-        for (uint256 index; index < iterations; index += 1) {
-            result = keccak256(abi.encode(result, index));
+        assembly ("memory-safe") {
+            let pointer := mload(0x40)
+            for { let index := 0 } lt(index, iterations) { index := add(index, 1) } {
+                mstore(pointer, result)
+                mstore(add(pointer, 0x20), index)
+                result := keccak256(pointer, 0x40)
+            }
         }
     }
 }
@@ -669,6 +692,93 @@ test('nonzero policy selection fails closed on pause, approval, code, codehash, 
   ]));
 });
 
+test('finite work exhausts each policy gas cap but succeeds with materially more gas and rolls back', async () => {
+  const f = await fixture();
+  const policy = await deploy(f.artifacts.policy, f.signers[0]);
+  const policyAddress = await policy.getAddress();
+  const accountAddress = await f.account.getAddress();
+  const targetAddress = await f.target.getAddress();
+  const sessionKey = f.signers[4];
+  const payload = '0x445566';
+  const data = f.target.interface.encodeFunctionData('record', [accountAddress, payload]);
+  await approvePolicy(f, policy);
+
+  await (await policy.setWorkIterations(2_000, 0, 0)).wait();
+  assert.equal(
+    await policy.supportsInterface.staticCall(POLICY_INTERFACE_ID, { gasLimit: 400_000 }),
+    true,
+  );
+  await assert.rejects(async () => {
+    const transaction = await f.account.setPolicyModule(policyAddress, { gasLimit: 500_000 });
+    await transaction.wait();
+  });
+  assert.equal(await f.account.policyModule(), ethers.ZeroAddress);
+  assert.equal(await f.account.policyEpoch(), 0n);
+
+  await (await policy.setWorkIterations(0, 0, 0)).wait();
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await configurePolicyCall(f, policy, sessionKey, targetAddress, 0n, data, payload);
+
+  const probePolicy = await deploy(f.artifacts.policy, f.signers[0]);
+  await (await probePolicy.setExpected(
+    f.signers[0].address,
+    sessionKey.address,
+    f.owner.address,
+    1n,
+    targetAddress,
+    0n,
+    ethers.keccak256(data),
+    ethers.keccak256(payload),
+  )).wait();
+  await (await probePolicy.setWorkIterations(0, 6_000, 0)).wait();
+  await (await probePolicy.preAuthorizeAndConsume(
+    sessionKey.address,
+    f.owner.address,
+    1n,
+    targetAddress,
+    0n,
+    data,
+    { gasLimit: 1_000_000 },
+  )).wait();
+
+  await (await policy.setWorkIterations(0, 6_000, 0)).wait();
+  await assert.rejects(async () => {
+    const transaction = await f.account
+      .connect(sessionKey)
+      .executeWithPolicy(targetAddress, 0, data, { gasLimit: 900_000 });
+    await transaction.wait();
+  });
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
+
+  await (await probePolicy.setWorkIterations(0, 0, 3_000)).wait();
+  assert.equal(
+    await probePolicy.connect(f.signers[0]).postValidate.staticCall(
+      sessionKey.address,
+      f.owner.address,
+      1n,
+      targetAddress,
+      0n,
+      data,
+      payload,
+      { gasLimit: 600_000 },
+    ),
+    POST_MAGIC,
+  );
+
+  await (await policy.setWorkIterations(0, 0, 3_000)).wait();
+  await assert.rejects(async () => {
+    const transaction = await f.account
+      .connect(sessionKey)
+      .executeWithPolicy(targetAddress, 0, data, { gasLimit: 900_000 });
+    await transaction.wait();
+  });
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
+});
+
 test('policy execution passes exact context/result, caps hooks, increments before target, and returns exact bytes', async () => {
   const f = await fixture();
   const { policy } = await deployApprovedPolicy(f);
@@ -683,6 +793,12 @@ test('policy execution passes exact context/result, caps hooks, increments befor
   await (await f.account.setPolicyModule(policyAddress)).wait();
   await (await policy.setModes(5, 5, 5)).wait();
   await configurePolicyCall(f, policy, sessionKey, targetAddress, value, callData, payload);
+
+  const digest = ethers.keccak256(ethers.toUtf8Bytes('active-policy-session-key'));
+  const sessionKeySecret = f.ganacheProvider.getInitialAccounts()[sessionKey.address.toLowerCase()].secretKey;
+  const sessionKeySignature = ethers.Signature.from(new ethers.SigningKey(sessionKeySecret).sign(digest)).serialized;
+  assert.equal(await f.account.isValidSignature(digest, sessionKeySignature), INVALID_MAGIC);
+  assert.equal(await f.account.isValidSigner(sessionKey.address, '0x'), INVALID_MAGIC);
 
   assert.equal(
     await f.account.connect(sessionKey).executeWithPolicy.staticCall(targetAddress, value, callData, { value: 100n }),
@@ -957,11 +1073,17 @@ test('EIP-1271 contract owner controls signatures and execution', async () => {
 
 test('direct implementation and malformed noncanonical delegate context fail closed', async () => {
   const f = await fixture();
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const targetAddress = await f.target.getAddress();
+  const targetData = f.target.interface.encodeFunctionData('record', [await f.account.getAddress(), '0x42']);
   const direct = new ethers.Contract(await f.implementation.getAddress(), f.artifacts.account.abi, f.owner);
   assert.deepEqual([...await direct.token()], [0n, ethers.ZeroAddress, 0n]);
   assert.equal(await direct.owner(), ethers.ZeroAddress);
   assert.equal(await direct.isValidSigner(f.owner.address, '0x'), INVALID_MAGIC);
   await assert.rejects(direct.execute(f.signers[4].address, 0, '0x', 0));
+  await assert.rejects(direct.setPolicyModule(policyAddress));
+  await assert.rejects(direct.connect(f.signers[4]).executeWithPolicy(targetAddress, 0, targetData));
 
   const harness = await deploy(f.artifacts.harness, f.signers[0], [await f.implementation.getAddress()]);
   const malformed = new ethers.Contract(await harness.getAddress(), f.artifacts.account.abi, f.owner);
@@ -969,6 +1091,12 @@ test('direct implementation and malformed noncanonical delegate context fail clo
   assert.equal(await malformed.owner(), ethers.ZeroAddress);
   assert.equal(await malformed.isValidSignature(ethers.ZeroHash, '0x'), INVALID_MAGIC);
   await assert.rejects(malformed.execute(f.signers[4].address, 0, '0x', 0));
+  await assert.rejects(malformed.setPolicyModule(policyAddress));
+  await assert.rejects(malformed.connect(f.signers[4]).executeWithPolicy(targetAddress, 0, targetData));
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await direct.state(), 0n);
+  assert.equal(await malformed.state(), 0n);
 });
 
 test('canonical wrong-chain binding exposes token data but has no owner, signer, or execution authority', async () => {
@@ -1005,12 +1133,23 @@ test('canonical wrong-chain binding exposes token data but has no owner, signer,
 test('burned token fails closed and arbitrary senders may still fund the account', async () => {
   const f = await fixture();
   const accountAddress = await f.account.getAddress();
+  const { policy } = await deployApprovedPolicy(f);
+  const policyAddress = await policy.getAddress();
+  const targetAddress = await f.target.getAddress();
+  const targetData = f.target.interface.encodeFunctionData('record', [accountAddress, '0x88']);
+  await (await f.account.setPolicyModule(policyAddress)).wait();
+  await configurePolicyCall(f, policy, f.signers[4], targetAddress, 0n, targetData, '0x88');
   await (await f.signers[7].sendTransaction({ to: accountAddress, value: 123n })).wait();
   assert.equal(await f.provider.getBalance(accountAddress), 123n);
   await (await f.nft.connect(f.owner).burn(f.tokenId)).wait();
   assert.equal(await f.account.owner(), ethers.ZeroAddress);
   assert.equal(await f.account.isValidSigner(f.owner.address, '0x'), INVALID_MAGIC);
   await assert.rejects(f.account.execute(f.signers[4].address, 1, '0x', 0));
+  await assert.rejects(f.account.setPolicyModule(ethers.ZeroAddress));
+  await assert.rejects(f.account.connect(f.signers[4]).executeWithPolicy(targetAddress, 0, targetData));
+  assert.equal(await policy.preCalls(), 0n);
+  assert.equal(await f.target.calls(), 0n);
+  assert.equal(await f.account.state(), 0n);
 });
 
 test('generated token bindings preserve tuple decoding and monotonic state', async () => {
