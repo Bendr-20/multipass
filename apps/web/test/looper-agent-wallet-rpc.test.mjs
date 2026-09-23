@@ -18,6 +18,7 @@ import {
   CONFIGURED_TOKENS,
   ERC20_ABI,
   ERC6551_REGISTRY,
+  LEGACY_ACCOUNT_IMPLEMENTATION,
   LOOPERS_ABI,
   LOOPERS_COLLECTION,
   MODULE_REGISTRY_ABI,
@@ -164,10 +165,13 @@ function requester({
   inactiveAccount = false,
   revertPolicy = false,
   malformedPolicyOwner = false,
+  frozenLegacyConfig = true,
   calls = [],
 } = {}) {
   const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
   const accountCode = buildLooperAccountRuntimeCode({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const legacyAccount = deriveLooperAccount({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: TOKEN_ID });
+  const legacyAccountCode = buildLooperAccountRuntimeCode({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: TOKEN_ID });
   const selectors = {
     ownerOf: encodeFunctionData({ abi: LOOPERS_ABI, functionName: 'ownerOf', args: [617n] }).slice(0, 10),
     registry: encodeFunctionData({ abi: LOOPERS_ABI, functionName: 'erc6551Registry' }).slice(0, 10),
@@ -180,6 +184,8 @@ function requester({
       args: [IMPLEMENTATION, ACCOUNT_SALT, 8453n, LOOPERS_COLLECTION, 617n],
     }).slice(0, 10),
     state: encodeFunctionData({ abi: ACCOUNT_EXECUTE_ABI, functionName: 'state' }).slice(0, 10),
+    accountOwner: encodeFunctionData({ abi: ACCOUNT_EXECUTE_ABI, functionName: 'owner' }).slice(0, 10),
+    accountToken: encodeFunctionData({ abi: ACCOUNT_EXECUTE_ABI, functionName: 'token' }).slice(0, 10),
     balanceOf: encodeFunctionData({ abi: ERC20_ABI, functionName: 'balanceOf', args: [account] }).slice(0, 10),
     moduleRegistry: encodeFunctionData({ abi: ACCOUNT_POLICY_ABI, functionName: 'moduleRegistry' }).slice(0, 10),
     policyModule: encodeFunctionData({ abi: ACCOUNT_POLICY_ABI, functionName: 'policyModule' }).slice(0, 10),
@@ -204,6 +210,7 @@ function requester({
       if (address === IMPLEMENTATION.toLowerCase()) {
         return disagreeImplementationCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : IMPLEMENTATION_CODE;
       }
+      if (address === LEGACY_ACCOUNT_IMPLEMENTATION.toLowerCase()) return '0x6000';
       if (address === MODULE_REGISTRY.toLowerCase()) {
         return disagreeRegistryCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : REGISTRY_CODE;
       }
@@ -214,6 +221,7 @@ function requester({
         if (inactiveAccount) return '0x';
         return disagreeProxyCode && origin === BASE_RPC_ORIGINS[1] ? `${accountCode.slice(0, -2)}00` : accountCode;
       }
+      if (address === legacyAccount.toLowerCase()) return legacyAccountCode;
       throw new Error(`Unexpected code address ${params[0]}`);
     }
     if (method === 'eth_getBalance') return '0x3e8';
@@ -227,10 +235,24 @@ function requester({
       return output('address', owner);
     }
     if (selector === selectors.registry) return output('address', ERC6551_REGISTRY);
-    if (selector === selectors.implementation) return output('address', IMPLEMENTATION);
+    if (selector === selectors.implementation) {
+      return output('address', frozenLegacyConfig ? LEGACY_ACCOUNT_IMPLEMENTATION : IMPLEMENTATION);
+    }
     if (selector === selectors.salt) return output('bytes32', ACCOUNT_SALT);
-    if (selector === selectors.tokenBound || selector === selectors.registryAccount) return output('address', account);
+    if (selector === selectors.tokenBound) return output('address', frozenLegacyConfig ? legacyAccount : account);
+    if (selector === selectors.registryAccount) {
+      return output('address', frozenLegacyConfig && call.data.toLowerCase().includes(LEGACY_ACCOUNT_IMPLEMENTATION.slice(2).toLowerCase())
+        ? legacyAccount
+        : account);
+    }
     if (selector === selectors.state) return output('uint256', 7n);
+    if (selector === selectors.accountOwner) return output('address', OWNER);
+    if (selector === selectors.accountToken) {
+      return encodeAbiParameters(
+        [{ type: 'uint256' }, { type: 'address' }, { type: 'uint256' }],
+        [8453n, LOOPERS_COLLECTION, BigInt(TOKEN_ID)],
+      );
+    }
     if (selector === selectors.balanceOf) return output('uint256', 25n);
     if (revertPolicy && selector === selectors.policyModule) throw new Error('policy read reverted');
     if (selector === selectors.moduleRegistry) return output('address', MODULE_REGISTRY);
@@ -252,6 +274,27 @@ function requester({
     throw new Error(`Unexpected selector ${selector}`);
   };
 }
+
+test('frozen collection config remains legacy evidence while the reviewed account is read directly', async () => {
+  const reader = createLooperWalletRpcClient({
+    request: requester({ frozenLegacyConfig: true }),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  const result = await reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  });
+  const legacyAccount = deriveLooperAccount({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: TOKEN_ID });
+  const reviewedAccount = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  assert.equal(result.collectionImplementation, getAddress(LEGACY_ACCOUNT_IMPLEMENTATION));
+  assert.equal(result.legacyAccount, legacyAccount);
+  assert.equal(result.legacyRegistryAccount, legacyAccount);
+  assert.equal(result.implementation, getAddress(IMPLEMENTATION));
+  assert.equal(result.account, reviewedAccount);
+  assert.equal(result.registryAccount, reviewedAccount);
+  assert.notEqual(result.account, result.legacyAccount);
+  assert.equal(result.accountCode, buildLooperAccountRuntimeCode({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
+});
 
 test('anchored Base reader verifies configuration, ownership, account runtime and balances across origins', async () => {
   const calls = [];
@@ -724,8 +767,8 @@ test('pre-signature preparers independently refresh activation ETH and ERC-20 ev
   const activation = await activationClient.prepareActivation({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
   assert.equal(activation.kind, 'activation');
   assert.equal(activation.evidence.accountState, 'undeployed');
-  assert.equal(activeCalls.filter(({ body }) => body.method === 'eth_chainId').length, 6);
-  assert.equal(activationCalls.filter(({ body }) => body.method === 'eth_chainId').length, 3);
+  assert.equal(activeCalls.filter(({ body }) => body?.method === 'eth_chainId').length, 6);
+  assert.equal(activationCalls.filter(({ body }) => body?.method === 'eth_chainId').length, 3);
 });
 
 test('token discovery uses one exact Blockscout route then proves token reads at the anchor', async () => {

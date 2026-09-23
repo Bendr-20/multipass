@@ -19,7 +19,7 @@ const COLLECTION = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
 const CANONICAL_REGISTRY = '0x000000006551c19487814612e58FE06813775758';
 const SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee';
 const OWNER = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
-const INSPECTION_PATH = resolve(ROOT, 'deployment-prep/looper-agent-account-base-pre-config-inspection.json');
+const INSPECTION_PATH = resolve(ROOT, 'test/fixtures/looper-agent-account-base-pre-config-inspection.json');
 
 function accountCreatedLog({ tokenId, account, blockNumber = 100, transactionIndex = 1, logIndex = 2 }) {
   const iface = new ethers.Interface([

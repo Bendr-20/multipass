@@ -6,6 +6,7 @@ import {
   ACCOUNT_SALT,
   ERC6551_REGISTRY,
   LEGACY_ACCOUNT_IMPLEMENTATION,
+  LOOPERS_COLLECTION,
   buildLooperAccountRuntimeCode,
   buildPolicyModuleTransaction,
   buildEthSendTransaction,
@@ -71,6 +72,12 @@ function snapshot(overrides = {}) {
     registry: ERC6551_REGISTRY,
     implementation,
     salt: ACCOUNT_SALT,
+    collectionRegistry: ERC6551_REGISTRY,
+    collectionImplementation: LEGACY_ACCOUNT_IMPLEMENTATION,
+    collectionSalt: ACCOUNT_SALT,
+    legacyAccount: deriveLooperAccount({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: TOKEN_ID }),
+    legacyRegistryAccount: deriveLooperAccount({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: TOKEN_ID }),
+    account,
     collectionAccount: account,
     registryAccount: account,
     operatorCode: '0x',
@@ -92,6 +99,10 @@ function snapshot(overrides = {}) {
     policyModuleApproved: false,
     policyModuleCodehashMatches: false,
     policyEvidenceRead: true,
+    accountOwner: OWNER,
+    accountTokenChainId: 8453,
+    accountTokenContract: LOOPERS_COLLECTION,
+    accountTokenId: TOKEN_ID,
     state: '0',
     nativeWei: '1000',
     tokens: [{ contract: '0x5555555555555555555555555555555555555555', symbol: 'CRED', decimals: 18, balanceBaseUnits: '25' }],
@@ -862,21 +873,35 @@ test('ownership transfer and config drift clear write capability while retaining
   const drift = controllerFixture({ snapshots: [snapshot({ implementation: '0x6666666666666666666666666666666666666666' })] });
   const drifted = await drift.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(drifted.mode, 'read_only');
-  assert.equal(drifted.reason, 'implementation_mismatch');
+  assert.equal(drifted.reason, 'config_drift');
 
   const configDrift = controllerFixture({ snapshots: [snapshot({ registry: ZERO_ADDRESS })] });
   assert.equal((await configDrift.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).reason, 'config_drift');
 });
 
-test('legacy configured account is surfaced read-only and never offered activation', async () => {
-  const legacy = deployedSnapshot({
-    implementation: LEGACY_ACCOUNT_IMPLEMENTATION,
-  });
-  const f = controllerFixture({ snapshots: [legacy] });
+test('a transfer changes direct reviewed account authority without changing its NFT binding', async () => {
+  const before = deployedSnapshot();
+  const after = deployedSnapshot({ owner: NEXT_OWNER, accountOwner: NEXT_OWNER });
+  const f = controllerFixture({ snapshots: [before, after, after] });
+  assert.equal((await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).mode, 'active');
+  const moved = await f.controller.refresh();
+  assert.equal(moved.reason, 'owner_changed');
+  const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: NEXT_OWNER });
+  assert.equal(selected.mode, 'active');
+  assert.equal(selected.account, before.account);
+  const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  assert.equal(prepared.transaction.from, getAddress(NEXT_OWNER));
+  assert.equal(prepared.transaction.to, before.account);
+});
+
+test('legacy configured account stays visible while the distinct reviewed account remains writable', async () => {
+  const direct = deployedSnapshot();
+  const f = controllerFixture({ snapshots: [direct] });
   const result = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
-  assert.equal(result.mode, 'legacy_read_only');
-  assert.equal(result.legacyAccount, legacy.collectionAccount);
-  await assert.rejects(f.controller.prepareActivation(), /legacy|inactive/i);
+  assert.equal(result.mode, 'active');
+  assert.equal(result.account, direct.account);
+  assert.equal(result.legacyAccount, direct.legacyAccount);
+  assert.notEqual(result.account, result.legacyAccount);
 });
 
 test('read-only agent context is owner scoped and excludes attempts, calldata and capabilities', async () => {
@@ -955,6 +980,11 @@ test('malformed or contradictory runtime and policy evidence never enables owner
     { ...active, implementationRuntimeSha256: REGISTRY_HASH },
     { ...active, accountRuntimeSha256: RUNTIME_HASH },
     { ...active, moduleRegistryRuntimeSha256: RUNTIME_HASH },
+    { ...active, collectionImplementation: IMPLEMENTATION },
+    { ...active, legacyAccount: active.account },
+    { ...active, registryAccount: active.legacyAccount },
+    { ...active, accountOwner: NEXT_OWNER },
+    { ...active, accountTokenChainId: 1 },
     { ...active, policyModuleOwner: OWNER },
     {
       ...active,

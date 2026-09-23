@@ -63,6 +63,7 @@ test('selected Looper renders an active compact operator wallet under its name',
         tokenId: '1',
         owner: '0x1234567890aBcdef1234567890aBcdef12345678',
         account: '0x9999999999999999999999999999999999999999',
+        legacyAccount: '0x8888888888888888888888888888888888888888',
         nativeWei: '1250000000000000000',
         tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
@@ -86,6 +87,8 @@ test('selected Looper renders an active compact operator wallet under its name',
   assert.ok(details);
   assert.match(details.querySelector('summary')?.textContent ?? '', /Wallet details/i);
   assert.equal(details.querySelector('a')?.href, 'https://basescan.org/address/0x9999999999999999999999999999999999999999');
+  assert.match(details.textContent, /Legacy collection TBA.*read-only evidence/i);
+  assert.match(details.textContent, /0x8888888888888888888888888888888888888888/i);
   assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
   assert.ok(details.querySelector('[data-action="send-looper-agent-wallet"]'));
   const identityBody = root.querySelector('.console-identity-body');

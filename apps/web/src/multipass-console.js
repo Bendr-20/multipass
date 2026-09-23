@@ -533,6 +533,13 @@ function renderLooperAgentWallet(wallet) {
               <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
             </div>
           ` : ''}
+          ${wallet.legacyAccount && wallet.legacyAccount.toLowerCase() !== String(wallet.account ?? '').toLowerCase() ? `
+            <div class="console-looper-wallet-address console-looper-wallet-legacy-address">
+              <span>Legacy collection TBA - read-only evidence</span>
+              <code>${escapeHtml(wallet.legacyAccount)}</code>
+              <a href="https://basescan.org/address/${escapeAttribute(wallet.legacyAccount)}" target="_blank" rel="noopener noreferrer">View legacy TBA on BaseScan</a>
+            </div>
+          ` : ''}
           <div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
             <span>${escapeHtml(nativeBalance)}</span>
             ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
@@ -587,14 +594,15 @@ function formatWalletUnits(value, decimals) {
 function formatWalletReason(reason) {
   const labels = {
     legacy_implementation: 'The configured legacy account is visible but cannot execute.',
-    config_drift: 'Wallet writes are disabled until the reviewed account implementation is configured.',
+    config_drift: 'Wallet writes are disabled because frozen collection or direct account evidence drifted.',
     release_unset: 'Policy release evidence is not configured. This wallet is read-only.',
     implementation_mismatch: 'The selected implementation does not match the reviewed release.',
     proxy_mismatch: 'The selected account is not the canonical reviewed proxy.',
     registry_mismatch: 'The module registry does not match the reviewed release.',
     malformed_policy: 'Permission evidence is incomplete or contradictory. This wallet is read-only.',
     module_blocked: 'The configured permission module is not currently approved.',
-    ownership_mismatch: 'The configured permission module belongs to a previous owner.',
+    ownership_mismatch: 'The reviewed account authority does not match the current Looper owner.',
+    binding_mismatch: 'The reviewed account is not bound to this Base Looper token.',
     permission_hook_paused: 'Permission hooks are paused. Owner recovery remains available.',
     policy_drift: 'Policy evidence changed. Preview the recovery again.',
     unsupported_wallet: 'Smart or delegated wallets are read-only in this release.',

@@ -13,13 +13,13 @@ export const LOOPERS_COLLECTION = getAddress('0x1649CD37f4748807b4882FC48765bA0B
 export const ERC6551_REGISTRY = getAddress('0x000000006551c19487814612e58FE06813775758');
 export const ACCOUNT_SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee';
 export const LEGACY_ACCOUNT_IMPLEMENTATION = getAddress('0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF');
-export const RELEASED_ACCOUNT_IMPLEMENTATION = getAddress('0xc998EFE23D48d5a2B26CEeec5E62158B2E79966C');
-export const RELEASED_ACCOUNT_RUNTIME_SHA256 = '0x2eaf357d9163ada271718f6c46bc1831f008ddb7bbd968f9ab224af9d50560d2';
-// Task 6 replaces these only after the final two-contract artifact is reviewed.
-export const REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION = null;
-export const REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256 = null;
-export const REVIEWED_POLICY_MODULE_REGISTRY = null;
-export const REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256 = null;
+export const RELEASED_ACCOUNT_IMPLEMENTATION = getAddress('0xf192f350427c8F58bC28e78b1e6Af164279F486e');
+export const RELEASED_ACCOUNT_RUNTIME_SHA256 = '0x85adc244e07b43ac687b1ac9f4f245089678fa787adb4fdcb95d4402b0d8a43c';
+export const REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION = RELEASED_ACCOUNT_IMPLEMENTATION;
+export const REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH = 6096;
+export const REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256 = RELEASED_ACCOUNT_RUNTIME_SHA256;
+export const REVIEWED_POLICY_MODULE_REGISTRY = getAddress('0x4e4df0DEa80e389802f819D95AAEe4CB004D3E1a');
+export const REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256 = '0xc94fcea5df503e97852633cbe76e0ee76260595f3f25c2fdbbf99ef6aec253bb';
 export const ZERO_ADDRESS = getAddress('0x0000000000000000000000000000000000000000');
 export const BASE_EXPLORER = 'https://basescan.org';
 export const CONFIGURED_TOKENS = Object.freeze([
@@ -78,6 +78,24 @@ export const ACCOUNT_EXECUTE_ABI = Object.freeze([
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: 'state', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'owner',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: 'owner', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'token',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      { name: 'chainId', type: 'uint256' },
+      { name: 'tokenContract', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
+    ],
   },
 ]);
 

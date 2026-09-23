@@ -18,6 +18,7 @@ import {
   REGISTRY_ABI,
   MODULE_REGISTRY_ABI,
   REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+  REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH,
   REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
   REVIEWED_POLICY_MODULE_REGISTRY,
   REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
@@ -115,8 +116,16 @@ test('wallet constants preserve current legacy account as read-only evidence onl
   assert.equal(ERC6551_REGISTRY, '0x000000006551c19487814612e58FE06813775758');
   assert.equal(ACCOUNT_SALT, '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee');
   assert.equal(LEGACY_ACCOUNT_IMPLEMENTATION, '0x1e3787bC9B2E6D7763de1DcCF10E9d062f3b43bF');
-  assert.equal(RELEASED_ACCOUNT_IMPLEMENTATION, '0xc998EFE23D48d5a2B26CEeec5E62158B2E79966C');
-  assert.equal(RELEASED_ACCOUNT_RUNTIME_SHA256, '0x2eaf357d9163ada271718f6c46bc1831f008ddb7bbd968f9ab224af9d50560d2');
+  assert.equal(RELEASED_ACCOUNT_IMPLEMENTATION, '0xf192f350427c8F58bC28e78b1e6Af164279F486e');
+  assert.equal(RELEASED_ACCOUNT_RUNTIME_SHA256, '0x85adc244e07b43ac687b1ac9f4f245089678fa787adb4fdcb95d4402b0d8a43c');
+  assert.equal(REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION, RELEASED_ACCOUNT_IMPLEMENTATION);
+  assert.equal(REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH, 6096);
+  assert.equal(REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256, RELEASED_ACCOUNT_RUNTIME_SHA256);
+  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY, '0x4e4df0DEa80e389802f819D95AAEe4CB004D3E1a');
+  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256, '0xc94fcea5df503e97852633cbe76e0ee76260595f3f25c2fdbbf99ef6aec253bb');
+  const legacy = deriveLooperAccount({ implementation: LEGACY_ACCOUNT_IMPLEMENTATION, tokenId: '617' });
+  const reviewed = deriveLooperAccount({ implementation: REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION, tokenId: '617' });
+  assert.notEqual(reviewed, legacy);
   assert.ok(LOOPERS_ABI.some((entry) => entry.name === 'setERC6551Config'));
 });
 
@@ -134,10 +143,8 @@ test('policy ABIs expose only exact account recovery and registry reads', () => 
   ]);
   assert.equal(ACCOUNT_POLICY_ABI.find((entry) => entry.name === 'setPolicyModule')?.inputs?.[0]?.type, 'address');
   assert.equal(MODULE_REGISTRY_ABI.find((entry) => entry.name === 'approvedModuleCodehash')?.outputs?.[0]?.type, 'bytes32');
-  assert.equal(REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION, null);
-  assert.equal(REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256, null);
-  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY, null);
-  assert.equal(REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256, null);
+  assert.ok(ACCOUNT_EXECUTE_ABI.some((entry) => entry.name === 'owner'));
+  assert.ok(ACCOUNT_EXECUTE_ABI.some((entry) => entry.name === 'token'));
   assert.doesNotMatch(JSON.stringify({ ACCOUNT_POLICY_ABI, MODULE_REGISTRY_ABI }), /executeWithPolicy|grant|session/i);
 });
 

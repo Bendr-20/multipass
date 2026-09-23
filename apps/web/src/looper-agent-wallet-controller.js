@@ -205,8 +205,8 @@ export function createLooperAgentWalletController({
             record.account,
           );
         }
-        expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, evidence.collectionAccount);
-        if (!sameAddress(record.account, evidence.collectionAccount)
+        expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, evidence.account);
+        if (!sameAddress(record.account, evidence.account)
           || stableJson(record.transaction) !== stableJson(expectedTransaction)
           || stableJson(persisted.transaction) !== stableJson(expectedTransaction)) {
           throw new Error('Prepared Looper wallet transaction is not exact. Preview again.');
@@ -299,7 +299,7 @@ export function createLooperAgentWalletController({
   function savePrepared(kind, transaction, evidence, extra = {}) {
     const account = kind === 'activation'
       ? deriveLooperAccount({ implementation: releasedImplementation, tokenId: selection.tokenId })
-      : evidence.collectionAccount;
+      : evidence.account;
     const id = `${kind}:${normalizeAttemptId(generateAttemptId())}`;
     if (attempts[kind]?.id === id) throw new Error('Looper wallet attempt ID collision.');
     const record = {
@@ -361,10 +361,19 @@ export function createLooperAgentWalletController({
     return {
       chainId: evidence.chainId,
       owner: safeAddress(evidence.owner),
+      collectionRegistry: safeAddress(evidence.collectionRegistry),
+      collectionImplementation: safeAddress(evidence.collectionImplementation),
+      collectionSalt: String(evidence.collectionSalt ?? ''),
+      legacyAccount: safeAddress(evidence.legacyAccount),
+      legacyRegistryAccount: safeAddress(evidence.legacyRegistryAccount),
       registry: safeAddress(evidence.registry),
       salt: String(evidence.salt ?? ''),
-      account: safeAddress(evidence.collectionAccount),
+      account: safeAddress(evidence.account),
       registryAccount: safeAddress(evidence.registryAccount),
+      accountOwner: safeAddress(evidence.accountOwner),
+      accountTokenChainId: String(evidence.accountTokenChainId ?? ''),
+      accountTokenContract: safeAddress(evidence.accountTokenContract),
+      accountTokenId: String(evidence.accountTokenId ?? ''),
       implementation: safeAddress(evidence.implementation),
       implementationCode: canonicalCodeOrNull(evidence.implementationCode),
       implementationRuntimeSha256: normalizeHash(evidence.implementationRuntimeSha256),
@@ -402,22 +411,29 @@ export function createLooperAgentWalletController({
     const base = evidenceToSnapshot(evidence, activeSelection);
     if (evidence.chainId !== BASE_CHAIN_ID) return blocked(base, 'wrong_chain');
     if (!sameAddress(evidence.owner, activeSelection.owner)) return blocked(base, 'owner_changed');
-    if (!sameAddress(evidence.registry, ERC6551_REGISTRY) || evidence.salt !== ACCOUNT_SALT) {
+
+    const expectedLegacyAccount = deriveLooperAccount({
+      implementation: LEGACY_ACCOUNT_IMPLEMENTATION,
+      tokenId: activeSelection.tokenId,
+    });
+    if (!sameAddress(evidence.collectionRegistry, ERC6551_REGISTRY)
+      || !sameAddress(evidence.collectionImplementation, LEGACY_ACCOUNT_IMPLEMENTATION)
+      || evidence.collectionSalt !== ACCOUNT_SALT
+      || !sameAddress(evidence.legacyAccount, expectedLegacyAccount)
+      || !sameAddress(evidence.legacyRegistryAccount, expectedLegacyAccount)) {
       return blocked(base, 'config_drift', 'read_only');
     }
-
-    const implementation = safeAddress(evidence.implementation);
-    if (!implementation) return blocked(base, 'config_drift', 'read_only');
-    const derivedAccount = deriveLooperAccount({ implementation, tokenId: activeSelection.tokenId });
-    const accountAgreement = sameAddress(evidence.collectionAccount, derivedAccount)
-      && sameAddress(evidence.registryAccount, derivedAccount);
-    if (!accountAgreement) return blocked({ ...base, account: derivedAccount }, 'config_drift', 'read_only');
-
-    if (sameAddress(implementation, LEGACY_ACCOUNT_IMPLEMENTATION)) {
-      return { ...base, account: null, legacyAccount: derivedAccount, mode: 'legacy_read_only', reason: 'legacy_implementation', canTransact: false };
-    }
     if (!releasedImplementation || !releasedRuntimeHash || !releasedModuleRegistry || !releasedModuleRegistryRuntimeHash) {
-      return blocked({ ...base, account: derivedAccount }, 'release_unset', 'read_only');
+      return blocked(base, 'release_unset', 'read_only');
+    }
+    const implementation = safeAddress(evidence.implementation);
+    const derivedAccount = deriveLooperAccount({ implementation: releasedImplementation, tokenId: activeSelection.tokenId });
+    if (!sameAddress(evidence.registry, ERC6551_REGISTRY)
+      || evidence.salt !== ACCOUNT_SALT
+      || !sameAddress(implementation, releasedImplementation)
+      || !sameAddress(evidence.account, derivedAccount)
+      || !sameAddress(evidence.registryAccount, derivedAccount)) {
+      return blocked({ ...base, account: derivedAccount }, 'config_drift', 'read_only');
     }
     const implementationCode = canonicalCodeOrNull(evidence.implementationCode);
     const implementationHash = normalizeHash(evidence.implementationRuntimeSha256);
@@ -452,6 +468,14 @@ export function createLooperAgentWalletController({
       || accountHash !== sha256(accountCode)
       || evidence.accountCodeMatches !== true) {
       return blocked(recoveryBase, 'proxy_mismatch', 'read_only');
+    }
+    if (!sameAddress(evidence.accountOwner, activeSelection.owner)) {
+      return blocked(recoveryBase, 'ownership_mismatch', 'read_only', 'ownership-mismatch');
+    }
+    if (String(evidence.accountTokenChainId ?? '') !== String(BASE_CHAIN_ID)
+      || !sameAddress(evidence.accountTokenContract, LOOPERS_COLLECTION)
+      || String(evidence.accountTokenId ?? '') !== activeSelection.tokenId) {
+      return blocked(recoveryBase, 'binding_mismatch', 'read_only');
     }
 
     const module = safeAddress(evidence.policyModule);
@@ -507,8 +531,8 @@ export function createLooperAgentWalletController({
     return {
       tokenId: activeSelection.tokenId,
       owner: activeSelection.owner,
-      account: safeAddress(evidence.collectionAccount),
-      legacyAccount: null,
+      account: safeAddress(evidence.account),
+      legacyAccount: safeAddress(evidence.legacyAccount),
       mode: 'read_only',
       reason: null,
       blockNumber: String(evidence.blockNumber ?? ''),
@@ -818,18 +842,24 @@ export function createLooperAgentWalletController({
 
   function validatePolicyBaseline(baseline) {
     const keys = [
-      'account', 'accountCode', 'accountRuntimeSha256', 'accountCodeMatches', 'approvedModuleCodehash',
+      'account', 'accountCode', 'accountOwner', 'accountRuntimeSha256', 'accountCodeMatches',
+      'accountTokenChainId', 'accountTokenContract', 'accountTokenId', 'approvedModuleCodehash',
       'candidateApprovedModuleCodehash', 'candidatePolicyModule', 'candidatePolicyModuleApproved',
       'candidatePolicyModuleCode', 'candidatePolicyModuleCodehash', 'candidatePolicyModuleCodehashMatches',
-      'candidatePolicyModuleRuntimeSha256', 'chainId', 'implementation', 'implementationCode',
-      'implementationRuntimeSha256', 'moduleRegistry', 'moduleRegistryCode', 'moduleRegistryRuntimeSha256',
+      'candidatePolicyModuleRuntimeSha256', 'chainId', 'collectionImplementation', 'collectionRegistry',
+      'collectionSalt', 'implementation', 'implementationCode', 'implementationRuntimeSha256', 'legacyAccount',
+      'legacyRegistryAccount', 'moduleRegistry', 'moduleRegistryCode', 'moduleRegistryRuntimeSha256',
       'owner', 'policyEpoch', 'policyModule', 'policyModuleApproved', 'policyModuleCode',
       'policyModuleCodehash', 'policyModuleCodehashMatches', 'policyModuleOwner', 'policyModuleRuntimeSha256',
       'registry', 'registryAccount', 'registryPaused', 'salt',
     ];
     if (!isPlainObject(baseline) || !hasExactKeys(baseline, keys) || baseline.chainId !== BASE_CHAIN_ID
-      || baseline.salt !== ACCOUNT_SALT || !canonicalUint(baseline.policyEpoch)) return false;
-    for (const key of ['owner', 'registry', 'account', 'registryAccount', 'implementation', 'moduleRegistry', 'policyModule', 'policyModuleOwner', 'candidatePolicyModule']) {
+      || baseline.salt !== ACCOUNT_SALT || baseline.collectionSalt !== ACCOUNT_SALT
+      || !canonicalUint(baseline.policyEpoch) || !canonicalUint(baseline.accountTokenChainId)
+      || !canonicalUint(baseline.accountTokenId)) return false;
+    for (const key of ['owner', 'collectionRegistry', 'collectionImplementation', 'legacyAccount', 'legacyRegistryAccount',
+      'registry', 'account', 'registryAccount', 'accountOwner', 'accountTokenContract', 'implementation',
+      'moduleRegistry', 'policyModule', 'policyModuleOwner', 'candidatePolicyModule']) {
       if (baseline[key] !== null && canonicalAddress(baseline[key]) !== baseline[key]) return false;
     }
     for (const key of ['implementationCode', 'accountCode', 'moduleRegistryCode', 'policyModuleCode', 'candidatePolicyModuleCode']) {

@@ -18,6 +18,7 @@ import {
   CONFIGURED_TOKENS,
   ERC20_ABI,
   ERC6551_REGISTRY,
+  LEGACY_ACCOUNT_IMPLEMENTATION,
   LOOPERS_ABI,
   LOOPERS_COLLECTION,
   MODULE_REGISTRY_ABI,
@@ -435,7 +436,7 @@ export function createLooperWalletRpcClient({
       reviewedRelease,
     })));
     requireAgreement(snapshots, 'Base wallet snapshots disagree.');
-    if (expectedAccount && !sameAddress(snapshots[0].collectionAccount, expectedAccount)) {
+    if (expectedAccount && !sameAddress(snapshots[0].account, expectedAccount)) {
       throw new Error('Base wallet snapshot does not match the attempt-bound account.');
     }
     return { ...snapshots[0], refreshedAt: new Date().toISOString() };
@@ -532,7 +533,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     functionName,
     args,
   });
-  const [owner, registry, implementation, salt, collectionAccount, operatorCode] = await Promise.all([
+  const [owner, collectionRegistry, collectionImplementation, collectionSalt, legacyAccount, operatorCode] = await Promise.all([
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'ownerOf', [tokenId]),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Registry'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Implementation'),
@@ -540,28 +541,58 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'tokenBoundAccount', [tokenId]),
     request({ origin, method: 'eth_getCode', params: [expectedOwner, anchor.blockRef] }),
   ]);
-  const normalizedImplementation = getAddress(implementation);
-  const rawImplementationCode = await request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.blockRef] });
-  const implementationCode = canonicalCode(rawImplementationCode, 'implementation runtime');
-  const implementationRuntimeSha256 = sha256(implementationCode);
-  const registryAccount = await call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
-    normalizedImplementation,
-    ACCOUNT_SALT,
-    BigInt(BASE_CHAIN_ID),
-    LOOPERS_COLLECTION,
-    tokenId,
-  ]);
-  const normalizedAccount = getAddress(collectionAccount);
-  const [rawAccountCode, nativeBalance] = await Promise.all([
-    request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.blockRef] }),
-    request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.blockRef] }),
-  ]);
-  const accountCode = canonicalCode(rawAccountCode, 'account runtime', { allowEmpty: true });
-  const expectedAccountCode = buildLooperAccountRuntimeCode({ implementation: normalizedImplementation, tokenId });
+  const normalizedCollectionRegistry = getAddress(collectionRegistry);
+  const normalizedCollectionImplementation = getAddress(collectionImplementation);
+  const normalizedLegacyAccount = getAddress(legacyAccount);
+  let legacyRegistryAccount = null;
+  if (sameAddress(normalizedCollectionRegistry, ERC6551_REGISTRY)) {
+    legacyRegistryAccount = getAddress(await call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
+      normalizedCollectionImplementation,
+      collectionSalt,
+      BigInt(BASE_CHAIN_ID),
+      LOOPERS_COLLECTION,
+      tokenId,
+    ]));
+  }
+
+  const normalizedImplementation = reviewedRelease.implementation;
+  const normalizedAccount = normalizedImplementation
+    ? deriveLooperAccount({ implementation: normalizedImplementation, tokenId })
+    : null;
+  let implementationCode = null;
+  let implementationRuntimeSha256 = null;
+  let registryAccount = null;
+  let accountCode = '0x';
+  let nativeBalance = '0x0';
+  let expectedAccountCode = null;
+  if (normalizedImplementation && normalizedAccount) {
+    const [rawImplementationCode, rawRegistryAccount, rawAccountCode, rawNativeBalance] = await Promise.all([
+      request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.blockRef] }),
+      call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
+        normalizedImplementation,
+        ACCOUNT_SALT,
+        BigInt(BASE_CHAIN_ID),
+        LOOPERS_COLLECTION,
+        tokenId,
+      ]),
+      request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.blockRef] }),
+      request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.blockRef] }),
+    ]);
+    implementationCode = canonicalCode(rawImplementationCode, 'implementation runtime');
+    implementationRuntimeSha256 = sha256(implementationCode);
+    registryAccount = getAddress(rawRegistryAccount);
+    accountCode = canonicalCode(rawAccountCode, 'account runtime', { allowEmpty: true });
+    nativeBalance = rawNativeBalance;
+    expectedAccountCode = buildLooperAccountRuntimeCode({ implementation: normalizedImplementation, tokenId });
+  }
   const accountRuntimeSha256 = accountCode === '0x' ? null : sha256(accountCode);
-  const accountCodeMatches = accountCode === '0x' ? null : accountCode === expectedAccountCode;
+  const accountCodeMatches = accountCode === '0x' || expectedAccountCode === null ? null : accountCode === expectedAccountCode;
 
   let state = 0n;
+  let accountOwner = null;
+  let accountTokenChainId = null;
+  let accountTokenContract = null;
+  let accountTokenId = null;
   let moduleRegistry = null;
   let policyModule = null;
   let policyModuleOwner = null;
@@ -586,7 +617,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
 
   const implementationTrusted = reviewedRelease.complete
     && sameAddress(normalizedImplementation, reviewedRelease.implementation)
-    && implementationCode === reviewedRelease.runtimeCode
+    && (!reviewedRelease.runtimeCode || implementationCode === reviewedRelease.runtimeCode)
     && codeByteLength(implementationCode) === reviewedRelease.runtimeByteLength
     && implementationRuntimeSha256 === reviewedRelease.runtimeSha256;
   if (accountCode === '0x' && implementationTrusted) {
@@ -600,13 +631,23 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
   }
   if (accountCode !== '0x' && accountCodeMatches && implementationTrusted) {
-    [state, moduleRegistry, policyModule, policyModuleOwner, policyEpoch] = await Promise.all([
+    let accountToken;
+    [state, accountOwner, accountToken, moduleRegistry, policyModule, policyModuleOwner, policyEpoch] = await Promise.all([
       call(normalizedAccount, ACCOUNT_EXECUTE_ABI, 'state'),
+      call(normalizedAccount, ACCOUNT_EXECUTE_ABI, 'owner'),
+      call(normalizedAccount, ACCOUNT_EXECUTE_ABI, 'token'),
       call(normalizedAccount, ACCOUNT_POLICY_ABI, 'moduleRegistry'),
       call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyModule'),
       call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyModuleOwner'),
       call(normalizedAccount, ACCOUNT_POLICY_ABI, 'policyEpoch'),
     ]);
+    if (!Array.isArray(accountToken) || accountToken.length !== 3) {
+      throw new Error('Base reviewed account token binding evidence is malformed.');
+    }
+    accountOwner = getAddress(accountOwner);
+    accountTokenChainId = BigInt(accountToken[0]).toString();
+    accountTokenContract = getAddress(accountToken[1]);
+    accountTokenId = BigInt(accountToken[2]).toString();
     moduleRegistry = getAddress(moduleRegistry);
     policyModule = getAddress(policyModule);
     policyModuleOwner = getAddress(policyModuleOwner);
@@ -654,26 +695,38 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   }
 
   const tokens = [];
-  for (const token of CONFIGURED_TOKENS) {
-    const balance = await call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount]);
-    tokens.push({ ...token, balanceBaseUnits: BigInt(balance).toString() });
+  if (normalizedAccount) {
+    for (const token of CONFIGURED_TOKENS) {
+      const balance = await call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount]);
+      tokens.push({ ...token, balanceBaseUnits: BigInt(balance).toString() });
+    }
   }
   return {
     chainId: BASE_CHAIN_ID,
     blockNumber: anchor.number,
     blockHash: anchor.hash,
     owner: getAddress(owner),
-    registry: getAddress(registry),
+    collectionRegistry: normalizedCollectionRegistry,
+    collectionImplementation: normalizedCollectionImplementation,
+    collectionSalt,
+    legacyAccount: normalizedLegacyAccount,
+    legacyRegistryAccount,
+    registry: ERC6551_REGISTRY,
     implementation: normalizedImplementation,
     implementationCode,
     implementationRuntimeSha256,
-    salt,
+    salt: ACCOUNT_SALT,
+    account: normalizedAccount,
     collectionAccount: normalizedAccount,
-    registryAccount: getAddress(registryAccount),
+    registryAccount,
     operatorCode: canonicalCode(operatorCode, 'operator runtime', { allowEmpty: true }),
     accountCode,
     accountRuntimeSha256,
     accountCodeMatches,
+    accountOwner,
+    accountTokenChainId,
+    accountTokenContract,
+    accountTokenId,
     state: BigInt(state).toString(),
     nativeWei: BigInt(canonicalHexQuantity(nativeBalance, 'native balance')).toString(),
     tokens,
@@ -840,7 +893,7 @@ function normalizeReleaseConfig(releaseConfig = {}) {
     collectionImplementationRuntimeSha256,
     registryRuntimeByteLength,
     registryRuntimeSha256,
-    complete: Boolean(implementation && exactRuntime && moduleRegistry && moduleRegistryRuntimeSha256),
+    complete: Boolean(implementation && runtimeByteLength && runtimeSha256 && moduleRegistry && moduleRegistryRuntimeSha256),
     canonicalComplete: Boolean(implementation && exactRuntime && moduleRegistry && moduleRegistryRuntimeSha256
       && collectionProxyRuntimeByteLength && collectionProxyRuntimeSha256
       && collectionImplementation && collectionImplementationRuntimeByteLength
@@ -989,7 +1042,18 @@ async function readAccountPreflight(context, input = {}) {
     context, anchor, selection, input.receipt ? 'receipt' : 'readiness', input.signal, input.deadlineMs,
   );
   const { evidence, proxyCode, proxySlot, collectionImplementationCode, registryCode } = complete;
-  if (!sameAddress(evidence.collectionAccount, selection.account)
+  const expectedLegacyAccount = deriveLooperAccount({
+    implementation: LEGACY_ACCOUNT_IMPLEMENTATION,
+    tokenId: selection.tokenId,
+  });
+  if (!sameAddress(evidence.collectionRegistry, ERC6551_REGISTRY)
+    || !sameAddress(evidence.collectionImplementation, LEGACY_ACCOUNT_IMPLEMENTATION)
+    || evidence.collectionSalt !== ACCOUNT_SALT
+    || !sameAddress(evidence.legacyAccount, expectedLegacyAccount)
+    || !sameAddress(evidence.legacyRegistryAccount, expectedLegacyAccount)) {
+    throw new Error('Frozen Looper collection ERC-6551 evidence drifted.');
+  }
+  if (!sameAddress(evidence.account, selection.account)
     || !sameAddress(evidence.registryAccount, selection.account)) throw new Error('Deterministic account readiness disagrees.');
   const expectedRuntime = buildLooperAccountRuntimeCode({ implementation: evidence.implementation, tokenId: selection.tokenId });
   const blockRef = complete.blockRef;
@@ -1010,6 +1074,12 @@ async function readAccountPreflight(context, input = {}) {
   }
   const accountState = evidence.accountCode === '0x' ? 'undeployed'
     : evidence.accountCode === expectedRuntime ? 'active' : 'wrong_runtime';
+  if (accountState === 'active' && (!sameAddress(evidence.accountOwner, evidence.owner)
+    || String(evidence.accountTokenChainId ?? '') !== String(BASE_CHAIN_ID)
+    || !sameAddress(evidence.accountTokenContract, LOOPERS_COLLECTION)
+    || String(evidence.accountTokenId ?? '') !== selection.tokenId)) {
+    throw new Error('Reviewed account ownership or NFT binding evidence disagrees.');
+  }
   const transaction = input.transaction ?? (accountState === 'undeployed' && context.release.implementation
     ? buildActivationTransaction({ owner: selection.owner, implementation: context.release.implementation, tokenId: selection.tokenId })
     : null);
@@ -1050,8 +1120,13 @@ async function readAccountPreflight(context, input = {}) {
       implementation: evidence.implementation,
       salt: evidence.salt,
       ownerOf: evidence.owner,
-      tokenBoundAccount: evidence.collectionAccount,
+      account: evidence.account,
       registryAccount: evidence.registryAccount,
+      collectionRegistry: evidence.collectionRegistry,
+      collectionImplementation: evidence.collectionImplementation,
+      collectionSalt: evidence.collectionSalt,
+      tokenBoundAccount: evidence.legacyAccount,
+      legacyRegistryAccount: evidence.legacyRegistryAccount,
     },
     operatorProfile: evidence.operatorCode === '0x' ? 'eoa' : 'contract_or_delegated',
     accountState,
@@ -1061,7 +1136,10 @@ async function readAccountPreflight(context, input = {}) {
     gasPrice,
     estimatedFeeWei: (BigInt(estimatedGas) * BigInt(gasPrice)).toString(),
     simulationResult,
-    writeReady: sameAddress(evidence.owner, selection.owner) && evidence.operatorCode === '0x' && accountState !== 'wrong_runtime',
+    writeReady: sameAddress(evidence.owner, selection.owner)
+      && (accountState === 'undeployed' || sameAddress(evidence.accountOwner, selection.owner))
+      && evidence.operatorCode === '0x'
+      && accountState !== 'wrong_runtime',
     evidence,
   };
   return deepFreeze(result);

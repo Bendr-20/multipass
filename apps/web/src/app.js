@@ -24,6 +24,7 @@ import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multip
 import {
   CONFIGURED_TOKENS,
   REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+  REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH,
   REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
   REVIEWED_POLICY_MODULE_REGISTRY,
   REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
@@ -71,6 +72,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
   const activeLooperWalletReleaseConfig = looperWalletReleaseConfig ?? {
     implementation: REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
+    runtimeByteLength: REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH,
     runtimeSha256: REVIEWED_POLICY_ACCOUNT_RUNTIME_SHA256,
     moduleRegistry: REVIEWED_POLICY_MODULE_REGISTRY,
     moduleRegistryRuntimeSha256: REVIEWED_POLICY_MODULE_REGISTRY_RUNTIME_SHA256,
