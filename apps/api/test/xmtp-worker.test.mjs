@@ -345,9 +345,78 @@ test('worker env builder maps XMTP runtime defaults without enabling Bankr by ac
   assert.equal(options.env, 'dev');
   assert.equal(options.walletKey, '0xkey');
   assert.equal(options.consoleAgentBankrLlmEnabled, false);
+  assert.equal(options.consoleSkillProposalsEnabled, false);
   assert.equal(options.defaults.agentId, '81');
   assert.equal(options.defaults.tokenId, '81');
   assert.equal(options.defaults.agentName, 'Quigbot');
+});
+
+test('worker env builder accepts only strict skill proposal booleans independently of Bankr chat', () => {
+  const options = buildConsoleXmtpWorkerOptionsFromEnv({
+    MULTIPASS_AGENT_BANKR_LLM_ENABLED: '0',
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'yes',
+  });
+  assert.equal(options.consoleAgentBankrLlmEnabled, false);
+  assert.equal(options.consoleSkillProposalsEnabled, true);
+  assert.throws(
+    () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'on' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED/,
+  );
+});
+
+test('standalone XMTP worker runtime exposes skill metadata only when explicitly enabled', async () => {
+  async function start(skillEnabled) {
+    const stream = {
+      async *[Symbol.asyncIterator]() {},
+      async end() {},
+    };
+    const nodeClient = {
+      inboxId: 'agent-inbox',
+      conversations: {
+        async syncAll() {},
+        async sync() {},
+        async streamAllMessages() { return stream; },
+        async getConversationById() { return null; },
+      },
+    };
+    return startConsoleXmtpWorker({
+      client: nodeClient,
+      xmtpClient: {
+        provider: 'test_xmtp',
+        transport: 'xmtp_group',
+        async publishRoomMessages(input) {
+          return { ...input, transport: 'xmtp_group', adapter: 'test_xmtp', messages: input.messages };
+        },
+      },
+      runtimeRegistry: createLooperRuntimeRegistry(),
+      authorizeLooper: async () => IDENTITY,
+      consoleAgentBankrLlmEnabled: false,
+      consoleSkillProposalsEnabled: skillEnabled,
+      logger: { warn() {}, info() {}, error() {} },
+    });
+  }
+
+  const disabled = await start(false);
+  const disabledResult = await disabled.runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '617',
+    tokenId: '617',
+    message: 'Status?',
+  });
+  assert.equal('capabilities' in disabledResult, false);
+  assert.equal('proposalCandidates' in disabledResult, false);
+  await disabled.stop();
+
+  const enabled = await start(true);
+  const enabledResult = await enabled.runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '617',
+    tokenId: '617',
+    message: 'Status?',
+  });
+  assert.equal(enabledResult.capabilities.skills[0].id, 'bankr');
+  assert.deepEqual(enabledResult.proposalCandidates, []);
+  await enabled.stop();
 });
 
 test('worker consumes supplied Node, publisher, runtime, registry, and authorizer without owning a second client', async () => {

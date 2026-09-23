@@ -67,6 +67,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       apiKey: options.bankrLlmKey,
       model: options.bankrLlmModel,
       fetchImpl: options.fetchImpl ?? fetch,
+      skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
     }) ?? undefined
     : undefined;
 
@@ -98,6 +99,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       memoryClient,
       ...(llmClient ? { llmClient } : {}),
       xmtpClient: publishingClient,
+      skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
     });
 
     if (xmtpEnabled) {
@@ -110,6 +112,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
         logger: options.logger ?? console,
         retryAttempts: options.consoleXmtpRetryAttempts,
         retryDelay: options.consoleXmtpRetryDelay,
+        consoleSkillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
       });
     }
   } catch (error) {

@@ -99,6 +99,7 @@ export async function startConsoleXmtpWorker(options = {}) {
     bankrLlmKey = null,
     bankrLlmModel = null,
     consoleAgentBankrLlmEnabled = false,
+    consoleSkillProposalsEnabled = false,
     retryAttempts = 10,
     retryDelay = 60_000,
   } = options;
@@ -110,9 +111,15 @@ export async function startConsoleXmtpWorker(options = {}) {
   });
   const consoleRuntime = runtime ?? createConsoleAgentRuntime({
     llmClient: consoleAgentBankrLlmEnabled
-      ? createBankrLlmClient({ apiKey: bankrLlmKey, model: bankrLlmModel, fetchImpl }) ?? undefined
+      ? createBankrLlmClient({
+        apiKey: bankrLlmKey,
+        model: bankrLlmModel,
+        fetchImpl,
+        skillProposalsEnabled: consoleSkillProposalsEnabled,
+      }) ?? undefined
       : undefined,
     xmtpClient: publishingClient,
+    skillProposalsEnabled: consoleSkillProposalsEnabled,
   });
   const handler = createConsoleXmtpMessageHandler({
     runtime: consoleRuntime,
@@ -179,6 +186,10 @@ export function buildConsoleXmtpWorkerOptionsFromEnv(env = process.env) {
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
     consoleAgentBankrLlmEnabled: parseBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED),
+    consoleSkillProposalsEnabled: parseStrictOptionalBoolean(
+      env.MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED,
+      'MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED',
+    ) ?? false,
     defaults: {
       agentId: env.MULTIPASS_XMTP_AGENT_ID || 'agent-manager',
       tokenId: env.MULTIPASS_XMTP_TOKEN_ID || env.MULTIPASS_XMTP_AGENT_ID || 'agent-manager',
@@ -224,4 +235,12 @@ function sameCanonicalIdentity(left = {}, right = {}) {
 function parseBoolean(value) {
   const normalized = String(value ?? '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
+function parseStrictOptionalBoolean(value, source) {
+  if (value === undefined || value === null || value === '') return null;
+  const normalized = String(value).toLowerCase();
+  if (['1', 'true', 'yes'].includes(normalized)) return true;
+  if (['0', 'false', 'no'].includes(normalized)) return false;
+  throw new Error(`Invalid boolean for ${source}: ${value}`);
 }

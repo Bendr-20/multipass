@@ -31,6 +31,7 @@ test('parseServerOptions returns safe defaults', () => {
     bankrLlmKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -71,6 +72,7 @@ test('CLI flags override environment values', () => {
       bankrLlmKey: null,
       bankrLlmModel: null,
       consoleAgentBankrLlmEnabled: false,
+      consoleSkillProposalsEnabled: false,
       consoleXmtpEnabled: false,
       consoleXmtpEnv: 'production',
       consoleXmtpWalletKey: null,
@@ -111,6 +113,7 @@ test('parseServerOptions accepts claim management security env', () => {
     bankrLlmKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -187,6 +190,56 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
 
   assert.equal(enabledOptions.bankrLlmKey, 'fallback-key');
   assert.equal(enabledOptions.consoleAgentBankrLlmEnabled, true);
+});
+
+test('parseServerOptions keeps skill proposals independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_AGENT_BANKR_LLM_ENABLED: '1',
+  }).consoleSkillProposalsEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'true',
+  }).consoleSkillProposalsEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: '0',
+  }).consoleSkillProposalsEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED/,
+  );
+});
+
+test('startServer composes the skill proposal flag into production bootstrap independently of Bankr chat', async () => {
+  let bootstrapOptions;
+  const runtime = { async handleMessage() {}, async getThread() { return null; } };
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: true,
+    consoleBootstrapFactory: async (options) => {
+      bootstrapOptions = options;
+      return {
+        ownedAgentLoader: async () => [],
+        publicClients: [],
+        authorizeLooper: async () => ({}),
+        runtimeRegistry: {},
+        publishingClient: {},
+        runtime,
+        async stopWorker() {},
+        async closeClient() {},
+      };
+    },
+    apiFactory: () => ({
+      async handleRequest() { return new Response('{}', { status: 200 }); },
+    }),
+  });
+  try {
+    assert.equal(bootstrapOptions.consoleAgentBankrLlmEnabled, false);
+    assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, true);
+  } finally {
+    await server.close();
+  }
 });
 
 test('startServer can advertise a public base URL while listening locally', async () => {

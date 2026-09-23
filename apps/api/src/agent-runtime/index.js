@@ -3,6 +3,7 @@ import {
   createSibylMemoryStore,
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
+import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
 import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
@@ -17,7 +18,9 @@ export function createConsoleAgentRuntime({
   signalProvider = createLocalSignalProvider(),
   xmtpClient = createDeferredXmtpAgentClient(),
   now = () => new Date().toISOString(),
+  skillProposalsEnabled = false,
 } = {}) {
+  const capabilities = skillProposalsEnabled ? getConsoleSkillCatalog() : null;
   return {
     async getThread(input = {}) {
       const wallet = requireWallet(input.wallet);
@@ -70,6 +73,7 @@ export function createConsoleAgentRuntime({
         signals: [],
         missions: [],
         proposals: [],
+        ...(skillProposalsEnabled ? { capabilities, proposalCandidates: [] } : {}),
       };
     },
 
@@ -109,6 +113,7 @@ export function createConsoleAgentRuntime({
       }
 
       const agentMessages = [];
+      const participantResponses = [];
       for (const participant of room.participants.filter((entry) => entry.kind !== 'operator')) {
         const llm = await llmClient.generate({
           profile: createParticipantProfile(profile, participant, room),
@@ -121,7 +126,7 @@ export function createConsoleAgentRuntime({
           history: priorMessages,
           walletContext,
         });
-        agentMessages.push(createThreadMessage({
+        const agentMessage = createThreadMessage({
           id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
           role: 'agent',
           text: llm.text,
@@ -130,7 +135,15 @@ export function createConsoleAgentRuntime({
           inferenceProvider: llm.provider,
           senderLabel: participant.displayName,
           participantId: participant.participantId,
-        }));
+        });
+        agentMessages.push(agentMessage);
+        if (skillProposalsEnabled) {
+          participantResponses.push({
+            participantId: participant.participantId,
+            skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, capabilities),
+            transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
+          });
+        }
       }
 
       const shouldPublishHumanMessage = input.publishHumanMessage !== false;
@@ -148,6 +161,12 @@ export function createConsoleAgentRuntime({
       const threadBatch = shouldPublishHumanMessage
         ? publishedMessages
         : [userMessage, ...publishedMessages];
+      const publishedAgentMessages = shouldPublishHumanMessage
+        ? publishedMessages.slice(1)
+        : publishedMessages;
+      const proposalCandidates = skillProposalsEnabled
+        ? bindProposalCandidates(participantResponses, publishedAgentMessages, capabilities)
+        : null;
 
       const threadMessages = await memoryClient.appendThread({
         namespace,
@@ -179,8 +198,64 @@ export function createConsoleAgentRuntime({
         signals,
         missions: deriveMissions(message, savedMemory),
         proposals: deriveProposals({ message, signals, room }),
+        ...(skillProposalsEnabled ? { capabilities, proposalCandidates } : {}),
       };
     },
+  };
+}
+
+function normalizeRuntimeSkillRefs(value, catalog) {
+  if (!Array.isArray(value)) return [];
+  const knownSkills = new Set(catalog.skills.map((skill) => skill.id));
+  const seen = new Set();
+  const refs = [];
+  for (const ref of value) {
+    if (typeof ref !== 'string' || Buffer.byteLength(ref, 'utf8') > 32 || !knownSkills.has(ref) || seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push(ref);
+    if (refs.length === 4) break;
+  }
+  return refs;
+}
+
+function bindProposalCandidates(participantResponses, publishedAgentMessages, catalog) {
+  const enabledBySkill = new Map(catalog.skills.map((skill) => [skill.id, new Set(skill.enabledCapabilities)]));
+  const bound = [];
+  for (let participantIndex = 0; participantIndex < participantResponses.length; participantIndex += 1) {
+    const response = participantResponses[participantIndex];
+    const message = publishedAgentMessages[participantIndex];
+    const sourceMessageId = String(message?.id ?? '').trim();
+    if (!sourceMessageId) continue;
+    for (const [sourceOrdinal, value] of response.transferCandidates.entries()) {
+      const candidate = normalizeRuntimeTransferCandidate(value, response.skillRefs, enabledBySkill);
+      if (!candidate) continue;
+      bound.push({
+        ...candidate,
+        sourceMessageId,
+        participantId: response.participantId,
+        sourceOrdinal,
+        skillRefs: [...response.skillRefs],
+      });
+    }
+  }
+  return bound;
+}
+
+function normalizeRuntimeTransferCandidate(value, skillRefs, enabledBySkill) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!skillRefs.includes(value.skill) || !enabledBySkill.get(value.skill)?.has('propose_transfer')) return null;
+  if (!['native', 'erc20'].includes(value.assetType)) return null;
+  if (value.assetType === 'native' && value.assetContract !== null) return null;
+  if (value.assetType === 'erc20' && typeof value.assetContract !== 'string') return null;
+  if (typeof value.recipient !== 'string' || typeof value.amountBaseUnits !== 'string' || typeof value.rationale !== 'string') return null;
+  if (Buffer.byteLength(value.rationale, 'utf8') > 512) return null;
+  return {
+    skill: value.skill,
+    assetType: value.assetType,
+    assetContract: value.assetContract,
+    recipient: value.recipient,
+    amountBaseUnits: value.amountBaseUnits,
+    rationale: value.rationale,
   };
 }
 

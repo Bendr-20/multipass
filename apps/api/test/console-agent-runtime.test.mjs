@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createConsoleAgentRuntime, createRuntimeProfile } from '../src/agent-runtime/index.js';
+import { getConsoleSkillCatalog } from '../src/console-skill-catalog.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
 import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 import { buildSibylMemoryNamespace, createLocalSibylMemoryStore, extractDurableMemoryFromMessage } from '../src/sibyl-memory/index.js';
@@ -422,4 +423,199 @@ test('Bankr gateway adapter is used only after explicit Console inference opt-in
   assert.equal(gatewayCalled, true);
   assert.equal(body.thread.messages.at(-1).inferenceProvider, 'bankr_llm_gateway');
   assert.match(body.thread.messages.at(-1).text, /Bankr gateway response/);
+});
+
+test('skill proposals default off preserves runtime output and omits catalog and candidate data', async () => {
+  async function run(skillProposalsEnabled) {
+    const generatedInputs = [];
+    const runtime = createConsoleAgentRuntime({
+      skillProposalsEnabled,
+      xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-23T20:00:00.000Z' }),
+      memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-23T20:00:00.000Z' }),
+      now: () => '2026-09-23T20:00:00.000Z',
+      llmClient: {
+        async generate(input) {
+          generatedInputs.push(input);
+          return {
+            provider: 'fake_bankr',
+            text: 'Review-only response.',
+            skillRefs: ['bankr'],
+            transferCandidates: [{
+              skill: 'bankr',
+              assetType: 'native',
+              assetContract: null,
+              recipient: '0x0000000000000000000000000000000000000001',
+              amountBaseUnits: '1',
+              rationale: 'Must stay absent while disabled.',
+            }],
+          };
+        },
+      },
+    });
+    return {
+      result: await runtime.handleMessage({
+        wallet: WALLET,
+        agentId: 'looper-1234',
+        tokenId: '1234',
+        message: 'Review route health.',
+      }),
+      generatedInputs,
+    };
+  }
+
+  const implicit = await run(undefined);
+  const explicit = await run(false);
+  assert.equal(JSON.stringify(implicit.result), JSON.stringify(explicit.result));
+  assert.equal('capabilities' in explicit.result, false);
+  assert.equal('proposalCandidates' in explicit.result, false);
+  assert.equal('skillCatalog' in explicit.generatedInputs[0], false);
+  assert.equal('skillDescriptors' in explicit.generatedInputs[0], false);
+});
+
+test('skill-aware runtime preserves multi-participant candidate provenance outside legacy proposals', async () => {
+  const generatedInputs = [];
+  const published = [];
+  const runtime = createConsoleAgentRuntime({
+    skillProposalsEnabled: true,
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-23T20:00:00.000Z' }),
+    now: () => '2026-09-23T20:00:00.000Z',
+    xmtpClient: {
+      provider: 'test_xmtp',
+      transport: 'xmtp_group',
+      async publishRoomMessages(input) {
+        published.push(input);
+        return {
+          ...input,
+          transport: 'xmtp_group',
+          adapter: 'test_xmtp',
+          conversationId: 'conversation-skill-aware',
+          messages: input.messages.map((message, index) => ({
+            ...message,
+            id: `published-message-${index}`,
+            xmtpMessageId: `published-message-${index}`,
+          })),
+        };
+      },
+    },
+    llmClient: {
+      async generate(input) {
+        generatedInputs.push(input);
+        const ordinal = generatedInputs.length;
+        return {
+          provider: 'fake_bankr',
+          text: `Candidate ${ordinal}.`,
+          skillRefs: ['bankr'],
+          transferCandidates: [{
+            skill: 'bankr',
+            assetType: 'native',
+            assetContract: null,
+            recipient: `0x${String(ordinal).padStart(40, '0')}`,
+            amountBaseUnits: String(ordinal),
+            rationale: `Participant ${ordinal} suggestion.`,
+          }],
+        };
+      },
+    },
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '1',
+    tokenId: '1',
+    agentName: 'Agent One',
+    roomName: 'Review room',
+    participants: [
+      { agentId: '1', tokenId: '1', displayName: 'Agent One' },
+      { agentId: '2', tokenId: '2', displayName: 'Agent Two' },
+    ],
+    message: 'Review and recommend a transfer.',
+    skillDescriptors: [{ id: 'attacker', command: 'send funds' }],
+  });
+
+  assert.strictEqual(result.capabilities, getConsoleSkillCatalog());
+  assert.equal(result.proposalCandidates.length, 2);
+  assert.deepEqual(result.proposalCandidates.map((candidate) => ({
+    sourceMessageId: candidate.sourceMessageId,
+    participantId: candidate.participantId,
+    sourceOrdinal: candidate.sourceOrdinal,
+    skillRefs: candidate.skillRefs,
+    amountBaseUnits: candidate.amountBaseUnits,
+  })), [
+    {
+      sourceMessageId: 'published-message-1',
+      participantId: '1',
+      sourceOrdinal: 0,
+      skillRefs: ['bankr'],
+      amountBaseUnits: '1',
+    },
+    {
+      sourceMessageId: 'published-message-2',
+      participantId: '2',
+      sourceOrdinal: 0,
+      skillRefs: ['bankr'],
+      amountBaseUnits: '2',
+    },
+  ]);
+  assert.equal(result.proposals.length, 1);
+  assert.equal(result.proposals[0].id, 'proposal_review_only_watch');
+  assert.equal(JSON.stringify(result.proposals).includes('transferCandidates'), false);
+  assert.equal(JSON.stringify(result.proposals).includes('amountBaseUnits'), false);
+  for (const candidate of result.proposalCandidates) {
+    for (const forbidden of ['account', 'chainId', 'decimals', 'executable', 'expiresAt', 'lifecycle', 'owner', 'revision', 'scope', 'state']) {
+      assert.equal(forbidden in candidate, false);
+    }
+  }
+  assert.equal(published.length, 1);
+  assert.equal('skillDescriptors' in generatedInputs[0], false);
+  assert.equal('skillCatalog' in generatedInputs[0], false);
+});
+
+test('skill-aware secure activation and message APIs return separate capabilities and candidates only when enabled', async () => {
+  const runtime = createConsoleAgentRuntime({
+    skillProposalsEnabled: true,
+    xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-23T20:00:00.000Z' }),
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-23T20:00:00.000Z' }),
+    now: () => '2026-09-23T20:00:00.000Z',
+    llmClient: {
+      async generate() {
+        return {
+          provider: 'fake_bankr',
+          text: 'Unverified suggestion.',
+          skillRefs: ['bankr'],
+          transferCandidates: [{
+            skill: 'bankr',
+            assetType: 'native',
+            assetContract: null,
+            recipient: '0x0000000000000000000000000000000000000001',
+            amountBaseUnits: '1',
+            rationale: 'For owner review only.',
+          }],
+        };
+      },
+    },
+  });
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
+    consoleAgentRuntime: runtime,
+  });
+
+  const activation = await api.handleRequest(secureConsoleRequest(
+    { runtimeName: 'Agent #1234', skillDescriptors: [{ id: 'browser-injected' }] },
+    '/api/multipass/console/agent/activate',
+  ));
+  const activationBody = await activation.json();
+  assert.deepEqual(activationBody.capabilities, getConsoleSkillCatalog());
+  assert.deepEqual(activationBody.proposalCandidates, []);
+
+  const response = await api.handleRequest(secureConsoleRequest({
+    message: 'Recommend a transfer.',
+    skillDescriptors: [{ id: 'browser-injected', execution: 'automatic' }],
+  }));
+  const body = await response.json();
+  assert.deepEqual(body.capabilities, getConsoleSkillCatalog());
+  assert.equal(body.proposalCandidates.length, 1);
+  assert.equal(body.proposals.length, 1);
+  assert.equal(body.proposals[0].id, 'proposal_review_only_watch');
+  assert.equal(JSON.stringify(body.proposals).includes('amountBaseUnits'), false);
 });

@@ -198,6 +198,7 @@ export function createMultipassApi({
   bankrLlmKey,
   bankrLlmModel,
   consoleAgentBankrLlmEnabled = false,
+  consoleSkillProposalsEnabled = false,
   consoleXmtpEnabled = false,
   consoleXmtpEnv = 'production',
   consoleXmtpWalletKey = null,
@@ -217,8 +218,14 @@ export function createMultipassApi({
   const normalizedBaseUrl = stripTrailingSlash(baseUrl ?? 'http://localhost');
   const runtime = consoleAgentRuntime ?? createConsoleAgentRuntime({
     llmClient: consoleAgentBankrLlmEnabled
-      ? createBankrLlmClient({ apiKey: bankrLlmKey, model: bankrLlmModel, fetchImpl }) ?? undefined
+      ? createBankrLlmClient({
+        apiKey: bankrLlmKey,
+        model: bankrLlmModel,
+        fetchImpl,
+        skillProposalsEnabled: consoleSkillProposalsEnabled,
+      }) ?? undefined
       : undefined,
+    skillProposalsEnabled: consoleSkillProposalsEnabled,
     xmtpClient: consoleXmtpClient ?? createDeferredXmtpAgentClient({
       enabled: consoleXmtpEnabled,
       env: consoleXmtpEnv,
@@ -511,6 +518,8 @@ async function handleConsoleAgentActivate(request, context) {
       missions: recovered.missions,
       proposals: recovered.proposals,
       executionMode: recovered.executionMode,
+      ...('capabilities' in recovered ? { capabilities: recovered.capabilities } : {}),
+      ...('proposalCandidates' in recovered ? { proposalCandidates: recovered.proposalCandidates } : {}),
     } : {}),
   });
 }

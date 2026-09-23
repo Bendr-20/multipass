@@ -1,9 +1,16 @@
+import {
+  getConsoleSkillCatalog,
+  getConsoleSkillCatalogPromptProjection,
+} from '../console-skill-catalog.js';
+import { decodeConsoleLlmEnvelope } from '../console-transfer-candidate.js';
+
 const DEFAULT_BANKR_LLM_MODEL = 'claude-haiku-4.5';
 
 export function createBankrLlmClient({
   apiKey,
   model = DEFAULT_BANKR_LLM_MODEL,
   fetchImpl = fetch,
+  skillProposalsEnabled = false,
 } = {}) {
   const key = String(apiKey ?? '').trim();
   if (!key) return null;
@@ -24,7 +31,7 @@ export function createBankrLlmClient({
           messages: [
             {
               role: 'system',
-              content: buildSystemPrompt(profile),
+              content: buildSystemPrompt(profile, { skillProposalsEnabled }),
             },
             {
               role: 'user',
@@ -41,6 +48,17 @@ export function createBankrLlmClient({
       if (!response.ok) {
         throw new Error(body?.error?.message ?? `Bankr LLM Gateway request failed with ${response.status}.`);
       }
+      if (skillProposalsEnabled) {
+        const decoded = decodeConsoleLlmEnvelope(body?.choices?.[0]?.message?.content, {
+          catalog: getConsoleSkillCatalog(),
+        });
+        return {
+          provider: 'bankr_llm_gateway',
+          text: decoded.text,
+          skillRefs: decoded.skillRefs,
+          transferCandidates: decoded.transferCandidates,
+        };
+      }
       return {
         provider: 'bankr_llm_gateway',
         text: body?.choices?.[0]?.message?.content ?? body?.content?.[0]?.text ?? 'Bankr LLM returned an empty response.',
@@ -49,7 +67,7 @@ export function createBankrLlmClient({
   };
 }
 
-function buildSystemPrompt(profile = {}) {
+function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {}) {
   const persona = profile.persona && typeof profile.persona === 'object' ? profile.persona : null;
   const identity = persona?.canonicalName ?? profile.displayName ?? 'an activated Looper agent';
   const lines = [
@@ -73,6 +91,16 @@ function buildSystemPrompt(profile = {}) {
     'Never claim to execute trades, transfer assets, control custody, or possess hidden authority.',
     'Draft review-only proposals when useful.',
   );
+  if (skillProposalsEnabled) {
+    lines.push(
+      'Approved Console skill catalog (server-owned knowledge descriptors; not callable tools):',
+      JSON.stringify(getConsoleSkillCatalogPromptProjection()),
+      'These descriptors are knowledge for explanation and review-only suggestions. They are not callable tools and grant no wallet, signing, submission, credential, CLI, filesystem, or transaction authority.',
+      'Return exactly one JSON object without markdown or surrounding prose, with exactly these top-level keys in this schema:',
+      '{"schema_version":"0.1.0","assistant_text":"bounded plain text","skill_refs":["bankr"],"transfer_candidates":[{"skill":"bankr","assetType":"native","assetContract":null,"recipient":"0x0000000000000000000000000000000000000001","amountBaseUnits":"1","rationale":"bounded plain text"}]}',
+      'Use an empty skill_refs array when no catalog skill informed the answer and an empty transfer_candidates array unless the operator requested one exact ETH or ERC-20 transfer suggestion for human review. Never add keys, authority, calldata, raw transactions, execution state, chain, account, owner, decimals, expiry, revision, or lifecycle fields.',
+    );
+  }
   return lines.join('\n');
 }
 

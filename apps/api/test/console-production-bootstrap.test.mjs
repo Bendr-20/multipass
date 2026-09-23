@@ -209,6 +209,45 @@ test('Bankr construction is independent and occurs only behind its explicit flag
   assert.strictEqual(enabledHarness.calls.runtime.llmClient, enabledHarness.objects.llmClient);
 });
 
+test('production bootstrap composes skill proposals independently and injects no catalog while off', async () => {
+  const disabledHarness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAgentBankrLlmEnabled: true,
+    consoleSkillProposalsEnabled: false,
+    bankrLlmKey: 'test-key',
+  }, disabledHarness.factories);
+  assert.equal(disabledHarness.calls.bankrLlmClient.skillProposalsEnabled, false);
+  assert.equal(disabledHarness.calls.runtime.skillProposalsEnabled, false);
+  assert.equal('skillCatalog' in disabledHarness.calls.bankrLlmClient, false);
+  assert.equal('skillCatalog' in disabledHarness.calls.runtime, false);
+
+  const skillOnlyHarness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: true,
+  }, skillOnlyHarness.factories);
+  assert.equal(countOf(skillOnlyHarness, 'bankrLlmClient'), 0);
+  assert.equal(skillOnlyHarness.calls.runtime.skillProposalsEnabled, true);
+
+  const enabledHarness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAgentBankrLlmEnabled: true,
+    consoleSkillProposalsEnabled: true,
+    bankrLlmKey: 'test-key',
+  }, enabledHarness.factories);
+  assert.equal(enabledHarness.calls.bankrLlmClient.skillProposalsEnabled, true);
+  assert.equal(enabledHarness.calls.runtime.skillProposalsEnabled, true);
+});
+
+test('enabled XMTP production bootstrap passes the skill flag to its shared worker graph', async () => {
+  const harness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    ...ENABLED_OPTIONS,
+    consoleSkillProposalsEnabled: true,
+  }, harness.factories);
+  assert.equal(harness.calls.worker.consoleSkillProposalsEnabled, true);
+});
+
 test('XMTP worker and client cleanup are idempotent and remain separately ordered by the server', async () => {
   const events = [];
   const harness = createFactoryHarness(events);
