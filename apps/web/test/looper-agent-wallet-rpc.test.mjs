@@ -331,7 +331,12 @@ test('anchored Base reader verifies configuration, ownership, account runtime an
   assert.equal(result.policyModuleCodehashMatches, true);
   assert.equal(result.state, '7');
   assert.equal(result.nativeWei, '1000');
-  assert.deepEqual(result.tokens, [{ ...CONFIGURED_TOKENS[0], balanceBaseUnits: '25' }]);
+  assert.deepEqual(result.tokens, [{
+    contract: CONFIGURED_TOKENS[0].address,
+    symbol: CONFIGURED_TOKENS[0].symbol,
+    decimals: CONFIGURED_TOKENS[0].decimals,
+    balanceBaseUnits: '25',
+  }]);
   const stateReads = calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method));
   assert.ok(stateReads.length > 0);
   assert.equal(stateReads.every((call) => {
@@ -499,6 +504,71 @@ test('receipt evidence rejects malformed quantities, statuses, and transaction h
     });
     await assert.rejects(reader.readReceipt({ hash: requestedHash }), mutation.message);
   }
+});
+
+test('fixed requester retries a transient public RPC rate limit', async () => {
+  const baseRequest = requester();
+  let rateLimited = false;
+  let retries = 0;
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      if (!rateLimited) {
+        rateLimited = true;
+        return { ok: false, status: 429, headers: { get: () => null } };
+      }
+      retries += 1;
+      const result = await baseRequest({ origin, method: body.method, params: body.params });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
+      };
+    },
+  });
+
+  const result = await reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  });
+
+  assert.equal(result.account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
+  assert.ok(retries > 0);
+});
+
+test('fixed requester serializes bursty reads per public RPC origin', async () => {
+  const baseRequest = requester();
+  const activeByOrigin = new Map();
+  const maxActiveByOrigin = new Map();
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const active = (activeByOrigin.get(origin) ?? 0) + 1;
+      activeByOrigin.set(origin, active);
+      maxActiveByOrigin.set(origin, Math.max(maxActiveByOrigin.get(origin) ?? 0, active));
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      const body = JSON.parse(options.body);
+      const result = active > 1
+        ? null
+        : await baseRequest({ origin, method: body.method, params: body.params });
+      activeByOrigin.set(origin, active - 1);
+      if (active > 1) return { ok: false, status: 429, headers: { get: () => null } };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
+      };
+    },
+  });
+
+  await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase: 'readiness' });
+
+  assert.deepEqual([...maxActiveByOrigin.values()], [1, 1]);
 });
 
 test('fixed requester rejects noncanonical JSON-RPC envelopes before consuming results', async () => {

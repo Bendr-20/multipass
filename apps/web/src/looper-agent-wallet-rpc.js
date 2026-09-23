@@ -38,6 +38,7 @@ export const BASE_RPC_ORIGINS = Object.freeze([
 ]);
 export const BLOCKSCOUT_ORIGIN = 'https://base.blockscout.com';
 const PUBLICNODE_ORIGIN = 'https://base-rpc.publicnode.com';
+const CONSOLE_RPC_ORIGINS = Object.freeze([BASE_RPC_ORIGINS[1], PUBLICNODE_ORIGIN]);
 const ALL_RPC_ORIGINS = Object.freeze([...BASE_RPC_ORIGINS, PUBLICNODE_ORIGIN]);
 export const RPC_ROUTES = deepFreeze({
   [BASE_RPC_ORIGINS[0]]: ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt'],
@@ -417,7 +418,7 @@ export function createLooperWalletRpcClient({
   releaseConfig,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 } = {}) {
-  const activeRequest = request ?? createFixedRequester(fetchImpl ?? globalThis.fetch);
+  const activeRequest = request ?? createFixedRequester(fetchImpl ?? globalThis.fetch, wait);
   const reviewedRelease = normalizeReleaseConfig(releaseConfig);
   async function readSnapshot({ selection, expectedAccount, phase, receipt, policyModule } = {}) {
     const tokenId = BigInt(String(selection?.tokenId ?? ''));
@@ -425,7 +426,7 @@ export function createLooperWalletRpcClient({
     const anchor = phase === 'receipt'
       ? await canonicalReceiptAnchor(activeRequest, receipt)
       : await canonicalAnchor(activeRequest);
-    const snapshots = await Promise.all(BASE_RPC_ORIGINS.map((origin) => readOriginSnapshot({
+    const snapshots = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => readOriginSnapshot({
       request: activeRequest,
       origin,
       anchor,
@@ -445,7 +446,7 @@ export function createLooperWalletRpcClient({
   async function readReceipt({ hash }) {
     const requestedHash = canonicalHash(hash, 'requested transaction hash');
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      const evidence = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => {
+      const evidence = await Promise.all(CONSOLE_RPC_ORIGINS.map(async (origin) => {
         const [receipt, transaction] = await Promise.all([
           activeRequest({ origin, method: 'eth_getTransactionReceipt', params: [requestedHash] }),
           activeRequest({ origin, method: 'eth_getTransactionByHash', params: [requestedHash] }),
@@ -471,11 +472,11 @@ async function canonicalReceiptAnchor(request, receipt) {
     throw new Error('Canonical receipt block evidence is required.');
   }
   const expectedHash = canonicalHash(receipt?.blockHash, 'receipt block hash');
-  const chainIds = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
+  const chainIds = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
   if (chainIds.some((chainId) => chainId !== '0x2105')) throw new Error('Base RPC chain IDs disagree.');
   const number = BigInt(numberText);
   const tag = `0x${number.toString(16)}`;
-  const blocks = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({
+  const blocks = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => request({
     origin,
     method: 'eth_getBlockByNumber',
     params: [tag, false],
@@ -494,14 +495,14 @@ async function canonicalReceiptAnchor(request, receipt) {
 }
 
 async function canonicalAnchor(request) {
-  const chainIds = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
+  const chainIds = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_chainId', params: [] })));
   if (chainIds.some((chainId) => chainId !== '0x2105')) throw new Error('Base RPC chain IDs disagree.');
-  const heads = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_blockNumber', params: [] })));
+  const heads = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => request({ origin, method: 'eth_blockNumber', params: [] })));
   const number = heads
     .map((head) => BigInt(canonicalHexQuantity(head, 'head block number')))
     .reduce((lowest, head) => head < lowest ? head : lowest);
   const tag = `0x${number.toString(16)}`;
-  const blocks = await Promise.all(BASE_RPC_ORIGINS.map((origin) => request({
+  const blocks = await Promise.all(CONSOLE_RPC_ORIGINS.map((origin) => request({
     origin,
     method: 'eth_getBlockByNumber',
     params: [tag, false],
@@ -698,7 +699,12 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   if (normalizedAccount) {
     for (const token of CONFIGURED_TOKENS) {
       const balance = await call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount]);
-      tokens.push({ ...token, balanceBaseUnits: BigInt(balance).toString() });
+      tokens.push({
+        contract: token.address,
+        symbol: token.symbol,
+        decimals: token.decimals,
+        balanceBaseUnits: BigInt(balance).toString(),
+      });
     }
   }
   return {
@@ -1803,35 +1809,63 @@ function deepFreeze(value) {
   return value;
 }
 
-function createFixedRequester(fetchImpl) {
+function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))) {
   let nextId = 1;
-  return async ({ origin, method, params }) => {
+  const originTails = new Map();
+  const originLastStartedAt = new Map();
+
+  return ({ origin, method, params }) => {
     if (typeof fetchImpl !== 'function') throw new Error('Base RPC fetch is unavailable.');
-    if (!BASE_RPC_ORIGINS.includes(origin)) throw new Error('Unapproved Base RPC origin.');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
+    if (typeof wait !== 'function') throw new Error('Base RPC wait dependency is unavailable.');
+    if (!CONSOLE_RPC_ORIGINS.includes(origin)) throw new Error('Unapproved Base RPC origin.');
+    const previous = originTails.get(origin) ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      const throttleMs = Math.max(0, 125 - (Date.now() - (originLastStartedAt.get(origin) ?? 0)));
+      if (throttleMs > 0) await wait(throttleMs);
+      originLastStartedAt.set(origin, Date.now());
+
       const id = nextId;
       nextId += 1;
-      const response = await fetchImpl(origin, {
-        method: 'POST',
-        redirect: 'error',
-        credentials: 'omit',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`Base RPC failed with ${response.status}.`);
-      const body = await response.json();
-      const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort() : [];
-      if (body?.jsonrpc !== '2.0'
-        || body?.id !== id
-        || keys.join(',') !== 'id,jsonrpc,result') {
-        throw new Error('Base RPC returned an invalid envelope.');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        try {
+          const response = await fetchImpl(origin, {
+            method: 'POST',
+            redirect: 'error',
+            credentials: 'omit',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const retryable = response.status === 429 || response.status >= 500;
+            if (retryable && attempt < 2) {
+              const retryAfter = Number(response.headers?.get?.('retry-after'));
+              const delayMs = Math.min(2_000, Math.max(
+                250 * (attempt + 1),
+                Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.ceil(retryAfter * 1_000) : 0,
+              ));
+              await wait(delayMs);
+              continue;
+            }
+            throw new Error(`Base RPC failed with ${response.status}.`);
+          }
+          const body = await response.json();
+          const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort() : [];
+          if (body?.jsonrpc !== '2.0'
+            || body?.id !== id
+            || keys.join(',') !== 'id,jsonrpc,result') {
+            throw new Error('Base RPC returned an invalid envelope.');
+          }
+          return body.result;
+        } finally {
+          clearTimeout(timeout);
+        }
       }
-      return body.result;
-    } finally {
-      clearTimeout(timeout);
-    }
+      throw new Error('Base RPC retry budget exhausted.');
+    });
+    originTails.set(origin, pending.catch(() => {}));
+    return pending;
   };
 }
