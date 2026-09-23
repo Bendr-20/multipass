@@ -84,7 +84,7 @@
 
 - [ ] **Step 1: Write the failing catalog tests**
 
-Test exact Bankr descriptor keys, recursive freezing, stable canonical SHA-256 version, bounded strings/arrays, and absence of functions, paths, commands, URLs containing credentials, or secret-like fields.
+Test exact Bankr descriptor keys, recursive freezing, stable canonical SHA-256 version, and absence of functions, paths, commands, URLs containing credentials, or secret-like fields. Pin UTF-8 limits: skill ID 32 bytes, name 64, summary 320, at most 8 capabilities of 48 bytes, and at most 8 constraints of 160 bytes.
 
 ```js
 const catalog = getConsoleSkillCatalog();
@@ -107,13 +107,13 @@ Expected: FAIL because `console-skill-catalog.js` does not exist.
 
 - [ ] **Step 3: Implement the minimal catalog**
 
-Export `getConsoleSkillCatalog()` and `getConsoleSkillCatalogPromptProjection()`. Canonicalize with sorted keys before hashing; return recursively frozen plain JSON. Include Bankr’s descriptive capabilities (`market_research`, `portfolio_read`, `transfer`, `swap`, `token_launch`) while enabling only `explain` and `propose_transfer`.
+Export `getConsoleSkillCatalog()` and `getConsoleSkillCatalogPromptProjection()`. Canonicalize with sorted keys before hashing; return recursively frozen plain JSON. Include Bankr’s descriptive capabilities (`market_research`, `portfolio_read`, `transfer`, `swap`, `token_launch`) while enabling only `explain` and `propose_transfer`. The prompt projection is constructed from the closed server constant, not an argument, request body, installed skill, filesystem path, or environment value.
 
 - [ ] **Step 4: Run GREEN and boundary scan**
 
 Run: `node --test apps/api/test/console-skill-catalog.test.mjs`
 
-Expected: PASS with no executable values or secret/path fields.
+Expected: PASS with no executable values or secret/path fields. Tests also prove the exact prompt projection cannot contain request input, API keys, arbitrary descriptor fields, CLI text, or `SKILL.md` content.
 
 - [ ] **Step 5: Commit**
 
@@ -132,7 +132,7 @@ git commit -m "feat: add bounded Console skill catalog"
 
 - [ ] **Step 1: Write RED tests for strict JSON decoding**
 
-Cover duplicate keys at every nesting level, accessors/prototypes, mixed prose plus JSON, trailing bytes, depth/byte/member limits, arrays with holes, and valid escaped strings. The decoder must return plain JSON only.
+Cover duplicate keys at every nesting level, escaped-equivalent duplicate keys, accessors/prototypes, mixed prose plus JSON, trailing bytes, depth/byte/member limits, multibyte overflow, arrays with holes, and valid escaped strings. Reject decoded keys named `__proto__`, `constructor`, or `prototype`; the decoder must return recursively frozen plain JSON only.
 
 ```js
 assert.throws(() => parseStrictJsonObject('{"assistant_text":"a","assistant_text":"b"}'), /duplicate/i);
@@ -148,7 +148,7 @@ Expected: FAIL because the strict decoder is missing.
 
 - [ ] **Step 3: Implement a bounded lexical duplicate-key check, then `JSON.parse`**
 
-Track object frames, decoded string keys, arrays, escapes, and nesting. Reject duplicate decoded keys before calling `JSON.parse`; cap input at 16 KiB, depth at 12, object members at 64, and arrays at 8.
+Track object frames, decoded string keys, arrays, escapes, and nesting. Reject duplicate decoded keys and forbidden prototype keys before calling `JSON.parse`; cap input at 16 KiB measured with `Buffer.byteLength(value, 'utf8')`, depth at 12, object members at 64, and arrays at 8. Accept only string input containing one JSON object with outer whitespace; non-string input is invalid and never coerced.
 
 - [ ] **Step 4: Write candidate schema RED tests**
 
@@ -170,11 +170,11 @@ Accept one exact envelope:
 }
 ```
 
-Reject unknown keys, more than one candidate, fake IDs/status/scope/approval/execution, calldata, router/spender/slippage, signed/fractional/exponent/hex/leading-zero/overflow amounts, unsupported skills, and overlong text. Mixed/malformed output returns bounded text only and zero candidates.
+Reject unknown keys, more than one candidate, fake IDs/status/scope/approval/execution, calldata, router/spender/slippage, signed/fractional/exponent/hex/leading-zero/zero/greater-than-uint256 amounts, the zero recipient, unsupported skills, duplicate or unknown `skill_refs`, native candidates with a contract, contract candidates without a contract, and overlong text. Pin UTF-8 limits: `assistant_text` and malformed fallback text 4,096 bytes, `rationale` 512, skill IDs 32, at most 4 unique skill references, and exactly 0 or 1 transfer candidate. Malformed string content becomes trimmed raw fallback text truncated on a valid UTF-8 boundary with zero skill refs/candidates; empty or non-string content becomes empty text with zero skill refs/candidates.
 
 - [ ] **Step 5: Implement candidate normalization**
 
-Export `decodeConsoleLlmEnvelope(content, { catalog })`. Return `{ text, skillRefs, transferCandidates }`; use viem `getAddress`, canonical unsigned decimal validation, exact key sets, and frozen output. Never assign proposal identity or scope here.
+Export `decodeConsoleLlmEnvelope(content, { catalog })`. Return recursively frozen `{ text, skillRefs, transferCandidates }`; use viem `getAddress`, canonical positive uint256 decimal validation, exact key sets, and closed cross-field rules. Never assign proposal identity, authority, lifecycle state, or scope here.
 
 - [ ] **Step 6: Run focused GREEN**
 
@@ -200,34 +200,55 @@ git commit -m "feat: validate Console transfer candidates"
 **Files:**
 - Modify: `apps/api/src/bankr-llm/index.js`
 - Modify: `apps/api/src/agent-runtime/index.js`
+- Modify: `apps/api/src/index.js`
+- Modify: `apps/api/src/server.js`
+- Modify: `apps/api/src/console-production-bootstrap.js`
+- Modify: `apps/api/src/xmtp-worker/index.js`
+- Modify: `apps/api/src/index.d.ts`
 - Modify: `apps/api/test/bankr-llm.test.mjs`
 - Modify: `apps/api/test/console-agent-runtime.test.mjs`
+- Modify: `apps/api/test/server.test.mjs`
+- Modify: `apps/api/test/console-production-bootstrap.test.mjs`
+- Modify: `apps/api/test/xmtp-worker.test.mjs`
 
-- [ ] **Step 1: Write Bankr prompt and response RED tests**
+- [ ] **Step 1: Write Bankr prompt, provenance, and default-off RED tests**
 
-Assert the system prompt receives only the catalog projection and says descriptors are knowledge, not callable tools. Assert the request asks for the exact envelope and the adapter returns normalized `transferCandidates`; malformed content returns text with no candidates.
+Assert the skill-aware system-prompt section equals the server-owned catalog projection byte-for-byte and says descriptors are knowledge, not callable tools. Prove wallet/message request input, browser fields, API keys, filesystem paths, CLI text, arbitrary descriptor fields, and `SKILL.md` content cannot enter it. Assert the request asks for the exact envelope and the adapter returns normalized `transferCandidates`; malformed content returns text with no candidates.
+
+Add default-off tests proving prompts, API responses, capability metadata, candidates, runtime behavior, and XMTP worker behavior remain byte-for-byte unchanged unless `MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED=true`. Reject malformed flag values. Bankr chat remains controlled independently by its existing flag.
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test apps/api/test/bankr-llm.test.mjs apps/api/test/console-agent-runtime.test.mjs`
+Run:
 
-Expected: FAIL on missing skill context/candidate handling.
+```bash
+node --test \
+  apps/api/test/bankr-llm.test.mjs \
+  apps/api/test/console-agent-runtime.test.mjs \
+  apps/api/test/server.test.mjs \
+  apps/api/test/console-production-bootstrap.test.mjs \
+  apps/api/test/xmtp-worker.test.mjs
+```
 
-- [ ] **Step 3: Extend the Bankr adapter**
+Expected: FAIL on missing feature flag, skill context, candidate handling, and provenance.
 
-Pass `skills` to `generate`, include the catalog projection in the trusted system prompt, request one exact JSON envelope, decode only the message content, and return:
+- [ ] **Step 3: Extend the Bankr adapter behind the default-off flag**
+
+Add `MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED` to server/bootstrap/worker composition with a default of false. When false, do not construct, inject, return, or render catalog/candidate data. When true, pass only the internally constructed prompt projection to `generate`, request one exact JSON envelope, decode only the message content, and return:
 
 ```js
 { provider: 'bankr_llm_gateway', text, skillRefs, transferCandidates }
 ```
 
-Do not add Bankr Agent API, CLI, function-calling tools, credentials, or execution methods.
+Do not accept skill descriptors from the browser or runtime caller and do not dynamically read installed skill files. Do not add Bankr Agent API, CLI, function-calling tools, credentials, or execution methods.
 
-- [ ] **Step 4: Replace text-derived transfer proposals**
+- [ ] **Step 4: Preserve candidate provenance outside legacy proposals**
 
-Keep the existing watch/research proposal path unchanged. Collect candidate arrays from participant responses separately as `proposalCandidates`; do not mark them executable and do not assign scope in the runtime.
+Keep the existing watch/research proposal path unchanged. Collect candidate arrays from participant responses separately as `proposalCandidates`; candidates must never enter the legacy `proposals` array. Bind each candidate to the published agent message ID, participant ID, bounded `skillRefs`, and deterministic source ordinal returned by that exact participant response. Test multi-participant responses and preserve this provenance for Chunk 2's unique source tuple. Do not mark candidates executable or assign chain/account/owner/decimals/expiry/revision/lifecycle scope in the runtime.
 
-- [ ] **Step 5: Run GREEN and regressions**
+Return capability metadata and `proposalCandidates` as separate response fields only when enabled. Skill badges describe catalog knowledge; they must not claim Bankr executed a tool or transaction.
+
+- [ ] **Step 5: Run GREEN and complete API regressions**
 
 Run:
 
@@ -237,15 +258,19 @@ node --test \
   apps/api/test/strict-json-envelope.test.mjs \
   apps/api/test/console-transfer-candidate.test.mjs \
   apps/api/test/bankr-llm.test.mjs \
-  apps/api/test/console-agent-runtime.test.mjs
+  apps/api/test/console-agent-runtime.test.mjs \
+  apps/api/test/server.test.mjs \
+  apps/api/test/console-production-bootstrap.test.mjs \
+  apps/api/test/xmtp-worker.test.mjs
+node --test "apps/api/test/*.test.mjs"
 ```
 
-Expected: PASS; legacy watch proposals remain review-only.
+Expected: PASS; legacy watch proposals remain review-only, and flag-off behavior is unchanged across secure activation, production bootstrap, and the XMTP worker.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/api/src/bankr-llm/index.js apps/api/src/agent-runtime/index.js apps/api/test/bankr-llm.test.mjs apps/api/test/console-agent-runtime.test.mjs
+git add apps/api/src/bankr-llm/index.js apps/api/src/agent-runtime/index.js apps/api/src/index.js apps/api/src/server.js apps/api/src/console-production-bootstrap.js apps/api/src/xmtp-worker/index.js apps/api/src/index.d.ts apps/api/test/bankr-llm.test.mjs apps/api/test/console-agent-runtime.test.mjs apps/api/test/server.test.mjs apps/api/test/console-production-bootstrap.test.mjs apps/api/test/xmtp-worker.test.mjs
 git commit -m "feat: make Console inference skill aware"
 ```
 
@@ -254,16 +279,21 @@ git commit -m "feat: make Console inference skill aware"
 **Files:**
 - Create: `apps/web/src/console-wallet-proposals.js`
 - Create: `apps/web/test/console-wallet-proposals.test.mjs`
+- Create: `apps/web/test/console-agent-thread.test.mjs`
+- Create: `apps/web/scripts/smoke-console-skill-proposal.mjs`
+- Modify: `apps/web/src/app.js`
 - Modify: `apps/web/src/console-agent-thread.js`
 - Modify: `apps/web/src/multipass-console.js`
 - Modify: `apps/web/src/styles.css`
-- Modify: `apps/web/test/console-agent-thread.test.mjs`
+- Modify: `apps/web/test/app.test.mjs`
 - Modify: `apps/web/test/multipass-console.test.mjs`
 - Modify: `apps/web/test/mobile-layout.test.mjs`
 
-- [ ] **Step 1: Write review-card RED tests**
+- [ ] **Step 1: Write candidate-surface and data-flow RED tests**
 
-Render exact full chain/account/owner/recipient/token contract/decimals/base units/formatted amount/expiry/state fields. Treat skill and symbol as presentation only. Assert there is no submit button, editable form, calldata, provider, or generic send-field prefill in Chunk 1.
+Render only an `Unverified transfer suggestion — awaiting server verification` surface containing the model-supplied asset type/contract, recipient, base-unit amount, rationale, skill badge, participant, and source message reference. Never add chain, account, owner, decimals, formatted amount, expiry, revision, or lifecycle state from browser state. Assert the new candidate surface has no proposal control, submit button, editable field, calldata, provider, generic wallet-form prefill, or data/action linkage.
+
+Add app-state tests proving capability metadata and candidates survive the API-to-thread path without entering `proposals`, preserve multi-participant provenance, and are absent when the feature is off.
 
 - [ ] **Step 2: Run RED**
 
@@ -273,43 +303,47 @@ Run:
 node --test \
   apps/web/test/console-wallet-proposals.test.mjs \
   apps/web/test/console-agent-thread.test.mjs \
+  apps/web/test/app.test.mjs \
   apps/web/test/multipass-console.test.mjs \
   apps/web/test/mobile-layout.test.mjs
 ```
 
-Expected: FAIL because canonical transfer cards/capabilities are absent.
+Expected: FAIL because the candidate/capability data flow and safe suggestion surface are absent.
 
-- [ ] **Step 3: Implement frozen browser view-model validation**
+- [ ] **Step 3: Implement frozen unverified-candidate view models**
 
-Validate canonical server proposal payloads with exact keys and frozen output. Do not accept lifecycle authority from DOM fields or data attributes.
+Validate candidate view models with exact keys, provenance, UTF-8 limits, and recursively frozen output. Do not infer authoritative wallet fields or accept lifecycle authority from browser state, DOM fields, or data attributes.
 
-- [ ] **Step 4: Render capabilities and non-executable review cards**
+- [ ] **Step 4: Preserve and render capabilities and candidates**
 
-Show `Understands`, `Can propose`, and `Cannot execute directly`. Render transfer candidates as “Awaiting server verification” until Chunk 2 creates a canonical proposal; no owner action appears yet.
+Update `app.js` to retain the API's separate capabilities and `proposalCandidates` fields instead of dropping them. Show `Understands`, `Can propose`, and `Cannot execute directly` only when the feature-enabled response contains those fields. Render each candidate beside its matching published agent message as `Unverified transfer suggestion — awaiting server verification`; no owner action appears. Skill badges indicate bounded catalog knowledge, not that Bankr called a tool.
 
-- [ ] **Step 5: Add responsive/accessibility styles**
+- [ ] **Step 5: Add scoped responsive styles and real viewport checks**
 
-Use existing warm Console variables. Ensure 320/390/768 px wrapping, full-address break opportunities, visible keyboard focus, minimum 44 px future controls, and no horizontal overflow.
+Use existing warm Console variables. Keep assertions scoped to the new candidate/capability surface because the surrounding Console legitimately contains existing generic wallet forms. Ensure full-address break opportunities and no candidate-surface controls.
+
+Add `smoke-console-skill-proposal.mjs` using the existing Playwright/Chromium pattern and deterministic Console mock state. At 320, 390, and 768 px, assert `scrollWidth <= clientWidth`, the full recipient/contract remain readable, and no candidate control or wallet-form prefill linkage exists.
 
 - [ ] **Step 6: Run Chunk 1 GREEN**
 
-Run the API tests from Task 3 plus the four browser tests above.
+Run the complete API suite from Task 3 plus the five browser tests above.
 
 Expected: PASS.
 
-- [ ] **Step 7: Run the web suite and build**
+- [ ] **Step 7: Run the web suite, build, and browser smoke**
 
 ```bash
 node --test "apps/web/test/*.test.mjs"
 NODE_OPTIONS=--max-old-space-size=1280 pnpm web:build
+CHROMIUM_PATH=/snap/bin/chromium node apps/web/scripts/smoke-console-skill-proposal.mjs
 ```
 
-Expected: all web tests pass; build emits `dist/index.html`, `dist/console/index.html`, and hashed assets.
+Expected: all web tests pass; the build emits `dist/index.html`, `dist/console/index.html`, and hashed assets; real 320/390/768 px checks have no horizontal overflow.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add apps/web/src/console-wallet-proposals.js apps/web/src/console-agent-thread.js apps/web/src/multipass-console.js apps/web/src/styles.css apps/web/test/console-wallet-proposals.test.mjs apps/web/test/console-agent-thread.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/mobile-layout.test.mjs
+git add apps/web/src/console-wallet-proposals.js apps/web/src/app.js apps/web/src/console-agent-thread.js apps/web/src/multipass-console.js apps/web/src/styles.css apps/web/scripts/smoke-console-skill-proposal.mjs apps/web/test/console-wallet-proposals.test.mjs apps/web/test/console-agent-thread.test.mjs apps/web/test/app.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/mobile-layout.test.mjs
 git commit -m "feat: render skill-aware transfer proposals"
 ```
 
@@ -647,7 +681,7 @@ git commit -m "feat: execute owner-approved wallet proposals"
 
 ## Chunk 4: Rollout Gates and Proof
 
-### Task 13: Wire the default-off production flag
+### Task 13: Complete production dependency gating
 
 **Files:**
 - Modify: `apps/api/src/server.js`
@@ -658,7 +692,7 @@ git commit -m "feat: execute owner-approved wallet proposals"
 
 - [ ] **Step 1: Write RED configuration tests**
 
-Assert the flag defaults false, rejects malformed booleans, and cannot enable without durable database + authoritative reader + skill catalog + proposal service. Bankr chat remains independently controlled by its existing flag.
+Retain Chunk 1's proven default-off and malformed-boolean behavior. Add tests that an explicit enable cannot start without the durable database, authoritative reader, frozen skill catalog, and proposal service. Bankr chat remains independently controlled by its existing flag.
 
 - [ ] **Step 2: Run RED**
 
@@ -666,7 +700,7 @@ Run: `node --test apps/api/test/server.test.mjs apps/api/test/console-production
 
 - [ ] **Step 3: Implement composition and startup refusal**
 
-Add `MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED`. Keep production disabled in repository/runtime config. Do not edit `/etc/default`, systemd, nginx, or live services.
+Compose the Chunk 1 flag with the completed durable dependencies and refuse incomplete enabled startup. Keep production disabled in repository/runtime config. Do not edit `/etc/default`, systemd, nginx, or live services.
 
 - [ ] **Step 4: Run GREEN and commit**
 
