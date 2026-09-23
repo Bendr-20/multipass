@@ -258,7 +258,7 @@ test('receipt mismatch fails closed instead of inferring success from balances',
   const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
   await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /attribution|binding/i);
   assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashed');
-  assert.equal(f.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
+  assert.equal((await f.controller.acknowledgeUnknown('send')).send.state, 'acknowledged_unknown');
   const next = await f.controller.select({ tokenId: '618', owner: OWNER });
   assert.equal(next.tokenId, '618');
 });
@@ -314,8 +314,8 @@ test('unreadable receipts remain acknowledgeable unknown outcomes', async () => 
   const prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
   await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /temporarily unavailable/i);
   assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashed');
-  assert.equal(f.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
-  assert.throws(() => f.controller.acknowledgeUnknown('send'), /No uncertain/i);
+  assert.equal((await f.controller.acknowledgeUnknown('send')).send.state, 'acknowledged_unknown');
+  await assert.rejects(async () => f.controller.acknowledgeUnknown('send'), /No uncertain/i);
 });
 
 test('acknowledging an unknown send restores the latest fresh writable readiness immediately', async () => {
@@ -338,7 +338,7 @@ test('acknowledging an unknown send restores the latest fresh writable readiness
   assert.equal(f.controller.getSnapshot().canTransact, false);
   assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashed');
 
-  const acknowledged = f.controller.acknowledgeUnknown('send');
+  const acknowledged = await f.controller.acknowledgeUnknown('send');
   assert.equal(acknowledged.mode, 'active');
   assert.equal(acknowledged.canTransact, true);
   assert.equal(acknowledged.accountState, '3');
@@ -361,7 +361,7 @@ test('review finding 7: a later send preserves permanent acknowledged-unknown hi
   await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   const first = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
   await assert.rejects(f.controller.submitPrepared(first.id, { confirmed: true }), /receipt unavailable/i);
-  const acknowledged = f.controller.acknowledgeUnknown('send');
+  const acknowledged = await f.controller.acknowledgeUnknown('send');
   assert.equal(acknowledged.send.state, 'acknowledged_unknown');
   assert.equal(acknowledged.send.permanentHistory.length, 1);
   assert.equal(acknowledged.send.permanentHistory[0].id, first.id);
@@ -377,6 +377,49 @@ test('review finding 7: a later send preserves permanent acknowledged-unknown hi
   assert.equal(snapshotAfterLaterSend.send.permanentHistory[0].state, 'acknowledged_unknown');
   assert.equal(snapshotAfterLaterSend.send.permanentHistory[0].retryEligible, false);
   assert.equal([...storage.values.keys()].some((key) => key.endsWith('.acknowledgedUnknownHistory')), true);
+});
+
+
+test('review finding: acknowledged unknown send archives before mutation and preserves newer cross-tab work', async () => {
+  const active = deployedSnapshot({ state: '2' });
+  const storage = memoryStorage();
+  const failing = controllerFixture({
+    snapshots: [active, active, active, active], storage,
+    generateAttemptId: () => 'ack-storage-failure',
+    receipt: async () => { throw new Error('receipt unavailable'); },
+  });
+  await failing.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const failed = await failing.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(failing.controller.submitPrepared(failed.id, { confirmed: true }), /receipt unavailable/i);
+  const beforeFailedAcknowledgment = failing.controller.getSnapshot();
+  const originalSetItem = storage.setItem;
+  storage.setItem = (key, value) => {
+    if (key.endsWith('.acknowledgedUnknownHistory')) throw new Error('history persistence failed');
+    return originalSetItem(key, value);
+  };
+  await assert.rejects(failing.controller.acknowledgeUnknown('send'), /history persistence failed/i);
+  assert.equal(failing.controller.getSnapshot().send.state, 'uncertain_hashed');
+  assert.equal(failing.controller.getSnapshot().mode, beforeFailedAcknowledgment.mode);
+  assert.equal(failing.controller.getSnapshot().canTransact, beforeFailedAcknowledgment.canTransact);
+  storage.setItem = originalSetItem;
+
+  const shared = memoryStorage();
+  let id = 0;
+  const first = controllerFixture({
+    snapshots: [active, active, active, active], storage: shared,
+    generateAttemptId: () => `first-${String(++id).padStart(8, '0')}`,
+    receipt: async () => { throw new Error('receipt unavailable'); },
+  });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const firstPrepared = await first.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '1' });
+  await assert.rejects(first.controller.submitPrepared(firstPrepared.id, { confirmed: true }), /receipt unavailable/i);
+  const second = controllerFixture({ snapshots: [active, active], storage: shared, generateAttemptId: () => 'second-00000001' });
+  await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await second.controller.acknowledgeUnknown('send');
+  const later = await second.controller.prepareEthSend({ recipient: NEXT_OWNER, amountWei: '2' });
+  await assert.rejects(first.controller.acknowledgeUnknown('send'), /changed|latest|stale/i);
+  const scope = createOperationScope({ tokenId: TOKEN_ID, account: active.account, owner: OWNER, kind: 'send' });
+  assert.equal(JSON.parse(shared.getItem(scope.storageKey)).id, later.id);
 });
 
 test('attempt state reloads by owner scope and a second tab cannot resubmit terminal work', async () => {
@@ -571,7 +614,7 @@ test('restored submitted attempts become explicitly acknowledgeable instead of b
   const second = controllerFixture({ snapshots: [active], storage });
   const restored = await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
   assert.equal(restored.send.state, 'uncertain_hashed');
-  assert.equal(second.controller.acknowledgeUnknown('send').send.state, 'acknowledged_unknown');
+  assert.equal((await second.controller.acknowledgeUnknown('send')).send.state, 'acknowledged_unknown');
   assert.equal((await second.controller.select({ tokenId: '618', owner: OWNER })).tokenId, '618');
 });
 

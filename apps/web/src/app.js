@@ -1239,10 +1239,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
-  function acknowledgeLooperWalletOutcome(event) {
+  async function acknowledgeLooperWalletOutcome(event) {
     const kind = String(event?.currentTarget?.dataset?.attemptKind ?? '');
     try {
-      const walletState = activeLooperWalletController.acknowledgeUnknown(kind);
+      const walletState = await activeLooperWalletController.acknowledgeUnknown(kind);
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
     } catch (error) {
       state = {

@@ -642,6 +642,23 @@ test('trace bounds accept exact direct calls and reject every limit plus one', (
 
 function strictFetchFromRequester(handler, calls = []) {
   return async (url, options) => {
+    if (url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN)) {
+      calls.push({ url, options, body: null });
+      const payload = {
+        items: [{
+          token: {
+            address_hash: CONFIGURED_TOKENS[0].address,
+            circulating_market_cap: null, decimals: '18', exchange_rate: null,
+            holders_count: '1', icon_url: null, name: 'CRED', symbol: 'CRED',
+            total_supply: '100', type: 'ERC-20', volume_24h: null,
+          },
+          token_id: null, token_instance: null, value: '25',
+        }],
+        next_page_params: null,
+      };
+      const responseText = JSON.stringify(payload);
+      return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(responseText)) }, async text() { return responseText; } };
+    }
     const body = JSON.parse(options.body);
     calls.push({ url, options, body });
     let result;
@@ -662,6 +679,54 @@ function strictFetchFromRequester(handler, calls = []) {
     };
   };
 }
+
+
+test('review finding: raw JSON transports reject duplicate object members before schema validation', async () => {
+  const canonicalFetch = strictFetchFromRequester(requester());
+  let poisoned = false;
+  const rpcClient = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (!poisoned) {
+        poisoned = true;
+        const responseText = `{"jsonrpc":"2.0","id":${body.id},"result":"0x2105","result":"0x2105"}`;
+        return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(responseText)) }, async text() { return responseText; } };
+      }
+      return canonicalFetch(url, options);
+    }, releaseConfig: RELEASE_CONFIG,
+  });
+  await assert.rejects(rpcClient.readAccountPreflight({ selection: { tokenId: TOKEN_ID, owner: OWNER } }), /duplicate JSON member/i);
+
+  const blockscoutClient = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: async (url, options) => {
+      if (url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN)) {
+        const responseText = '{"items":[],"items":[],"next_page_params":null}';
+        return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(responseText)) }, async text() { return responseText; } };
+      }
+      return canonicalFetch(url, options);
+    }, releaseConfig: RELEASE_CONFIG,
+  });
+  await assert.rejects(blockscoutClient.readWalletSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER } }), /duplicate JSON member/i);
+});
+
+test('review finding: ERC-20 preparation rejects canonically readable tokens absent from fresh discovery', async () => {
+  const canonicalFetch = strictFetchFromRequester(requester());
+  const client = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: async (url, options) => {
+      if (url.startsWith(walletRpc.BLOCKSCOUT_ORIGIN)) {
+        const responseText = '{"items":[],"next_page_params":null}';
+        return { ok: true, status: 200, redirected: false, url, headers: { get: () => String(Buffer.byteLength(responseText)) }, async text() { return responseText; } };
+      }
+      return canonicalFetch(url, options);
+    },
+    releaseConfig: RELEASE_CONFIG,
+    randomUUID: () => '550e8400-e29b-41d4-a716-446655440000', now: () => 1000,
+  });
+  await assert.rejects(client.prepareErc20Send({
+    selection: { tokenId: TOKEN_ID, owner: OWNER }, token: CONFIGURED_TOKENS[0].address,
+    recipient: POLICY_MODULE, amountBaseUnits: '7',
+  }), /freshly discovered|discovery/i);
+});
 
 test('anchor readiness uses three-origin quorum and returns complete deterministic account pins', async () => {
   const calls = [];

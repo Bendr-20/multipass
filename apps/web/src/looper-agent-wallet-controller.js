@@ -579,14 +579,18 @@ export function createLooperAgentWalletController({
   function updateAttempt(kind, record) {
     const validated = validateAttemptRecord(record, kind);
     if (!validated) throw new Error('Looper wallet attempt schema is invalid.');
-    attempts[kind] = validated;
     const scope = createOperationScope({
       tokenId: validated.tokenId,
       account: validated.account,
       owner: validated.owner,
       kind,
     });
-    storage?.setItem?.(scope.storageKey, JSON.stringify(validated));
+    const encoded = JSON.stringify(validated);
+    storage?.setItem?.(scope.storageKey, encoded);
+    if (storage?.getItem?.(scope.storageKey) !== encoded) {
+      throw new Error('Looper wallet attempt failed read-back verification.');
+    }
+    attempts[kind] = validated;
     if (selection && sameSelection(selection, validated)) current = attachAttempts(current);
   }
 
@@ -614,22 +618,34 @@ export function createLooperAgentWalletController({
     acknowledgedUnknownSendHistory = [];
   }
 
-  function acknowledgeUnknown(kind) {
+  async function acknowledgeUnknown(kind) {
     if (!['activation', 'send', 'policy'].includes(kind)) throw new Error('Unknown Looper wallet attempt kind.');
     const record = attempts[kind];
     if (!record || !['uncertain_hashless', 'uncertain_hashed'].includes(record.state)) {
       throw new Error('No uncertain Looper wallet outcome is available to acknowledge.');
     }
-    updateAttempt(kind, {
-      ...record,
-      state: 'acknowledged_unknown',
-      history: appendHistory(record, 'acknowledged_unknown'),
+    if (!locks || typeof locks.request !== 'function') {
+      throw new Error('Web Locks are required before an unknown Looper wallet outcome can be acknowledged.');
+    }
+    const scope = createOperationScope({ tokenId: record.tokenId, account: record.account, owner: record.owner, kind });
+    return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      const latest = loadAttempt(scope, kind);
+      if (!latest || latest.id !== record.id || stableJson(latest) !== stableJson(record)) {
+        throw new Error('The latest Looper wallet attempt changed before acknowledgment.');
+      }
+      const acknowledged = {
+        ...record,
+        state: 'acknowledged_unknown',
+        history: appendHistory(record, 'acknowledged_unknown'),
+      };
+      if (kind === 'send') archiveAcknowledgedUnknownSend(acknowledged);
+      updateAttempt(kind, acknowledged);
+      const readiness = acknowledgeReadiness[kind];
+      acknowledgeReadiness[kind] = null;
+      if (readiness && sameSelection(selection, record)) current = attachAttempts(readiness);
+      return getSnapshot();
     });
-    if (kind === 'send') archiveAcknowledgedUnknownSend(attempts.send);
-    const readiness = acknowledgeReadiness[kind];
-    acknowledgeReadiness[kind] = null;
-    if (readiness && sameSelection(selection, record)) current = attachAttempts(readiness);
-    return getSnapshot();
   }
 
   function forceReadOnly(reason) {

@@ -1178,9 +1178,12 @@ async function prepareOperation(context, kind, input = {}) {
     validateErc20SimulationResult(evidence.simulationResult);
     const token = getAddress(input.token);
     const recipient = getAddress(input.recipient);
-    const tokenEvidence = await readDiscoveredToken(context, evidence.anchor, selection.account, {
-      contract: token, value: '0', name: null, symbol: null, iconUrl: null,
-    }, input.signal);
+    const discovered = await discoverTokens(context, selection.account, input.signal);
+    const tokenHint = discovered.find((hint) => sameAddress(hint.contract, token));
+    if (!tokenHint) throw new Error('ERC-20 token was not present in fresh wallet discovery.');
+    const tokenEvidence = await readDiscoveredToken(
+      context, evidence.anchor, selection.account, tokenHint, input.signal,
+    );
     const amount = BigInt(String(input.amountBaseUnits));
     if (!tokenEvidence.sendable || amount > BigInt(tokenEvidence.balanceBaseUnits)) {
       throw new Error('ERC-20 amount exceeds a fresh canonical sendable balance.');
@@ -1346,7 +1349,8 @@ async function discoverTokens(context, account, signal) {
   try {
     const response = await context.fetchImpl(url, { method: 'GET', redirect: 'error', credentials: 'omit', signal: controller.signal });
     if (!response.ok || response.redirected || response.url !== url) throw new Error('Blockscout route failed or redirected.');
-    return validateBlockscoutTokenResponse(JSON.parse(await boundedResponseText(response, TRANSPORT_LIMITS.blockscoutBytes)));
+    const text = await boundedResponseText(response, TRANSPORT_LIMITS.blockscoutBytes);
+    return validateBlockscoutTokenResponse(parseStrictJson(text, 'Blockscout response'));
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener?.('abort', abort);
@@ -1626,7 +1630,7 @@ async function rpcMethod(context, origin, method, params, signal, deadlineMs = n
     const text = await boundedResponseText(response, trace ? TRANSPORT_LIMITS.traceBytes : TRANSPORT_LIMITS.standardBytes);
     requireBeforeDeadline(context, deadlineMs);
     semanticPhase = true;
-    const body = JSON.parse(text);
+    const body = parseStrictJson(text, 'JSON-RPC response');
     const envelopeKeys = Object.hasOwn(body ?? {}, 'result') ? ['jsonrpc', 'id', 'result'] : ['jsonrpc', 'id', 'error'];
     requirePlainExact(body, envelopeKeys, 'JSON-RPC envelope');
     if (body.jsonrpc !== '2.0' || body.id !== id) throw new Error('JSON-RPC envelope id mismatch.');
@@ -1652,6 +1656,59 @@ async function rpcMethod(context, origin, method, params, signal, deadlineMs = n
     clearTimeout(timer);
     signal?.removeEventListener?.('abort', abort);
   }
+}
+
+function parseStrictJson(text, label) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error(`${label} is not valid JSON.`); }
+  let index = 0;
+  const skipWhitespace = () => { while (/\s/.test(text[index] ?? '')) index += 1; };
+  const scanString = () => {
+    const start = index;
+    index += 1;
+    while (index < text.length) {
+      if (text[index] === '\\') { index += 2; continue; }
+      if (text[index] === '"') { index += 1; return JSON.parse(text.slice(start, index)); }
+      index += 1;
+    }
+    throw new Error(`${label} is not valid JSON.`);
+  };
+  const scanValue = () => {
+    skipWhitespace();
+    if (text[index] === '{') {
+      index += 1; skipWhitespace();
+      const keys = new Set();
+      if (text[index] === '}') { index += 1; return; }
+      while (index < text.length) {
+        if (text[index] !== '"') throw new Error(`${label} is not valid JSON.`);
+        const key = scanString();
+        if (keys.has(key)) throw new Error(`${label} contains duplicate JSON member ${key}.`);
+        keys.add(key); skipWhitespace();
+        if (text[index] !== ':') throw new Error(`${label} is not valid JSON.`);
+        index += 1; scanValue(); skipWhitespace();
+        if (text[index] === '}') { index += 1; return; }
+        if (text[index] !== ',') throw new Error(`${label} is not valid JSON.`);
+        index += 1; skipWhitespace();
+      }
+      throw new Error(`${label} is not valid JSON.`);
+    }
+    if (text[index] === '[') {
+      index += 1; skipWhitespace();
+      if (text[index] === ']') { index += 1; return; }
+      while (index < text.length) {
+        scanValue(); skipWhitespace();
+        if (text[index] === ']') { index += 1; return; }
+        if (text[index] !== ',') throw new Error(`${label} is not valid JSON.`);
+        index += 1;
+      }
+      throw new Error(`${label} is not valid JSON.`);
+    }
+    if (text[index] === '"') { scanString(); return; }
+    while (index < text.length && !/[\s,\]}]/.test(text[index])) index += 1;
+  };
+  scanValue(); skipWhitespace();
+  if (index !== text.length) throw new Error(`${label} is not valid JSON.`);
+  return parsed;
 }
 
 function rpcKind(method, params) {
