@@ -570,6 +570,78 @@ test('skill-aware runtime preserves multi-participant candidate provenance outsi
   assert.equal('skillCatalog' in generatedInputs[0], false);
 });
 
+test('skill-aware runtime never reassigns a dropped empty participant response to another published message', async () => {
+  let responseNumber = 0;
+  const runtime = createConsoleAgentRuntime({
+    skillProposalsEnabled: true,
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-23T20:05:00.000Z' }),
+    now: () => '2026-09-23T20:05:00.000Z',
+    xmtpClient: {
+      provider: 'filtering_xmtp',
+      transport: 'xmtp_group',
+      async publishRoomMessages(input) {
+        return {
+          ...input,
+          transport: 'xmtp_group',
+          adapter: 'filtering_xmtp',
+          conversationId: 'conversation-filtered-empty',
+          messages: input.messages.flatMap((message, index) => {
+            if (!String(message.text ?? '').trim()) return [];
+            return [{
+              ...message,
+              id: `published-filtered-${index}`,
+              xmtpMessageId: `published-filtered-${index}`,
+            }];
+          }),
+        };
+      },
+    },
+    llmClient: {
+      async generate() {
+        responseNumber += 1;
+        return {
+          provider: 'fake_bankr',
+          text: responseNumber === 1 ? '' : 'Second participant response.',
+          skillRefs: ['bankr'],
+          transferCandidates: [{
+            skill: 'bankr',
+            assetType: 'native',
+            assetContract: null,
+            recipient: `0x${String(responseNumber).padStart(40, '0')}`,
+            amountBaseUnits: String(responseNumber),
+            rationale: `Participant ${responseNumber} suggestion.`,
+          }],
+        };
+      },
+    },
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '1',
+    tokenId: '1',
+    participants: [
+      { agentId: '1', tokenId: '1', displayName: 'Empty Agent' },
+      { agentId: '2', tokenId: '2', displayName: 'Published Agent' },
+    ],
+    message: 'Suggest review-only transfers.',
+  });
+
+  assert.deepEqual(result.proposalCandidates.map((candidate) => ({
+    participantId: candidate.participantId,
+    sourceMessageId: candidate.sourceMessageId,
+    amountBaseUnits: candidate.amountBaseUnits,
+  })), [{
+    participantId: '2',
+    sourceMessageId: 'published-filtered-2',
+    amountBaseUnits: '2',
+  }]);
+  assert.equal(
+    result.proposalCandidates.some((candidate) => candidate.participantId === '1'),
+    false,
+  );
+});
+
 test('skill-aware secure activation and message APIs return separate capabilities and candidates only when enabled', async () => {
   const runtime = createConsoleAgentRuntime({
     skillProposalsEnabled: true,

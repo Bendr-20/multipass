@@ -140,6 +140,7 @@ export function createConsoleAgentRuntime({
         if (skillProposalsEnabled) {
           participantResponses.push({
             participantId: participant.participantId,
+            draftMessage: agentMessage,
             skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, capabilities),
             transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
           });
@@ -161,11 +162,8 @@ export function createConsoleAgentRuntime({
       const threadBatch = shouldPublishHumanMessage
         ? publishedMessages
         : [userMessage, ...publishedMessages];
-      const publishedAgentMessages = shouldPublishHumanMessage
-        ? publishedMessages.slice(1)
-        : publishedMessages;
       const proposalCandidates = skillProposalsEnabled
-        ? bindProposalCandidates(participantResponses, publishedAgentMessages, capabilities)
+        ? bindProposalCandidates(participantResponses, publishedRoom.messages, capabilities)
         : null;
 
       const threadMessages = await memoryClient.appendThread({
@@ -218,12 +216,11 @@ function normalizeRuntimeSkillRefs(value, catalog) {
   return refs;
 }
 
-function bindProposalCandidates(participantResponses, publishedAgentMessages, catalog) {
+function bindProposalCandidates(participantResponses, publishedMessages, catalog) {
   const enabledBySkill = new Map(catalog.skills.map((skill) => [skill.id, new Set(skill.enabledCapabilities)]));
   const bound = [];
-  for (let participantIndex = 0; participantIndex < participantResponses.length; participantIndex += 1) {
-    const response = participantResponses[participantIndex];
-    const message = publishedAgentMessages[participantIndex];
+  for (const response of participantResponses) {
+    const message = findPublishedParticipantMessage(response, publishedMessages);
     const sourceMessageId = String(message?.id ?? '').trim();
     if (!sourceMessageId) continue;
     for (const [sourceOrdinal, value] of response.transferCandidates.entries()) {
@@ -239,6 +236,23 @@ function bindProposalCandidates(participantResponses, publishedAgentMessages, ca
     }
   }
   return bound;
+}
+
+function findPublishedParticipantMessage(response, publishedMessages) {
+  const draft = response.draftMessage;
+  if (!draft?.text || !Array.isArray(publishedMessages)) return null;
+  for (let index = publishedMessages.length - 1; index >= 0; index -= 1) {
+    const message = publishedMessages[index];
+    if (message?.role !== 'agent' || String(message.participantId ?? '') !== response.participantId) continue;
+    if (String(message.id ?? '') === draft.id) return message;
+    if (
+      message.text === draft.text
+      && message.sentAt === draft.sentAt
+      && message.senderLabel === draft.senderLabel
+      && message.inferenceProvider === draft.inferenceProvider
+    ) return message;
+  }
+  return null;
 }
 
 function normalizeRuntimeTransferCandidate(value, skillRefs, enabledBySkill) {
