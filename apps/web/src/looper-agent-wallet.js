@@ -199,18 +199,9 @@ export function deriveLooperAccount({ implementation, tokenId }) {
     RUNTIME_SUFFIX,
     footer,
   ]);
-  const createSalt = keccak256(encodeAbiParameters(
-    [
-      { name: 'salt', type: 'bytes32' },
-      { name: 'chainId', type: 'uint256' },
-      { name: 'tokenContract', type: 'address' },
-      { name: 'tokenId', type: 'uint256' },
-    ],
-    [ACCOUNT_SALT, BigInt(BASE_CHAIN_ID), LOOPERS_COLLECTION, normalizedTokenId],
-  ));
   return getCreate2Address({
     from: ERC6551_REGISTRY,
-    salt: createSalt,
+    salt: ACCOUNT_SALT,
     bytecodeHash: keccak256(creationCode),
   });
 }

@@ -48,6 +48,10 @@ test('generic Looper account derivation and owner-scoped operation keys are dete
   assert.match(account, /^0x[0-9A-Fa-f]{40}$/);
   assert.equal(account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: 617n }));
   assert.notEqual(account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: 618n }));
+  assert.equal(
+    deriveLooperAccount({ implementation: REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION, tokenId: '3802' }),
+    getAddress('0xb9709b1cd4aDf02bBCA8ba7413d5Dfc8d8f31da4'),
+  );
 
   const activation = createOperationScope({ tokenId: '617', account, owner: OWNER, kind: 'activation' });
   const send = createOperationScope({ tokenId: '617', account, owner: OWNER, kind: 'send' });
