@@ -360,17 +360,21 @@ git commit -m "feat: render skill-aware transfer proposals"
 
 - [ ] **Step 1: Write policy RED tests**
 
-Pin Base `8453`, Loopers `0x1649…94a`, ERC-6551 registry, released implementation/runtime SHA-256, salt, module registry/runtime SHA-256, native ETH decimals, and CRED `0xAB3f…7Ba3`/18 decimals. Compare API pins against browser exports to prevent drift. Assert canonical catalog/allowlist hashes.
+Pin every authority-bearing release value used by the hardened reader: Base chain ID `8453`; Loopers `0x1649CD37f4748807b4882FC48765bA0B2aFfa94a`; ERC-6551 registry `0x000000006551c19487814612e58FE06813775758`; salt `0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee`; released implementation `0xf192f350427c8F58bC28e78b1e6Af164279F486e`; account runtime length `6096` and SHA-256 `0x85adc244e07b43ac687b1ac9f4f245089678fa787adb4fdcb95d4402b0d8a43c`; policy module registry `0x4e4df0DEa80e389802f819D95AAEe4CB004D3E1a`; and its runtime SHA-256 `0xc94fcea5df503e97852633cbe76e0ee76260595f3f25c2fdbbf99ef6aec253bb`.
+
+Pin native ETH at 18 decimals with a conservative V1 maximum of `250000000000000000` base units. Pin CRED contract `0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3`, 18 authoritative decimals, deployed runtime length `10143`, runtime SHA-256 `0xf2127e5735da92360dab1141c47ec73737d639c25b56c1107d7ebec29dd66390`, and V1 maximum `100000000000000000000000` base units. Compare API pins against browser exports to prevent drift.
+
+Assert the canonical allowlist hash includes chain, collection, registry, implementation, salt, runtime length/hash, module-registry address/hash, asset type/contract/decimals/code requirements, and per-asset maximum. Symbol and display labels remain presentation-only and are excluded from authority.
 
 - [ ] **Step 2: Run RED**
 
 Run: `node --test apps/api/test/console-wallet-policy.test.mjs apps/web/test/looper-agent-wallet.test.mjs`
 
-Expected: FAIL because API policy is absent.
+Expected: FAIL because API policy and complete release/asset pins are absent.
 
 - [ ] **Step 3: Implement the static policy**
 
-Export immutable release and asset records plus `getConsoleWalletPolicyVersions()`. Symbol remains presentation-only; address, decimals, runtime and hashes are authoritative.
+Export recursively frozen release and asset records plus `getConsoleWalletPolicyVersions()`. Canonicalize every authority-bearing field before hashing. No caller, environment variable, browser value, symbol, or model output may extend or override the closed policy.
 
 - [ ] **Step 4: Run GREEN and commit**
 
@@ -387,30 +391,45 @@ git commit -m "feat: pin Console wallet proposal policy"
 - Create: `apps/api/test/console-wallet-reader.test.mjs`
 - Modify: `apps/api/src/server.js`
 - Modify: `apps/api/test/server.test.mjs`
+- Modify: `apps/api/test/console-production-bootstrap.test.mjs`
 
-- [ ] **Step 1: Write reader RED tests with injected RPC clients**
+- [ ] **Step 1: Write reader and server-configuration RED tests**
 
-Cover three-origin Base chain/head quorum, anchored owner, derived account, implementation/runtime, canonical account binding, ETH balance, CRED code/decimals/balance, unknown decimals, code drift, owner drift, origin disagreement, timeout, and stale anchor. Assert a closed high-level API with no generic request export.
+Require exactly three distinct configured HTTPS Base RPC origins with no URL credentials, fragments, duplicates, or non-Base chain identity. Parse and validate these server options before constructing the reader; missing, malformed, duplicate, or partial configuration leaves proposal creation unavailable while ordinary chat remains text-only.
 
-- [ ] **Step 2: Run RED**
+For every read, require all three origins to report chain ID `8453`, latest-head numbers within 6 blocks, and the same finalized anchor block number/hash/timestamp no older than 10 minutes. At that exact anchor require identical results from all origins for NFT owner, owner EOA code profile, registry-derived account, account runtime length/hash and canonical token binding, policy-module registry runtime, ETH balance, CRED runtime length/hash, CRED decimals, and CRED balance. Cover malformed/oversized RPC results, timeouts, unsupported anchored reads, unknown decimals, code/release drift, owner drift, stale anchor, and every origin disagreement. Never fall back to one or two origins.
 
-Run: `node --test apps/api/test/console-wallet-reader.test.mjs`
+Assert a closed high-level API with no generic request export and add bootstrap/resource-closure tests proving failed startup and normal shutdown release every constructed dependency.
 
-Expected: FAIL because the server reader is absent.
+- [ ] **Step 2: Run RED before implementation**
 
-- [ ] **Step 3: Implement read-only typed RPC plans**
+Run:
 
-Reuse the reviewed web reader’s canonical encoders/decoders as behavior, not browser objects. Freeze typed requests before I/O, use the static policy, cap response bytes/time, and return one frozen evidence object. Never accept account, balance, token list, anchor, or decimals from the caller.
+```bash
+node --test \
+  apps/api/test/console-wallet-reader.test.mjs \
+  apps/api/test/server.test.mjs \
+  apps/api/test/console-production-bootstrap.test.mjs
+```
+
+Expected: FAIL because the reader, strict three-origin option validation, and cleanup behavior are absent.
+
+- [ ] **Step 3: Implement unanimous anchored read-only plans**
+
+Reuse the reviewed web reader’s canonical encoders/decoders as behavior, not browser objects. Freeze typed requests before I/O, use the static policy, cap each response and total operation time, and return one recursively frozen evidence object containing the common anchor and unanimous values. Use finalized block-number reads only after all three origins agree on its hash; reject any origin that cannot perform the anchored read. Never accept account, owner, balance, token list, code, anchor, decimals, or freshness from the caller.
 
 - [ ] **Step 4: Wire server options without enabling proposals**
 
-Add explicit server RPC URL options. Missing or incomplete reader config keeps skill-proposal creation unavailable; ordinary chat continues.
+Add the three explicit server RPC URL options and deterministic cleanup. Missing or incomplete reader configuration keeps the Chunk 1 flag effectively unavailable; lifecycle routes remain unavailable and ordinary chat continues unchanged.
 
 - [ ] **Step 5: Run focused GREEN and commit**
 
 ```bash
-node --test apps/api/test/console-wallet-reader.test.mjs apps/api/test/server.test.mjs
-git add apps/api/src/console-wallet-reader.js apps/api/test/console-wallet-reader.test.mjs apps/api/src/server.js apps/api/test/server.test.mjs
+node --test \
+  apps/api/test/console-wallet-reader.test.mjs \
+  apps/api/test/server.test.mjs \
+  apps/api/test/console-production-bootstrap.test.mjs
+git add apps/api/src/console-wallet-reader.js apps/api/test/console-wallet-reader.test.mjs apps/api/src/server.js apps/api/test/server.test.mjs apps/api/test/console-production-bootstrap.test.mjs
 git commit -m "feat: add authoritative Console wallet reads"
 ```
 
@@ -420,27 +439,33 @@ git commit -m "feat: add authoritative Console wallet reads"
 - Create: `apps/api/src/console-proposal-store.js`
 - Create: `apps/api/test/console-proposal-store.test.mjs`
 
-- [ ] **Step 1: Write migration and schema RED tests**
+- [ ] **Step 1: Write migration, integrity, and archival RED tests**
 
-Test `proposal_schema_migrations`, immutable payload rows, lifecycle rows, events, permanent replay keys, WAL/foreign keys, checksum mismatch refusal, unknown newer version refusal, restart persistence, and no automatic pruning.
+Test `proposal_schema_migrations`, write-once immutable payload rows, lifecycle rows, immutable events, and permanent replay-key ledgers. Verify WAL and foreign keys are enabled on every connection; checksum mismatch and unknown newer versions refuse startup; restart persistence and clean close succeed; and V1 performs no automatic pruning.
 
-- [ ] **Step 2: Write lifecycle RED tests**
+Use a future archival/tombstone migration fixture that copies `proposal_id`, immutable-payload hash, source-tuple hash, every idempotency-key hash, handoff/authorization/attempt IDs, transaction hash, terminal state, and terminal timestamp before deleting full rows/events. Prove active records plus tombstones jointly prevent reuse.
+
+- [ ] **Step 2: Write lifecycle, timing, and multi-process RED tests**
 
 Exercise every legal predecessor and reject every unlisted edge for:
 
 `review_only`, `opened`, `claimed`, `claim_expired`, `prepared`, `expired_prepared`, `submission_authorized`, `authorization_revoked`, `authorization_expired`, `submitting`, `rejected_owner`, `expired`, `invalidated_owner`, `validation_failed`, `signature_rejected`, `submitted_hashless_unknown`, `submitted_hashed_pending`, `submitted_hashed_unknown`, `reverted`, `confirmed_attributed`.
 
-Assert required/forbidden evidence, revision CAS, exact event sequence, idempotent repeats, permanent unique source/idempotency/handoff/authorization/attempt/hash keys, and deterministic server-time precedence.
+Pin proposal TTL to 15 minutes, claim TTL to 2 minutes, and authorization lease TTL to 30 seconds. Treat `serverTime >= expiry` as expired. Test every precedence race and exactly one revision/event increment per successful transition.
+
+Open two independent `DatabaseSync` connections to one temporary file. Race identical and conflicting CAS/idempotency operations under `BEGIN IMMEDIATE`; cover busy timeout/lock contention, one-winner behavior, rollback, restart, and clean shutdown. An exact idempotent replay returns its stored original result without a new revision/event; a different key, stale revision, or conflicting body returns the current canonical record without being misreported as the original replay.
+
+Assert immutable-payload hashes, event continuity and payload hashes, required/forbidden state evidence, permanent unique source/idempotency/handoff/authorization/attempt/hash keys, and deterministic server-time precedence at the database boundary. Corrupt payloads, checksum drift, event gaps/reordering, or state/evidence mismatch must mark the record execution-disabled and prevent further authority-bearing transitions.
 
 - [ ] **Step 3: Run RED**
 
 Run: `node --test apps/api/test/console-proposal-store.test.mjs`
 
-Expected: FAIL because the store is absent.
+Expected: FAIL because the store, integrity verifier, tombstone fixture, and multi-connection semantics are absent.
 
 - [ ] **Step 4: Implement migrations and transactional store**
 
-Use a dedicated `DatabaseSync` connection to the configured API database, `BEGIN IMMEDIATE`, explicit rollback, checksum-pinned migrations, and exact normalized JSON read-back. Keep all V1 records indefinitely.
+Use one dedicated `DatabaseSync` connection per store instance against the configured API database, `BEGIN IMMEDIATE`, bounded busy timeout, explicit rollback, checksum-pinned migrations, normalized JSON read-back, integrity verification on every authoritative load, and idempotent close. Keep all V1 records indefinitely; the archival fixture is test-only proof of the required future migration shape.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -460,13 +485,16 @@ git commit -m "feat: persist Console wallet proposals"
 - Modify: `apps/api/src/server.js`
 - Modify: `apps/api/src/console-production-bootstrap.js`
 - Modify: `apps/api/test/console-agent-runtime.test.mjs`
+- Modify: `apps/api/test/server.test.mjs`
 - Modify: `apps/api/test/console-production-bootstrap.test.mjs`
 
-- [ ] **Step 1: Write proposal-creation RED tests**
+- [ ] **Step 1: Write proposal-creation and provenance RED tests**
 
-Given a normalized candidate, assert the API re-authorizes current ownership, reads authoritative evidence, validates policy/asset/balance, assigns ID/scope/time/versions/anchor, hashes the candidate, and persists one immutable proposal. Reject spoofed browser context, self-transfer, insufficient balance, unsupported asset, stale owner, release drift, RPC disagreement, and replayed source tuple.
+Consume only server-internal normalized candidates bound to the exact published agent message ID, proposing participant/Looper, deterministic source ordinal, room ID, bounded skill refs, and candidate hash. Given that tuple, assert the service re-authorizes current ownership, reads unanimous authoritative evidence, validates policy/asset/balance and per-asset maximum, assigns ID/scope/server times/versions/anchor, and persists one immutable proposal plus initial event. Persist enough provenance for exact display and replay prevention.
 
-- [ ] **Step 2: Write lifecycle route RED tests**
+Reject absent or forged provenance, spoofed browser context, self-transfer, insufficient balance, amount over policy maximum, unsupported asset, stale owner, release/code/version drift, RPC disagreement, expired candidate context, and replayed source tuple.
+
+- [ ] **Step 2: Write lifecycle route, authorization-binding, and negative-auth RED tests**
 
 Add authenticated CSRF-protected POST routes:
 
@@ -478,9 +506,13 @@ Add authenticated CSRF-protected POST routes:
 - `/consume-authorization`
 - `/outcome`
 
-Add authenticated GET `/api/multipass/console/proposals/:id`. Bind every route to session wallet, room, selected token, revision, and idempotency key. Return current canonical state on idempotent replay/conflict.
+Add authenticated GET `/api/multipass/console/proposals/:id`. Reject absent, expired, or revoked sessions; unauthorized GET; missing/invalid CSRF; and wrong wallet, room, token, revision, handoff, attempt, authorization, or idempotency key. Bind every mutation to the authenticated owner and apply authoritative owner-drift/time precedence before its requested transition.
 
-- [ ] **Step 3: Run RED**
+Pin exact replay semantics: an identical idempotency key plus identical normalized request returns the stored original response; a different key/body or stale revision returns the current canonical record with an explicit conflict code. Test every proposal/claim/authorization expiry boundary at `serverTime >= expiry`, all precedence races, and one revision/event increment only for the winning mutation.
+
+For the closed authorize path, derive the transaction fingerprint from the immutable proposal and static policy—never caller calldata—and bind signer, proposal revision, immutable-payload hash, handoff/attempt IDs, chain, account, asset contract, authoritative decimals, recipient, base units, exact `to`/`value`/`data`, common anchor, catalog version, and allowlist version. Persist only the closed fingerprint/evidence required by the design; no route exposes generic transaction construction authority.
+
+- [ ] **Step 3: Run RED before implementation**
 
 Run:
 
@@ -488,20 +520,23 @@ Run:
 node --test \
   apps/api/test/console-proposal-service.test.mjs \
   apps/api/test/console-agent-runtime.test.mjs \
+  apps/api/test/server.test.mjs \
   apps/api/test/console-production-bootstrap.test.mjs
 ```
 
-Expected: FAIL on missing service/routes.
+Expected: FAIL on missing service, strict provenance, route authorization, lifecycle semantics, and cleanup behavior.
 
 - [ ] **Step 4: Implement proposal creation and message-route integration**
 
-Remove browser `walletContext` as authoritative input. After inference returns candidates, call the proposal service only when the feature flag, durable store, and server reader are all ready. Ordinary text remains available on candidate rejection or wallet-read degradation. Return catalog capabilities and canonical proposals separately.
+Remove browser `walletContext` as authoritative input. After inference publishes a participant response, call the proposal service only when the feature flag, durable store, closed policy, unanimous server reader, and proposal service are all ready. Ordinary text remains available on candidate rejection or wallet-read degradation. Return catalog capabilities and canonical proposals separately, each retaining the exact source-message/participant provenance.
 
-- [ ] **Step 5: Implement lifecycle routes and final revalidation**
+When the flag is off or any dependency is missing, behavior remains text-only and lifecycle routes are unavailable. Bootstrap failure closes every dependency opened before the failure.
 
-Use server time and the exact precedence matrix. `authorize-submit` transitions durably before returning a lease. `consume-authorization` transitions to non-cancellable `submitting`; no expired/revoked lease reaches the browser wallet boundary.
+- [ ] **Step 5: Implement authenticated lifecycle routes and final revalidation**
 
-- [ ] **Step 6: Run GREEN and API suite**
+Use server time, revision CAS, the exact precedence matrix, and authoritative ownership checks on every applicable mutation. `authorize-submit` performs final unanimous reads and transitions durably before returning the 30-second lease. `consume-authorization` transitions once to non-cancellable `submitting`; no expired/revoked lease reaches a wallet boundary. Route responses contain canonical proposal/lease metadata only—no wallet/provider object, signing method, broadcast method, raw transaction, arbitrary calldata, or generic RPC authority. Chunk 2 performs no wallet invocation.
+
+- [ ] **Step 6: Run GREEN, closure checks, and the complete API suite**
 
 ```bash
 node --test \
@@ -516,14 +551,15 @@ node --test \
   apps/api/test/console-agent-runtime.test.mjs \
   apps/api/test/console-production-bootstrap.test.mjs \
   apps/api/test/server.test.mjs
+node --test "apps/api/test/*.test.mjs"
 ```
 
-Expected: PASS.
+Expected: PASS. Flag-off and missing-dependency cases remain text-only with routes unavailable; resource closure is verified; no test crosses a wallet/provider, signing, broadcast, or generic transaction boundary.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/api/src/console-proposal-service.js apps/api/src/agent-runtime/index.js apps/api/src/index.js apps/api/src/server.js apps/api/src/console-production-bootstrap.js apps/api/test/console-proposal-service.test.mjs apps/api/test/console-agent-runtime.test.mjs apps/api/test/console-production-bootstrap.test.mjs
+git add apps/api/src/console-proposal-service.js apps/api/src/agent-runtime/index.js apps/api/src/index.js apps/api/src/server.js apps/api/src/console-production-bootstrap.js apps/api/test/console-proposal-service.test.mjs apps/api/test/console-agent-runtime.test.mjs apps/api/test/server.test.mjs apps/api/test/console-production-bootstrap.test.mjs
 git commit -m "feat: create canonical Console wallet proposals"
 ```
 
