@@ -137,3 +137,12 @@ test('console portrait keeps the full Looper image visible in the sidebar card',
   assert.match(css, /\.console-workspace-sidebar \.console-agent-selector select,\s*\.console-workspace-sidebar \.console-agent-selector option\s*\{[^}]*background:\s*#17131f;[^}]*color:\s*#f8f3ec;/s);
   assert.match(css, /\.console-thread-chat-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
 });
+
+test('mobile Console messages wrap inside the chat card without horizontal clipping', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-thread-messages\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*hidden;/s);
+  assert.match(css, /\.console-thread-message\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry p\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+});
