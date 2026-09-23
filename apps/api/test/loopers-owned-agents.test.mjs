@@ -24,7 +24,16 @@ function createOwnershipClient({ incomplete = false, owns617 = false, failedToke
         if ((incomplete && index === 0) || tokenId === failedTokenId) {
           return { status: 'failure', error: new Error('dropped') };
         }
-        return { status: 'success', result: tokenId === 617n && owns617 ? WALLET : OTHER_WALLET };
+        if (contract.functionName === 'ownerOf') {
+          return { status: 'success', result: tokenId === 617n && owns617 ? WALLET : OTHER_WALLET };
+        }
+        if (contract.functionName === 'erc8004AgentIdByLooper') {
+          return { status: 'success', result: tokenId === 617n ? 87069n : 0n };
+        }
+        if (contract.functionName === 'isController') {
+          return { status: 'success', result: tokenId === 87069n && contract.args[1].toLowerCase() === WALLET.toLowerCase() };
+        }
+        throw new Error(`unexpected multicall ${contract.functionName}`);
       });
     },
   };
@@ -68,9 +77,17 @@ test('owned Looper loader uses the public holder index before the bounded ownerO
       if (functionName === 'isController') return args[0] === 87069n;
       throw new Error(`unexpected read ${functionName}`);
     },
-    async multicall() {
+    async multicall({ contracts }) {
       multicallCalls += 1;
-      throw new Error('full supply scan should not run');
+      return contracts.map(({ functionName, args }) => {
+        if (functionName === 'ownerOf') {
+          assert.equal(args[0], 617n, 'full supply scan should not run');
+          return { status: 'success', result: WALLET };
+        }
+        if (functionName === 'erc8004AgentIdByLooper') return { status: 'success', result: 87069n };
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
     },
   };
 
@@ -82,9 +99,47 @@ test('owned Looper loader uses the public holder index before the bounded ownerO
       : new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
   });
 
-  assert.equal(multicallCalls, 0);
+  assert.equal(multicallCalls, 2);
   assert.equal(agents.length, 1);
   assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper loader batches authorization for wallets with many agents', async () => {
+  const tokenIds = Array.from({ length: 45 }, (_, index) => BigInt(index + 1));
+  let multicallCalls = 0;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return BigInt(tokenIds.length);
+      if (functionName === 'totalMinted') return 7_777n;
+      throw new Error('public RPC rate limit exceeded');
+    },
+    async multicall({ contracts }) {
+      multicallCalls += 1;
+      return contracts.map(({ functionName, args }) => {
+        if (functionName === 'ownerOf') return { status: 'success', result: WALLET };
+        if (functionName === 'erc8004AgentIdByLooper') {
+          return { status: 'success', result: 90_000n + args[0] };
+        }
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    fetchImpl: async (url) => String(url).includes('/instances?')
+      ? new Response(JSON.stringify({
+          items: tokenIds.map((tokenId) => ({ id: tokenId.toString() })),
+          next_page_params: null,
+        }))
+      : new Response(JSON.stringify({ name: `Looper #${String(url).match(/(\d+)\.json$/)?.[1]}`, attributes: [] })),
+  });
+
+  assert.equal(agents.length, 45);
+  assert.equal(multicallCalls, 2);
+  assert.equal(agents[44].erc8004AgentId, '90045');
 });
 
 test('owned Looper scan refuses silent empty success when balance and scan disagree', async () => {

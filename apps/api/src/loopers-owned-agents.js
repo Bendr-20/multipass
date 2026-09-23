@@ -134,15 +134,16 @@ export async function loadOwnedLooperAgents({
     throw new Error(`Looper ownership scan incomplete: expected ${balance}, found ${ownedTokenIds.length}.`);
   }
 
+  const authorizations = await authorizeLooperControls({
+    publicClients: clients,
+    contract,
+    adapter,
+    tokenIds: ownedTokenIds,
+    wallet: owner,
+  });
   const hydrated = [];
   for (const tokenId of ownedTokenIds) {
-    const authorization = await authorizeLooperControl({
-      publicClients: clients,
-      contract,
-      adapter,
-      tokenId,
-      wallet: owner,
-    });
+    const authorization = authorizations.get(String(tokenId));
     hydrated.push(await hydrateOwnedLooper({
       tokenId,
       owner,
@@ -153,6 +154,73 @@ export async function loadOwnedLooperAgents({
     }));
   }
   return hydrated.sort(compareTokenIds);
+}
+
+async function authorizeLooperControls({ tokenIds, wallet, publicClients, contract, adapter }) {
+  const owner = normalizeAddress(wallet);
+  const normalizedTokenIds = tokenIds.map(normalizeTokenId);
+  const ownershipAndIdentityReads = normalizedTokenIds.flatMap((tokenId) => [
+    {
+      address: contract,
+      abi: LOOPERS_READ_ABI,
+      functionName: 'ownerOf',
+      args: [tokenId],
+    },
+    {
+      address: contract,
+      abi: LOOPERS_READ_ABI,
+      functionName: 'erc8004AgentIdByLooper',
+      args: [tokenId],
+    },
+  ]);
+  const ownershipAndIdentity = await completeMulticallWithFallback(publicClients, ownershipAndIdentityReads);
+  const identities = normalizedTokenIds.map((tokenId, index) => {
+    const ownerResult = ownershipAndIdentity[index * 2];
+    const identityResult = ownershipAndIdentity[index * 2 + 1];
+    if (ownerResult?.status !== 'success' || identityResult?.status !== 'success') {
+      const error = new Error('Looper authorization read failed on every provider.');
+      error.code = 'chain_read_failed';
+      throw error;
+    }
+    const actualOwner = normalizeAddress(ownerResult.result);
+    if (actualOwner.toLowerCase() !== owner.toLowerCase()) {
+      const error = new Error('Authenticated wallet does not own this Looper.');
+      error.code = 'forbidden';
+      throw error;
+    }
+    const agentId = BigInt(identityResult.result);
+    if (agentId <= 0n) throw new Error('Looper has no canonical ERC-8004 identity.');
+    return { tokenId, actualOwner, agentId };
+  });
+  const controllerReads = identities.map(({ agentId }) => ({
+    address: adapter,
+    abi: ADAPTER_READ_ABI,
+    functionName: 'isController',
+    args: [agentId, owner],
+  }));
+  const controllerResults = await completeMulticallWithFallback(publicClients, controllerReads);
+  return new Map(identities.map(({ tokenId, actualOwner, agentId }, index) => {
+    const controllerResult = controllerResults[index];
+    if (controllerResult?.status !== 'success') {
+      const error = new Error('Looper controller read failed on every provider.');
+      error.code = 'chain_read_failed';
+      throw error;
+    }
+    if (!controllerResult.result) {
+      const error = new Error('Authenticated wallet is not the ERC-8004 identity controller.');
+      error.code = 'forbidden';
+      throw error;
+    }
+    return [tokenId.toString(), {
+      chainId: LOOPERS_MAINNET_CHAIN_ID,
+      contract: getAddress(contract),
+      adapter: getAddress(adapter),
+      tokenId: tokenId.toString(),
+      owner: actualOwner,
+      erc8004AgentId: agentId.toString(),
+      controllerVerified: true,
+    }];
+  }));
 }
 
 export async function authorizeLooperControl({
