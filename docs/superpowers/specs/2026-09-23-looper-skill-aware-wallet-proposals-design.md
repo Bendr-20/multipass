@@ -153,12 +153,30 @@ The API returns that immutable payload alongside a lifecycle projection:
   revision: 1,
   state: 'review_only',
   reason: null,
+  reasonAt: null,
+  terminalAt: null,
+  immutablePayloadHash: 'sha256:…',
+  renderedPayloadHash: null,
   handoffId: null,
+  claimantOwner: null,
+  claimIdempotencyKeyHash: null,
+  claimedAt: null,
+  claimExpiresAt: null,
   attemptId: null,
+  preparedAt: null,
   transactionFingerprint: null,
   authorizationId: null,
+  authorizationLeaseHash: null,
+  authorizationSigner: null,
+  authorizationServerAnchor: null,
+  authorizationIssuedAt: null,
   authorizationExpiresAt: null,
+  authorizationRevokedAt: null,
+  authorizationConsumedAt: null,
   txHash: null,
+  submittedAt: null,
+  authorityEvidence: null,
+  uncertaintyEvidence: null,
   receiptEvidence: null,
   updatedAt: 'ISO timestamp'
 }
@@ -168,7 +186,7 @@ The immutable payload never changes. Lifecycle revisions, state, evidence, and e
 
 The model may suggest recipient and amount, but the API—not the browser or model—derives scope and account, reads an anchored Base wallet snapshot, normalizes and validates addresses, units, token membership, bounds, timestamps, and IDs. Invalid candidates are omitted rather than repaired into a different transaction.
 
-The proposal remains `executable:false`. It becomes actionable only when the authenticated owner opens the review card and the browser creates a new prepared wallet attempt through the existing controller.
+The proposal becomes actionable only when the authenticated owner opens the review card and the browser creates a new prepared wallet attempt through the existing controller.
 
 ### 4. Authoritative validation and static asset policy
 
@@ -197,6 +215,8 @@ Add proposal and proposal-event tables to the configured API SQLite database rat
 
 Use `BEGIN IMMEDIATE` compare-and-swap transitions on `(proposal_id, revision, state)`, WAL mode, foreign keys, and unique `attempt_id`/`tx_hash` constraints when non-null. Repeated requests with the same idempotency key return the same result. Conflicting requests return the current canonical record. The release supports one API deployment or multiple processes sharing the same SQLite file; enabling proposal execution without the durable database, or across independent multi-host databases, must fail startup.
 
+The database owns a `proposal_schema_migrations(version, applied_at, checksum)` table. Startup applies ordered, checksum-pinned migrations in one transaction and refuses an unknown newer version or checksum mismatch. V1 performs no automatic pruning: immutable payloads, lifecycle rows, events, idempotency-key hashes, handoff/authorization IDs, attempt IDs, and transaction hashes are retained indefinitely so restart or archival cannot erase replay protection. Any future retention policy requires a reviewed migration that first writes a permanent tombstone/key ledger carrying `proposal_id`, immutable-payload hash, unique source tuple hash, every idempotency-key hash, handoff ID, authorization ID, attempt ID, transaction hash, terminal state, and terminal timestamp; unique-key checks must cover active records and tombstones before full rows/events may be archived.
+
 The lifecycle is transition-exact:
 
 | State | Legal predecessor | Required evidence | Forbidden evidence | Owner controls / recovery |
@@ -206,13 +226,14 @@ The lifecycle is transition-exact:
 | `claimed` | `opened` | handoff ID, claimant owner, idempotency key, claim/claim-expiry timestamps | attempt, authorization, hash, receipt | bind prepared attempt or reject before binding |
 | `claim_expired` | `claimed` | handoff ID, expiry reason/time | attempt, authorization, hash, receipt | terminal; no takeover or retry; request a fresh proposal |
 | `prepared` | `claimed` | handoff ID, attempt ID, immutable-payload hash, exact transaction fingerprint | authorization, hash, receipt | authorize submission or fail validation |
+| `expired_prepared` | `prepared` | handoff ID, attempt ID, transaction fingerprint, proposal-expiry reason/time | authorization, hash, receipt | terminal; never bind or authorize another attempt |
 | `submission_authorized` | `prepared` | authorization ID, one-time lease hash, signer, server anchor, transaction fingerprint, issue/expiry time | hash, receipt | consume authorization once; unconsumed lease may be revoked by owner rejection/invalidation |
 | `authorization_revoked` | `submission_authorized` | authorization ID, revoke reason/time | hash, receipt | terminal; never reauthorize |
 | `authorization_expired` | `submission_authorized` | authorization ID and expiry time | hash, receipt | terminal; never reauthorize |
 | `submitting` | `submission_authorized` | consumed authorization ID/time, attempt ID, signer, transaction fingerprint | hash, receipt | no reject/retry controls; reconcile the same attempt only |
 | `rejected_owner` | `review_only`, `opened`, `claimed`, or unconsumed `submission_authorized` | bounded rejection reason/time; handoff/authorization retained when already issued | attempt when rejected before binding; hash and receipt always | terminal |
 | `expired` | `review_only` or `opened` | server expiry reason/time | handoff, attempt, authorization, hash, receipt | terminal |
-| `invalidated_owner` | any pre-`submitting` state | previous/current owner evidence and invalidation time; retain already-issued handoff/attempt/authorization | hash and receipt | terminal; any unconsumed authorization revoked atomically |
+| `invalidated_owner` | `review_only`, `opened`, `claimed`, `prepared`, or `submission_authorized` | previous/current owner evidence and invalidation time; retain already-issued handoff/attempt/authorization | hash and receipt | terminal; any unconsumed authorization revoked atomically |
 | `validation_failed` | `opened`, `claimed`, or `prepared` | bounded reason, authoritative read evidence, failure time; retain existing handoff/attempt | authorization, hash, receipt | terminal |
 | `signature_rejected` | `submitting` | wallet rejection evidence/time and consumed authorization | hash and receipt | terminal; not an onchain revert |
 | `submitted_hashless_unknown` | `submitting` | consumed authorization, attempt, uncertainty evidence/time | hash and receipt | consumed; reconcile only, never retry |
@@ -222,6 +243,8 @@ The lifecycle is transition-exact:
 | `confirmed_attributed` | `submitted_hashed_pending` or `submitted_hashed_unknown` | hash and exact receipt/trace attribution evidence | failure reason | terminal success |
 
 Every table row inherits prior required evidence; “forbidden” means the named evidence must remain null in that state. Any other transition is rejected. Claim expiry never transfers the handoff to another device. `submission_authorized` is already consuming: issuing it permanently prevents another authorization or attempt even if the lease expires or the browser crashes before wallet invocation. `submitting` is entered by an atomic one-time consume operation immediately before the wallet call. Expiry after authorization never discards, retries, or reauthorizes the proposal. Wallet signature rejection is not an onchain revert.
+
+Every mutating transaction applies server-time and authority precedence before the requested transition: (1) states at or after `submitting` ignore proposal/claim/authorization expiry and owner-rejection controls and allow reconciliation only; (2) owner drift in `review_only`, `opened`, `claimed`, `prepared`, or `submission_authorized` transitions to `invalidated_owner`; (3) proposal expiry transitions `review_only/opened -> expired`, `claimed -> claim_expired` with reason `proposal_expired`, `prepared -> expired_prepared`, and `submission_authorized -> authorization_expired` with reason `proposal_expired`; (4) claim timeout transitions `claimed -> claim_expired` with reason `claim_timeout`; (5) authorization timeout transitions `submission_authorized -> authorization_expired` with reason `authorization_timeout`; (6) only then may the requested reject, bind, authorize, revoke, or consume transition run. SQLite serialization decides concurrent requests, while these checks make their result deterministic. Consume can never win with server time at or after proposal/authorization expiry; rejection or invalidation that commits first revokes the stale unconsumed authorization, while a successful consume that commits first enters non-cancellable `submitting`.
 
 ### 6. Atomic handoff and recovery
 
@@ -285,6 +308,7 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - Model returns unknown skill/capability, duplicate JSON keys, mixed prose/JSON, extra authority fields, or multiple candidates: discard all candidates; retain only independently bounded safe text.
 - Wallet context degraded or stale: text response may continue, proposal creation is disabled.
 - Proposal expires or ownership changes before submission authorization: atomically mark the exact terminal reason and require a fresh chat proposal.
+- Proposal expiry in `claimed`, `prepared`, or `submission_authorized`: apply the state-specific terminal transition and reason defined by the precedence rules; never transfer, reopen, or reauthorize the handoff.
 - Claim expiry: mark `claim_expired`; never transfer or reopen the handoff.
 - Authorization expiry, replay, rejection, or invalidation: atomically revoke or expire the unconsumed authorization. Once consumed, keep `submitting` consumed even if no wallet invocation can be proven.
 - Browser/API restart: reload canonical proposal events from SQLite and reconcile the same local attempt/handoff before enabling controls.
@@ -322,7 +346,8 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - spoofed browser wallet context cannot influence account, owner, anchor, balances, token membership, symbol, or decimals;
 - symbol/address/decimals conflicts, code drift, allowlist/catalog version drift, stale ownership, RPC disagreement, and expired candidates are rejected;
 - server assigns IDs/timestamps/scope/anchors and enforces every legal and illegal lifecycle transition with exact required/forbidden fields;
-- SQLite restart persistence, event ordering, corrupt rows, compare-and-swap conflicts, duplicate idempotency requests, and multiple processes sharing one database are covered;
+- SQLite restart persistence, migration version/checksum refusal, indefinite replay-key retention, event ordering, corrupt rows, compare-and-swap conflicts, duplicate idempotency requests, and multiple processes sharing one database are covered;
+- an archival/tombstone migration fixture proves pruning cannot reuse a source tuple, idempotency key, handoff/authorization ID, attempt ID, or transaction hash;
 - the lifecycle matrix is tested state by state for legal predecessor, required/forbidden evidence, available controls, recovery behavior, and every illegal transition;
 - authorization and replay tests bind every operation to current owner, room, proposal revision, handoff, and attempt.
 
@@ -336,6 +361,7 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - stale, consumed, expired, owner-changed, signer-changed, token-changed, version-changed, server-unavailable, RPC-disagreeing, and tampered proposals fail before signing;
 - concurrent tabs/devices, repeated requests, and crash recovery at every claim/bind/authorize/submit boundary recover one handoff and one attempt;
 - claim-expiry takeover is impossible; a fresh proposal is required;
+- proposal/claim/authorization expiry races at bind, authorize, revoke, reject, invalidate, and consume enforce the documented precedence using server time;
 - crash after authorization before invocation, crash after consume before invocation, crash after invocation before local/server persistence, authorization expiry/replay, and API outage while `submitting` all prove no second wallet invocation can occur;
 - concurrent owner rejection or ownership invalidation versus authorization issuance/consumption is resolved by compare-and-swap, with stale unconsumed authorization revoked;
 - corrupted or missing browser attempt storage after authorization keeps the proposal consumed and disables reconstruction/retry;
