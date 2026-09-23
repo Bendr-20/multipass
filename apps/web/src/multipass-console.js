@@ -258,6 +258,8 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     participants: threadParticipants.length ? threadParticipants : normalizeThreadParticipants([activeAgent].filter(Boolean)),
     messages: decorateConsoleMessages(thread.messages, { activeAgent, ownerProfile }),
     proposals: thread.proposals,
+    ...(Object.prototype.hasOwnProperty.call(thread, 'capabilities') ? { capabilities: thread.capabilities } : {}),
+    ...(Object.prototype.hasOwnProperty.call(thread, 'proposalCandidates') ? { proposalCandidates: thread.proposalCandidates } : {}),
     savedMemory: thread.savedMemory,
     recalledMemory: thread.recalledMemory,
     savedMemoryPresent: Object.prototype.hasOwnProperty.call(thread, 'savedMemory') && Array.isArray(thread.savedMemory),

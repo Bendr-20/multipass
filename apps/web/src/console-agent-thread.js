@@ -1,4 +1,10 @@
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
+import {
+  createConsoleCapabilityViewModel,
+  createUnverifiedTransferSuggestion,
+  renderConsoleCapabilitySurface,
+  renderUnverifiedTransferSuggestion,
+} from './console-wallet-proposals.js';
 
 export function renderConsoleAgentThread(thread = {}) {
   const participants = Array.isArray(thread.participants) ? thread.participants.filter(Boolean) : [];
@@ -32,9 +38,11 @@ export function renderConsoleAgentThread(thread = {}) {
     contextSummary,
   ].filter(Boolean).join(' ');
   const noteLabel = thread.contextLabel ?? (participants.length > 1 ? 'Room notes' : 'Thread note');
+  const skillProposalSurface = createSkillProposalSurface(thread, { messages, participants });
   const timeline = createTimeline({
     messages,
     proposals,
+    transferSuggestions: skillProposalSurface.transferSuggestions,
     recall,
     savedMemory: thread.savedMemory,
     recalledMemory: thread.recalledMemory,
@@ -94,6 +102,7 @@ export function renderConsoleAgentThread(thread = {}) {
           ${thread.activationRetryAvailable ? `<button type="button" data-action="retry-console-agent-activation" ${thread.roomActivationDisabled ? 'disabled' : ''}>Retry room activation</button>` : ''}
         </div>
       ` : ''}
+      ${skillProposalSurface.capabilities ? renderConsoleCapabilitySurface(skillProposalSurface.capabilities) : ''}
       <div class="console-thread-messages" data-console-room-key="${escapeAttribute(thread.roomKey ?? '')}" data-console-scroll-request="${escapeAttribute(thread.scrollRequest ?? 0)}">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>
@@ -140,6 +149,9 @@ function renderTimelineItem(item = {}, agentName = 'Selected agent') {
   }
   if (item.type === 'proposal') {
     return renderInlineProposal(item.proposal);
+  }
+  if (item.type === 'transfer-suggestion') {
+    return renderUnverifiedTransferSuggestion(item.suggestion);
   }
   return renderThreadMessage(item.message, agentName);
 }
@@ -231,6 +243,7 @@ function renderAvatar({ label = 'Agent', imageUrl = null, className = '' } = {})
 function createTimeline({
   messages = [],
   proposals = [],
+  transferSuggestions = [],
   recall = null,
   savedMemory = [],
   recalledMemory = [],
@@ -251,8 +264,17 @@ function createTimeline({
   }
   const safeMessages = Array.isArray(messages) ? messages : [];
   const safeProposals = Array.isArray(proposals) ? proposals : [];
+  const safeTransferSuggestions = Array.isArray(transferSuggestions) ? transferSuggestions : [];
   for (const message of safeMessages) {
     timeline.push({ type: 'message', message });
+    for (const suggestion of safeTransferSuggestions) {
+      if (
+        suggestion.sourceMessage.id === String(message?.id ?? '')
+        && suggestion.participant.id === String(message?.participantId ?? '')
+      ) {
+        timeline.push({ type: 'transfer-suggestion', suggestion });
+      }
+    }
   }
   if (safeProposals.length) {
     timeline.push({ type: 'divider', label: safeMessages.length || roomActivity.length ? 'Review queue' : 'Queued proposals' });
@@ -261,6 +283,35 @@ function createTimeline({
     }
   }
   return timeline;
+}
+
+function createSkillProposalSurface(thread, { messages, participants }) {
+  const hasCapabilities = Object.prototype.hasOwnProperty.call(thread, 'capabilities');
+  const hasCandidates = Object.prototype.hasOwnProperty.call(thread, 'proposalCandidates');
+  if (!hasCapabilities || !hasCandidates || !Array.isArray(thread.proposalCandidates)) {
+    return { capabilities: null, transferSuggestions: [] };
+  }
+
+  let capabilities;
+  try {
+    capabilities = createConsoleCapabilityViewModel(thread.capabilities);
+  } catch {
+    return { capabilities: null, transferSuggestions: [] };
+  }
+
+  const transferSuggestions = [];
+  for (const candidate of thread.proposalCandidates) {
+    try {
+      transferSuggestions.push(createUnverifiedTransferSuggestion(candidate, {
+        capabilities: thread.capabilities,
+        messages,
+        participants,
+      }));
+    } catch {
+      // Invalid or stale candidate provenance is omitted rather than repaired in the browser.
+    }
+  }
+  return { capabilities, transferSuggestions };
 }
 
 function createRoomActivity({ recall = null, savedMemory = [], recalledMemory = [], missions = [] } = {}) {

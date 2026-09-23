@@ -859,3 +859,45 @@ test('Console truncates the wallet and marks it as you when ENS is unavailable',
   assert.doesNotMatch(root.textContent, /0x1234567890abcdef1234567890abcdef12345678/i);
   assert.equal(root.querySelector('.console-thread-message.human .console-thread-avatar-fallback')?.textContent, '0X');
 });
+
+test('Multipass Console snapshot preserves separate capability and candidate response fields', () => {
+  const agents = sampleAgents();
+  const capabilities = {
+    version: `sha256:${'c'.repeat(64)}`,
+    skills: [{
+      id: 'bankr', name: 'Bankr', summary: 'Bounded catalog knowledge.',
+      capabilities: ['transfer'], enabledCapabilities: ['propose_transfer'],
+      execution: 'human_review', credentialAccess: false, constraints: ['No direct execution.'],
+    }],
+  };
+  const proposalCandidates = [{
+    skill: 'bankr', assetType: 'native', assetContract: null,
+    recipient: '0x2222222222222222222222222222222222222222', amountBaseUnits: '9',
+    rationale: 'Exact current-message suggestion.', sourceMessageId: 'message-81', participantId: '81',
+    sourceOrdinal: 0, skillRefs: ['bankr'],
+  }];
+  const snapshot = createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: '1',
+      consoleParticipantAgentIds: ['1', '81'],
+      consoleAgentThread: {
+        messages: [{ id: 'message-81', role: 'agent', participantId: '81', senderLabel: 'Quigbot', text: 'Suggestion.' }],
+        participants: [{ participantId: '1', displayName: 'Bendr 2.0' }, { participantId: '81', displayName: 'Quigbot' }],
+        proposals: [{ status: 'review_only', title: 'Legacy review queue item' }],
+        capabilities,
+        proposalCandidates,
+      },
+    },
+  });
+
+  assert.strictEqual(snapshot.agentThread.capabilities, capabilities);
+  assert.strictEqual(snapshot.agentThread.proposalCandidates, proposalCandidates);
+  assert.equal(snapshot.agentThread.proposals.length, 1);
+  assert.equal('amountBaseUnits' in snapshot.agentThread.proposals[0], false);
+  const root = render(renderMultipassConsole(snapshot));
+  assert.equal(root.querySelectorAll('.console-unverified-transfer').length, 1);
+  assert.match(root.querySelector('.console-thread-proposal')?.textContent ?? '', /Legacy review queue item/);
+});

@@ -6622,3 +6622,72 @@ test('Console selected identity portrait uses the shared one-shot image fallback
   assert.equal(root.querySelector('.console-agent-portrait .console-thread-avatar-fallback')?.hidden, false);
   assert.equal(root.querySelector('.console-agent-portrait .console-thread-avatar-fallback')?.textContent, 'B');
 });
+
+test('dedicated Console preserves current multi-participant candidate provenance and clears enabled metadata when a later response omits it', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const walletClient = createWalletClientFixture({
+    snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: '0x27E3...91Ea' },
+  });
+  const capabilities = {
+    version: `sha256:${'d'.repeat(64)}`,
+    skills: [{
+      id: 'bankr', name: 'Bankr', summary: 'Bounded catalog knowledge.', capabilities: ['transfer'],
+      enabledCapabilities: ['propose_transfer'], execution: 'human_review', credentialAccess: false,
+      constraints: ['No direct execution.'],
+    }],
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
+    claimApi: {
+      activateConsoleAgent: async () => ({
+        thread: {
+          transport: 'xmtp_local', roomName: 'Shared room',
+          participants: [{ participantId: '617', tokenId: '617', displayName: 'Looper #617' }, { participantId: '812', tokenId: '812', displayName: 'Looper #812' }],
+          messages: [
+            { id: 'published-617', role: 'agent', participantId: '617', senderLabel: 'Looper #617', text: 'First response.' },
+            { id: 'published-812', role: 'agent', participantId: '812', senderLabel: 'Looper #812', text: 'Second response.' },
+          ],
+        },
+        proposals: [{ status: 'review_only', title: 'Legacy review queue item' }],
+        capabilities,
+        proposalCandidates: [{
+          skill: 'bankr', assetType: 'erc20', assetContract: '0x1111111111111111111111111111111111111111',
+          recipient: '0x2222222222222222222222222222222222222222', amountBaseUnits: '9', rationale: 'Current second response.',
+          sourceMessageId: 'published-812', participantId: '812', sourceOrdinal: 0, skillRefs: ['bankr'],
+        }],
+      }),
+      sendConsoleAgentMessage: async ({ message }) => ({
+        thread: {
+          transport: 'xmtp_local', roomName: 'Shared room',
+          participants: [{ participantId: '617', tokenId: '617', displayName: 'Looper #617' }, { participantId: '812', tokenId: '812', displayName: 'Looper #812' }],
+          messages: [{ id: 'legacy-response', role: 'agent', participantId: '617', senderLabel: 'Looper #617', text: `Legacy response to ${message}` }],
+        },
+        proposals: [],
+      }),
+    },
+  }).start();
+
+  const selector = root.querySelector('[data-action="select-console-agent"]');
+  selector.value = '617';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents();
+
+  const candidate = root.querySelector('.console-unverified-transfer');
+  assert.ok(candidate);
+  assert.equal(root.querySelector('[data-console-message-identity="id:published-812"]')?.nextElementSibling, candidate);
+  assert.match(candidate.textContent, /Looper #812/);
+  assert.match(root.querySelector('.console-skill-capabilities')?.textContent ?? '', /Cannot execute directly/);
+  assert.match(root.querySelector('.console-thread-proposal')?.textContent ?? '', /Legacy review queue item/);
+
+  const form = root.querySelector('[data-action="send-console-agent-message"]');
+  form.querySelector('textarea[name="message"]').value = 'Feature is now off.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  assert.equal(root.querySelector('.console-unverified-transfer'), null);
+  assert.equal(root.querySelector('.console-skill-capabilities'), null);
+  assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Cannot execute directly|Current second response/);
+});

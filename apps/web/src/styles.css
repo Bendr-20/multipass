@@ -9329,3 +9329,147 @@ h1 {
     overflow: hidden;
   }
 }
+
+/* Skill-aware suggestions are read-only model output, never wallet controls. */
+.console-skill-capabilities {
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 94%, var(--accent) 6%);
+  color: var(--ink);
+}
+
+.console-skill-capability,
+.console-skill-capability dl,
+.console-skill-capability dl div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.console-skill-capability dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.console-skill-capability dl div {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper) 86%, var(--ink) 4%);
+}
+
+.console-skill-capability dt,
+.console-skill-capability dd,
+.console-unverified-transfer dt,
+.console-unverified-transfer dd {
+  margin: 0;
+}
+
+.console-skill-capability dt,
+.console-unverified-transfer dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.console-skill-capability dd {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.console-skill-badge {
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 84%, var(--accent) 16%);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.console-unverified-transfer {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  margin-left: 54px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 92%, var(--accent) 8%);
+  color: var(--ink);
+}
+
+.console-unverified-transfer header {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.console-unverified-transfer header strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.console-unverified-transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.console-unverified-transfer-grid div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper) 84%, var(--ink) 4%);
+}
+
+.console-unverified-transfer dd,
+.console-unverified-transfer p {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.console-unverified-transfer p {
+  margin: 0;
+}
+
+.console-unverified-transfer code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: inherit;
+  font: inherit;
+}
+
+@media (max-width: 700px) {
+  .console-skill-capability dl,
+  .console-unverified-transfer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .console-unverified-transfer {
+    margin-left: 0;
+    padding: 12px;
+  }
+}

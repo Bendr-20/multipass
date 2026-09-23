@@ -146,3 +146,14 @@ test('mobile Console messages wrap inside the chat card without horizontal clipp
   assert.match(css, /\.console-thread-entry\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
   assert.match(css, /\.console-thread-entry p\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
 });
+
+test('skill proposal surfaces wrap full addresses without leaking controls on narrow viewports', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(css, /\.console-unverified-transfer\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.console-unverified-transfer code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+  assert.match(css, /\.console-skill-capabilities\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(mobileBlock, /\.console-unverified-transfer-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.doesNotMatch(css, /\.console-unverified-transfer[^}]*cursor:\s*pointer/s);
+});

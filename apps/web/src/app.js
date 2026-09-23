@@ -879,6 +879,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           draft: '',
           messages: visibleMessages,
           proposals: result.proposals ?? [],
+          ...getConsoleSkillProposalResponseFields(result),
           ...(Array.isArray(result.memory?.saved) ? { savedMemory: result.memory.saved } : {}),
           ...(Array.isArray(result.memory?.recalled) ? { recalledMemory: result.memory.recalled } : {}),
           missions: result.missions ?? [],
@@ -1362,6 +1363,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
             operationStatus: null,
             messages: visibleMessages,
             proposals: activated.proposals ?? [],
+            ...getConsoleSkillProposalResponseFields(activated),
             ...(Array.isArray(activated.memory?.saved) ? { savedMemory: activated.memory.saved } : {}),
             ...(Array.isArray(activated.memory?.recalled) ? { recalledMemory: activated.memory.recalled } : {}),
             missions: activated.missions ?? [],
@@ -2232,6 +2234,19 @@ function createInitialConsoleAgentThreadState() {
   };
 }
 
+function getConsoleSkillProposalResponseFields(response = {}) {
+  if (
+    !Object.prototype.hasOwnProperty.call(response, 'capabilities')
+    || !Object.prototype.hasOwnProperty.call(response, 'proposalCandidates')
+  ) {
+    return {};
+  }
+  return {
+    capabilities: response.capabilities,
+    proposalCandidates: response.proposalCandidates,
+  };
+}
+
 function normalizeConsoleWallet(value) {
   return String(value ?? '').trim().toLowerCase();
 }
@@ -2453,13 +2468,40 @@ function getInitialConsoleMockState() {
           transport: 'console',
         },
         {
+          id: 'mock-skill-suggestion-1',
           role: 'agent',
+          participantId: selectedAgentId,
           senderLabel: agents[0]?.name ?? 'bendr',
           avatarUrl: agents[0]?.image ?? null,
           text: 'Three things: keep eyes on momentum names, watch for any vault movement that is not ours, and ignore the fake alpha merchants unless they bring receipts.',
           transport: 'xmtp_local',
         },
       ],
+      capabilities: {
+        version: `sha256:${'a'.repeat(64)}`,
+        skills: [{
+          id: 'bankr',
+          name: 'Bankr',
+          summary: 'Crypto market, wallet, trading, and token-operation specialist.',
+          capabilities: ['market_research', 'portfolio_read', 'transfer', 'swap', 'token_launch'],
+          enabledCapabilities: ['explain', 'propose_transfer'],
+          execution: 'human_review',
+          credentialAccess: false,
+          constraints: ['No Bankr wallet is used for Looper funds.'],
+        }],
+      },
+      proposalCandidates: [{
+        skill: 'bankr',
+        assetType: 'erc20',
+        assetContract: '0x1111111111111111111111111111111111111111',
+        recipient: '0x2222222222222222222222222222222222222222',
+        amountBaseUnits: '1234567890123456789',
+        rationale: 'Model-supplied transfer idea for operator review only.',
+        sourceMessageId: 'mock-skill-suggestion-1',
+        participantId: selectedAgentId,
+        sourceOrdinal: 0,
+        skillRefs: ['bankr'],
+      }],
       proposals: [
         {
           status: 'review_only',
