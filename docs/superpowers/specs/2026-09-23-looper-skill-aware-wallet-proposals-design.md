@@ -110,19 +110,16 @@ The model never produces a proposal record. The Bankr LLM adapter accepts either
 
 The envelope allows at most one candidate. The adapter uses a duplicate-key-rejecting JSON decoder, exact keys, fixed array limits, and bounded UTF-8 lengths. Mixed prose/JSON, duplicate members, unknown fields, multiple candidates, malformed JSON, or an unknown skill preserves only bounded assistant text when that text can be extracted safely and discards every candidate. The model cannot provide IDs, status, scope, timestamps, anchors, approval state, catalog/allowlist versions, attempt linkage, execution state, calldata, or raw transactions.
 
-After independently validating a candidate, the server creates this canonical proposal record:
+After independently validating a candidate, the server creates an immutable normalized proposal payload. Mutable lifecycle state and events are separate records:
 
 ```js
 {
   schema_version: '0.1.0',
   kind: 'looper_wallet_transfer_intent',
   id: 'server-generated-id',
-  revision: 1,
   roomId: 'canonical-room-id',
   sourceMessageId: 'canonical-message-id',
   candidateHash: 'sha256-of-normalized-candidate',
-  status: 'review_only',
-  executable: false,
   skill: 'bankr',
   catalogVersion: 'sha256:…',
   allowlistVersion: 'sha256:…',
@@ -137,20 +134,37 @@ After independently validating a candidate, the server creates this canonical pr
     assetType: 'native' | 'erc20',
     assetContract: null | '0x…',
     symbol: 'ETH' | 'CRED',
+    decimals: 18,
     recipient: '0x…',
     amountBaseUnits: 'canonical-decimal-uint'
   },
   rationale: 'bounded plain text',
   createdAt: 'ISO timestamp',
   expiresAt: 'ISO timestamp',
-  walletAnchor: { blockNumber: 'decimal', blockHash: '0x…', verifiedAt: 'ISO timestamp' },
-  review: { required: true, approved: false },
-  attemptId: null,
-  txHash: null,
-  execution: null,
-  events: []
+  walletAnchor: { blockNumber: 'decimal', blockHash: '0x…', verifiedAt: 'ISO timestamp' }
 }
 ```
+
+The API returns that immutable payload alongside a lifecycle projection:
+
+```js
+{
+  proposalId: 'server-generated-id',
+  revision: 1,
+  state: 'review_only',
+  reason: null,
+  handoffId: null,
+  attemptId: null,
+  transactionFingerprint: null,
+  authorizationId: null,
+  authorizationExpiresAt: null,
+  txHash: null,
+  receiptEvidence: null,
+  updatedAt: 'ISO timestamp'
+}
+```
+
+The immutable payload never changes. Lifecycle revisions, state, evidence, and events change only through the transition API. There is no `approved` or `executable` boolean whose meaning could diverge from state; only the exact lifecycle state determines available controls.
 
 The model may suggest recipient and amount, but the API—not the browser or model—derives scope and account, reads an anchored Base wallet snapshot, normalizes and validates addresses, units, token membership, bounds, timestamps, and IDs. Invalid candidates are omitted rather than repaired into a different transaction.
 
@@ -179,23 +193,35 @@ The server assigns proposal ID, scope, timestamps, versions, anchor, and initial
 
 ### 5. Durable store and exact lifecycle
 
-Add proposal and proposal-event tables to the configured API SQLite database rather than the in-memory runtime registry. The proposal primary key is `proposal_id`; `(room_id, source_message_id, candidate_hash)` is unique. Each row stores schema version, current revision, immutable normalized proposal JSON, state fields, optional handoff/attempt/hash fields, and created/updated/expiry timestamps. Every transition appends an immutable event with monotonically increasing sequence, prior/next state, actor owner, server timestamp, revision, and bounded reason code in the same SQLite transaction.
+Add proposal and proposal-event tables to the configured API SQLite database rather than the in-memory runtime registry. The proposal primary key is `proposal_id`; `(room_id, source_message_id, candidate_hash)` is unique. Each row stores the immutable payload JSON in a write-once column plus separate current revision, state, reason, handoff/attempt/fingerprint/authorization/hash/evidence columns and timestamps. Every transition appends an immutable event with monotonically increasing sequence, prior/next state, actor owner, server timestamp, revision, and bounded reason code in the same SQLite transaction.
 
 Use `BEGIN IMMEDIATE` compare-and-swap transitions on `(proposal_id, revision, state)`, WAL mode, foreign keys, and unique `attempt_id`/`tx_hash` constraints when non-null. Repeated requests with the same idempotency key return the same result. Conflicting requests return the current canonical record. The release supports one API deployment or multiple processes sharing the same SQLite file; enabling proposal execution without the durable database, or across independent multi-host databases, must fail startup.
 
-States and required evidence are:
+The lifecycle is transition-exact:
 
-- `review_only`: no handoff, attempt, hash, or execution evidence; owner may open or reject.
-- `opened`: no attempt/hash; exact immutable fields have been shown; owner may reject or claim.
-- `rejected_owner`, `expired`, `invalidated_owner`, `validation_failed`, `signature_rejected`: terminal, no hash, reason and terminal timestamp required.
-- `claimed`: `handoffId`, claimant owner, idempotency key, claim timestamp, and claim expiry required; no attempt/hash.
-- `prepared`: handoff plus exact `attemptId` and prepared-transaction fingerprint required; no hash.
-- `submitted_hashless_unknown`: handoff/attempt required, hash forbidden, uncertainty evidence required; consumed and never retryable.
-- `submitted_hashed_unknown`: handoff/attempt/hash required, uncertainty evidence required; consumed and never retryable.
-- `reverted`: handoff/attempt/hash and bound status-0 receipt evidence required.
-- `confirmed_attributed`: handoff/attempt/hash and exact receipt/trace attribution evidence required.
+| State | Legal predecessor | Required evidence | Forbidden evidence | Owner controls / recovery |
+|---|---|---|---|---|
+| `review_only` | creation only | revision, created/expiry timestamps | handoff, attempt, authorization, hash, receipt | open or reject |
+| `opened` | `review_only` | opened timestamp and rendered immutable-payload hash | handoff, attempt, authorization, hash, receipt | claim or reject |
+| `claimed` | `opened` | handoff ID, claimant owner, idempotency key, claim/claim-expiry timestamps | attempt, authorization, hash, receipt | bind prepared attempt or reject before binding |
+| `claim_expired` | `claimed` | handoff ID, expiry reason/time | attempt, authorization, hash, receipt | terminal; no takeover or retry; request a fresh proposal |
+| `prepared` | `claimed` | handoff ID, attempt ID, immutable-payload hash, exact transaction fingerprint | authorization, hash, receipt | authorize submission or fail validation |
+| `submission_authorized` | `prepared` | authorization ID, one-time lease hash, signer, server anchor, transaction fingerprint, issue/expiry time | hash, receipt | consume authorization once; unconsumed lease may be revoked by owner rejection/invalidation |
+| `authorization_revoked` | `submission_authorized` | authorization ID, revoke reason/time | hash, receipt | terminal; never reauthorize |
+| `authorization_expired` | `submission_authorized` | authorization ID and expiry time | hash, receipt | terminal; never reauthorize |
+| `submitting` | `submission_authorized` | consumed authorization ID/time, attempt ID, signer, transaction fingerprint | hash, receipt | no reject/retry controls; reconcile the same attempt only |
+| `rejected_owner` | `review_only`, `opened`, `claimed`, or unconsumed `submission_authorized` | bounded rejection reason/time; handoff/authorization retained when already issued | attempt when rejected before binding; hash and receipt always | terminal |
+| `expired` | `review_only` or `opened` | server expiry reason/time | handoff, attempt, authorization, hash, receipt | terminal |
+| `invalidated_owner` | any pre-`submitting` state | previous/current owner evidence and invalidation time; retain already-issued handoff/attempt/authorization | hash and receipt | terminal; any unconsumed authorization revoked atomically |
+| `validation_failed` | `opened`, `claimed`, or `prepared` | bounded reason, authoritative read evidence, failure time; retain existing handoff/attempt | authorization, hash, receipt | terminal |
+| `signature_rejected` | `submitting` | wallet rejection evidence/time and consumed authorization | hash and receipt | terminal; not an onchain revert |
+| `submitted_hashless_unknown` | `submitting` | consumed authorization, attempt, uncertainty evidence/time | hash and receipt | consumed; reconcile only, never retry |
+| `submitted_hashed_pending` | `submitting` or `submitted_hashless_unknown` | attempt, transaction fingerprint, canonical hash, submission time | receipt | consumed; poll/reconcile only |
+| `submitted_hashed_unknown` | `submitted_hashed_pending` | hash plus timeout/disagreement evidence | final receipt evidence | consumed; reconcile only, never retry |
+| `reverted` | `submitted_hashed_pending` or `submitted_hashed_unknown` | hash and exactly bound canonical status-0 receipt evidence | success attribution | terminal |
+| `confirmed_attributed` | `submitted_hashed_pending` or `submitted_hashed_unknown` | hash and exact receipt/trace attribution evidence | failure reason | terminal success |
 
-`review_only`, `opened`, `claimed`, and `prepared` are nonterminal. All other states are terminal for creating a new wallet attempt. Expiry applies only before submission authorization; expiry after a wallet call never discards, retries, or reauthorizes the outstanding attempt. Wallet signature rejection is not an onchain revert.
+Every table row inherits prior required evidence; “forbidden” means the named evidence must remain null in that state. Any other transition is rejected. Claim expiry never transfers the handoff to another device. `submission_authorized` is already consuming: issuing it permanently prevents another authorization or attempt even if the lease expires or the browser crashes before wallet invocation. `submitting` is entered by an atomic one-time consume operation immediately before the wallet call. Expiry after authorization never discards, retries, or reauthorizes the proposal. Wallet signature rejection is not an onchain revert.
 
 ### 6. Atomic handoff and recovery
 
@@ -205,12 +231,12 @@ The browser takes a proposal-scoped Web Lock before the first claim and holds it
 2. `POST /proposals/:id/claim` atomically claims the current revision with an idempotency key and returns one `handoffId`. Repeats recover the same handoff; other devices receive its current state.
 3. The existing wallet controller prepares from closed normalized fields while persisting `proposalId`, `proposalRevision`, and `handoffId` in the local attempt record before any signing operation.
 4. `POST /proposals/:id/bind-attempt` atomically binds the exact attempt ID and prepared-transaction fingerprint. If the request or response is lost, the browser recovers the same local attempt and server handoff; it must not prepare another.
-5. Immediately before signing, `POST /proposals/:id/authorize-submit` performs authoritative final revalidation and issues a one-time, 30-second submission lease bound to revision, attempt ID, signer, transaction fingerprint, anchor, catalog version, and allowlist version. API failure or disagreement stops before signing.
-6. The existing controller performs its own under-lock RPC revalidation and must agree with the server lease before calling the wallet boundary.
-7. After wallet submission, the local attempt is persisted first, then the hash is linked idempotently to the proposal. A lost response recovers by proposal/attempt ID. API failure after a wallet call produces the matching hashless/hashed uncertainty state and never permits a second attempt.
+5. Immediately before signing, `POST /proposals/:id/authorize-submit` performs authoritative final revalidation and atomically moves `prepared -> submission_authorized` before issuing a one-time, 30-second lease bound to revision, attempt ID, connected EOA signer, immutable-payload hash, transaction fingerprint (including chain, account, asset contract, authoritative decimals, recipient, base units, `to`, `value`, and `data`), anchor, catalog version, and allowlist version. Issuance is durably consuming: lease expiry or lost response can never produce another authorization or attempt.
+6. The existing controller performs its own under-lock RPC revalidation and must agree with the server lease. Immediately before the wallet boundary it calls `POST /proposals/:id/consume-authorization`, which atomically moves `submission_authorized -> submitting` and returns the one-time permit. Rejection, expiry, owner invalidation, or version drift can revoke an unconsumed authorization; compare-and-swap determines the winner. After `submitting` wins, rejection/invalidation controls are disabled because a wallet call may be underway.
+7. The controller invokes the wallet boundary at most once for that consumed authorization. After wallet submission, the local attempt is persisted first, then the hash is linked idempotently to the proposal as `submitted_hashed_pending`. A lost response recovers by proposal/attempt ID. A throw after invocation records `submitted_hashless_unknown`; API outage can leave the server in `submitting`, which remains consumed and can only reconcile the same local attempt. It never permits a second wallet invocation.
 8. Receipt recovery reconciles proposal, local attempt, transaction binding, and server record. Late original transactions update only their consumed proposal and can never authorize a replacement.
 
-Crashes are recoverable at every boundary: before claim returns, after claim, after local attempt persistence, after server binding, after submission authorization, after wallet rejection, after broadcast before hash linkage, and after mining before attribution. Recovery always resumes the same handoff/attempt or ends terminal; it never manufactures another transaction.
+Crashes are recoverable or fail safely at every boundary: before claim returns, after claim, after local attempt persistence, after server binding, after authorization but before invocation, after consuming authorization but before invocation, after invocation before local/server outcome persistence, after wallet rejection, after broadcast before hash linkage, and after mining before attribution. If the browser attempt record is missing or corrupt once authorization has been issued, execution remains consumed and disabled for operator reconciliation; the system never reconstructs a transaction or invokes the wallet again. Recovery always resumes the same handoff/attempt or ends terminal; it never manufactures another transaction.
 
 ### 7. Owner review and wallet execution
 
@@ -259,6 +285,8 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - Model returns unknown skill/capability, duplicate JSON keys, mixed prose/JSON, extra authority fields, or multiple candidates: discard all candidates; retain only independently bounded safe text.
 - Wallet context degraded or stale: text response may continue, proposal creation is disabled.
 - Proposal expires or ownership changes before submission authorization: atomically mark the exact terminal reason and require a fresh chat proposal.
+- Claim expiry: mark `claim_expired`; never transfer or reopen the handoff.
+- Authorization expiry, replay, rejection, or invalidation: atomically revoke or expire the unconsumed authorization. Once consumed, keep `submitting` consumed even if no wallet invocation can be proven.
 - Browser/API restart: reload canonical proposal events from SQLite and reconcile the same local attempt/handoff before enabling controls.
 - Wallet signature rejection: mark `signature_rejected`; do not call it reverted and do not retry from the proposal.
 - API failure before signing: fail closed without a wallet call. API failure after the wallet call: persist hashless/hashed uncertainty, consume the proposal, and surface the existing wallet recovery controls.
@@ -275,7 +303,7 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 5. Every transfer requires an authenticated, current owner interaction and wallet signature.
 6. Proposal scope is bound to chain, collection, token, account, and owner.
 7. Ownership or release drift invalidates the proposal before signing.
-8. SQLite compare-and-swap plus proposal-scoped locking guarantees one proposal binds to at most one durable wallet attempt across tabs, devices, sessions, and processes.
+8. SQLite compare-and-swap plus proposal-scoped locking guarantees one proposal binds to at most one durable wallet attempt and one wallet invocation across tabs, devices, sessions, and processes.
 9. No Bankr credential or Bankr wallet enters Looper wallet execution.
 10. Existing fail-closed wallet behavior remains the sole execution authority.
 11. The browser cannot assert authoritative wallet balance, token metadata, anchor, account, or ownership evidence.
@@ -295,6 +323,7 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - symbol/address/decimals conflicts, code drift, allowlist/catalog version drift, stale ownership, RPC disagreement, and expired candidates are rejected;
 - server assigns IDs/timestamps/scope/anchors and enforces every legal and illegal lifecycle transition with exact required/forbidden fields;
 - SQLite restart persistence, event ordering, corrupt rows, compare-and-swap conflicts, duplicate idempotency requests, and multiple processes sharing one database are covered;
+- the lifecycle matrix is tested state by state for legal predecessor, required/forbidden evidence, available controls, recovery behavior, and every illegal transition;
 - authorization and replay tests bind every operation to current owner, room, proposal revision, handoff, and attempt.
 
 ### Browser/controller tests
@@ -306,6 +335,10 @@ Chat responses may name the skill used for reasoning. A skill badge is evidence 
 - final confirmation feeds the exact frozen rendered fields to the existing controller;
 - stale, consumed, expired, owner-changed, signer-changed, token-changed, version-changed, server-unavailable, RPC-disagreeing, and tampered proposals fail before signing;
 - concurrent tabs/devices, repeated requests, and crash recovery at every claim/bind/authorize/submit boundary recover one handoff and one attempt;
+- claim-expiry takeover is impossible; a fresh proposal is required;
+- crash after authorization before invocation, crash after consume before invocation, crash after invocation before local/server persistence, authorization expiry/replay, and API outage while `submitting` all prove no second wallet invocation can occur;
+- concurrent owner rejection or ownership invalidation versus authorization issuance/consumption is resolved by compare-and-swap, with stale unconsumed authorization revoked;
+- corrupted or missing browser attempt storage after authorization keeps the proposal consumed and disables reconstruction/retry;
 - wallet signature rejection, mined revert, hashless uncertainty, hashed uncertainty, and attributed success remain distinct; uncertain submissions cannot be retried;
 - API failure after broadcast and late original transactions reconcile only the consumed proposal;
 - receipt attribution links proposal and attempt exactly once;
