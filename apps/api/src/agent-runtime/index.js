@@ -162,8 +162,11 @@ export function createConsoleAgentRuntime({
       const threadBatch = shouldPublishHumanMessage
         ? publishedMessages
         : [userMessage, ...publishedMessages];
+      const currentPublishedMessages = Array.isArray(publishedRoom.publishedMessages)
+        ? publishedRoom.publishedMessages
+        : [];
       const proposalCandidates = skillProposalsEnabled
-        ? bindProposalCandidates(participantResponses, publishedRoom.messages, capabilities)
+        ? bindProposalCandidates(participantResponses, currentPublishedMessages, capabilities)
         : null;
 
       const threadMessages = await memoryClient.appendThread({

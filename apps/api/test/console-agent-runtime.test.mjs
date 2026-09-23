@@ -484,16 +484,18 @@ test('skill-aware runtime preserves multi-participant candidate provenance outsi
       transport: 'xmtp_group',
       async publishRoomMessages(input) {
         published.push(input);
+        const publishedMessages = input.messages.map((message, index) => ({
+          ...message,
+          id: `published-message-${index}`,
+          xmtpMessageId: `published-message-${index}`,
+        }));
         return {
           ...input,
           transport: 'xmtp_group',
           adapter: 'test_xmtp',
           conversationId: 'conversation-skill-aware',
-          messages: input.messages.map((message, index) => ({
-            ...message,
-            id: `published-message-${index}`,
-            xmtpMessageId: `published-message-${index}`,
-          })),
+          messages: publishedMessages,
+          publishedMessages,
         };
       },
     },
@@ -580,19 +582,21 @@ test('skill-aware runtime never reassigns a dropped empty participant response t
       provider: 'filtering_xmtp',
       transport: 'xmtp_group',
       async publishRoomMessages(input) {
+        const publishedMessages = input.messages.flatMap((message, index) => {
+          if (!String(message.text ?? '').trim()) return [];
+          return [{
+            ...message,
+            id: `published-filtered-${index}`,
+            xmtpMessageId: `published-filtered-${index}`,
+          }];
+        });
         return {
           ...input,
           transport: 'xmtp_group',
           adapter: 'filtering_xmtp',
           conversationId: 'conversation-filtered-empty',
-          messages: input.messages.flatMap((message, index) => {
-            if (!String(message.text ?? '').trim()) return [];
-            return [{
-              ...message,
-              id: `published-filtered-${index}`,
-              xmtpMessageId: `published-filtered-${index}`,
-            }];
-          }),
+          messages: publishedMessages,
+          publishedMessages,
         };
       },
     },
@@ -640,6 +644,70 @@ test('skill-aware runtime never reassigns a dropped empty participant response t
     result.proposalCandidates.some((candidate) => candidate.participantId === '1'),
     false,
   );
+});
+
+test('skill-aware runtime never binds a dropped current response to identical text from an earlier turn', async () => {
+  const history = [];
+  let publishTurn = 0;
+  const runtime = createConsoleAgentRuntime({
+    skillProposalsEnabled: true,
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-23T20:10:00.000Z' }),
+    now: () => '2026-09-23T20:10:00.000Z',
+    xmtpClient: {
+      provider: 'history_xmtp',
+      transport: 'xmtp_group',
+      async publishRoomMessages(input) {
+        publishTurn += 1;
+        const publishedMessages = input.messages.flatMap((message, index) => {
+          if (publishTurn === 2 && message.role === 'agent') return [];
+          return [{
+            ...message,
+            id: `published-turn-${publishTurn}-${index}`,
+            xmtpMessageId: `published-turn-${publishTurn}-${index}`,
+          }];
+        });
+        history.push(...publishedMessages);
+        return {
+          ...input,
+          transport: 'xmtp_group',
+          adapter: 'history_xmtp',
+          conversationId: 'conversation-history-boundary',
+          messages: [...history],
+          publishedMessages,
+        };
+      },
+    },
+    llmClient: {
+      async generate() {
+        return {
+          provider: 'fake_bankr',
+          text: 'Identical participant response.',
+          skillRefs: ['bankr'],
+          transferCandidates: [{
+            skill: 'bankr',
+            assetType: 'native',
+            assetContract: null,
+            recipient: '0x0000000000000000000000000000000000000001',
+            amountBaseUnits: '1',
+            rationale: 'Identical suggestion.',
+          }],
+        };
+      },
+    },
+  });
+  const input = {
+    wallet: WALLET,
+    agentId: '1',
+    tokenId: '1',
+    message: 'Repeat the same suggestion.',
+  };
+
+  const first = await runtime.handleMessage(input);
+  const second = await runtime.handleMessage(input);
+
+  assert.equal(first.proposalCandidates.length, 1);
+  assert.equal(first.proposalCandidates[0].sourceMessageId, 'published-turn-1-1');
+  assert.deepEqual(second.proposalCandidates, []);
 });
 
 test('skill-aware secure activation and message APIs return separate capabilities and candidates only when enabled', async () => {

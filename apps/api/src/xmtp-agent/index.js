@@ -95,6 +95,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
         adapter: 'local_xmtp_adapter',
         participants: [...room.participants],
         messages: [...room.messages],
+        publishedMessages: nextMessages,
       };
     },
 
@@ -190,6 +191,7 @@ export async function createNodeXmtpAgentClient({
         adapter: 'xmtp_node_sdk',
         participants: [...room.participants],
         messages: [...room.messages],
+        publishedMessages,
       };
     },
 
