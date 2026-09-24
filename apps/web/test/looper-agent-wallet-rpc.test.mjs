@@ -42,6 +42,7 @@ const IMPLEMENTATION_CODE = '0x6001600055';
 const REGISTRY_CODE = '0x6002600055';
 const MODULE_CODE = '0x6003600055';
 const BLOCK_HASH = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const DELEGATED_OWNER_CODE = `0xef0100${'aa'.repeat(20)}`;
 const RELEASE_CONFIG = Object.freeze({
   implementation: IMPLEMENTATION,
   runtimeCode: IMPLEMENTATION_CODE,
@@ -166,6 +167,7 @@ function requester({
   revertPolicy = false,
   malformedPolicyOwner = false,
   frozenLegacyConfig = true,
+  ownerCode = '0x',
   calls = [],
 } = {}) {
   const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
@@ -206,7 +208,7 @@ function requester({
     }
     if (method === 'eth_getCode') {
       const address = params[0].toLowerCase();
-      if (address === OWNER.toLowerCase()) return '0x';
+      if (address === OWNER.toLowerCase()) return ownerCode;
       if (address === IMPLEMENTATION.toLowerCase()) {
         return disagreeImplementationCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : IMPLEMENTATION_CODE;
       }
@@ -798,6 +800,29 @@ test('review finding: ERC-20 preparation rejects canonically readable tokens abs
   }), /freshly discovered|discovery/i);
 });
 
+test('classifies only empty code and an exact EIP-7702 delegation designator as writable owner profiles', () => {
+  const classify = walletRpc.classifyOwnerCode ?? (() => 'missing');
+  assert.equal(classify('0x'), 'eoa');
+  assert.equal(classify(DELEGATED_OWNER_CODE), 'eip7702');
+  for (const code of [
+    '0xef0100',
+    `0xef0100${'aa'.repeat(19)}`,
+    `${DELEGATED_OWNER_CODE}00`,
+    '0xef0100abcd',
+  ]) assert.equal(classify(code), 'malformed');
+  assert.equal(classify('0x6001'), 'contract');
+});
+
+test('canonical EIP-7702 owner code remains writable through anchored readiness', async () => {
+  const client = walletRpc.createLooperAgentWalletRpc({
+    fetchImpl: strictFetchFromRequester(requester({ ownerCode: DELEGATED_OWNER_CODE })),
+    releaseConfig: RELEASE_CONFIG,
+  });
+  const result = await client.readAccountPreflight({ selection: { tokenId: TOKEN_ID, owner: OWNER } });
+  assert.equal(result.operatorProfile, 'eip7702');
+  assert.equal(result.writeReady, true);
+});
+
 test('anchor readiness uses three-origin quorum and returns complete deterministic account pins', async () => {
   const calls = [];
   const client = walletRpc.createLooperAgentWalletRpc({
@@ -984,6 +1009,10 @@ test('review finding 2: activation decodes one exact canonical raw AccountCreate
   const postState = { anchor: { number: '0x64', hash: BLOCK_HASH }, accountState: 'active', account, operatorCode: '0x' };
   assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState }).classification, 'confirmed_attributed');
   assert.equal(walletRpc.verifyOperationReceipt({
+    requestedHash: hash, transaction, receipt, prepared,
+    postState: { ...postState, operatorCode: DELEGATED_OWNER_CODE },
+  }).classification, 'confirmed_attributed');
+  assert.equal(walletRpc.verifyOperationReceipt({
     requestedHash: hash,
     transaction,
     receipt: { ...receipt, logs: [{ eventName: 'AccountCreated', account, implementation: IMPLEMENTATION }] },
@@ -1016,6 +1045,10 @@ test('review finding 3: send binds raw StateUpdated to the account frame receipt
   const traceStateLog = { index: 0, address: account, topics: receipt.logs[0].topics, data: receipt.logs[0].data };
   const trace = { type: 'CALL', from: OWNER, to: account, input: preparedTransaction.data, output: '0x', value: '0x0', logs: [traceStateLog], calls: [{ type: 'CALL', from: account, to: recipient, input: '0x', output: '0x', value: '0x7', logs: [], calls: [] }] };
   assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState, trace }).classification, 'confirmed_attributed');
+  assert.equal(walletRpc.verifyOperationReceipt({
+    requestedHash: hash, transaction, receipt, prepared,
+    postState: { ...postState, operatorCode: DELEGATED_OWNER_CODE }, trace,
+  }).classification, 'confirmed_attributed');
   assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt: { ...receipt, logs: [] }, prepared, postState, trace }).classification, 'uncertain_hashed');
   assert.equal(walletRpc.verifyOperationReceipt({ requestedHash: hash, transaction, receipt, prepared, postState, trace: { ...trace, calls: [] } }).classification, 'uncertain_hashed');
   const wrongFrame = { ...trace, logs: [], calls: [{ ...trace.calls[0], logs: [traceStateLog] }] };

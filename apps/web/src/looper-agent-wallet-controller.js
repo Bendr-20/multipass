@@ -16,6 +16,7 @@ import {
   deriveLooperAccount,
   normalizeTokenId,
 } from './looper-agent-wallet.js';
+import { classifyOwnerCode } from './looper-agent-wallet-rpc.js';
 
 const EMPTY_CODE = '0x';
 const ATTEMPT_STATES = new Set([
@@ -331,7 +332,7 @@ export function createLooperAgentWalletController({
     const validated = buildSnapshot(evidence, phase, activeSelection);
     if (validated.mode !== expectedMode) {
       if (sameSelection(selection, activeSelection)) current = attachAttempts(validated);
-      if (validated.reason === 'unsupported_wallet') throw new Error('Looper wallet writes require an EOA with empty Base code.');
+      if (validated.reason === 'unsupported_wallet') throw new Error('Looper wallet writes require a direct or canonically delegated EOA owner signer.');
       throw new Error(`Looper wallet is not ${expectedMode}; ${validated.reason ?? validated.mode}.`);
     }
     if (sameSelection(selection, activeSelection)) current = attachAttempts(validated);
@@ -342,8 +343,8 @@ export function createLooperAgentWalletController({
     if (!validated.policyRecoveryAllowed || !validated.account) {
       throw new Error(`Looper policy recovery is read-only; ${validated.reason ?? validated.mode}.`);
     }
-    if (String(evidence.operatorCode ?? '').toLowerCase() !== EMPTY_CODE) {
-      throw new Error('Looper policy recovery requires the connected current EOA owner.');
+    if (!isWritableOwnerProfile(classifyOwnerCode(evidence.operatorCode))) {
+      throw new Error('Looper policy recovery requires the connected current direct or canonically delegated EOA owner.');
     }
     if (sameAddress(targetModule, ZERO_ADDRESS)) return;
     if (evidence.registryPaused !== false) throw new Error('Permission module registry is paused.');
@@ -443,7 +444,7 @@ export function createLooperAgentWalletController({
       || sha256(implementationCode) !== implementationHash) {
       return blocked({ ...base, account: derivedAccount }, 'implementation_mismatch', 'read_only');
     }
-    if (String(evidence.operatorCode ?? '').toLowerCase() !== EMPTY_CODE) {
+    if (!isWritableOwnerProfile(classifyOwnerCode(evidence.operatorCode))) {
       return blocked({ ...base, account: derivedAccount }, 'unsupported_wallet', 'read_only');
     }
     const accountCode = canonicalCodeOrNull(evidence.accountCode, { allowEmpty: true });
@@ -533,6 +534,7 @@ export function createLooperAgentWalletController({
       owner: activeSelection.owner,
       account: safeAddress(evidence.account),
       legacyAccount: safeAddress(evidence.legacyAccount),
+      operatorProfile: classifyOwnerCode(evidence.operatorCode),
       mode: 'read_only',
       reason: null,
       blockNumber: String(evidence.blockNumber ?? ''),
@@ -1110,6 +1112,10 @@ function normalizeReleaseAddress(value) {
 function normalizeHash(value) {
   const hash = String(value ?? '').toLowerCase();
   return /^0x[0-9a-f]{64}$/.test(hash) ? hash : null;
+}
+
+function isWritableOwnerProfile(profile) {
+  return profile === 'eoa' || profile === 'eip7702';
 }
 
 function canonicalCodeOrNull(value, { allowEmpty = false } = {}) {

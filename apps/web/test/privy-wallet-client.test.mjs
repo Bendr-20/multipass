@@ -12,6 +12,7 @@ import {
   PRIVY_EXTERNAL_WALLET_CONFIG,
   selectConnectedWalletAddress,
   selectEvmWallet,
+  submitPrivyLooperTransaction,
 } from '../src/privy-wallet-client.js';
 
 function wallet({ address, connectedAt, provider = { request: async () => '0xsig' } } = {}) {
@@ -22,7 +23,7 @@ function wallet({ address, connectedAt, provider = { request: async () => '0xsig
   };
 }
 
-test('Privy wallet profile marks Base Account and smart wallets read-only for Looper writes', () => {
+test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
   assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {
     kind: 'smart_or_delegated',
     walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
@@ -32,6 +33,28 @@ test('Privy wallet profile marks Base Account and smart wallets read-only for Lo
     walletClientType: 'metamask',
   });
   assert.deepEqual(classifyPrivyWalletProfile(null), { kind: 'unknown', walletClientType: null });
+});
+
+test('canonical Base Account signer reaches the exact Looper transaction submission boundary', async () => {
+  const calls = [];
+  const address = '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea';
+  const hash = `0x${'aa'.repeat(32)}`;
+  const baseAccount = {
+    address,
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    async getEthereumProvider() {
+      return { async request(payload) { calls.push(payload); return hash; } };
+    },
+  };
+  const transaction = {
+    chainId: '0x2105',
+    from: address,
+    to: '0x9999999999999999999999999999999999999999',
+    value: '0x0',
+    data: '0x1234',
+  };
+  assert.equal(await submitPrivyLooperTransaction(baseAccount, transaction), hash);
+  assert.deepEqual(calls, [{ method: 'eth_sendTransaction', params: [transaction] }]);
 });
 
 test('named Looper transaction action forwards only eth_sendTransaction payloads', async () => {

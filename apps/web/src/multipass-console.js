@@ -465,7 +465,9 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
     mode: String(wallet.mode ?? 'read_only'),
     reason: wallet.reason ? String(wallet.reason) : null,
     account: wallet.account ? String(wallet.account) : null,
-    legacyAccount: wallet.legacyAccount ? String(wallet.legacyAccount) : null,
+    operatorProfile: ['eoa', 'eip7702', 'contract', 'malformed'].includes(wallet.operatorProfile)
+      ? wallet.operatorProfile
+      : 'unknown',
     nativeWei: String(wallet.nativeWei ?? '0'),
     tokens: Array.isArray(wallet.tokens) ? wallet.tokens : [],
     refreshedAt: wallet.refreshedAt ? String(wallet.refreshedAt) : null,
@@ -485,14 +487,12 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
 
 function renderLooperAgentWallet(wallet) {
   if (!wallet) return '';
-  const account = wallet.account ?? wallet.legacyAccount;
+  const account = wallet.account;
   const modeLabel = wallet.mode === 'inactive'
     ? 'Inactive — activation required'
-    : wallet.mode === 'legacy_read_only'
-      ? 'Legacy account — read-only'
-      : wallet.mode === 'loading'
-        ? 'Loading'
-        : wallet.policyStatus === 'permission-hook-paused'
+    : wallet.mode === 'loading'
+      ? 'Loading'
+      : wallet.policyStatus === 'permission-hook-paused'
           ? 'Permission hook paused'
           : wallet.policyStatus === 'module-blocked'
             ? 'Policy blocked'
@@ -508,21 +508,49 @@ function renderLooperAgentWallet(wallet) {
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.policy?.state);
   const nativeBalance = `${formatWalletUnits(wallet.nativeWei, 18)} ETH`;
   const assetCount = 1 + (wallet.tokens ?? []).length;
+  const looperWalletLabel = wallet.mode === 'active'
+    ? 'Active'
+    : wallet.mode === 'inactive'
+      ? 'Activation required'
+      : wallet.mode === 'loading'
+        ? 'Loading'
+        : wallet.mode === 'blocked'
+          ? 'Blocked'
+          : 'Read-only';
+  const showDetails = Boolean(account
+    || (wallet.mode === 'inactive' && wallet.canTransact)
+    || (wallet.mode === 'active' && wallet.canTransact)
+    || wallet.policyRecoveryAllowed
+    || uncertainAttempts.length);
+  const ownerSignerLabel = wallet.operatorProfile === 'eoa'
+    ? 'Direct EOA'
+    : wallet.operatorProfile === 'eip7702'
+      ? 'Delegated EOA'
+      : wallet.operatorProfile === 'contract'
+        ? 'Contract — blocked'
+        : wallet.operatorProfile === 'malformed'
+          ? 'Malformed code — blocked'
+          : 'Unverified';
   return `
     <section class="console-looper-wallet" aria-label="Selected Looper agent wallet">
       <div class="console-looper-wallet-head">
         <div class="console-looper-wallet-title">
-          <span>Agent wallet</span>
+          <span>Looper wallet</span>
           <strong class="console-looper-wallet-status" data-wallet-mode="${escapeAttribute(wallet.mode)}">${escapeHtml(modeLabel)}</strong>
         </div>
         <button type="button" data-action="refresh-looper-agent-wallet" ${busy ? 'disabled' : ''}>Refresh</button>
       </div>
-      <div class="console-looper-wallet-overview" aria-label="Wallet balance summary">
+      <dl class="console-looper-wallet-truth" aria-label="Agent and wallet status">
+        <div data-wallet-truth="agent-runtime"><dt>Agent runtime</dt><dd><strong>Review-only</strong></dd></div>
+        <div data-wallet-truth="looper-wallet"><dt>Looper wallet</dt><dd><strong>${escapeHtml(looperWalletLabel)}</strong></dd></div>
+        <div data-wallet-truth="owner-signer"><dt>Owner signer</dt><dd><strong>${escapeHtml(ownerSignerLabel)}</strong></dd></div>
+      </dl>
+      ${account ? `<div class="console-looper-wallet-overview" aria-label="Wallet balance summary">
         <span>Available balance</span>
         <strong class="console-looper-wallet-primary-balance">${escapeHtml(nativeBalance)}</strong>
         <small>${assetCount} tracked ${assetCount === 1 ? 'asset' : 'assets'} on Base</small>
-      </div>
-      <details class="console-looper-wallet-details">
+      </div>` : ''}
+      ${showDetails ? `<details class="console-looper-wallet-details">
         <summary>
           <span>Wallet details</span>
           <small>Address, assets, and actions</small>
@@ -535,17 +563,10 @@ function renderLooperAgentWallet(wallet) {
               <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
             </div>
           ` : ''}
-          ${wallet.legacyAccount && wallet.legacyAccount.toLowerCase() !== String(wallet.account ?? '').toLowerCase() ? `
-            <div class="console-looper-wallet-address console-looper-wallet-legacy-address">
-              <span>Legacy collection TBA - read-only evidence</span>
-              <code>${escapeHtml(wallet.legacyAccount)}</code>
-              <a href="https://basescan.org/address/${escapeAttribute(wallet.legacyAccount)}" target="_blank" rel="noopener noreferrer">View legacy TBA on BaseScan</a>
-            </div>
-          ` : ''}
-          <div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
+          ${account ? `<div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
             <span>${escapeHtml(nativeBalance)}</span>
             ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
-          </div>
+          </div>` : ''}
           ${wallet.mode === 'inactive' && wallet.canTransact ? `
             <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
               <label><input type="checkbox" name="confirmed" required> Confirm owner-paid activation on Base</label>
@@ -576,7 +597,7 @@ function renderLooperAgentWallet(wallet) {
             </div>
           `).join('')}
         </div>
-      </details>
+      </details>` : ''}
       ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}
       ${wallet.error ? `<p class="console-looper-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
@@ -595,7 +616,7 @@ function formatWalletUnits(value, decimals) {
 
 function formatWalletReason(reason) {
   const labels = {
-    legacy_implementation: 'The configured legacy account is visible but cannot execute.',
+    legacy_implementation: 'This wallet configuration is read-only.',
     config_drift: 'Wallet writes are disabled because frozen collection or direct account evidence drifted.',
     release_unset: 'Policy release evidence is not configured. This wallet is read-only.',
     implementation_mismatch: 'The selected implementation does not match the reviewed release.',
@@ -607,7 +628,7 @@ function formatWalletReason(reason) {
     binding_mismatch: 'The reviewed account is not bound to this Base Looper token.',
     permission_hook_paused: 'Permission hooks are paused. Owner recovery remains available.',
     policy_drift: 'Policy evidence changed. Preview the recovery again.',
-    unsupported_wallet: 'Smart or delegated wallets are read-only in this release.',
+    unsupported_wallet: 'The owner signer has arbitrary or malformed Base code and cannot submit Looper wallet writes.',
     owner_changed: 'Ownership changed. Reconnect as the current Looper owner.',
     wrong_runtime: 'The deployed account runtime does not match the reviewed release.',
     locks_unavailable: 'This browser cannot safely serialize wallet writes across tabs.',

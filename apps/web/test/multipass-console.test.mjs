@@ -68,6 +68,7 @@ test('selected Looper renders an active compact operator wallet under its name',
         tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
         policyStatus: 'owner-only',
+        operatorProfile: 'eip7702',
         canTransact: true,
         activation: { state: 'idle' },
         send: { state: 'idle' },
@@ -78,7 +79,7 @@ test('selected Looper renders an active compact operator wallet under its name',
   const root = render(renderMultipassConsole(snapshot));
   const panel = root.querySelector('.console-looper-wallet');
   assert.ok(panel);
-  assert.match(panel.textContent, /Agent wallet/i);
+  assert.match(panel.textContent, /Looper wallet/i);
   assert.match(panel.textContent, /1\.25 ETH/);
   assert.match(panel.textContent, /2\.5 CRED/);
   assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
@@ -87,13 +88,17 @@ test('selected Looper renders an active compact operator wallet under its name',
   assert.ok(details);
   assert.match(details.querySelector('summary')?.textContent ?? '', /Wallet details/i);
   assert.equal(details.querySelector('a')?.href, 'https://basescan.org/address/0x9999999999999999999999999999999999999999');
-  assert.match(details.textContent, /Legacy collection TBA.*read-only evidence/i);
-  assert.match(details.textContent, /0x8888888888888888888888888888888888888888/i);
+  assert.doesNotMatch(panel.textContent, /legacy|0x8888888888888888888888888888888888888888/i);
+  assert.equal(details.querySelectorAll('a[href*="basescan.org/address/"]').length, 1);
+  assert.equal(panel.querySelector('[data-wallet-truth="agent-runtime"] strong')?.textContent, 'Review-only');
+  assert.equal(panel.querySelector('[data-wallet-truth="looper-wallet"] strong')?.textContent, 'Active');
+  assert.equal(panel.querySelector('[data-wallet-truth="owner-signer"] strong')?.textContent, 'Delegated EOA');
   assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
   assert.ok(details.querySelector('[data-action="send-looper-agent-wallet"]'));
   const identityBody = root.querySelector('.console-identity-body');
   assert.equal(identityBody.nextElementSibling, panel);
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
+  assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
 });
 
 test('agent selection is disabled while any Looper wallet operation is nonterminal', () => {
@@ -124,7 +129,7 @@ test('agent selection is disabled while any Looper wallet operation is nontermin
   }
 });
 
-test('inactive and legacy Looper wallets fail closed in the compact panel', () => {
+test('inactive and internal legacy-only Looper states fail closed without exposing legacy-wallet UI', () => {
   const baseState = {
     walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
     consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
@@ -140,10 +145,15 @@ test('inactive and legacy Looper wallets fail closed in the compact panel', () =
 
   snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
-    state: { ...baseState, looperAgentWallet: { mode: 'legacy_read_only', legacyAccount: '0x8888888888888888888888888888888888888888', nativeWei: '7', tokens: [] } },
+    state: { ...baseState, looperAgentWallet: { mode: 'legacy_read_only', reason: 'legacy_implementation', legacyAccount: '0x8888888888888888888888888888888888888888', nativeWei: '7', tokens: [] } },
   });
   root = render(renderMultipassConsole(snapshot));
-  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /legacy account.*read-only/i);
+  const panel = root.querySelector('.console-looper-wallet');
+  assert.match(panel?.textContent ?? '', /read-only/i);
+  assert.doesNotMatch(panel?.textContent ?? '', /legacy|0x8888888888888888888888888888888888888888|migration/i);
+  assert.equal(panel?.querySelector('a[href*="basescan.org/address/"]'), null);
+  assert.equal(panel?.querySelector('.console-looper-wallet-overview'), null);
+  assert.equal(panel?.querySelector('.console-looper-wallet-balances'), null);
   assert.equal(root.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
   assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
 });

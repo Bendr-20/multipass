@@ -62,6 +62,20 @@ const BLOCKSCOUT_TOKEN_KEYS = Object.freeze([
   'icon_url', 'name', 'symbol', 'total_supply', 'type', 'volume_24h',
 ]);
 
+export function classifyOwnerCode(value) {
+  const code = String(value ?? '');
+  if (code === '0x') return 'eoa';
+  if (!/^0x(?:[0-9a-f]{2})+$/.test(code)) return 'malformed';
+  if (code.startsWith('0xef0100')) {
+    return /^0xef0100[0-9a-f]{40}$/.test(code) ? 'eip7702' : 'malformed';
+  }
+  return 'contract';
+}
+
+function writableOwnerProfile(profile) {
+  return profile === 'eoa' || profile === 'eip7702';
+}
+
 export function validateBlockscoutTokenResponse(candidate) {
   requirePlainExact(candidate, ['items', 'next_page_params'], 'Blockscout response');
   if (candidate.next_page_params !== null) throw new Error('Blockscout pagination is unavailable in v1.');
@@ -146,7 +160,7 @@ export function verifyOperationReceipt({
     }
     return classification('reverted', evidence);
   }
-  if (receipt.status !== '0x1' || bindingError || postState?.operatorCode !== '0x') {
+  if (receipt.status !== '0x1' || bindingError || !writableOwnerProfile(classifyOwnerCode(postState?.operatorCode))) {
     if (prepared?.kind === 'activation' && postStateExact(postState, receipt, prepared)) return classification('observed_unattributed', evidence);
     return classification('uncertain_hashed', evidence);
   }
@@ -1134,7 +1148,7 @@ async function readAccountPreflight(context, input = {}) {
       tokenBoundAccount: evidence.legacyAccount,
       legacyRegistryAccount: evidence.legacyRegistryAccount,
     },
-    operatorProfile: evidence.operatorCode === '0x' ? 'eoa' : 'contract_or_delegated',
+    operatorProfile: classifyOwnerCode(evidence.operatorCode),
     accountState,
     accountCode: evidence.accountCode,
     prefundedWei: evidence.nativeWei,
@@ -1144,7 +1158,7 @@ async function readAccountPreflight(context, input = {}) {
     simulationResult,
     writeReady: sameAddress(evidence.owner, selection.owner)
       && (accountState === 'undeployed' || sameAddress(evidence.accountOwner, selection.owner))
-      && evidence.operatorCode === '0x'
+      && writableOwnerProfile(classifyOwnerCode(evidence.operatorCode))
       && accountState !== 'wrong_runtime',
     evidence,
   };
@@ -1466,7 +1480,9 @@ function postStateExact(state, receipt, prepared) {
 }
 
 function revertedStateExact(state, receipt, prepared) {
-  if (!sameReceiptAnchor(state, receipt) || !sameAddress(state.account, prepared.selection.account) || state.operatorCode !== '0x') return false;
+  if (!sameReceiptAnchor(state, receipt)
+    || !sameAddress(state.account, prepared.selection.account)
+    || !writableOwnerProfile(classifyOwnerCode(state.operatorCode))) return false;
   if (prepared.kind === 'activation') return state.accountState === 'undeployed';
   return state.accountState === 'active' && String(state.state) === String(prepared.preState);
 }

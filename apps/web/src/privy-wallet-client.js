@@ -130,6 +130,20 @@ export function classifyPrivyWalletProfile(wallet) {
   };
 }
 
+export async function submitPrivyLooperTransaction(wallet, transaction) {
+  if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
+  const provider = await wallet.getEthereumProvider?.();
+  if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
+  const exactKeys = Object.keys(transaction ?? {}).sort().join(',');
+  if (exactKeys !== 'chainId,data,from,to,value' || transaction.chainId !== '0x2105' || transaction.value !== '0x0') {
+    throw new Error('Looper wallet transaction payload is invalid.');
+  }
+  if (normalizeAddressOrNull(transaction.from) !== getWalletAddress(wallet)) {
+    throw new Error('Looper wallet transaction sender changed.');
+  }
+  return provider.request({ method: 'eth_sendTransaction', params: [transaction] });
+}
+
 export function selectEvmWallet(wallets = []) {
   let selected = null;
   for (const wallet of wallets) {
@@ -348,22 +362,7 @@ export function PrivyWalletBridge({ client, configured }) {
         const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
       },
-      sendTransaction: async (transaction) => {
-        const wallet = selectEvmWallet(wallets);
-        if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
-        const profile = classifyPrivyWalletProfile(wallet);
-        if (profile.kind === 'smart_or_delegated') throw new Error('Smart and delegated wallets are read-only for Looper wallet writes.');
-        const provider = await wallet.getEthereumProvider();
-        if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
-        const exactKeys = Object.keys(transaction ?? {}).sort().join(',');
-        if (exactKeys !== 'chainId,data,from,to,value' || transaction.chainId !== '0x2105' || transaction.value !== '0x0') {
-          throw new Error('Looper wallet transaction payload is invalid.');
-        }
-        if (normalizeAddressOrNull(transaction.from) !== getWalletAddress(wallet)) {
-          throw new Error('Looper wallet transaction sender changed.');
-        }
-        return provider.request({ method: 'eth_sendTransaction', params: [transaction] });
-      },
+      sendTransaction: async (transaction) => submitPrivyLooperTransaction(selectEvmWallet(wallets), transaction),
       request: async (payload) => {
         const wallet = selectEvmWallet(wallets);
         if (!wallet) throw new Error('Connected wallet cannot submit transactions.');

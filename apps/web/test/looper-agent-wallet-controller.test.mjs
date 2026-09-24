@@ -34,6 +34,7 @@ const MODULE_CODEHASH = keccak256(MODULE_CODE);
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ZERO_HASH = `0x${'00'.repeat(32)}`;
 const TOKEN_ID = '617';
+const DELEGATED_OWNER_CODE = `0xef0100${'aa'.repeat(20)}`;
 
 function memoryStorage() {
   const values = new Map();
@@ -199,24 +200,77 @@ test('inactive activation requires exact reviewed module registry address, code 
   }
 });
 
-test('EOA gate rejects contract or delegated operator at readiness and again before signing', async () => {
-  let f = controllerFixture({ snapshots: [snapshot({ operatorCode: '0xef0100abcd' })] });
-  const selected = await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
-  assert.equal(selected.mode, 'read_only');
-  assert.equal(f.controller.getSnapshot().mode, 'read_only');
-  assert.equal(f.controller.getSnapshot().reason, 'unsupported_wallet');
+test('owner code readiness permits canonical EIP-7702 and blocks malformed designators or contracts', async () => {
+  let selected = await controllerFixture({ snapshots: [snapshot({ operatorCode: DELEGATED_OWNER_CODE })] })
+    .controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(selected.mode, 'inactive');
+  assert.equal(selected.operatorProfile, 'eip7702');
+  assert.equal(selected.canTransact, true);
 
-  let submissions = 0;
-  f = controllerFixture({
-    snapshots: [snapshot(), snapshot(), snapshot({ operatorCode: '0x6001' })],
-    submit: async () => { submissions += 1; return '0x1'; },
+  for (const operatorCode of ['0xef0100abcd', '0xef0100', '0x6001']) {
+    selected = await controllerFixture({ snapshots: [snapshot({ operatorCode })] })
+      .controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    assert.equal(selected.mode, 'read_only');
+    assert.equal(selected.reason, 'unsupported_wallet');
+    assert.equal(selected.canTransact, false);
+  }
+});
+
+test('canonical EIP-7702 owner completes exact confirmed activation and send paths', async () => {
+  const delegatedInactive = snapshot({ operatorCode: DELEGATED_OWNER_CODE });
+  const delegatedActive = deployedSnapshot({ operatorCode: DELEGATED_OWNER_CODE });
+  let f = controllerFixture({
+    snapshots: [delegatedInactive, delegatedInactive, delegatedInactive, delegatedActive],
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transactionHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      transaction,
+      logs: [{ eventName: 'AccountCreated', account: delegatedActive.collectionAccount }],
+    }),
   });
-  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
-  const prepared = await f.controller.prepareActivation();
-  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /EOA|wallet/i);
-  assert.equal(submissions, 0);
-  assert.equal(f.controller.getSnapshot().activation.state, 'invalidated');
-  assert.equal(f.controller.getSnapshot().activation.preparedId, null);
+  assert.equal((await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).mode, 'inactive');
+  let prepared = await f.controller.prepareActivation();
+  let result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.equal(result.activation.state, 'confirmed_attributed');
+  assert.equal(result.operatorProfile, 'eip7702');
+
+  const delegatedPostSend = deployedSnapshot({ operatorCode: DELEGATED_OWNER_CODE, state: '1', nativeWei: '900' });
+  f = controllerFixture({
+    snapshots: [delegatedActive, delegatedActive, delegatedActive, delegatedPostSend],
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transactionHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      transaction,
+      logs: [{ eventName: 'StateUpdated', address: delegatedActive.collectionAccount, state: '1' }],
+    }),
+  });
+  assert.equal((await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).mode, 'active');
+  prepared = await f.controller.prepareEthSend({ recipient: RECIPIENT, amountWei: '100' });
+  result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+  assert.equal(result.send.state, 'confirmed_attributed');
+  assert.equal(result.operatorProfile, 'eip7702');
+});
+
+test('final pre-submit owner-code reclassification invalidates readiness when EOA or EIP-7702 changes to blocked code', async () => {
+  for (const [initialCode, changedCode] of [
+    ['0x', '0x6001'],
+    [DELEGATED_OWNER_CODE, '0xef0100abcd'],
+  ]) {
+    let submissions = 0;
+    const f = controllerFixture({
+      snapshots: [snapshot({ operatorCode: initialCode }), snapshot({ operatorCode: initialCode }), snapshot({ operatorCode: changedCode })],
+      submit: async () => { submissions += 1; return '0x1'; },
+    });
+    await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+    const prepared = await f.controller.prepareActivation();
+    await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /owner signer|wallet/i);
+    assert.equal(submissions, 0);
+    assert.equal(f.controller.getSnapshot().mode, 'read_only');
+    assert.equal(f.controller.getSnapshot().reason, 'unsupported_wallet');
+    assert.equal(f.controller.getSnapshot().activation.state, 'invalidated');
+    assert.equal(f.controller.getSnapshot().activation.preparedId, null);
+    assert.deepEqual(f.phases, ['readiness', 'pre_sign', 'pre_sign']);
+  }
 });
 
 test('active ETH send requires exact direct receipt attribution and state increment', async () => {
