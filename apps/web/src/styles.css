@@ -9407,7 +9407,7 @@ h1 {
 .console-unverified-transfer {
   min-width: 0;
   max-width: 100%;
-  min-height: max-content;
+  height: max-content;
   overflow: hidden;
   display: grid;
   gap: 10px;

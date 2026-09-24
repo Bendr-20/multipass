@@ -85,11 +85,14 @@ try {
       const capabilityReadabilityTargets = [
         ...document.querySelectorAll('.console-skill-capability dt, .console-skill-capability dd, .console-skill-capability .console-skill-badge'),
       ];
+      const surfaceRect = surface.getBoundingClientRect();
+      const nextRect = surface.nextElementSibling?.getBoundingClientRect();
       return {
         clientWidth: surface.clientWidth,
         scrollWidth: surface.scrollWidth,
         clientHeight: surface.clientHeight,
         scrollHeight: surface.scrollHeight,
+        overlapsNextEntry: Boolean(nextRect && surfaceRect.bottom > nextRect.top),
         recipientReadable: text.includes(expected.recipient),
         contractReadable: text.includes(expected.assetContract),
         amountReadable: text.includes(expected.amountBaseUnits),
@@ -107,6 +110,7 @@ try {
       pageErrors.length
       || result.scrollWidth > result.clientWidth
       || result.scrollHeight > result.clientHeight
+      || result.overlapsNextEntry
       || !result.recipientReadable
       || !result.contractReadable
       || !result.amountReadable
