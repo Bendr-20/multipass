@@ -9359,7 +9359,7 @@ h1 {
 .console-skill-capability dl div {
   padding: 8px 10px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--paper) 86%, var(--ink) 4%);
+  background: #f4efe7;
 }
 
 .console-skill-capability dt,
@@ -9376,6 +9376,10 @@ h1 {
   font-weight: 900;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+}
+
+.console-skill-capability dt {
+  color: #555a55;
 }
 
 .console-skill-capability dd {
@@ -9403,6 +9407,7 @@ h1 {
 .console-unverified-transfer {
   min-width: 0;
   max-width: 100%;
+  min-height: max-content;
   overflow: hidden;
   display: grid;
   gap: 10px;

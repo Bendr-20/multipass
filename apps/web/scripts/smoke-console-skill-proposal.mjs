@@ -72,8 +72,9 @@ try {
         const foreground = parseColor(getComputedStyle(element).color);
         const background = effectiveBackground(element);
         if (!foreground) return 0;
-        const brighter = Math.max(luminance(foreground), luminance(background));
-        const darker = Math.min(luminance(foreground), luminance(background));
+        const renderedForeground = composite(foreground, background);
+        const brighter = Math.max(luminance(renderedForeground), luminance(background));
+        const darker = Math.min(luminance(renderedForeground), luminance(background));
         return (brighter + 0.05) / (darker + 0.05);
       };
       const readabilityTargets = [
@@ -81,13 +82,19 @@ try {
         surface.querySelector('.console-skill-badge'),
         ...surface.querySelectorAll('dt, dd, p'),
       ].filter(Boolean);
+      const capabilityReadabilityTargets = [
+        ...document.querySelectorAll('.console-skill-capability dt, .console-skill-capability dd, .console-skill-capability .console-skill-badge'),
+      ];
       return {
         clientWidth: surface.clientWidth,
         scrollWidth: surface.scrollWidth,
+        clientHeight: surface.clientHeight,
+        scrollHeight: surface.scrollHeight,
         recipientReadable: text.includes(expected.recipient),
         contractReadable: text.includes(expected.assetContract),
         amountReadable: text.includes(expected.amountBaseUnits),
         minimumTextContrast: Math.min(...readabilityTargets.map(contrast)),
+        minimumCapabilityTextContrast: Math.min(...capabilityReadabilityTargets.map(contrast)),
         surfaceBackgroundAlpha: parseColor(getComputedStyle(surface).backgroundColor)?.[3] ?? 0,
         unsafeCandidateNodes: surface.querySelectorAll(unsafeSelector).length,
         clickHandler: surface.onclick !== null,
@@ -99,10 +106,12 @@ try {
     if (
       pageErrors.length
       || result.scrollWidth > result.clientWidth
+      || result.scrollHeight > result.clientHeight
       || !result.recipientReadable
       || !result.contractReadable
       || !result.amountReadable
       || result.minimumTextContrast < 4.5
+      || result.minimumCapabilityTextContrast < 4.5
       || result.surfaceBackgroundAlpha !== 1
       || result.unsafeCandidateNodes !== 0
       || result.clickHandler
