@@ -2482,12 +2482,15 @@ function getInitialConsoleMockState() {
         skills: [{
           id: 'bankr',
           name: 'Bankr',
-          summary: 'Crypto market, wallet, trading, and token-operation specialist.',
-          capabilities: ['market_research', 'portfolio_read', 'transfer', 'swap', 'token_launch'],
-          enabledCapabilities: ['explain', 'propose_transfer'],
+          summary: 'Read-only crypto price specialist with review-only ETH and ERC-20 transfer suggestions.',
+          capabilities: ['price_read', 'transfer'],
+          enabledCapabilities: ['explain', 'price_read', 'propose_transfer'],
           execution: 'human_review',
           credentialAccess: false,
-          constraints: ['No Bankr wallet is used for Looper funds.'],
+          constraints: [
+            'No Bankr wallet is used for Looper funds.',
+            'Only BTC, ETH, SOL, and USDC current USD price reads are enabled.',
+          ],
         }],
       },
       proposalCandidates: [{

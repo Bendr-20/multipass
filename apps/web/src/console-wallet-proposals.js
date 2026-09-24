@@ -25,6 +25,7 @@ const MAX_UINT256 = (1n << 256n) - 1n;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const CAPABILITY_LABELS = Object.freeze({
+  price_read: 'Current USD price',
   market_research: 'Market research',
   portfolio_read: 'Portfolio read',
   transfer: 'Transfer',

@@ -8,7 +8,7 @@ const capabilities = {
   version: `sha256:${'b'.repeat(64)}`,
   skills: [{
     id: 'bankr', name: 'Bankr', summary: 'Bounded catalog knowledge.',
-    capabilities: ['market_research', 'transfer'], enabledCapabilities: ['explain', 'propose_transfer'],
+    capabilities: ['price_read', 'transfer'], enabledCapabilities: ['explain', 'price_read', 'propose_transfer'],
     execution: 'human_review', credentialAccess: false, constraints: ['No direct execution.'],
   }],
 };

@@ -22,8 +22,8 @@ const BANKR_DESCRIPTOR = {
   id: 'bankr',
   name: 'Bankr',
   summary: 'Read-only crypto price specialist with review-only ETH and ERC-20 transfer suggestions.',
-  capabilities: ['market_research', 'transfer'],
-  enabledCapabilities: ['explain', 'market_research', 'propose_transfer'],
+  capabilities: ['price_read', 'transfer'],
+  enabledCapabilities: ['explain', 'price_read', 'propose_transfer'],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
@@ -97,7 +97,7 @@ test('returns exact frozen Bankr and Helixa descriptors with a canonical catalog
     assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
   }
   assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]);
-  assert.deepEqual(catalog.skills[0].enabledCapabilities, ['explain', 'market_research', 'propose_transfer']);
+  assert.deepEqual(catalog.skills[0].enabledCapabilities, ['explain', 'price_read', 'propose_transfer']);
   assert.deepEqual(catalog.skills[1].enabledCapabilities, ['agent_profile_read']);
   assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
   assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));

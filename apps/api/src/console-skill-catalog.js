@@ -26,8 +26,8 @@ const SERVER_SKILL_DESCRIPTORS = [
     id: 'bankr',
     name: 'Bankr',
     summary: 'Read-only crypto price specialist with review-only ETH and ERC-20 transfer suggestions.',
-    capabilities: ['market_research', 'transfer'],
-    enabledCapabilities: ['explain', 'market_research', 'propose_transfer'],
+    capabilities: ['price_read', 'transfer'],
+    enabledCapabilities: ['explain', 'price_read', 'propose_transfer'],
     execution: 'human_review',
     credentialAccess: false,
     constraints: [

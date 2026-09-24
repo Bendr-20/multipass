@@ -15,7 +15,7 @@ const capabilities = {
     id: 'bankr',
     name: 'Bankr',
     summary: 'Crypto market, wallet, trading, and token-operation specialist.',
-    capabilities: ['market_research', 'portfolio_read', 'transfer'],
+    capabilities: ['price_read', 'transfer'],
     enabledCapabilities: ['explain', 'propose_transfer'],
     execution: 'human_review',
     credentialAccess: false,
@@ -144,7 +144,8 @@ test('renders bounded capability knowledge only from a valid enabled catalog', (
 
   assert.ok(surface);
   assert.match(surface.textContent, /Understands/);
-  assert.match(surface.textContent, /Market research/);
+  assert.match(surface.textContent, /Current USD price/);
+  assert.doesNotMatch(surface.textContent, /Market research|Portfolio read|Swap|Token launch/);
   assert.match(surface.textContent, /Can propose/);
   assert.match(surface.textContent, /Transfer/);
   assert.match(surface.textContent, /Cannot execute directly/);
