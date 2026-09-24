@@ -144,10 +144,11 @@ test('renders bounded capability knowledge only from a valid enabled catalog', (
 
   assert.ok(surface);
   assert.match(surface.textContent, /Understands/);
-  assert.match(surface.textContent, /Current USD price/);
+  assert.match(surface.textContent, /BTC, ETH, SOL, USDC current USD prices/);
+  assert.match(surface.textContent, /Review-only ETH\/ERC-20 transfer suggestions/);
   assert.doesNotMatch(surface.textContent, /Market research|Portfolio read|Swap|Token launch/);
   assert.match(surface.textContent, /Can propose/);
-  assert.match(surface.textContent, /Transfer/);
+  assert.match(surface.textContent, /transfer suggestions/i);
   assert.match(surface.textContent, /Cannot execute directly/);
   assert.match(surface.textContent, /catalog knowledge/i);
   assert.equal(surface.querySelectorAll('button, input, form, [data-action]').length, 0);

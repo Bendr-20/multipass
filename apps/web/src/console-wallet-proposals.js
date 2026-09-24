@@ -25,14 +25,14 @@ const MAX_UINT256 = (1n << 256n) - 1n;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const CAPABILITY_LABELS = Object.freeze({
-  price_read: 'Current USD price',
+  price_read: 'BTC, ETH, SOL, USDC current USD prices',
   market_research: 'Market research',
   portfolio_read: 'Portfolio read',
-  transfer: 'Transfer',
+  transfer: 'Review-only ETH/ERC-20 transfer suggestions',
   swap: 'Swap',
   token_launch: 'Token launch',
   explain: 'Explanations',
-  propose_transfer: 'Transfer',
+  propose_transfer: 'Review-only ETH/ERC-20 transfer suggestions',
 });
 
 export function createConsoleCapabilityViewModel(capabilities) {
@@ -91,11 +91,13 @@ export function createUnverifiedTransferSuggestion(candidate, { capabilities, me
 
   const knownSkills = new Set(capabilityModel.skills.map((entry) => entry.id));
   const skill = capabilityModel.skills.find((entry) => entry.id === candidate.skill);
+  const catalogSkill = capabilities.skills.find((entry) => entry.id === candidate.skill);
   if (
     !skill
+    || !catalogSkill
     || !skillRefs.has(candidate.skill)
     || [...skillRefs].some((skillRef) => !knownSkills.has(skillRef))
-    || !skill.canPropose.includes('Transfer')
+    || !catalogSkill.enabledCapabilities.includes('propose_transfer')
   ) {
     throw new TypeError('candidate skill provenance is invalid.');
   }

@@ -2942,7 +2942,8 @@ test('dedicated Console route can render a looper mock room without live ownersh
   assert.match(consolePage.textContent, /Queue the morning markets brief/i);
   assert.match(consolePage.textContent, /How are the markets and how is our vault looking tonight/i);
   assert.match(consolePage.textContent, /Vault looks clean/i);
-  assert.match(consolePage.textContent, /Current USD price/i);
+  assert.match(consolePage.textContent, /BTC, ETH, SOL, USDC current USD prices/i);
+  assert.match(consolePage.textContent, /Review-only ETH\/ERC-20 transfer suggestions/i);
   assert.doesNotMatch(consolePage.textContent, /Market research|Portfolio read|Swap|Token launch/i);
   assert.match(consolePage.textContent, /0x8f8A\.\.\.4B91/);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
