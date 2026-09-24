@@ -45,12 +45,50 @@ try {
         '[data-action]', '[data-wallet]', '[data-wallet-controller]', '[data-provider]', '[data-calldata]',
       ].join(',');
       const walletInputs = [...document.querySelectorAll('.console-looper-wallet input, .console-looper-wallet select, .console-looper-wallet textarea')];
+      const parseColor = (value) => {
+        const match = String(value).match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
+        return match ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])] : null;
+      };
+      const composite = (foreground, background) => {
+        const alpha = foreground[3] + background[3] * (1 - foreground[3]);
+        if (alpha === 0) return [0, 0, 0, 0];
+        return [0, 1, 2].map((index) => (
+          (foreground[index] * foreground[3] + background[index] * background[3] * (1 - foreground[3])) / alpha
+        )).concat(alpha);
+      };
+      const effectiveBackground = (element) => {
+        const layers = [];
+        for (let current = element; current; current = current.parentElement) {
+          const parsed = parseColor(getComputedStyle(current).backgroundColor);
+          if (parsed && parsed[3] > 0) layers.push(parsed);
+        }
+        return layers.reverse().reduce((background, layer) => composite(layer, background), [255, 255, 255, 1]);
+      };
+      const luminance = (color) => color.slice(0, 3)
+        .map((channel) => channel / 255)
+        .map((channel) => (channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+      const contrast = (element) => {
+        const foreground = parseColor(getComputedStyle(element).color);
+        const background = effectiveBackground(element);
+        if (!foreground) return 0;
+        const brighter = Math.max(luminance(foreground), luminance(background));
+        const darker = Math.min(luminance(foreground), luminance(background));
+        return (brighter + 0.05) / (darker + 0.05);
+      };
+      const readabilityTargets = [
+        surface.querySelector('header strong'),
+        surface.querySelector('.console-skill-badge'),
+        ...surface.querySelectorAll('dt, dd, p'),
+      ].filter(Boolean);
       return {
         clientWidth: surface.clientWidth,
         scrollWidth: surface.scrollWidth,
         recipientReadable: text.includes(expected.recipient),
         contractReadable: text.includes(expected.assetContract),
         amountReadable: text.includes(expected.amountBaseUnits),
+        minimumTextContrast: Math.min(...readabilityTargets.map(contrast)),
+        surfaceBackgroundAlpha: parseColor(getComputedStyle(surface).backgroundColor)?.[3] ?? 0,
         unsafeCandidateNodes: surface.querySelectorAll(unsafeSelector).length,
         clickHandler: surface.onclick !== null,
         walletPrefillMatches: walletInputs.filter((input) => [expected.recipient, expected.assetContract, expected.amountBaseUnits].includes(input.value)).length,
@@ -64,6 +102,8 @@ try {
       || !result.recipientReadable
       || !result.contractReadable
       || !result.amountReadable
+      || result.minimumTextContrast < 4.5
+      || result.surfaceBackgroundAlpha !== 1
       || result.unsafeCandidateNodes !== 0
       || result.clickHandler
       || result.walletPrefillMatches !== 0
