@@ -28,6 +28,7 @@ export function createBankrLlmClient({
         },
         body: JSON.stringify({
           model: resolvedModel,
+          max_tokens: 1_200,
           messages: [
             {
               role: 'system',

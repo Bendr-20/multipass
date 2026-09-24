@@ -33,6 +33,7 @@ function createFactoryHarness(events = []) {
   const persona = { canonicalName: 'Looper #617', voice: 'measured signal hunting' };
   const personaLoader = async () => persona;
   const llmClient = { provider: 'fake_bankr' };
+  const readSkillExecutor = { execute: async () => ({ skill: 'helixa', text: 'profile' }) };
   const calls = {};
 
   return {
@@ -49,6 +50,7 @@ function createFactoryHarness(events = []) {
       persona,
       personaLoader,
       llmClient,
+      readSkillExecutor,
     },
     calls,
     factories: {
@@ -99,6 +101,11 @@ function createFactoryHarness(events = []) {
         count('bankrLlmClient');
         calls.bankrLlmClient = input;
         return llmClient;
+      },
+      createConsoleReadSkillExecutor(input) {
+        count('readSkillExecutor');
+        calls.readSkillExecutor = input;
+        return readSkillExecutor;
       },
       createConsoleAgentRuntime(input) {
         count('runtime');
@@ -237,6 +244,44 @@ test('production bootstrap composes skill proposals independently and injects no
   }, enabledHarness.factories);
   assert.equal(enabledHarness.calls.bankrLlmClient.skillProposalsEnabled, true);
   assert.equal(enabledHarness.calls.runtime.skillProposalsEnabled, true);
+});
+
+test('production bootstrap keeps Bankr Agent reads on a separate key while Helixa remains available', async () => {
+  const noReadKey = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAgentBankrLlmEnabled: true,
+    consoleSkillProposalsEnabled: true,
+    bankrLlmKey: 'llm-only-secret',
+  }, noReadKey.factories);
+
+  assert.equal(noReadKey.calls.bankrLlmClient.apiKey, 'llm-only-secret');
+  assert.equal(countOf(noReadKey, 'readSkillExecutor'), 1);
+  assert.equal(noReadKey.calls.readSkillExecutor.bankrApiKey, null);
+  assert.strictEqual(noReadKey.calls.runtime.readSkillExecutor, noReadKey.objects.readSkillExecutor);
+  assert.equal(noReadKey.calls.runtime.bankrReadEnabled, false);
+
+  const separateReadKey = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAgentBankrLlmEnabled: true,
+    consoleSkillProposalsEnabled: true,
+    bankrLlmKey: 'llm-secret',
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, separateReadKey.factories);
+
+  assert.equal(separateReadKey.calls.bankrLlmClient.apiKey, 'llm-secret');
+  assert.equal(separateReadKey.calls.readSkillExecutor.bankrApiKey, 'readonly-secret');
+  assert.equal(separateReadKey.calls.runtime.bankrReadEnabled, true);
+  assert.notEqual(separateReadKey.calls.readSkillExecutor.bankrApiKey, separateReadKey.calls.bankrLlmClient.apiKey);
+});
+
+test('production bootstrap injects no read-skill executor while the skill feature is off', async () => {
+  const harness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleSkillProposalsEnabled: false,
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, harness.factories);
+  assert.equal(countOf(harness, 'readSkillExecutor'), 0);
+  assert.equal(harness.calls.runtime.readSkillExecutor, undefined);
 });
 
 test('enabled XMTP production bootstrap passes the skill flag to its shared worker graph', async () => {

@@ -23,13 +23,27 @@ const BANKR_DESCRIPTOR = {
   name: 'Bankr',
   summary: 'Crypto market, wallet, trading, and token-operation specialist.',
   capabilities: ['market_research', 'portfolio_read', 'transfer', 'swap', 'token_launch'],
-  enabledCapabilities: ['explain', 'propose_transfer'],
+  enabledCapabilities: ['explain', 'market_research', 'propose_transfer'],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
     'No Bankr wallet is used for Looper funds.',
     'No Bankr API credential is exposed to the model or browser.',
     'Only exact ETH/ERC-20 transfer intents are executable in this release.',
+  ],
+};
+
+const HELIXA_DESCRIPTOR = {
+  id: 'helixa',
+  name: 'Helixa',
+  summary: 'Public Helixa AgentDNA identity and Cred profile reader.',
+  capabilities: ['agent_profile_read'],
+  enabledCapabilities: ['agent_profile_read'],
+  execution: 'human_review',
+  credentialAccess: false,
+  constraints: [
+    'Reads only fixed public Helixa agent profile fields.',
+    'Profile results are display-only and grant no wallet authority.',
   ],
 };
 
@@ -73,26 +87,21 @@ function visit(value, callback, path = []) {
   }
 }
 
-test('returns the exact frozen Bankr descriptor and canonical catalog version', () => {
+test('returns exact frozen Bankr and Helixa descriptors with a canonical catalog version', () => {
   const catalog = getConsoleSkillCatalog();
 
   assert.deepEqual(Object.keys(catalog).sort(), ['skills', 'version']);
-  assert.equal(catalog.skills.length, 1);
-  assert.deepEqual(Object.keys(catalog.skills[0]).sort(), EXPECTED_DESCRIPTOR_KEYS);
-  assert.deepEqual(catalog.skills[0], BANKR_DESCRIPTOR);
-  assert.equal(catalog.skills[0].id, 'bankr');
-  assert.deepEqual(catalog.skills[0].capabilities, [
-    'market_research',
-    'portfolio_read',
-    'transfer',
-    'swap',
-    'token_launch',
-  ]);
-  assert.deepEqual(catalog.skills[0].enabledCapabilities, ['explain', 'propose_transfer']);
-  assert.equal(catalog.skills[0].credentialAccess, false);
-  assert.equal(catalog.skills[0].execution, 'human_review');
+  assert.equal(catalog.skills.length, 2);
+  for (const descriptor of catalog.skills) {
+    assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
+  }
+  assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]);
+  assert.deepEqual(catalog.skills[0].enabledCapabilities, ['explain', 'market_research', 'propose_transfer']);
+  assert.deepEqual(catalog.skills[1].enabledCapabilities, ['agent_profile_read']);
+  assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
+  assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));
   assert.match(catalog.version, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR]));
+  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]));
   assertRecursivelyFrozen(catalog);
   assertPlainJson(catalog);
 });

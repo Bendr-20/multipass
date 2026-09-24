@@ -29,6 +29,7 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
@@ -70,6 +71,7 @@ test('CLI flags override environment values', () => {
       loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
       bankrLlmKey: null,
+      bankrReadonlyApiKey: null,
       bankrLlmModel: null,
       consoleAgentBankrLlmEnabled: false,
       consoleSkillProposalsEnabled: false,
@@ -111,6 +113,7 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
@@ -190,6 +193,23 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
 
   assert.equal(enabledOptions.bankrLlmKey, 'fallback-key');
   assert.equal(enabledOptions.consoleAgentBankrLlmEnabled, true);
+});
+
+test('parseServerOptions never falls back to LLM or general Bankr keys for read skills', () => {
+  const absent = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+  });
+  assert.equal(absent.bankrLlmKey, 'llm-secret');
+  assert.equal(absent.bankrReadonlyApiKey, null);
+
+  const separated = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+    BANKR_READONLY_API_KEY: 'readonly-secret',
+  });
+  assert.equal(separated.bankrLlmKey, 'llm-secret');
+  assert.equal(separated.bankrReadonlyApiKey, 'readonly-secret');
 });
 
 test('parseServerOptions keeps skill proposals independently default-off and rejects malformed values', () => {

@@ -11,6 +11,10 @@ const DEFAULT_AGENT_ID = 'agent-manager';
 const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 const MAX_THREAD_HISTORY = 24;
 const CONSOLE_EXECUTION_MODE = 'review_only';
+const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 8_000;
+const MAX_SKILL_RESULT_TEXT_BYTES = 2_048;
+const BANKR_PRICE_COMMAND = /^\/bankr price (?:BTC|ETH|SOL|USDC)$/;
+const HELIXA_AGENT_COMMAND = /^\/helixa agent [1-9][0-9]{0,14}$/;
 
 export function createConsoleAgentRuntime({
   memoryClient = createSibylMemoryStore(),
@@ -19,8 +23,13 @@ export function createConsoleAgentRuntime({
   xmtpClient = createDeferredXmtpAgentClient(),
   now = () => new Date().toISOString(),
   skillProposalsEnabled = false,
+  readSkillExecutor,
+  bankrReadEnabled = true,
+  skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
 } = {}) {
   const capabilities = skillProposalsEnabled ? getConsoleSkillCatalog() : null;
+  const skillTimeoutMs = normalizeSkillProviderTimeout(skillProviderTimeoutMs);
+  const inFlightSkillCalls = new Map();
   return {
     async getThread(input = {}) {
       const wallet = requireWallet(input.wallet);
@@ -86,7 +95,8 @@ export function createConsoleAgentRuntime({
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
-      const priorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
+      const priorMessages = (await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [])
+        .filter(isSafeInferenceHistoryMessage);
       const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
       const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
       const recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
@@ -114,36 +124,73 @@ export function createConsoleAgentRuntime({
 
       const agentMessages = [];
       const participantResponses = [];
-      for (const participant of room.participants.filter((entry) => entry.kind !== 'operator')) {
-        const llm = await llmClient.generate({
-          profile: createParticipantProfile(profile, participant, room),
-          participant,
-          room,
-          wallet,
-          message,
-          memory: recalledMemory,
-          signals,
-          history: priorMessages,
-          walletContext,
+      const explicitSkillCommand = skillProposalsEnabled ? parseExplicitReadSkillCommand(message) : null;
+      if (explicitSkillCommand) {
+        if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
+          throw new Error('Console read skill executor is not configured.');
+        }
+        if (explicitSkillCommand.skill === 'bankr' && !bankrReadEnabled) {
+          throw new Error('Bankr Agent read skill is disabled because BANKR_READONLY_API_KEY is not configured.');
+        }
+        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${message}`;
+        const skillResult = await executeSkillWithDedupe({
+          command: message,
+          expectedSkill: explicitSkillCommand.skill,
+          readSkillExecutor,
+          timeoutMs: skillTimeoutMs,
+          inFlightSkillCalls,
+          dedupeKey,
         });
+        const participant = selectSkillParticipant(room);
         const agentMessage = createThreadMessage({
-          id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
+          id: `msg_${hashish(`${threadId}:${participant.participantId}:${skillResult.text}:${now()}`)}`,
           role: 'agent',
-          text: llm.text,
+          text: skillResult.text,
           sentAt: now(),
           transport: xmtpClient.transport ?? 'xmtp_local',
-          inferenceProvider: llm.provider,
+          inferenceProvider: skillResult.provider,
           senderLabel: participant.displayName,
           participantId: participant.participantId,
         });
         agentMessages.push(agentMessage);
-        if (skillProposalsEnabled) {
-          participantResponses.push({
-            participantId: participant.participantId,
-            draftMessage: agentMessage,
-            skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, capabilities),
-            transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
+        participantResponses.push({
+          participantId: participant.participantId,
+          draftMessage: agentMessage,
+          skillRefs: [skillResult.skill],
+          transferCandidates: [],
+        });
+      } else {
+        for (const participant of room.participants.filter((entry) => entry.kind !== 'operator')) {
+          const llm = await llmClient.generate({
+            profile: createParticipantProfile(profile, participant, room),
+            participant,
+            room,
+            wallet,
+            message,
+            memory: recalledMemory,
+            signals,
+            history: priorMessages,
+            walletContext,
           });
+          const agentMessage = createThreadMessage({
+            id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
+            role: 'agent',
+            text: llm.text,
+            sentAt: now(),
+            transport: xmtpClient.transport ?? 'xmtp_local',
+            inferenceProvider: llm.provider,
+            senderLabel: participant.displayName,
+            participantId: participant.participantId,
+          });
+          agentMessages.push(agentMessage);
+          if (skillProposalsEnabled) {
+            participantResponses.push({
+              participantId: participant.participantId,
+              draftMessage: agentMessage,
+              skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, capabilities),
+              transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
+            });
+          }
         }
       }
 
@@ -203,6 +250,93 @@ export function createConsoleAgentRuntime({
       };
     },
   };
+}
+
+function parseExplicitReadSkillCommand(message) {
+  if (BANKR_PRICE_COMMAND.test(message)) return { skill: 'bankr' };
+  if (HELIXA_AGENT_COMMAND.test(message)) return { skill: 'helixa' };
+  return null;
+}
+
+function selectSkillParticipant(room) {
+  const agents = room.participants.filter((entry) => entry.kind !== 'operator');
+  return agents.find((entry) => entry.participantId === room.primaryParticipantId) ?? agents[0];
+}
+
+function executeSkillWithDedupe({
+  command,
+  expectedSkill,
+  readSkillExecutor,
+  timeoutMs,
+  inFlightSkillCalls,
+  dedupeKey,
+}) {
+  const existing = inFlightSkillCalls.get(dedupeKey);
+  if (existing) return existing;
+
+  const controller = new AbortController();
+  let timeout;
+  const providerCall = Promise.resolve()
+    .then(() => readSkillExecutor.execute(command, { signal: controller.signal }))
+    .then((result) => projectDisplayOnlySkillResult(result, expectedSkill));
+  const deadline = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Console skill provider deadline exceeded.'));
+    }, timeoutMs);
+  });
+  const boundedCall = Promise.race([providerCall, deadline]).finally(() => {
+    clearTimeout(timeout);
+    if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
+  });
+  inFlightSkillCalls.set(dedupeKey, boundedCall);
+  return boundedCall;
+}
+
+function projectDisplayOnlySkillResult(value, expectedSkill) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Malformed Console skill result.');
+  }
+  if (value.skill !== expectedSkill || typeof value.text !== 'string' || !value.text.trim()) {
+    throw new Error('Malformed Console skill result.');
+  }
+  const expected = expectedSkill === 'bankr'
+    ? { operation: 'price', provider: 'bankr_agent_api' }
+    : { operation: 'agent_profile_read', provider: 'helixa_public_api' };
+  if (value.operation !== expected.operation || value.provider !== expected.provider) {
+    throw new Error('Malformed Console skill result.');
+  }
+  return Object.freeze({
+    skill: expectedSkill,
+    operation: expected.operation,
+    provider: expected.provider,
+    text: truncateUtf8(value.text.trim(), MAX_SKILL_RESULT_TEXT_BYTES),
+  });
+}
+
+function normalizeSkillProviderTimeout(value) {
+  if (value === undefined || value === null) return DEFAULT_SKILL_PROVIDER_TIMEOUT_MS;
+  if (!Number.isInteger(value) || value < 10 || value > 30_000) {
+    throw new TypeError('skillProviderTimeoutMs must be between 10 and 30000.');
+  }
+  return value;
+}
+
+function truncateUtf8(value, maxBytes) {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  let output = '';
+  let bytes = 0;
+  for (const character of value) {
+    const size = Buffer.byteLength(character, 'utf8');
+    if (bytes + size > maxBytes) break;
+    output += character;
+    bytes += size;
+  }
+  return output;
+}
+
+function isSafeInferenceHistoryMessage(message) {
+  return !['bankr_agent_api', 'helixa_public_api'].includes(String(message?.inferenceProvider ?? ''));
 }
 
 function normalizeRuntimeSkillRefs(value, catalog) {

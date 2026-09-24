@@ -23,6 +23,7 @@ import { getAllowlistProof } from './allowlist-snapshot.js';
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
 import { createConsoleAuthStore } from './console-auth.js';
+import { createConsoleReadSkillExecutor } from './console-read-skills.js';
 import {
   LOOPERS_MAINNET_CHAIN_ID,
   LOOPERS_MAINNET_CONTRACT,
@@ -62,6 +63,10 @@ const LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT = {
   windowMs: 3_600_000,
 };
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const CONSOLE_MESSAGE_MAX_BYTES = 2_000;
+const CONSOLE_MESSAGE_SHORT_RATE_LIMIT = { limit: 6, windowMs: 60_000 };
+const CONSOLE_MESSAGE_DAILY_RATE_LIMIT = { limit: 100, windowMs: 86_400_000 };
+const CONSOLE_MESSAGE_GLOBAL_CONCURRENCY = 8;
 
 export function createMemoryStore(input = {}) {
   const {
@@ -196,6 +201,7 @@ export function createMultipassApi({
   consoleAuthStore,
   consoleRuntimeRegistry,
   bankrLlmKey,
+  bankrReadonlyApiKey,
   bankrLlmModel,
   consoleAgentBankrLlmEnabled = false,
   consoleSkillProposalsEnabled = false,
@@ -210,6 +216,10 @@ export function createMultipassApi({
   consoleXmtpAppVersion = 'multipass-console',
   consoleXmtpClient,
   consoleAgentRuntime,
+  consoleMessageShortRateLimit,
+  consoleMessageDailyRateLimit,
+  consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
+  consoleSkillProviderTimeoutMs,
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
@@ -226,6 +236,14 @@ export function createMultipassApi({
       }) ?? undefined
       : undefined,
     skillProposalsEnabled: consoleSkillProposalsEnabled,
+    ...(consoleSkillProposalsEnabled ? {
+      readSkillExecutor: createConsoleReadSkillExecutor({
+        bankrApiKey: bankrReadonlyApiKey,
+        fetchImpl,
+      }),
+      bankrReadEnabled: Boolean(String(bankrReadonlyApiKey ?? '').trim()),
+      skillProviderTimeoutMs: consoleSkillProviderTimeoutMs,
+    } : {}),
     xmtpClient: consoleXmtpClient ?? createDeferredXmtpAgentClient({
       enabled: consoleXmtpEnabled,
       env: consoleXmtpEnv,
@@ -276,6 +294,13 @@ export function createMultipassApi({
     loopersAuthorizer: authorizeLooper,
     consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
+    consoleMessageShortRateLimiter: createFixedWindowRateLimiter(
+      consoleMessageShortRateLimit ?? CONSOLE_MESSAGE_SHORT_RATE_LIMIT,
+    ),
+    consoleMessageDailyRateLimiter: createFixedWindowRateLimiter(
+      consoleMessageDailyRateLimit ?? CONSOLE_MESSAGE_DAILY_RATE_LIMIT,
+    ),
+    consoleMessageConcurrency: createConcurrencyGate(consoleMessageGlobalConcurrency),
   };
 
   return {
@@ -528,34 +553,63 @@ async function handleConsoleAgentMessage(request, context) {
   const session = requireConsoleSession(request, context, { requireCsrf: true });
   const body = await readJsonBody(request);
   const tokenId = normalizeLooperTokenId(body.tokenId);
-  const message = String(body.message ?? '').trim();
+  const rawMessage = String(body.message ?? '');
+  if (Buffer.byteLength(rawMessage, 'utf8') > CONSOLE_MESSAGE_MAX_BYTES) {
+    throw new ApiInputError('message_too_large', 'Message must be at most 2,000 UTF-8 bytes.');
+  }
+  const message = rawMessage.trim();
   if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
   const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
-  const walletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
-  const activation = context.consoleRuntimeRegistry.get(identity);
-  if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
-  const result = await context.consoleAgentRuntime.handleMessage({
-    tokenId: identity.tokenId,
-    agentId: identity.erc8004AgentId,
-    activationId: activation.key,
-    agentName: activation.runtimeName,
-    wallet: session.wallet,
-    canonicalIdentity: activation.identity,
-    canonicalConversationId: activation.conversationId,
-    message,
-    walletContext,
-  });
-  if (result?.thread?.conversationId) {
-    context.consoleRuntimeRegistry.bindConversation({
-      identity,
-      conversationId: result.thread.conversationId,
-      threadId: result.thread.threadId,
-      topicId: result.thread.topicId,
-      transport: result.thread.transport,
-      participants: result.thread.participants,
-    });
+  const quotaKey = `${session.wallet}:${identity.tokenId}`;
+  const shortWindow = context.consoleMessageShortRateLimiter.check(quotaKey);
+  if (!shortWindow.allowed) {
+    return consoleThrottleResponse(
+      'console_message_rate_limited',
+      'Console message rate limit exceeded.',
+      shortWindow.retryAfterSeconds,
+    );
   }
-  return jsonResponse(result);
+  const daily = context.consoleMessageDailyRateLimiter.check(quotaKey);
+  if (!daily.allowed) {
+    return consoleThrottleResponse(
+      'console_message_daily_quota',
+      'Console daily message quota exceeded.',
+      daily.retryAfterSeconds,
+    );
+  }
+  const releaseConcurrency = context.consoleMessageConcurrency.tryAcquire();
+  if (!releaseConcurrency) {
+    return consoleThrottleResponse('console_message_busy', 'Console providers are busy.', 1);
+  }
+  try {
+    const walletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
+    const activation = context.consoleRuntimeRegistry.get(identity);
+    if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
+    const result = await context.consoleAgentRuntime.handleMessage({
+      tokenId: identity.tokenId,
+      agentId: identity.erc8004AgentId,
+      activationId: activation.key,
+      agentName: activation.runtimeName,
+      wallet: session.wallet,
+      canonicalIdentity: activation.identity,
+      canonicalConversationId: activation.conversationId,
+      message,
+      walletContext,
+    });
+    if (result?.thread?.conversationId) {
+      context.consoleRuntimeRegistry.bindConversation({
+        identity,
+        conversationId: result.thread.conversationId,
+        threadId: result.thread.threadId,
+        topicId: result.thread.topicId,
+        transport: result.thread.transport,
+        participants: result.thread.participants,
+      });
+    }
+    return jsonResponse(result);
+  } finally {
+    releaseConcurrency();
+  }
 }
 
 async function handleLooperPost(request, parts, context) {
@@ -2148,6 +2202,32 @@ function createFixedWindowRateLimiter({ limit, windowMs, now = () => Date.now() 
       return { allowed: true, retryAfterSeconds: 0 };
     },
   };
+}
+
+function createConcurrencyGate(limit) {
+  const normalizedLimit = Number.isInteger(limit) && limit > 0
+    ? limit
+    : CONSOLE_MESSAGE_GLOBAL_CONCURRENCY;
+  let active = 0;
+  return {
+    tryAcquire() {
+      if (active >= normalizedLimit) return null;
+      active += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        active -= 1;
+      };
+    },
+  };
+}
+
+function consoleThrottleResponse(code, message, retryAfterSeconds) {
+  return jsonResponse({
+    schema_version: '0.1.0',
+    error: { code, message },
+  }, 429, { 'retry-after': String(Math.max(1, retryAfterSeconds)) });
 }
 
 function getClientRateLimitKey(request) {

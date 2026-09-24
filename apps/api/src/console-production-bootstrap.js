@@ -1,5 +1,6 @@
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
+import { createConsoleReadSkillExecutor } from './console-read-skills.js';
 import {
   authorizeLooperControl,
   createLoopersOwnedAgentLoader,
@@ -19,6 +20,7 @@ const DEFAULT_FACTORIES = {
   authorizeLooperControl,
   createBankrLlmClient,
   createConsoleAgentRuntime,
+  createConsoleReadSkillExecutor,
   createDeferredXmtpAgentClient,
   createLooperRuntimeRegistry,
   createLooperPersonaLoader,
@@ -70,6 +72,13 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
     }) ?? undefined
     : undefined;
+  const bankrReadonlyApiKey = String(options.bankrReadonlyApiKey ?? '').trim() || null;
+  const readSkillExecutor = options.consoleSkillProposalsEnabled === true
+    ? factories.createConsoleReadSkillExecutor({
+      bankrApiKey: bankrReadonlyApiKey,
+      fetchImpl: options.fetchImpl ?? fetch,
+    })
+    : undefined;
 
   let nodeClient = null;
   let publishingClient = null;
@@ -98,8 +107,11 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
     runtime = factories.createConsoleAgentRuntime({
       memoryClient,
       ...(llmClient ? { llmClient } : {}),
+      ...(readSkillExecutor ? { readSkillExecutor } : {}),
       xmtpClient: publishingClient,
       skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
+      bankrReadEnabled: Boolean(bankrReadonlyApiKey),
+      skillProviderTimeoutMs: options.consoleSkillProviderTimeoutMs,
     });
 
     if (xmtpEnabled) {

@@ -27,13 +27,26 @@ const SERVER_SKILL_DESCRIPTORS = [
     name: 'Bankr',
     summary: 'Crypto market, wallet, trading, and token-operation specialist.',
     capabilities: ['market_research', 'portfolio_read', 'transfer', 'swap', 'token_launch'],
-    enabledCapabilities: ['explain', 'propose_transfer'],
+    enabledCapabilities: ['explain', 'market_research', 'propose_transfer'],
     execution: 'human_review',
     credentialAccess: false,
     constraints: [
       'No Bankr wallet is used for Looper funds.',
       'No Bankr API credential is exposed to the model or browser.',
       'Only exact ETH/ERC-20 transfer intents are executable in this release.',
+    ],
+  },
+  {
+    id: 'helixa',
+    name: 'Helixa',
+    summary: 'Public Helixa AgentDNA identity and Cred profile reader.',
+    capabilities: ['agent_profile_read'],
+    enabledCapabilities: ['agent_profile_read'],
+    execution: 'human_review',
+    credentialAccess: false,
+    constraints: [
+      'Reads only fixed public Helixa agent profile fields.',
+      'Profile results are display-only and grant no wallet authority.',
     ],
   },
 ];
