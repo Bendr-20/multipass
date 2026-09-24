@@ -9,6 +9,25 @@ import { createEthereumPersonalSignatureVerifier } from '../src/signature-verifi
 const account = privateKeyToAccount('0x59c6995e998f97a5a0044966f094538a7bcd1f0b03f82107863cfb2f99adc62c');
 const verifier = createEthereumPersonalSignatureVerifier({ client: null });
 
+test('Console auth emits a canonical EIP-4361 challenge that wallets can parse', () => {
+  const auth = createConsoleAuthStore({ now: () => new Date('2026-09-17T03:30:00.000Z') });
+  const challenge = auth.createChallenge({ wallet: account.address, domain: 'helixa.test' });
+
+  assert.equal(challenge.message, [
+    'helixa.test wants you to sign in with your Ethereum account:',
+    challenge.wallet,
+    '',
+    'Authenticate this wallet for the review-only Looper runtime.',
+    '',
+    'URI: https://helixa.test/multipass/console',
+    'Version: 1',
+    'Chain ID: 8453',
+    `Nonce: ${challenge.nonce}`,
+    'Issued At: 2026-09-17T03:30:00.000Z',
+    'Expiration Time: 2026-09-17T03:40:00.000Z',
+  ].join('\n'));
+});
+
 test('Console auth exchanges a one-time signed challenge for a wallet-bound session', async () => {
   const auth = createConsoleAuthStore({ now: () => new Date('2026-09-17T03:30:00.000Z') });
   const challenge = auth.createChallenge({ wallet: account.address, domain: 'helixa.test' });

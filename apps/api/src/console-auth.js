@@ -15,16 +15,19 @@ export function createConsoleAuthStore({
   return {
     createChallenge({ wallet, domain = 'helixa.xyz' } = {}) {
       const normalizedWallet = normalizeWallet(wallet);
+      const normalizedDomain = normalizeDomain(domain);
       const issuedAt = asDate(now());
       const expiresAt = new Date(issuedAt.getTime() + nonceTtlMs);
       const nonce = randomBytesImpl(16).toString('hex');
       const message = [
-        `${normalizeDomain(domain)} wants you to sign in to Multipass Console with your Ethereum account:`,
+        `${normalizedDomain} wants you to sign in with your Ethereum account:`,
         normalizedWallet,
         '',
         'Authenticate this wallet for the review-only Looper runtime.',
         '',
-        `Chain ID: 8453`,
+        `URI: https://${normalizedDomain}/multipass/console`,
+        'Version: 1',
+        'Chain ID: 8453',
         `Nonce: ${nonce}`,
         `Issued At: ${issuedAt.toISOString()}`,
         `Expiration Time: ${expiresAt.toISOString()}`,
