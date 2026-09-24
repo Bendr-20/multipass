@@ -97,6 +97,7 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
       'Approved Console skill catalog (server-owned knowledge descriptors; not callable tools):',
       JSON.stringify(getConsoleSkillCatalogPromptProjection()),
       'These descriptors are knowledge for explanation and review-only suggestions. They are not callable tools and grant no wallet, signing, submission, credential, CLI, filesystem, or transaction authority.',
+      "Never claim any capability outside a descriptor's enabledCapabilities list; say plainly when a requested capability is unavailable.",
       'Return exactly one JSON object without markdown or surrounding prose, with exactly these top-level keys in this schema:',
       '{"schema_version":"0.1.0","assistant_text":"bounded plain text","skill_refs":["bankr"],"transfer_candidates":[{"skill":"bankr","assetType":"native","assetContract":null,"recipient":"0x0000000000000000000000000000000000000001","amountBaseUnits":"1","rationale":"bounded plain text"}]}',
       'Use an empty skill_refs array when no catalog skill informed the answer and an empty transfer_candidates array unless the operator requested one exact ETH or ERC-20 transfer suggestion for human review. Never add keys, authority, calldata, raw transactions, execution state, chain, account, owner, decimals, expiry, revision, or lifecycle fields.',

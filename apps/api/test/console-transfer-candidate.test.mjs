@@ -84,6 +84,23 @@ test('normalizes the exact native transfer envelope into frozen non-authoritativ
   assertRecursivelyFrozen(result);
 });
 
+test('unwraps one exact JSON markdown fence without leaking the schema envelope into chat', () => {
+  const content = `\`\`\`json\n${JSON.stringify(envelope({
+    assistant_text: 'Bankr can read current BTC, ETH, SOL, and USDC prices and draft review-only transfers.',
+    transfer_candidates: [],
+  }))}\n\`\`\``;
+
+  const result = decode(content);
+
+  assert.deepEqual(result, {
+    text: 'Bankr can read current BTC, ETH, SOL, and USDC prices and draft review-only transfers.',
+    skillRefs: ['bankr'],
+    transferCandidates: [],
+  });
+  assert.doesNotMatch(result.text, /```|schema_version|assistant_text|skill_refs|transfer_candidates/);
+  assertRecursivelyFrozen(result);
+});
+
 test('normalizes an ERC-20 candidate address while preserving canonical amount text', () => {
   const value = envelope({
     transfer_candidates: [{

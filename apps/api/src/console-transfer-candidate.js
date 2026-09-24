@@ -23,7 +23,7 @@ export function decodeConsoleLlmEnvelope(content, { catalog } = {}) {
   if (typeof content !== 'string' || content.trim().length === 0) return emptyResult();
 
   try {
-    const envelope = parseStrictJsonObject(content);
+    const envelope = parseStrictJsonObject(unwrapExactJsonFence(content));
     assertExactKeys(envelope, ENVELOPE_KEYS, 'Console LLM envelope');
     if (envelope.schema_version !== '0.1.0') {
       throw new TypeError('Console LLM envelope schema version is unsupported.');
@@ -49,6 +49,12 @@ export function decodeConsoleLlmEnvelope(content, { catalog } = {}) {
       transferCandidates: [],
     });
   }
+}
+
+function unwrapExactJsonFence(content) {
+  const trimmed = content.trim();
+  const match = /^```(?:json)?\r?\n([\s\S]*?)\r?\n```$/.exec(trimmed);
+  return match ? match[1] : content;
 }
 
 function normalizeSkillRefs(value, skills) {

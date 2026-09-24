@@ -163,6 +163,8 @@ test('skill-aware Bankr prompt uses only the exact server projection and request
   assert.match(systemPrompt, /return exactly one JSON object/i);
   assert.match(systemPrompt, /schema_version.*assistant_text.*skill_refs.*transfer_candidates/is);
   assert.match(systemPrompt, /no markdown|without markdown/i);
+  assert.match(systemPrompt, /never claim.*outside.*enabledCapabilities/i);
+  assert.doesNotMatch(projection, /portfolio_read|swap|token_launch/);
   assert.equal('tools' in requestBody, false);
   for (const sentinel of Object.values(sentinels)) assert.equal(section.includes(sentinel), false);
 

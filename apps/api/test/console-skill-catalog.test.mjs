@@ -21,15 +21,16 @@ const EXPECTED_DESCRIPTOR_KEYS = [
 const BANKR_DESCRIPTOR = {
   id: 'bankr',
   name: 'Bankr',
-  summary: 'Crypto market, wallet, trading, and token-operation specialist.',
-  capabilities: ['market_research', 'portfolio_read', 'transfer', 'swap', 'token_launch'],
+  summary: 'Read-only crypto price specialist with review-only ETH and ERC-20 transfer suggestions.',
+  capabilities: ['market_research', 'transfer'],
   enabledCapabilities: ['explain', 'market_research', 'propose_transfer'],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
     'No Bankr wallet is used for Looper funds.',
     'No Bankr API credential is exposed to the model or browser.',
-    'Only exact ETH/ERC-20 transfer intents are executable in this release.',
+    'Only BTC, ETH, SOL, and USDC current USD price reads are enabled.',
+    'Transfer suggestions are unverified and require human review.',
   ],
 };
 
