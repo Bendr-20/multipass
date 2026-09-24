@@ -4,8 +4,8 @@ const HELIXA_AGENT_BASE_URL = 'https://api.helixa.xyz/api/v2/agent/';
 const BANKR_PRICE_SYMBOLS = new Set(['BTC', 'ETH', 'SOL', 'USDC']);
 const BANKR_JOB_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
 const MAX_POLL_LIMIT = 10;
-const DEFAULT_MAX_POLLS = 5;
-const POLL_INTERVAL_MS = 1_000;
+const DEFAULT_MAX_POLLS = 10;
+const POLL_INTERVAL_MS = 2_000;
 const MAX_RESULT_TEXT_BYTES = 2_048;
 const MAX_PROFILE_FIELD_BYTES = 160;
 

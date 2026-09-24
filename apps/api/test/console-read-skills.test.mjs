@@ -201,6 +201,30 @@ test('rejects failed Bankr jobs without returning the upstream error body', asyn
   );
 });
 
+test('default Bankr polling covers normal provider latency while remaining bounded', async () => {
+  const sleeps = [];
+  let polls = 0;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'test-key',
+    sleep: async (milliseconds) => sleeps.push(milliseconds),
+    fetchImpl: async (url) => {
+      if (String(url) === BANKR_PROMPT_URL) {
+        return jsonResponse({ success: true, jobId: 'job_abc-123', status: 'pending' }, { status: 202 });
+      }
+      polls += 1;
+      return polls < 6
+        ? jsonResponse({ success: true, jobId: 'job_abc-123', status: 'processing' })
+        : jsonResponse({ success: true, jobId: 'job_abc-123', status: 'completed', response: 'ETH is $4,250.' });
+    },
+  });
+
+  const result = await executor.execute('/bankr price ETH');
+
+  assert.equal(polls, 6);
+  assert.deepEqual(sleeps, [2_000, 2_000, 2_000, 2_000, 2_000]);
+  assert.equal(result.text, 'ETH is $4,250.');
+});
+
 test('stops Bankr polling at the configured bounded maximum', async () => {
   const calls = [];
   const sleeps = [];
