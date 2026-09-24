@@ -353,3 +353,57 @@ test('requires a Bankr key only for Bankr and rejects malformed Helixa profiles'
     await assert.rejects(executor.execute('/helixa agent 1'), /malformed helixa agent response/i);
   }
 });
+
+test('Bankr read skill executes bounded natural-language market research with a read-only prompt', async () => {
+  const calls = [];
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    sleep: async () => {},
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (url === 'https://api.bankr.bot/agent/prompt') {
+        return new Response(JSON.stringify({
+          success: true,
+          status: 'pending',
+          jobId: 'job_market_1',
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      assert.equal(url, 'https://api.bankr.bot/agent/job/job_market_1');
+      return new Response(JSON.stringify({
+        success: true,
+        status: 'completed',
+        jobId: 'job_market_1',
+        response: 'BTC and ETH are mixed; volatility remains elevated. Source: Bankr market data.',
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+
+  const result = await executor.execute('/bankr research Give me a concise crypto market analysis');
+
+  assert.equal(result.skill, 'bankr');
+  assert.equal(result.operation, 'market_research');
+  assert.equal(result.provider, 'bankr_agent_api');
+  assert.match(result.text, /volatility remains elevated/);
+  const promptBody = JSON.parse(calls[0].init.body);
+  assert.match(promptBody.prompt, /Read-only market research request/i);
+  assert.match(promptBody.prompt, /Give me a concise crypto market analysis/);
+  assert.match(promptBody.prompt, /Do not perform any action/i);
+  assert.equal(calls[0].init.headers['x-api-key'], 'read-only-test-key');
+});
+
+test('Bankr read skill rejects action-bearing research commands before provider access', async () => {
+  let called = false;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => {
+      called = true;
+      throw new Error('provider must not be called');
+    },
+  });
+
+  await assert.rejects(
+    executor.execute('/bankr research Buy 1 ETH and send it to me'),
+    /Unsupported Console read skill command/,
+  );
+  assert.equal(called, false);
+});

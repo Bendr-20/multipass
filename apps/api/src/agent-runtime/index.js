@@ -4,6 +4,7 @@ import {
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
 import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
+import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
 import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
@@ -13,8 +14,6 @@ const MAX_THREAD_HISTORY = 24;
 const CONSOLE_EXECUTION_MODE = 'review_only';
 const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 25_000;
 const MAX_SKILL_RESULT_TEXT_BYTES = 2_048;
-const BANKR_PRICE_COMMAND = /^\/bankr price (?:BTC|ETH|SOL|USDC)$/;
-const HELIXA_AGENT_COMMAND = /^\/helixa agent [1-9][0-9]{0,14}$/;
 
 export function createConsoleAgentRuntime({
   memoryClient = createSibylMemoryStore(),
@@ -124,7 +123,7 @@ export function createConsoleAgentRuntime({
 
       const agentMessages = [];
       const participantResponses = [];
-      const explicitSkillCommand = skillProposalsEnabled ? parseExplicitReadSkillCommand(message) : null;
+      const explicitSkillCommand = skillProposalsEnabled ? resolveConsoleReadSkillIntent(message) : null;
       if (explicitSkillCommand) {
         if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
           throw new Error('Console read skill executor is not configured.');
@@ -132,10 +131,11 @@ export function createConsoleAgentRuntime({
         if (explicitSkillCommand.skill === 'bankr' && !bankrReadEnabled) {
           throw new Error('Bankr Agent read skill is disabled because BANKR_READONLY_API_KEY is not configured.');
         }
-        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${message}`;
+        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${explicitSkillCommand.command}`;
         const skillResult = await executeSkillWithDedupe({
-          command: message,
+          command: explicitSkillCommand.command,
           expectedSkill: explicitSkillCommand.skill,
+          expectedOperation: explicitSkillCommand.operation,
           readSkillExecutor,
           timeoutMs: skillTimeoutMs,
           inFlightSkillCalls,
@@ -252,12 +252,6 @@ export function createConsoleAgentRuntime({
   };
 }
 
-function parseExplicitReadSkillCommand(message) {
-  if (BANKR_PRICE_COMMAND.test(message)) return { skill: 'bankr' };
-  if (HELIXA_AGENT_COMMAND.test(message)) return { skill: 'helixa' };
-  return null;
-}
-
 function selectSkillParticipant(room) {
   const agents = room.participants.filter((entry) => entry.kind !== 'operator');
   return agents.find((entry) => entry.participantId === room.primaryParticipantId) ?? agents[0];
@@ -266,6 +260,7 @@ function selectSkillParticipant(room) {
 function executeSkillWithDedupe({
   command,
   expectedSkill,
+  expectedOperation,
   readSkillExecutor,
   timeoutMs,
   inFlightSkillCalls,
@@ -278,7 +273,7 @@ function executeSkillWithDedupe({
   let timeout;
   const providerCall = Promise.resolve()
     .then(() => readSkillExecutor.execute(command, { signal: controller.signal }))
-    .then((result) => projectDisplayOnlySkillResult(result, expectedSkill));
+    .then((result) => projectDisplayOnlySkillResult(result, expectedSkill, expectedOperation));
   const deadline = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
@@ -293,7 +288,7 @@ function executeSkillWithDedupe({
   return boundedCall;
 }
 
-function projectDisplayOnlySkillResult(value, expectedSkill) {
+function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Malformed Console skill result.');
   }
@@ -301,7 +296,7 @@ function projectDisplayOnlySkillResult(value, expectedSkill) {
     throw new Error('Malformed Console skill result.');
   }
   const expected = expectedSkill === 'bankr'
-    ? { operation: 'price', provider: 'bankr_agent_api' }
+    ? { operation: expectedOperation, provider: 'bankr_agent_api' }
     : { operation: 'agent_profile_read', provider: 'helixa_public_api' };
   if (value.operation !== expected.operation || value.provider !== expected.provider) {
     throw new Error('Malformed Console skill result.');

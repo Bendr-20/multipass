@@ -8,6 +8,10 @@ const DEFAULT_MAX_POLLS = 10;
 const POLL_INTERVAL_MS = 2_000;
 const MAX_RESULT_TEXT_BYTES = 2_048;
 const MAX_PROFILE_FIELD_BYTES = 160;
+const MAX_RESEARCH_QUERY_BYTES = 320;
+const MARKET_RESEARCH_INTENT = /\b(?:market analysis|market overview|market update|market data|price|technical analysis|chart|trending tokens?|sentiment|compare|volatility|volume|market cap)\b/i;
+const ACTION_INTENT = /\b(?:buy|sell|swap|send|transfer|bridge|long|short|leverage|bet|stake|unstake|mint|launch|deploy|sign|submit|approve|claim|withdraw|deposit|borrow|lend|execute|trade|order|purchase)\b/i;
+const PROMPT_INJECTION_INTENT = /\b(?:ignore (?:all |the )?(?:previous|prior)|system prompt|api key|password|secret|credential|private key)\b/i;
 
 export function createConsoleReadSkillExecutor({
   bankrApiKey,
@@ -28,8 +32,9 @@ export function createConsoleReadSkillExecutor({
       const parsed = parseCommand(command);
       if (parsed.skill === 'bankr') {
         if (!key) throw new Error('Bankr API key is not configured.');
-        return executeBankrPrice({
-          symbol: parsed.symbol,
+        return executeBankrRead({
+          operation: parsed.operation,
+          query: parsed.query,
           apiKey: key,
           fetchImpl,
           sleep,
@@ -46,7 +51,13 @@ function parseCommand(command) {
 
   const bankr = command.match(/^\/bankr price ([A-Z][A-Z0-9]{1,9})$/);
   if (bankr && BANKR_PRICE_SYMBOLS.has(bankr[1])) {
-    return { skill: 'bankr', symbol: bankr[1] };
+    return { skill: 'bankr', operation: 'price', query: bankr[1] };
+  }
+
+  const bankrResearch = command.match(/^\/bankr research (.+)$/s);
+  if (bankrResearch) {
+    const query = normalizeResearchQuery(bankrResearch[1]);
+    if (query) return { skill: 'bankr', operation: 'market_research', query };
   }
 
   const helixa = command.match(/^\/helixa agent ([1-9][0-9]{0,14})$/);
@@ -59,7 +70,40 @@ function unsupportedCommand() {
   return new TypeError('Unsupported Console read skill command.');
 }
 
-async function executeBankrPrice({ symbol, apiKey, fetchImpl, sleep, maxPolls }) {
+export function resolveConsoleReadSkillIntent(message) {
+  if (typeof message !== 'string') return null;
+  const normalized = message.trim().replace(/\s+/g, ' ');
+  if (!normalized) return null;
+
+  const explicitPrice = normalized.match(/^\/bankr price ([A-Z][A-Z0-9]{1,9})$/);
+  if (explicitPrice && BANKR_PRICE_SYMBOLS.has(explicitPrice[1])) {
+    return { skill: 'bankr', operation: 'price', command: normalized };
+  }
+  if (/^\/helixa agent [1-9][0-9]{0,14}$/.test(normalized)) {
+    return { skill: 'helixa', operation: 'agent_profile_read', command: normalized };
+  }
+
+  const query = normalizeResearchQuery(normalized);
+  if (!query || !MARKET_RESEARCH_INTENT.test(query)) return null;
+  return {
+    skill: 'bankr',
+    operation: 'market_research',
+    command: `/bankr research ${query}`,
+  };
+}
+
+function normalizeResearchQuery(value) {
+  const query = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!query || Buffer.byteLength(query, 'utf8') > MAX_RESEARCH_QUERY_BYTES) return null;
+  if (/[\u0000-\u001f\u007f]/.test(query)) return null;
+  if (ACTION_INTENT.test(query) || PROMPT_INJECTION_INTENT.test(query)) return null;
+  return query;
+}
+
+async function executeBankrRead({ operation, query, apiKey, fetchImpl, sleep, maxPolls }) {
+  const prompt = operation === 'price'
+    ? `Read-only request. Report the current USD market price of ${query}. Return concise price information only. Include the data timestamp and source when available. Do not perform any action.`
+    : `Read-only market research request: ${query}\nReturn concise factual analysis using current market data. Include the data timestamp and source names when available. If live data is unavailable, state that plainly. Do not perform any action, use wallet context, create an order, or submit a transaction.`;
   const submission = await fetchJson(fetchImpl, BANKR_PROMPT_URL, {
     method: 'POST',
     redirect: 'error',
@@ -67,9 +111,7 @@ async function executeBankrPrice({ symbol, apiKey, fetchImpl, sleep, maxPolls })
       'content-type': 'application/json',
       'x-api-key': apiKey,
     },
-    body: JSON.stringify({
-      prompt: `Read-only request. Report the current USD market price of ${symbol}. Return concise price information only. Do not perform any action.`,
-    }),
+    body: JSON.stringify({ prompt }),
   }, 'Bankr prompt request');
 
   if (!isPlainObject(submission)
@@ -111,10 +153,10 @@ async function executeBankrPrice({ symbol, apiKey, fetchImpl, sleep, maxPolls })
       if (containsUnsafeArtifact(text)) throw new Error('Unsafe Bankr price response.');
       return freezeResult({
         skill: 'bankr',
-        operation: 'price',
+        operation,
         provider: 'bankr_agent_api',
         text: truncateUtf8(text, MAX_RESULT_TEXT_BYTES),
-        data: { symbol },
+        data: operation === 'price' ? { symbol: query } : { query },
       });
     }
 
