@@ -141,12 +141,15 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleAuthenticatedWallet: consoleMockState?.walletSnapshot?.address ?? null,
     consoleOwnerProfile: null,
     consoleSessionGeneration: 0,
+    consoleOwnedAgentsRequestId: 0,
     consoleScrollRequest: 0,
     consoleActivationRequestId: 0,
     consoleThreadGeneration: 0,
     consoleAgentNameMutation: { status: 'idle', requestId: 0, tokenId: null },
     consoleOwnedAgents: consoleMockState?.consoleOwnedAgents ?? createInitialConsoleOwnedAgentsState(),
+    consoleAgentGallery: consoleMockState?.consoleAgentGallery ?? { query: '', sort: 'token-asc', activationError: null },
     consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
+    consoleWorkspaceView: consoleMockState?.consoleWorkspaceView === 'wallet' ? 'wallet' : 'chat',
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
     consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
     looperAgentWallet: consoleMockState?.looperAgentWallet ?? activeLooperWalletController.getSnapshot(),
@@ -632,6 +635,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleAuthenticatedWallet: null,
       consoleOwnerProfile: null,
       consoleSessionGeneration: sessionGeneration,
+      consoleOwnedAgentsRequestId: state.consoleOwnedAgentsRequestId + 1,
       consoleActivationRequestId: state.consoleActivationRequestId + 1,
       consoleAgentNameMutation: {
         status: 'idle',
@@ -639,6 +643,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         tokenId: null,
       },
       consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+      consoleAgentGallery: { query: '', sort: 'token-asc', activationError: null },
       consoleSelectedAgentId: null,
       consoleParticipantAgentIds: [],
       consoleAgentThread: createInitialConsoleAgentThreadState(),
@@ -1045,7 +1050,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
-  async function refreshConsoleOwnedAgents({ walletSnapshot = activeWalletClient.getSnapshot(), skipLoadingState = false, sessionGeneration = state.consoleSessionGeneration } = {}) {
+  async function refreshConsoleOwnedAgents({
+    walletSnapshot = activeWalletClient.getSnapshot(),
+    skipLoadingState = false,
+    sessionGeneration = state.consoleSessionGeneration,
+    focusOnComplete = false,
+  } = {}) {
     if (!walletSnapshot.connected || !walletSnapshot.address) {
       state = clearConsoleSessionState(state, {
         walletSnapshot,
@@ -1057,19 +1067,26 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
     const rosterWallet = normalizeConsoleWallet(walletSnapshot.address);
     if (rosterWallet !== normalizeConsoleWallet(state.consoleAuthenticatedWallet)) return;
-
-    if (!skipLoadingState) {
-      state = {
-        ...state,
-        walletSnapshot,
-        consoleOwnedAgents: {
-          status: 'loading',
-          error: null,
-          agents: [],
-        },
-      };
-      render(root, state, handlers);
-    }
+    const rosterRequestId = Number(state.consoleOwnedAgentsRequestId ?? 0) + 1;
+    state = {
+      ...state,
+      consoleOwnedAgentsRequestId: rosterRequestId,
+      consoleAgentGallery: {
+        ...state.consoleAgentGallery,
+        activationError: null,
+      },
+      ...(!skipLoadingState
+        ? {
+          walletSnapshot,
+          consoleOwnedAgents: {
+            status: 'loading',
+            error: null,
+            agents: [],
+          },
+        }
+        : {}),
+    };
+    if (!skipLoadingState) render(root, state, handlers);
 
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
@@ -1079,6 +1096,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       );
       if (
         state.consoleSessionGeneration !== sessionGeneration
+        || state.consoleOwnedAgentsRequestId !== rosterRequestId
         || normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== rosterWallet
       ) return;
       const preservedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
@@ -1101,11 +1119,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           : createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
+      if (focusOnComplete && !selectedAgentId) focusConsoleGalleryHeading();
       if (selectedAgentId && (selectionChanged || state.consoleAgentThread.status === 'idle')) {
         await selectAndActivateConsoleAgent(selectedAgentId, { resetSelection: false });
       }
     } catch (error) {
-      if (state.consoleSessionGeneration !== sessionGeneration) return;
+      if (state.consoleSessionGeneration !== sessionGeneration || state.consoleOwnedAgentsRequestId !== rosterRequestId) return;
       if (isConsoleUnauthorized(error)) {
         state = clearConsoleSessionState(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
@@ -1128,7 +1147,63 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentThread: createInitialConsoleAgentThreadState(),
       };
       render(root, state, handlers);
+      if (focusOnComplete) focusConsoleGalleryAlert();
     }
+  }
+
+  function updateConsoleAgentGallerySearch(event) {
+    state = {
+      ...state,
+      consoleAgentGallery: {
+        ...state.consoleAgentGallery,
+        query: String(event?.currentTarget?.value ?? ''),
+      },
+    };
+    render(root, state, handlers);
+  }
+
+  function updateConsoleAgentGallerySort(event) {
+    state = {
+      ...state,
+      consoleAgentGallery: {
+        ...state.consoleAgentGallery,
+        sort: String(event?.currentTarget?.value ?? 'token-asc'),
+      },
+    };
+    render(root, state, handlers);
+  }
+
+  function clearConsoleAgentGallerySearch() {
+    state = {
+      ...state,
+      consoleAgentGallery: {
+        ...state.consoleAgentGallery,
+        query: '',
+      },
+    };
+    render(root, state, handlers);
+    root.querySelector('[data-action="search-console-agent-gallery"]')?.focus?.();
+  }
+
+  async function refreshConsoleOwnedAgentsFromControl() {
+    if (hasNonterminalLooperWalletWork(state.looperAgentWallet)) return;
+    return refreshConsoleOwnedAgents({ focusOnComplete: true });
+  }
+
+  function focusConsoleGalleryHeading() {
+    const heading = root.querySelector('#console-agent-onboarding-title');
+    if (!heading) return;
+    heading.setAttribute('tabindex', '-1');
+    heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), { once: true });
+    heading.focus();
+  }
+
+  function focusConsoleGalleryAlert() {
+    const alert = root.querySelector('.console-agent-gallery [role="alert"]');
+    if (!alert) return;
+    alert.setAttribute('tabindex', '-1');
+    alert.addEventListener('blur', () => alert.removeAttribute('tabindex'), { once: true });
+    alert.focus();
   }
 
   async function loadSelectedLooperWallet(agent, context) {
@@ -1292,6 +1367,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     return selectAndActivateConsoleAgent(tokenId);
   }
 
+  function setConsoleWorkspaceView(event) {
+    const view = String(event?.currentTarget?.dataset?.consoleView ?? '').trim();
+    if (view !== 'chat' && view !== 'wallet') return;
+    if (view === 'wallet' && !state.consoleSelectedAgentId) return;
+    state = { ...state, consoleWorkspaceView: view };
+    render(root, state, handlers);
+  }
+
   async function retryConsoleAgentActivation() {
     if (state.consoleAgentNameMutation?.status === 'pending') return;
     const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
@@ -1299,7 +1382,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     return selectAndActivateConsoleAgent(tokenId, { resetSelection: false });
   }
 
-  async function selectAndActivateConsoleAgent(tokenId, { resetSelection = true } = {}) {
+  async function selectAndActivateConsoleAgent(tokenId, { resetSelection = true, restoreGalleryOnFailure = false } = {}) {
     const normalizedTokenId = String(tokenId ?? '').trim();
     if (!normalizedTokenId) return;
     if (state.consoleAgentNameMutation?.status === 'pending' || hasNonterminalLooperWalletWork(state.looperAgentWallet)) return;
@@ -1310,10 +1393,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       state.consoleParticipantAgentIds,
       normalizedTokenId,
     );
+    const previousSelectedAgentId = state.consoleSelectedAgentId;
+    const previousParticipantAgentIds = state.consoleParticipantAgentIds;
     const requestId = state.consoleActivationRequestId + 1;
     state = {
       ...state,
       consoleActivationRequestId: requestId,
+      consoleAgentGallery: {
+        ...state.consoleAgentGallery,
+        activationError: null,
+      },
       consoleAgentNameMutation: normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()
         ? {
           status: 'idle',
@@ -1322,6 +1411,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         }
         : state.consoleAgentNameMutation,
       consoleSelectedAgentId: normalizedTokenId,
+      consoleWorkspaceView: 'chat',
       consoleParticipantAgentIds: participantAgentIds,
       consoleAgentThread: {
         ...(resetSelection ? createInitialConsoleAgentThreadState() : state.consoleAgentThread),
@@ -1399,8 +1489,19 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         render(root, state, handlers);
         return;
       }
+      const activationError = getSafeConsoleError(error, { phase: 'activate' });
       state = {
         ...state,
+        ...(restoreGalleryOnFailure
+          ? {
+            consoleSelectedAgentId: previousSelectedAgentId,
+            consoleParticipantAgentIds: previousParticipantAgentIds,
+            consoleAgentGallery: {
+              ...state.consoleAgentGallery,
+              activationError,
+            },
+          }
+          : {}),
         consoleAgentThread: {
           ...state.consoleAgentThread,
           status: 'error',
@@ -1408,16 +1509,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           errorKind: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization' : 'activation'),
           retryAvailable: false,
           activationRetryAvailable: !isConsoleCancellation(error),
-          error: getSafeConsoleError(error, { phase: 'activate' }),
+          error: activationError,
         },
       };
       render(root, state, handlers);
+      if (restoreGalleryOnFailure) {
+        const restoredButton = [...root.querySelectorAll('.console-agent-gallery [data-action="activate-console-room"]')]
+          .find((button) => String(button.dataset.tokenId ?? '') === normalizedTokenId);
+        restoredButton?.focus?.();
+      }
     }
   }
 
   async function activateConsoleRoom(event) {
     const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
-    return selectConsoleAgent({ currentTarget: { value: tokenId } });
+    if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
+    if (state.consoleAgentNameMutation?.status === 'pending' || hasNonterminalLooperWalletWork(state.looperAgentWallet)) return;
+    return selectAndActivateConsoleAgent(tokenId, { restoreGalleryOnFailure: true });
   }
 
   async function toggleConsoleAgentRoom(event) {
@@ -2004,7 +2112,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -2268,6 +2376,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleAuthenticatedWallet: null,
     consoleOwnerProfile: null,
     consoleSessionGeneration: Number(state.consoleSessionGeneration ?? 0) + 1,
+    consoleOwnedAgentsRequestId: Number(state.consoleOwnedAgentsRequestId ?? 0) + 1,
     consoleActivationRequestId: Number(state.consoleActivationRequestId ?? 0) + 1,
     consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
     consoleAgentNameMutation: {
@@ -2276,7 +2385,9 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
       tokenId: null,
     },
     consoleOwnedAgents: createInitialConsoleOwnedAgentsState(),
+    consoleAgentGallery: { query: '', sort: 'token-asc', activationError: null },
     consoleSelectedAgentId: null,
+    consoleWorkspaceView: 'chat',
     consoleParticipantAgentIds: [],
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     looperAgentWallet: {
@@ -3846,6 +3957,8 @@ function createConsoleHeaderWalletAction(state = {}) {
   const consoleStatus = state.consoleWalletStatus;
   const busy = consoleStatus === 'connecting' || consoleStatus === 'signing' || consoleStatus === 'loading_roster';
   const connected = Boolean(wallet.connected && wallet.address);
+  const authenticated = connected
+    && normalizeConsoleWallet(state.consoleAuthenticatedWallet) === normalizeConsoleWallet(wallet.address);
   const unavailable = wallet.configured === false;
   const ready = wallet.ready !== false;
 
@@ -3858,9 +3971,9 @@ function createConsoleHeaderWalletAction(state = {}) {
         ? 'Sign in wallet...'
         : consoleStatus === 'loading_roster'
           ? 'Loading agents...'
-          : connected
+          : authenticated
             ? (wallet.label ?? shortenAddress(wallet.address))
-            : 'Connect wallet',
+            : connected ? 'Sign in' : 'Connect wallet',
   };
 }
 
@@ -4402,6 +4515,15 @@ function bindProductHomeEvents(root, handlers, state) {
     button.addEventListener('click', () => handlers.connectConsoleWallet?.());
   });
   root.querySelector('[data-action="select-console-agent"]')?.addEventListener('change', (event) => handlers.selectConsoleAgent?.(event));
+  root.querySelector('[data-action="search-console-agent-gallery"]')?.addEventListener('input', (event) => handlers.updateConsoleAgentGallerySearch?.(event));
+  root.querySelector('[data-action="sort-console-agent-gallery"]')?.addEventListener('change', (event) => handlers.updateConsoleAgentGallerySort?.(event));
+  root.querySelector('[data-action="clear-console-agent-gallery-search"]')?.addEventListener('click', () => handlers.clearConsoleAgentGallerySearch?.());
+  root.querySelectorAll('[data-action="refresh-console-owned-agents"]').forEach((button) => {
+    button.addEventListener('click', () => handlers.refreshConsoleOwnedAgentsFromControl?.());
+  });
+  root.querySelectorAll('[data-action="set-console-workspace-view"]').forEach((button) => {
+    button.addEventListener('click', (event) => handlers.setConsoleWorkspaceView?.(event));
+  });
   root.querySelector('[data-action="retry-console-agent-activation"]')?.addEventListener('click', () => handlers.retryConsoleAgentActivation?.());
   root.querySelectorAll('[data-action="activate-console-room"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.activateConsoleRoom?.(event));
