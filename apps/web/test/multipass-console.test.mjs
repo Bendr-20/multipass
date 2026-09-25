@@ -120,6 +120,50 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
 });
 
+test('authenticated Console keeps complete main and sidebar Looper rosters in closed drawers', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleMainRosterOpen: false,
+      consoleSidebarRosterOpen: false,
+      consoleAgentThread: { status: 'idle', messages: [] },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const mainDrawer = root.querySelector('details[data-console-roster-drawer="main"]');
+  const sidebarDrawer = root.querySelector('details[data-console-roster-drawer="sidebar"]');
+  assert.ok(mainDrawer);
+  assert.ok(sidebarDrawer);
+  assert.equal(mainDrawer.open, false);
+  assert.equal(sidebarDrawer.open, false);
+  assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /My Loopers/i);
+  assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /2 owned/i);
+  assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /Bendr 2\.0.*Token #1/is);
+  assert.equal(mainDrawer.querySelectorAll('.console-agent-gallery-card').length, 2);
+  assert.ok(mainDrawer.compareDocumentPosition(root.querySelector('.console-agent-thread-panel')) & 4);
+  assert.match(sidebarDrawer.querySelector('summary')?.textContent ?? '', /Bendr 2\.0/i);
+
+  const openSnapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleMainRosterOpen: true,
+      consoleSidebarRosterOpen: true,
+    },
+  });
+  const openRoot = render(renderMultipassConsole(openSnapshot));
+  assert.equal(openRoot.querySelector('details[data-console-roster-drawer="main"]')?.open, true);
+  assert.equal(openRoot.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, true);
+});
+
 test('connected but unauthenticated wallet gets an explicit Console sign-in gate', () => {
   const snapshot = createMultipassConsoleSnapshot({
     agents: [],
@@ -141,7 +185,7 @@ test('connected but unauthenticated wallet gets an explicit Console sign-in gate
   assert.equal(root.querySelector('.console-agent-onboarding'), null);
 });
 
-test('authenticated first visit opens an obvious Looper chooser in the main workspace', () => {
+test('authenticated first visit keeps the complete Looper chooser in a closed main drawer', () => {
   const address = '0x1234567890abcdef1234567890abcdef12345678';
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
@@ -157,7 +201,8 @@ test('authenticated first visit opens an obvious Looper chooser in the main work
   assert.ok(chooser);
   assert.match(chooser.textContent, /Choose your Looper/i);
   assert.equal(chooser.querySelectorAll('[data-action="activate-console-room"]').length, 2);
-  assert.equal(root.querySelector('#console-agents details')?.open, true);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="main"]')?.open, false);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, false);
   assert.equal(snapshot.session.needsAgentSelection, true);
 });
 
@@ -582,8 +627,10 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Bendr 2\.0/);
   assert.match(root.querySelector('.console-thread-member-list')?.textContent ?? '', /Quigbot/);
   assert.match(root.querySelector('.console-identity-members-list')?.textContent ?? '', /Bendr 2\.0/);
-  assert.match(root.querySelectorAll('.console-sidebar-drawer summary')[1]?.textContent ?? '', /Identity profile/);
-  assert.match(root.querySelectorAll('.console-sidebar-drawer summary')[2]?.textContent ?? '', /Participants/);
+  const identityDrawerSummaries = [...root.querySelectorAll('.console-identity-card .console-sidebar-drawer summary')]
+    .map((summary) => summary.textContent ?? '');
+  assert.ok(identityDrawerSummaries.some((summary) => /Identity profile/.test(summary)));
+  assert.ok(identityDrawerSummaries.some((summary) => /Participants/.test(summary)));
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
   assert.match(text, /Quigbot/);

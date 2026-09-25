@@ -42,6 +42,13 @@ function pageMarkup({ count = 24, status = 'loaded', query = '', error = null } 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div class="record-shell multipass-console-shell">${renderMultipassConsole(snapshot)}</div></body></html>`;
 }
 
+async function openMainRoster(page) {
+  const drawer = page.locator('details[data-console-roster-drawer="main"]');
+  assert.equal(await drawer.getAttribute('open'), null, 'main roster drawer must default closed');
+  await drawer.locator('summary').click();
+  await drawer.locator('.console-agent-gallery-card').first().waitFor({ state: 'visible' });
+}
+
 async function startFixtureServer(css) {
   const pages = new Map([
     ['/owner-scale', pageMarkup({ count: 100 }, css)],
@@ -77,20 +84,23 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
-  const startedAt = performance.now();
   await page.goto(`${fixture.origin}/owner-scale`, { waitUntil: 'domcontentloaded' });
+  const startedAt = performance.now();
+  await openMainRoster(page);
   await page.locator('.console-agent-gallery-card button').first().waitFor({ state: 'visible' });
   const interactiveMs = performance.now() - startedAt;
   assert.ok(interactiveMs < 2_000, `100-card gallery became interactive in ${Math.round(interactiveMs)}ms`);
   assert.equal(await page.locator('.console-agent-gallery-card').count(), 100);
 
   await page.goto(`${fixture.origin}/full`, { waitUntil: 'domcontentloaded' });
+  await openMainRoster(page);
   assert.equal(await page.locator('.console-agent-gallery-card').count(), 7_777);
   assert.equal(await page.locator('.console-agent-gallery-card button').count(), 7_777);
   assert.equal(await page.locator('.console-agent-gallery-card button').first().getAttribute('data-token-id'), '1');
   assert.equal(await page.locator('.console-agent-gallery-card button').last().getAttribute('data-token-id'), '7777');
 
   await page.goto(`${fixture.origin}/tail`, { waitUntil: 'domcontentloaded' });
+  await openMainRoster(page);
   assert.equal(await page.locator('.console-agent-gallery-card').count(), 1);
   assert.equal(await page.locator('.console-agent-gallery-card button').getAttribute('data-token-id'), '7777');
   assert.equal(await page.locator('.console-agent-gallery-card button').isEnabled(), true);
@@ -98,6 +108,7 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
   for (const [width, columns] of EXPECTED_COLUMNS) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${fixture.origin}/gallery`, { waitUntil: 'domcontentloaded' });
+    await openMainRoster(page);
     const measurements = await page.evaluate(() => {
       const grid = document.querySelector('.console-agent-gallery-grid');
       const controls = [...document.querySelectorAll('.console-agent-gallery input, .console-agent-gallery select, .console-agent-gallery button, .console-agent-gallery a')];
@@ -120,9 +131,11 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
   if (process.env.CAPTURE_GALLERY === '1') {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${fixture.origin}/gallery`, { waitUntil: 'domcontentloaded' });
+    await openMainRoster(page);
     await page.screenshot({ path: '/home/ubuntu/.openclaw/workspace/multipass-looper-gallery-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 480, height: 920 });
     await page.goto(`${fixture.origin}/gallery`, { waitUntil: 'domcontentloaded' });
+    await openMainRoster(page);
     await page.screenshot({ path: '/home/ubuntu/.openclaw/workspace/multipass-looper-gallery-mobile.png', fullPage: true });
     for (const state of ['loading', 'empty', 'filtered', 'error']) {
       await page.goto(`${fixture.origin}/${state}`, { waitUntil: 'domcontentloaded' });

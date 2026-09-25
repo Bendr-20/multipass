@@ -128,6 +128,10 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       status,
     },
     workspaceView,
+    rosterDrawers: {
+      mainOpen: Boolean(state.consoleMainRosterOpen),
+      sidebarOpen: Boolean(state.consoleSidebarRosterOpen),
+    },
     gallery: {
       ...galleryModel,
       status: agentRoster.status ?? 'idle',
@@ -197,7 +201,7 @@ export function renderMultipassConsole(snapshot = {}) {
   const rosterCount = Array.isArray(snapshot.agents) ? snapshot.agents.length : 0;
   const rosterStatus = snapshot.agentRoster?.status ?? 'idle';
   const rosterStat = rosterCount
-    ? `${rosterCount} loaded`
+    ? `${rosterCount} owned`
     : rosterStatus === 'loading'
       ? 'Loading'
       : rosterStatus === 'error'
@@ -226,9 +230,11 @@ export function renderMultipassConsole(snapshot = {}) {
               title: 'My agents',
               stat: snapshot.session?.activeAgentId ? snapshot.session.activeAgentLabel : rosterStat,
               hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
-              open: Boolean(snapshot.session?.needsAgentSelection),
+            open: Boolean(snapshot.rosterDrawers?.sidebarOpen),
+            action: 'toggle-console-roster-drawer',
+            drawer: 'sidebar',
               body: `
-                ${snapshot.session?.showAgentGallery ? '' : renderAgentSelector(snapshot.session)}
+                ${renderAgentSelector(snapshot.session)}
                 <div class="console-agent-list">
                   ${renderAgentRoster(snapshot)}
                 </div>
@@ -246,14 +252,49 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   const session = snapshot.session ?? {};
   const wallet = session.wallet ?? {};
   if (wallet.connected && !wallet.authenticated) return renderConsoleAuthGate(wallet);
-  if (session.showAgentGallery) return renderConsoleAgentOnboarding(snapshot);
-  if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
-    return renderConsoleWalletWorkspace(snapshot.identityCard);
+  if (!wallet.authenticated) {
+    return renderConsoleAgentThread({
+      ...snapshot.agentThread,
+      recall: snapshot.recall,
+      contextItems: snapshot.threadContextItems,
+    });
   }
-  return renderConsoleAgentThread({
-    ...snapshot.agentThread,
-    recall: snapshot.recall,
-    contextItems: snapshot.threadContextItems,
+  const rosterDrawer = renderConsoleMainRosterDrawer(snapshot);
+  if (!session.activeAgentId) return rosterDrawer;
+  const workspace = snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet
+    ? renderConsoleWalletWorkspace(snapshot.identityCard)
+    : renderConsoleAgentThread({
+      ...snapshot.agentThread,
+      recall: snapshot.recall,
+      contextItems: snapshot.threadContextItems,
+    });
+  return `${rosterDrawer}${workspace}`;
+}
+
+function renderConsoleMainRosterDrawer(snapshot = {}) {
+  const session = snapshot.session ?? {};
+  const rosterCount = Array.isArray(snapshot.agents) ? snapshot.agents.length : 0;
+  const rosterStatus = snapshot.agentRoster?.status ?? 'idle';
+  const stat = rosterCount
+    ? `${rosterCount} owned`
+    : rosterStatus === 'loading'
+      ? 'Loading'
+      : rosterStatus === 'error'
+        ? 'Retry'
+        : 'None';
+  const hint = session.activeAgentId
+    ? `${session.activeAgentLabel} · Token #${session.activeAgentId}`
+    : 'Choose a Looper to continue';
+  return renderConsoleDrawer({
+    label: 'Agents',
+    title: 'My Loopers',
+    stat,
+    hint,
+    open: Boolean(snapshot.rosterDrawers?.mainOpen),
+    action: 'toggle-console-roster-drawer',
+    drawer: 'main',
+    className: 'console-main-context-drawer console-main-roster-drawer',
+    body: renderConsoleAgentOnboarding(snapshot),
   });
 }
 
@@ -297,12 +338,13 @@ function renderConsoleAgentOnboarding(snapshot = {}) {
   const failed = gallery.status === 'error';
   const loaded = gallery.status === 'loaded';
   const completion = loaded && gallery.total > 0 ? `All ${gallery.total} Loopers loaded` : '';
+  const hasSelection = Boolean(snapshot.session?.activeAgentId);
   return `
     <section class="console-agent-onboarding console-agent-gallery" aria-labelledby="console-agent-onboarding-title" aria-busy="${loading ? 'true' : 'false'}">
       <header>
         <span class="console-gate-eyebrow">Wallet verified</span>
-        <h2 id="console-agent-onboarding-title">Choose your Looper</h2>
-        <p>Select the agent you want to open. Its private room, identity, memory, and wallet will load together.</p>
+        <h2 id="console-agent-onboarding-title">${hasSelection ? 'Switch Loopers' : 'Choose your Looper'}</h2>
+        <p>${hasSelection ? 'Open another owned Looper, or keep working with the selected one.' : 'Select the agent you want to open. Its private room, identity, memory, and wallet will load together.'}</p>
       </header>
       ${loaded && gallery.total > 0 ? renderConsoleAgentGalleryControls(gallery) : ''}
       <p class="console-agent-gallery-status" aria-live="polite">${escapeHtml(loading ? 'Loading all owned Loopers' : completion)}</p>
@@ -1070,9 +1112,14 @@ function renderConsoleDrawer({
   body = '',
   open = false,
   className = '',
+  action = '',
+  drawer = '',
 } = {}) {
+  const actionAttributes = action
+    ? ` data-action="${escapeAttribute(action)}"${drawer ? ` data-console-roster-drawer="${escapeAttribute(drawer)}"` : ''}`
+    : '';
   return `
-    <details class="console-sidebar-drawer ${escapeAttribute(className)}" ${open ? 'open' : ''}>
+    <details class="console-sidebar-drawer ${escapeAttribute(className)}"${actionAttributes} ${open ? 'open' : ''}>
       <summary>
         <div class="console-sidebar-drawer-copy">
           ${label ? `<span class="console-sidebar-drawer-label">${escapeHtml(label)}</span>` : ''}
