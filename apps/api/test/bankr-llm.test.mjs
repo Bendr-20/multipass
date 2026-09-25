@@ -91,6 +91,41 @@ test('Bankr system prompt grounds the model in canonical Looper persona and Siby
   assert.match(systemPrompt, /review-only/i);
 });
 
+test('Bankr request includes recent Console conversation history before the current message', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'The code word is aubergine.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'What is my code word?',
+    history: [
+      { role: 'human', text: 'My code word is aubergine.' },
+      { role: 'agent', text: 'Acknowledged.' },
+    ],
+  });
+
+  assert.deepEqual(
+    requestBody.messages.map(({ role, content }) => ({ role, content })),
+    [
+      { role: 'system', content: requestBody.messages[0].content },
+      { role: 'user', content: 'My code word is aubergine.' },
+      { role: 'assistant', content: 'Acknowledged.' },
+      {
+        role: 'user',
+        content: JSON.stringify({ message: 'What is my code word?', memory: [], signals: [] }),
+      },
+    ],
+  );
+});
+
 test('skill proposals default off leaves the complete Bankr request and response byte-for-byte unchanged', async () => {
   const requests = [];
   const fetchImpl = async (_url, request) => {

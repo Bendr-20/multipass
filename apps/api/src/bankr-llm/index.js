@@ -22,7 +22,7 @@ export function createBankrLlmClient({
     provider: 'bankr_llm_gateway',
     supportsVision: Boolean(resolvedVisionModel),
 
-    async generate({ profile, message, memory = [], signals = [], attachment = null } = {}) {
+    async generate({ profile, message, memory = [], signals = [], history = [], attachment = null } = {}) {
       const hasImage = Boolean(attachment?.content);
       if (hasImage && !resolvedVisionModel) {
         throw new Error('Image understanding is unavailable because a Bankr vision model is not configured.');
@@ -53,6 +53,7 @@ export function createBankrLlmClient({
               role: 'system',
               content: buildSystemPrompt(profile, { skillProposalsEnabled }),
             },
+            ...normalizeConversationHistory(history),
             {
               role: 'user',
               content: userContent,
@@ -120,6 +121,33 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
     );
   }
   return lines.join('\n');
+}
+
+function normalizeConversationHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((entry) => entry && (entry.role === 'human' || entry.role === 'agent'))
+    .slice(-8)
+    .map((entry) => ({
+      role: entry.role === 'human' ? 'user' : 'assistant',
+      content: normalizeHistoryText(entry.text),
+    }))
+    .filter((entry) => entry.content);
+}
+
+function normalizeHistoryText(value) {
+  let text = String(value ?? '').trim();
+  const fenced = text.match(/^```(?:json)?[ \t]*\n([\s\S]*?)\n```$/iu);
+  if (fenced) text = fenced[1].trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && typeof parsed.assistant_text === 'string') {
+      return parsed.assistant_text.trim();
+    }
+  } catch {
+    // Plain chat history stays unchanged.
+  }
+  return text;
 }
 
 function formatPersonaLines(persona) {
