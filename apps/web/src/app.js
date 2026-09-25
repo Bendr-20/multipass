@@ -3167,13 +3167,20 @@ function updateDocumentMetadataForPage(state) {
     return;
   }
   if (state.pageKind === 'console') {
+    const previewImage = 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png';
     document.title = 'Multipass Console';
     setDocumentMeta('name', 'description', 'Persistent operating console for onchain agents.');
     setDocumentMeta('property', 'og:url', 'https://helixa.xyz/multipass/console');
     setDocumentMeta('property', 'og:title', 'Multipass Console');
     setDocumentMeta('property', 'og:description', 'Persistent operating console for onchain agents.');
+    setDocumentMeta('property', 'og:image', previewImage);
+    setDocumentMeta('property', 'og:image:secure_url', previewImage);
+    setDocumentMeta('property', 'og:image:alt', 'Multipass Console preview');
     setDocumentMeta('name', 'twitter:title', 'Multipass Console');
     setDocumentMeta('name', 'twitter:description', 'Persistent operating console for onchain agents.');
+    setDocumentMeta('name', 'twitter:image', previewImage);
+    setDocumentMeta('name', 'twitter:image:src', previewImage);
+    setDocumentMeta('name', 'twitter:image:alt', 'Multipass Console preview');
     return;
   }
   if (!['looper_allowlist', 'looper_mint'].includes(state.pageKind)) return;

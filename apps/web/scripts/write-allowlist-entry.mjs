@@ -17,6 +17,7 @@ const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
 const LOOPERS_SOCIAL_URL = 'https://helixa.xyz/allowlist?x=20260826c';
 const LOOPERS_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-allowlist-preview-20260826c.jpg';
 const LOOPERS_MINT_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-mint-preview-20260910a.jpg';
+const CONSOLE_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png';
 
 const html = await readFile(sourcePath, 'utf8');
 const allowlistHtml = html
@@ -61,8 +62,16 @@ await writeFile(consoleOutputPath, html
   .replace(/<meta property="og:title" content="[^"]*" \/>/u, '<meta property="og:title" content="Multipass Console" />')
   .replace(/<meta property="og:description" content="[^"]*" \/>/u, '<meta property="og:description" content="Persistent operating console for onchain agents." />')
   .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/console" />')
+  .replace(
+    /<meta property="og:image" content="[^"]*" \/>/u,
+    `<meta property="og:image" content="${CONSOLE_PREVIEW_IMAGE}" />\n    <meta property="og:image:secure_url" content="${CONSOLE_PREVIEW_IMAGE}" />\n    <meta property="og:image:alt" content="Multipass Console preview" />`,
+  )
   .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Multipass Console" />')
-  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, '<meta name="twitter:description" content="Persistent operating console for onchain agents." />'));
+  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, '<meta name="twitter:description" content="Persistent operating console for onchain agents." />')
+  .replace(
+    /<meta name="twitter:image" content="[^"]*" \/>/u,
+    `<meta name="twitter:image" content="${CONSOLE_PREVIEW_IMAGE}" />\n    <meta name="twitter:image:src" content="${CONSOLE_PREVIEW_IMAGE}" />\n    <meta name="twitter:image:alt" content="Multipass Console preview" />`,
+  ));
 
 const runtimeTitle = 'Loopers Runtime Console | Bankr RUNTIME';
 const runtimeDescription = 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.';

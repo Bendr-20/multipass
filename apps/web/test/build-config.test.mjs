@@ -42,9 +42,11 @@ test('Loopers build script emits a static emergency pause route entry', () => {
   assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/pause-mint/);
 });
 
-test('web build emits a static Console route entry', () => {
+test('web build emits a static Console route entry with its dedicated social preview', () => {
   assert.match(allowlistEntryScript, /join\(distRoot, 'console', 'index\.html'\)/);
   assert.match(allowlistEntryScript, /Persistent operating console for onchain agents\./);
+  assert.match(allowlistEntryScript, /multipass-console-preview-20260925a\.png/);
+  assert.match(allowlistEntryScript, /Multipass Console preview/);
 });
 
 test('web build emits a static Bankr RUNTIME submission route entry', () => {

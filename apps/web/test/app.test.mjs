@@ -1910,6 +1910,10 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.ok(consolePage);
   assert.equal(document.title, 'Multipass Console');
   assert.equal(document.querySelector('meta[property="og:title"]')?.getAttribute('content'), 'Multipass Console');
+  assert.equal(document.querySelector('meta[property="og:image"]')?.getAttribute('content'), 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png');
+  assert.equal(document.querySelector('meta[property="og:image:alt"]')?.getAttribute('content'), 'Multipass Console preview');
+  assert.equal(document.querySelector('meta[name="twitter:image"]')?.getAttribute('content'), 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png');
+  assert.equal(document.querySelector('meta[name="twitter:image:alt"]')?.getAttribute('content'), 'Multipass Console preview');
   assert.equal(root.querySelector('.brand-stack .header-meta'), null);
   assert.match(consolePage.textContent, /review-only/i);
   assert.ok(consolePage.querySelector('.console-basic-shell'));

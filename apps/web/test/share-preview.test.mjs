@@ -14,6 +14,7 @@ const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const indexPath = join(webRoot, 'index.html');
 const ogSvgPath = join(webRoot, 'public', 'og-preview.svg');
 const ogImagePath = join(webRoot, 'public', 'og-preview.png');
+const consolePreviewPath = join(webRoot, 'public', 'multipass-console-preview-20260925a.png');
 const looperAllowlistPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview.png');
 const looperAllowlistXPreviewPath = join(webRoot, 'public', 'loopers-allowlist-preview-20260826c.jpg');
 const looperMintPreviewPath = join(webRoot, 'public', 'loopers-mint-preview-20260910a.jpg');
@@ -28,6 +29,7 @@ const ogSourceCapturePath = join(webRoot, 'public', 'og-bendr-profile-capture.pn
 const shareRoot = join(webRoot, 'public', 'share');
 const STALE_QUIGBOT_AURA_SHARE_JPEG_SHA256 = '038840a1d3474d9c9f5079fe6218634f2cfc111d30d679fd55709a7a8c655262';
 const LOOPERS_ALLOWLIST_ALT_1_SHA256 = '6a5a849d591225ced6a78981e0e16e736ea1e57b971aa71306936064d399e9f4';
+const CONSOLE_PASSPORT_HYBRID_SHA256 = 'c19c28faee8b5da658050089a950773e45afc63cc115b9baf8371979ccdd9bb6';
 
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -78,6 +80,13 @@ test('share preview image exists as a 1200x630 static PNG asset with Bendr sourc
   assert.deepEqual(imageSizeFromFile(ogImagePath), { width: 1200, height: 630, type: 'png' });
   assert.equal(existsSync(ogSourceCapturePath), true);
   assert.deepEqual(imageSizeFromFile(ogSourceCapturePath), { width: 1200, height: 630, type: 'png' });
+});
+
+test('Console social preview uses the selected 1200x630 Passport Hybrid artwork', () => {
+  assert.equal(existsSync(consolePreviewPath), true);
+  assert.deepEqual(imageSizeFromFile(consolePreviewPath), { width: 1200, height: 630, type: 'png' });
+  assert.equal(sha256File(consolePreviewPath), CONSOLE_PASSPORT_HYBRID_SHA256);
+  assert.ok(statSync(consolePreviewPath).size > 100_000);
 });
 
 test('Loopers allowlist preview image exists as a 1200x630 static PNG asset', () => {
