@@ -11,7 +11,7 @@ Replace the first-sign-in Looper chooser with a marketplace-style, scrollable ga
 
 Use a full-height gallery in the Console's main workspace. This is preferable to a horizontal carousel, which would hide inventory behind sideways scrolling, and to classic pagination, which would make roster completeness less obvious.
 
-The gallery keeps the existing Multipass Console shell and visual language. It does not become a separate marketplace product.
+The gallery keeps the existing Multipass Console shell and visual language. It does not become a separate marketplace product. All headings, labels, controls, and card copy inherit the Console's existing Inter/system font stack and existing monospace button treatment; no serif or marketplace-specific font is introduced.
 
 ## User experience
 
@@ -65,7 +65,7 @@ The gallery body scrolls vertically inside the main Console workspace while the 
 The footer contains:
 
 - `Refresh ownership` to rerun the authenticated Base ownership scan
-- `Browse Loopers on OpenSea` as an external link to the official Base collection/contract marketplace page
+- `Browse Loopers on OpenSea` as an external link to the verified collection page at `https://opensea.io/collection/loopers-639312714`
 
 The external link opens in a new tab and uses `rel="noopener noreferrer"`. It never implies an official OpenSea integration or an available listing.
 
