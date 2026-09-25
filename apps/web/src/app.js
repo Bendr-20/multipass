@@ -22,6 +22,13 @@ import { bindRouteManager, compactRouteInput, compactRoutePatch, getPublicRouteF
 import { createOwnerCommandCenterSnapshot, renderOwnerCommandCenterSnapshot } from './command-center.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from './multipass-console.js';
 import {
+  loadReleasedLooperTokenIds,
+  normalizeConsoleWalletKey,
+  readLastLooperForWallet,
+  resolveDefaultLooperTokenId,
+  writeLastLooperForWallet,
+} from './console-looper-selection.js';
+import {
   CONFIGURED_TOKENS,
   REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
   REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH,
@@ -66,7 +73,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -96,6 +103,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const activeLoadLiveDemo = loadLiveDemo ?? ((input) => defaultLoadLiveProfile(input, { fetchImpl }));
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
+  let consoleReleasedLooperAbortController = null;
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
   const consoleMockState = getInitialConsoleMockState();
   const consoleAgentNameOverrides = consoleMockState?.consoleAgentNameOverrides ?? loadConsoleAgentNameOverrides();
@@ -163,6 +171,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const walletSnapshot = activeWalletClient.getSnapshot();
       if (state.pageKind === 'console' && state.consoleMockMode) return;
       if (state.pageKind === 'console' && !state.consoleMockMode && consoleWalletBoundaryChanged(state, walletSnapshot)) {
+        abortConsoleReleasedLooperDiscovery();
         state = clearConsoleSessionState(state, {
           walletSnapshot,
           status: walletSnapshot.connected && walletSnapshot.address ? 'wallet_changed' : 'disconnected',
@@ -626,6 +635,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function connectConsoleWallet() {
+    abortConsoleReleasedLooperDiscovery();
     const sessionGeneration = state.consoleSessionGeneration + 1;
     state = {
       ...state,
@@ -658,7 +668,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (!walletSnapshot.connected || !walletSnapshot.address) await activeWalletClient.connect();
       walletSnapshot = activeWalletClient.getSnapshot();
       if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to use Console wallet identity.');
-      const authenticatingWallet = normalizeConsoleWallet(walletSnapshot.address);
+      const authenticatingWallet = normalizeConsoleWalletKey(walletSnapshot.address);
+      if (!authenticatingWallet) throw new Error('Connected wallet returned an invalid address.');
       state = {
         ...state,
         walletSnapshot,
@@ -677,7 +688,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (
         state.consoleSessionGeneration !== sessionGeneration
         || !currentWallet.connected
-        || normalizeConsoleWallet(currentWallet.address) !== authenticatingWallet
+        || normalizeConsoleWalletKey(currentWallet.address) !== authenticatingWallet
       ) return;
       state = {
         ...state,
@@ -726,9 +737,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const currentWallet = activeWalletClient.getSnapshot();
       if (
         state.consoleSessionGeneration !== sessionGeneration
-        || normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== authenticatedWallet
+        || normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) !== authenticatedWallet
         || !currentWallet.connected
-        || normalizeConsoleWallet(currentWallet.address) !== authenticatedWallet
+        || normalizeConsoleWalletKey(currentWallet.address) !== authenticatedWallet
       ) return;
       state = { ...state, consoleOwnerProfile: profile ?? null };
       render(root, state, handlers);
@@ -1057,6 +1068,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     focusOnComplete = false,
   } = {}) {
     if (!walletSnapshot.connected || !walletSnapshot.address) {
+      abortConsoleReleasedLooperDiscovery();
       state = clearConsoleSessionState(state, {
         walletSnapshot,
         status: 'disconnected',
@@ -1065,9 +1077,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       return;
     }
 
-    const rosterWallet = normalizeConsoleWallet(walletSnapshot.address);
-    if (rosterWallet !== normalizeConsoleWallet(state.consoleAuthenticatedWallet)) return;
+    const rosterWallet = normalizeConsoleWalletKey(walletSnapshot.address);
+    if (rosterWallet !== normalizeConsoleWalletKey(state.consoleAuthenticatedWallet)) return;
     const rosterRequestId = Number(state.consoleOwnedAgentsRequestId ?? 0) + 1;
+    abortConsoleReleasedLooperDiscovery();
+    const discoveryController = new AbortController();
+    consoleReleasedLooperAbortController = discoveryController;
+    const activationDiscoveryPromise = Promise.resolve(releasedLooperLoader({
+      fetchImpl: fetchImpl ?? globalThis.fetch,
+      signal: discoveryController.signal,
+    })).catch(() => ({ status: 'unavailable', tokenIds: new Set() }));
     state = {
       ...state,
       consoleOwnedAgentsRequestId: rosterRequestId,
@@ -1097,10 +1116,29 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (
         state.consoleSessionGeneration !== sessionGeneration
         || state.consoleOwnedAgentsRequestId !== rosterRequestId
-        || normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== rosterWallet
+        || normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) !== rosterWallet
       ) return;
       const preservedAgentId = resolveConsoleSelectedAgentId(agents, state.consoleSelectedAgentId);
-      const selectedAgentId = preservedAgentId ?? (agents.length === 1 ? String(agents[0]?.tokenId ?? '').trim() || null : null);
+      const rememberedAgentId = resolveConsoleSelectedAgentId(
+        agents,
+        readLastLooperForWallet({ storage: consolePreferenceStorage, wallet: rosterWallet }),
+      );
+      let selectedAgentId = preservedAgentId ?? rememberedAgentId;
+      if (selectedAgentId) {
+        discoveryController.abort();
+      } else {
+        const discovery = await activationDiscoveryPromise;
+        if (
+          state.consoleSessionGeneration !== sessionGeneration
+          || state.consoleOwnedAgentsRequestId !== rosterRequestId
+          || normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) !== rosterWallet
+        ) return;
+        selectedAgentId = resolveDefaultLooperTokenId({
+          agents,
+          activatedTokenIds: discovery?.tokenIds,
+          activationStatus: discovery?.status,
+        });
+      }
       const participantAgentIds = resolveConsoleParticipantAgentIds(agents, state.consoleParticipantAgentIds, selectedAgentId);
       const selectionChanged = selectedAgentId !== state.consoleSelectedAgentId;
       state = {
@@ -1118,14 +1156,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           ? state.consoleAgentThread
           : createInitialConsoleAgentThreadState(),
       };
-      render(root, state, handlers);
-      if (focusOnComplete && !selectedAgentId) focusConsoleGalleryHeading();
       if (selectedAgentId && (selectionChanged || state.consoleAgentThread.status === 'idle')) {
         await selectAndActivateConsoleAgent(selectedAgentId, { resetSelection: false });
+      } else {
+        render(root, state, handlers);
+        if (focusOnComplete && !selectedAgentId) focusConsoleGalleryHeading();
       }
     } catch (error) {
       if (state.consoleSessionGeneration !== sessionGeneration || state.consoleOwnedAgentsRequestId !== rosterRequestId) return;
       if (isConsoleUnauthorized(error)) {
+        abortConsoleReleasedLooperDiscovery();
         state = clearConsoleSessionState(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
@@ -1148,7 +1188,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
       render(root, state, handlers);
       if (focusOnComplete) focusConsoleGalleryAlert();
+    } finally {
+      if (consoleReleasedLooperAbortController === discoveryController) {
+        discoveryController.abort();
+        consoleReleasedLooperAbortController = null;
+      }
     }
+  }
+
+  function abortConsoleReleasedLooperDiscovery() {
+    consoleReleasedLooperAbortController?.abort();
+    consoleReleasedLooperAbortController = null;
   }
 
   function updateConsoleAgentGallerySearch(event) {
@@ -1439,6 +1489,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       render(root, state, handlers);
       const activated = await activateConsoleAgentRuntime(normalizedTokenId, agent?.name ?? `Looper #${normalizedTokenId}`);
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
+      writeLastLooperForWallet({
+        storage: consolePreferenceStorage,
+        wallet: activationContext.wallet,
+        tokenId: normalizedTokenId,
+      });
       if (activated?.thread) {
         const visibleMessages = filterConsoleHiddenMessages(
           activated.thread.messages,
@@ -1534,6 +1589,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   function resetConsoleSession() {
+    abortConsoleReleasedLooperDiscovery();
     const walletSnapshot = activeWalletClient.getSnapshot();
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
     hideConsoleMessagesLocally(
@@ -2355,15 +2411,11 @@ function getConsoleSkillProposalResponseFields(response = {}) {
   };
 }
 
-function normalizeConsoleWallet(value) {
-  return String(value ?? '').trim().toLowerCase();
-}
-
 function consoleWalletBoundaryChanged(state = {}, walletSnapshot = {}) {
-  const authenticatedWallet = normalizeConsoleWallet(state.consoleAuthenticatedWallet);
+  const authenticatedWallet = normalizeConsoleWalletKey(state.consoleAuthenticatedWallet);
   if (!authenticatedWallet) return false;
   if (!walletSnapshot.connected || !walletSnapshot.address) return true;
-  return normalizeConsoleWallet(walletSnapshot.address) !== authenticatedWallet;
+  return normalizeConsoleWalletKey(walletSnapshot.address) !== authenticatedWallet;
 }
 
 function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = null, error = null } = {}) {
@@ -2432,7 +2484,7 @@ function hasNonterminalLooperWalletWork(wallet) {
 
 function createConsoleAsyncContext(state = {}, tokenId = null, activationRequestId = null) {
   return {
-    wallet: normalizeConsoleWallet(state.consoleAuthenticatedWallet),
+    wallet: normalizeConsoleWalletKey(state.consoleAuthenticatedWallet),
     sessionGeneration: state.consoleSessionGeneration,
     tokenId: String(tokenId ?? state.consoleSelectedAgentId ?? '').trim(),
     activationRequestId,
@@ -2442,7 +2494,7 @@ function createConsoleAsyncContext(state = {}, tokenId = null, activationRequest
 
 function isCurrentConsoleAsyncContext(state = {}, context = {}) {
   if (state.consoleSessionGeneration !== context.sessionGeneration) return false;
-  if (normalizeConsoleWallet(state.consoleAuthenticatedWallet) !== context.wallet) return false;
+  if (normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) !== context.wallet) return false;
   if (String(state.consoleSelectedAgentId ?? '').trim() !== context.tokenId) return false;
   if (context.activationRequestId !== null && state.consoleActivationRequestId !== context.activationRequestId) return false;
   if (state.consoleThreadGeneration !== context.threadGeneration) return false;
@@ -2871,7 +2923,7 @@ function persistConsoleAgentNameOverrides(overrides = {}) {
 }
 
 function getConsoleHiddenMessageStorageId(wallet, tokenId) {
-  const normalizedWallet = normalizeConsoleWallet(wallet);
+  const normalizedWallet = normalizeConsoleWalletKey(wallet);
   const normalizedTokenId = String(tokenId ?? '').trim();
   return normalizedWallet && normalizedTokenId ? `${normalizedWallet}:${normalizedTokenId}` : null;
 }
@@ -3965,7 +4017,7 @@ function createConsoleHeaderWalletAction(state = {}) {
   const busy = consoleStatus === 'connecting' || consoleStatus === 'signing' || consoleStatus === 'loading_roster';
   const connected = Boolean(wallet.connected && wallet.address);
   const authenticated = connected
-    && normalizeConsoleWallet(state.consoleAuthenticatedWallet) === normalizeConsoleWallet(wallet.address);
+    && normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) === normalizeConsoleWalletKey(wallet.address);
   const unavailable = wallet.configured === false;
   const ready = wallet.ready !== false;
 

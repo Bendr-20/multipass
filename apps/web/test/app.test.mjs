@@ -253,6 +253,30 @@ async function flushAsyncEvents(count = 8) {
   for (let index = 0; index < count; index += 1) await Promise.resolve();
 }
 
+function createMemoryStorage(seed = {}) {
+  const values = new Map(Object.entries(seed));
+  return {
+    getItem(key) { return values.has(key) ? values.get(key) : null; },
+    setItem(key, value) { values.set(key, String(value)); },
+    removeItem(key) { values.delete(key); },
+    value(key) { return values.get(key) ?? null; },
+  };
+}
+
+function captureInnerHtmlWrites(element) {
+  const descriptor = Object.getOwnPropertyDescriptor(element.ownerDocument.defaultView.Element.prototype, 'innerHTML');
+  const writes = [];
+  Object.defineProperty(element, 'innerHTML', {
+    configurable: true,
+    get() { return descriptor.get.call(element); },
+    set(value) {
+      writes.push(String(value));
+      descriptor.set.call(element, value);
+    },
+  });
+  return writes;
+}
+
 function openConsoleWallet(root) {
   const button = root.querySelector('[data-action="set-console-workspace-view"][data-console-view="wallet"]');
   assert.ok(button, 'selected agent must expose the Wallet workspace control');
@@ -2591,6 +2615,122 @@ test('dedicated Console verifies XMTP registration before the first live room se
 
   assert.deepEqual(order, ['register', 'send']);
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Registered and delivered/);
+});
+
+test('dedicated Console auto-loads a remembered Looper without waiting for activated-wallet discovery', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const writes = captureInnerHtmlWrites(root);
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const storage = createMemoryStorage({
+    'multipass.console.lastLooperByWallet.v1': JSON.stringify({
+      schemaVersion: 1,
+      selections: { [owner.toLowerCase()]: '812' },
+    }),
+  });
+  const activations = [];
+  let signCount = 0;
+  let discoveryAborted = false;
+  const walletCalls = [];
+  const looperWalletController = {
+    getSnapshot: () => ({ mode: 'read_only', reason: 'not_selected', activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } }),
+    async select(selection) {
+      walletCalls.push(['select', selection]);
+      return { mode: 'inactive', reason: null, tokenId: String(selection.tokenId), owner: selection.owner, account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [], activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
+    },
+    async prepareActivation() { assert.fail('automatic opening must not prepare wallet activation'); },
+    async submitPrepared() { assert.fail('automatic opening must not submit a wallet transaction'); },
+  };
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({
+      snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' },
+      signMessage: async () => { signCount += 1; return { wallet: owner, signature: '0xsig' }; },
+    }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
+    consolePreferenceStorage: storage,
+    releasedLooperLoader: ({ signal }) => new Promise((resolve) => {
+      signal.addEventListener('abort', () => {
+        discoveryAborted = true;
+        resolve({ status: 'unavailable', tokenIds: new Set() });
+      }, { once: true });
+    }),
+    claimApi: {
+      activateConsoleAgent: async ({ tokenId }) => {
+        activations.push(tokenId);
+        return { thread: { messages: [] }, memory: {}, proposals: [] };
+      },
+    },
+  }).start();
+  await flushAsyncEvents(30);
+
+  assert.deepEqual(activations, ['812']);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '812');
+  assert.equal(signCount, 1);
+  assert.equal(discoveryAborted, true);
+  assert.deepEqual(walletCalls.map(([name]) => name), ['select']);
+  assert.equal(writes.some((html) => html.includes('console-agent-gallery-card') && !html.includes('console-agent-thread-panel')), false);
+});
+
+test('dedicated Console prefers an activated owned Looper then falls back to the first canonical token', async (t) => {
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  for (const scenario of [
+    { name: 'activated', discovery: { status: 'available', tokenIds: new Set(['812']) }, expected: '812' },
+    { name: 'unavailable', discovery: { status: 'unavailable', tokenIds: new Set() }, expected: '617' },
+  ]) {
+    await t.test(scenario.name, async () => {
+      const root = setupDom('https://helixa.xyz/multipass/console');
+      const activations = [];
+      await createApp({
+        root,
+        loadDemo: async () => sampleData(),
+        walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+        fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [812, 617] }),
+        consolePreferenceStorage: createMemoryStorage(),
+        releasedLooperLoader: async () => scenario.discovery,
+        claimApi: { activateConsoleAgent: async ({ tokenId }) => {
+          activations.push(tokenId);
+          return { thread: { messages: [] }, memory: {}, proposals: [] };
+        } },
+      }).start();
+      await flushAsyncEvents(30);
+      assert.deepEqual(activations, [scenario.expected]);
+      assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, scenario.expected);
+    });
+  }
+});
+
+test('dedicated Console remembers only a current successful automatic activation', async () => {
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const key = 'multipass.console.lastLooperByWallet.v1';
+  const successfulStorage = createMemoryStorage();
+  let root = setupDom('https://helixa.xyz/multipass/console');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    consolePreferenceStorage: successfulStorage,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set() }),
+    claimApi: { activateConsoleAgent: async () => ({ thread: { messages: [] }, memory: {}, proposals: [] }) },
+  }).start();
+  await flushAsyncEvents(30);
+  assert.equal(JSON.parse(successfulStorage.value(key)).selections[owner.toLowerCase()], '617');
+
+  const failedStorage = createMemoryStorage();
+  root = setupDom('https://helixa.xyz/multipass/console');
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    consolePreferenceStorage: failedStorage,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set() }),
+    claimApi: { activateConsoleAgent: async () => { throw new Error('activation failed'); } },
+  }).start();
+  await flushAsyncEvents(30);
+  assert.equal(failedStorage.value(key), null);
 });
 
 test('dedicated Console auto-selects and activates a sole freshly owned Looper', async () => {
