@@ -104,6 +104,56 @@ test('owned Looper loader uses the public holder index before the bounded ownerO
   assert.equal(agents[0].tokenId, '617');
 });
 
+test('owned Looper loader follows every Blockscout holder page before declaring the roster complete', async () => {
+  const tokenIds = Array.from({ length: 12 }, (_, index) => BigInt(index + 1));
+  const indexUrls = [];
+  let multicallCalls = 0;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return 12n;
+      if (functionName === 'totalMinted') return 7_777n;
+      throw new Error('ownerOf fallback must not run');
+    },
+    async multicall({ contracts }) {
+      multicallCalls += 1;
+      return contracts.map(({ functionName, args }) => {
+        if (functionName === 'ownerOf') return { status: 'success', result: WALLET };
+        if (functionName === 'erc8004AgentIdByLooper') return { status: 'success', result: 90_000n + args[0] };
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    fetchImpl: async (url) => {
+      const parsed = new URL(String(url));
+      if (!parsed.pathname.endsWith('/instances')) {
+        return new Response(JSON.stringify({ name: `Looper #${parsed.pathname.match(/(\d+)\.json$/)?.[1]}`, attributes: [] }));
+      }
+      indexUrls.push(parsed);
+      assert.equal(parsed.searchParams.get('holder_address_hash'), WALLET);
+      if (!parsed.searchParams.has('cursor')) {
+        return new Response(JSON.stringify({
+          items: tokenIds.slice(0, 10).map((tokenId) => ({ id: tokenId.toString() })),
+          next_page_params: { cursor: 'page-2' },
+        }));
+      }
+      assert.equal(parsed.searchParams.get('cursor'), 'page-2');
+      return new Response(JSON.stringify({
+        items: tokenIds.slice(10).map((tokenId) => ({ id: tokenId.toString() })),
+        next_page_params: null,
+      }));
+    },
+  });
+
+  assert.equal(indexUrls.length, 2);
+  assert.equal(multicallCalls, 2, 'only batched authorization multicalls should run');
+  assert.deepEqual(agents.map((agent) => agent.tokenId), tokenIds.map(String));
+});
+
 test('owned Looper loader batches authorization for wallets with many agents', async () => {
   const tokenIds = Array.from({ length: 45 }, (_, index) => BigInt(index + 1));
   let multicallCalls = 0;
@@ -192,6 +242,27 @@ test('GET /api/loopers/owned returns wallet-owned Looper agent cards', async () 
   assert.equal(body.agents[0].name, 'Looper #617');
   assert.equal(body.agents[0].role, 'Trader / Broker');
   assert.equal(body.agents[0].traits.Specialization, 'market making');
+});
+
+test('GET /api/loopers/owned returns every agent when the wallet owns more than ten', async () => {
+  const expected = Array.from({ length: 24 }, (_, index) => ({
+    tokenId: String(index + 1),
+    name: `Looper #${index + 1}`,
+    owner: WALLET.toLowerCase(),
+    verified: true,
+  }));
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    consoleAuthStore: { validateSession: () => ({ wallet: WALLET.toLowerCase() }) },
+    loopersOwnedAgentLoader: async () => expected,
+  });
+
+  const response = await api.handleRequest(new Request('https://helixa.test/api/loopers/owned', { headers: AUTH_COOKIE }));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.agents.length, 24);
+  assert.deepEqual(body.agents.map((agent) => agent.tokenId), expected.map((agent) => agent.tokenId));
 });
 
 test('GET /api/loopers/owned rejects caller-supplied addresses without an authenticated session', async () => {
