@@ -30,10 +30,10 @@ Show:
 
 - `Choose your Looper`
 - Search by Looper name or token ID
-- Sort by token ID or name
+- A sort select defaulting to `Token ID: low to high`, with explicit alternatives `Token ID: high to low`, `Name: A to Z`, and `Name: Z to A`; there is no separate direction toggle
 - The exact completion indicator `All {N} Loopers loaded` only after the authenticated API returns a successfully reconciled roster
 
-During loading, show `Loading all owned Loopers` with neither a numeric count nor the completion indicator. During empty success, show `No owned Loopers found`. During errors, suppress both count and completion text so stale or partial data cannot look authoritative.
+During loading, show `Loading all owned Loopers` with neither a numeric count nor the completion indicator. During empty ownership success, show `No owned Loopers found`. When a nonempty roster has no search matches, keep `All {N} Loopers loaded` visible and show the distinct filtered state `No Loopers match “{query}”` with a `Clear search` button. During errors, suppress both count and completion text so stale or partial data cannot look authoritative.
 
 Search and sorting are client-side because the owned roster is bounded by the 7,777-token collection and already returned in one authenticated response.
 
@@ -81,7 +81,7 @@ The gallery will preserve this fail-closed behavior:
 1. The UI increments a roster request ID, enters a loading state, clears stale cards, sets the gallery region `aria-busy="true"`, and announces `Loading all owned Loopers` through a polite live region.
 2. The authenticated `/api/loopers/owned` request runs the ownership reconciliation.
 3. A response may commit only when its request ID and normalized authenticated wallet still match current state. Wallet/account changes invalidate prior requests and clear their roster immediately.
-4. A successful response is treated as complete because the API refuses mismatched counts. The UI announces and displays exactly `All {N} Loopers loaded`, then moves focus to the gallery heading only when the load followed an explicit retry or refresh.
+4. A successful response is treated as complete because the API refuses mismatched counts. The UI announces and displays exactly `All {N} Loopers loaded`, then moves focus to the gallery heading only when the load followed an explicit retry or refresh. Immediately before focus, the heading receives temporary `tabindex="-1"`; a one-shot `blur` handler removes that attribute so it never enters normal tab order.
 5. The UI renders every returned agent; it must not slice, paginate, truncate, or cap at ten.
 6. If reconciliation fails, the gallery shows an alert and retry action rather than cards, a count, or a completion badge. Focus moves to the alert after an explicit retry failure.
 7. Activation errors keep the reconciled gallery mounted, announce the error with `role="alert"`, and return focus to the failed card's `Open` button.
@@ -136,11 +136,12 @@ A new browser-level regression test will render more than ten agents and assert 
 ### Renderer and app
 
 - More than ten agents produce the same number of gallery cards.
-- A synthetic 7,777-agent roster is not truncated; search and sort return correct results, keyboard order remains deterministic, and the headless-browser gallery becomes interactive within two seconds on the existing CI runner. If that bound fails, add windowed rendering without changing the API or visible complete-roster semantics.
-- Search matches names and token IDs without mutating the source roster.
-- Sort changes visual order only.
+- A synthetic 7,777-agent roster is fully rendered without truncation or virtualization; search and sort return correct results, keyboard order remains deterministic, and the headless-browser gallery becomes interactive within two seconds on the existing CI runner.
+- Search matches names and token IDs without mutating the source roster; a zero-match query shows the filtered-empty state while preserving the reconciled total.
+- Sort defaults to token ID ascending and each of the four explicit sort options changes visual order only.
 - Every visible card activates the correct token ID.
-- Loading, empty, error, and retry states expose the specified text, ARIA state, announcements, and focus transitions.
+- Loading, owned-empty, filtered-empty, error, and retry states expose the specified text, ARIA state, announcements, and focus transitions.
+- Programmatic heading focus adds temporary `tabindex="-1"` and removes it on blur.
 - Older request and prior-wallet responses cannot replace the current roster.
 - Breakpoint tests cover 320px, 479px, 480px, 759px, 760px, 1119px, and 1120px with no horizontal overflow and 44-pixel minimum targets.
 - The marketplace link has the approved destination and safe external-link attributes.
