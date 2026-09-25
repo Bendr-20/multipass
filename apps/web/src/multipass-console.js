@@ -717,6 +717,27 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
         : wallet.operatorProfile === 'malformed'
           ? 'Malformed code — blocked'
           : 'Unverified';
+  const trackedAssets = account ? [
+    {
+      symbol: 'ETH',
+      name: 'Ethereum',
+      balance: formatWalletUnits(wallet.nativeWei, 18),
+      meta: 'Base native asset',
+    },
+    ...(wallet.tokens ?? []).map((token) => ({
+      symbol: String(token.symbol ?? 'Token'),
+      name: String(token.symbol ?? 'Token'),
+      balance: formatWalletUnits(token.balanceBaseUnits, token.decimals),
+      meta: 'Agent economy · Base',
+    })),
+  ] : [];
+  const canSend = wallet.mode === 'active' && wallet.canTransact;
+  const canRecoverPolicy = Boolean(wallet.policyRecoveryAllowed);
+  const ownerControlCopy = wallet.mode === 'active' && wallet.canTransact
+    ? 'Every transaction requires your wallet approval.'
+    : wallet.mode === 'inactive'
+      ? 'Activate once before this wallet can send assets.'
+      : 'Transfers stay disabled until wallet verification is complete.';
   return `
     <section class="console-looper-wallet${workspace ? ' console-looper-wallet-workspace' : ''}" aria-label="Selected Looper agent wallet">
       <div class="console-looper-wallet-head">
@@ -726,6 +747,14 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
         </div>
         <button type="button" data-action="refresh-looper-agent-wallet" ${busy ? 'disabled' : ''}>Refresh</button>
       </div>
+      ${account ? `<section class="console-looper-wallet-overview console-looper-wallet-hero" aria-label="Wallet balance summary">
+        <div>
+          <span>Available balance</span>
+          <strong class="console-looper-wallet-primary-balance">${escapeHtml(nativeBalance)}</strong>
+          <small>${assetCount} tracked ${assetCount === 1 ? 'asset' : 'assets'} on Base</small>
+        </div>
+        <span class="console-looper-wallet-network">Base</span>
+      </section>` : ''}
       ${canActivate ? `
         <div class="console-looper-wallet-activation-callout" aria-labelledby="console-looper-wallet-activation-title">
           <div>
@@ -738,56 +767,84 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
           </form>
         </div>
       ` : ''}
-      <dl class="console-looper-wallet-truth" aria-label="Agent and wallet status">
-        <div data-wallet-truth="agent-runtime"><dt>Agent runtime</dt><dd><strong>Review-only</strong></dd></div>
-        <div data-wallet-truth="looper-wallet"><dt>Looper wallet</dt><dd><strong>${escapeHtml(looperWalletLabel)}</strong></dd></div>
-        <div data-wallet-truth="owner-signer"><dt>Owner signer</dt><dd><strong>${escapeHtml(ownerSignerLabel)}</strong></dd></div>
-      </dl>
-      ${account ? `<div class="console-looper-wallet-overview" aria-label="Wallet balance summary">
-        <span>Available balance</span>
-        <strong class="console-looper-wallet-primary-balance">${escapeHtml(nativeBalance)}</strong>
-        <small>${assetCount} tracked ${assetCount === 1 ? 'asset' : 'assets'} on Base</small>
-      </div>` : ''}
-      ${showDetails ? `<details class="console-looper-wallet-details">
-        <summary>
-          <span>Wallet details</span>
-          <small>Address, assets, and actions</small>
-        </summary>
-        <div class="console-looper-wallet-details-body">
-          ${account ? `
-            <div class="console-looper-wallet-address">
-              <span>Receive address</span>
-              <code>${escapeHtml(account)}</code>
-              <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
-            </div>
-          ` : ''}
-          ${account ? `<div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
-            <span>${escapeHtml(nativeBalance)}</span>
-            ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
-          </div>` : ''}
-          ${wallet.mode === 'active' && wallet.canTransact ? `
+      ${account ? `<div class="console-looper-wallet-actions" aria-label="Wallet actions">
+        ${canSend ? `<details class="console-looper-wallet-action" data-wallet-action="send">
+          <summary><span aria-hidden="true">↗</span><strong>Send</strong><small>Transfer assets</small></summary>
+          <div class="console-looper-wallet-action-body">
             <form class="console-looper-wallet-send" data-action="send-looper-agent-wallet">
               <label><span>Asset</span><select name="asset"><option value="ETH">ETH</option>${(wallet.tokens ?? []).map((token) => `<option value="${escapeAttribute(token.contract)}">${escapeHtml(token.symbol)}</option>`).join('')}</select></label>
               <label><span>Recipient</span><input name="recipient" inputmode="text" autocomplete="off" required></label>
               <label><span>Amount</span><input name="amount" inputmode="decimal" autocomplete="off" required></label>
-              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact transfer</label>
-              <button type="submit" ${busy ? 'disabled' : ''}>Send</button>
+              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Confirm this exact transfer</span></label>
+              <button type="submit" ${busy ? 'disabled' : ''}>Review transfer</button>
             </form>
-          ` : ''}
-          ${wallet.policyRecoveryAllowed ? `
+          </div>
+        </details>` : ''}
+        <details class="console-looper-wallet-action" data-wallet-action="receive">
+          <summary><span aria-hidden="true">↓</span><strong>Receive</strong><small>Copy your address</small></summary>
+          <div class="console-looper-wallet-action-body">
+            <div class="console-looper-wallet-address">
+              <span>Receive on Base</span>
+              <code>${escapeHtml(account)}</code>
+              <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
+            </div>
+          </div>
+        </details>
+        ${canRecoverPolicy ? `<details class="console-looper-wallet-action" data-wallet-action="advanced">
+          <summary><span aria-hidden="true">•••</span><strong>Advanced</strong><small>Permission recovery</small></summary>
+          <div class="console-looper-wallet-action-body">
+            <div class="console-looper-wallet-advanced-intro">
+              <strong>Permission controls</strong>
+              <small>Owner recovery only. This never gives the agent autonomous spending access.</small>
+            </div>
             <form class="console-looper-wallet-send console-looper-wallet-policy" data-action="set-looper-policy-module">
               <label><span>Permission module</span><input name="module" inputmode="text" autocomplete="off" placeholder="Leave blank to clear"></label>
-              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required> Confirm this exact permission module recovery</label>
-              <button type="submit" ${busy ? 'disabled' : ''}>Update permission hook</button>
+              <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Confirm this exact permission module recovery</span></label>
+              <button type="submit" ${busy ? 'disabled' : ''}>Review permission update</button>
             </form>
-          ` : ''}
-          ${wallet.policyStatus === 'active-policy' ? '<small>Reviewed permission module configured. Console does not enable agent execution.</small>' : ''}
-          ${uncertainAttempts.map((kind) => `
-            <div class="console-looper-wallet-confirm">
-              <small>${wallet[kind]?.txHash ? `Outcome unknown. Verify ${escapeHtml(wallet[kind].txHash)} on BaseScan before continuing.` : 'Wallet submission outcome is unknown. Check your wallet activity before continuing.'}</small>
-              <button type="button" data-action="acknowledge-looper-wallet-outcome" data-attempt-kind="${escapeAttribute(kind)}">I checked — unlock controls</button>
+            ${wallet.policyStatus === 'active-policy' ? '<small>Reviewed permission module configured. Console does not enable agent execution.</small>' : ''}
+          </div>
+        </details>` : ''}
+      </div>` : ''}
+      ${trackedAssets.length ? `<section class="console-looper-wallet-assets" aria-labelledby="console-looper-wallet-assets-title">
+        <header><strong id="console-looper-wallet-assets-title">Assets</strong><small>${trackedAssets.length} on Base</small></header>
+        <div class="console-looper-wallet-balances" aria-label="Tracked wallet assets">
+          ${trackedAssets.map((asset) => `<article class="console-looper-wallet-asset-row">
+            <span class="console-looper-wallet-asset-icon" aria-hidden="true">${escapeHtml(asset.symbol.slice(0, 1))}</span>
+            <span class="console-looper-wallet-asset-name"><strong>${escapeHtml(asset.symbol)}</strong><small>${escapeHtml(asset.name)} · ${escapeHtml(asset.meta)}</small></span>
+            <span class="console-looper-wallet-asset-balance"><strong>${escapeHtml(asset.balance)} ${escapeHtml(asset.symbol)}</strong><small>Available</small></span>
+          </article>`).join('')}
+        </div>
+      </section>` : ''}
+      <aside class="console-looper-wallet-control-note">
+        <span aria-hidden="true">✓</span>
+        <div><strong>${escapeHtml(modeLabel)}</strong><small>${escapeHtml(ownerControlCopy)}</small></div>
+      </aside>
+      ${uncertainAttempts.map((kind) => `
+        <div class="console-looper-wallet-outcome" role="alert">
+          <strong>Transaction outcome unknown</strong>
+          <small>${wallet[kind]?.txHash ? `Verify ${escapeHtml(wallet[kind].txHash)} on BaseScan before continuing.` : 'Check your wallet activity before continuing.'}</small>
+          <button type="button" data-action="acknowledge-looper-wallet-outcome" data-attempt-kind="${escapeAttribute(kind)}">I checked — unlock controls</button>
+        </div>
+      `).join('')}
+      ${showDetails ? `<details class="console-looper-wallet-details">
+        <summary>
+          <span>Wallet details</span>
+          <small>Address, control, and technical status</small>
+        </summary>
+        <div class="console-looper-wallet-details-body">
+          ${account ? `
+            <div class="console-looper-wallet-address">
+              <span>Wallet address</span>
+              <code>${escapeHtml(account)}</code>
+              <a href="https://basescan.org/address/${escapeAttribute(account)}" target="_blank" rel="noopener noreferrer">View on BaseScan</a>
             </div>
-          `).join('')}
+          ` : ''}
+          <dl class="console-looper-wallet-truth" aria-label="Agent and wallet status">
+            <div data-wallet-truth="agent-runtime"><dt>Agent runtime</dt><dd><strong>Review-only</strong></dd></div>
+            <div data-wallet-truth="looper-wallet"><dt>Looper wallet</dt><dd><strong>${escapeHtml(looperWalletLabel)}</strong></dd></div>
+            <div data-wallet-truth="owner-signer"><dt>Owner signer</dt><dd><strong>${escapeHtml(ownerSignerLabel)}</strong></dd></div>
+          </dl>
         </div>
       </details>` : ''}
       ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}

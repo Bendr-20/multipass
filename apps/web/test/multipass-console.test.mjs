@@ -70,6 +70,7 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
         tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
         policyStatus: 'owner-only',
+        policyRecoveryAllowed: true,
         operatorProfile: 'eip7702',
         canTransact: true,
         activation: { state: 'idle' },
@@ -88,6 +89,19 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.match(panel.textContent, /2\.5 CRED/);
   assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
   assert.equal(panel.querySelector('.console-looper-wallet-primary-balance')?.textContent, '1.25 ETH');
+  const hero = panel.querySelector('.console-looper-wallet-hero');
+  assert.ok(hero);
+  assert.match(hero.textContent, /Available balance/i);
+  assert.equal(panel.querySelectorAll('.console-looper-wallet-asset-row').length, 2);
+  assert.match(panel.querySelector('.console-looper-wallet-asset-row')?.textContent ?? '', /ETH/i);
+  assert.equal(panel.querySelector('[data-wallet-action="send"]')?.open, false);
+  assert.equal(panel.querySelector('[data-wallet-action="receive"]')?.open, false);
+  const advanced = panel.querySelector('[data-wallet-action="advanced"]');
+  assert.ok(advanced);
+  assert.equal(advanced.open, false);
+  assert.ok(advanced.querySelector('[data-action="set-looper-policy-module"]'));
+  assert.equal(panel.querySelector('[data-wallet-action="send"] [data-action="send-looper-agent-wallet"]') !== null, true);
+  assert.equal(panel.querySelectorAll(':scope > .console-looper-wallet-send').length, 0);
   const details = panel.querySelector('details.console-looper-wallet-details');
   assert.ok(details);
   assert.match(details.querySelector('summary')?.textContent ?? '', /Wallet details/i);
@@ -99,7 +113,8 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(panel.querySelector('[data-wallet-truth="owner-signer"] strong')?.textContent, 'Delegated EOA');
   assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
   assert.equal(panel.querySelector('.console-looper-wallet-activation-callout'), null);
-  assert.ok(details.querySelector('[data-action="send-looper-agent-wallet"]'));
+  assert.equal(details.querySelector('[data-action="send-looper-agent-wallet"]'), null);
+  assert.ok(panel.querySelector('[data-wallet-action="send"] [data-action="send-looper-agent-wallet"]'));
   assert.match(root.querySelector('.console-wallet-workspace')?.textContent ?? '', /Bendr 2\.0/i);
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);

@@ -2214,11 +2214,10 @@ test('dedicated Console blocks agent switching while a Looper wallet submission 
   }).start();
   await flushAsyncEvents(20);
 
-  let selector = root.querySelector('[data-action="select-console-agent"]');
-  selector.value = '617';
-  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  root.querySelector('[data-action="activate-console-room"][data-token-id="617"]').click();
   await flushAsyncEvents(20);
   openConsoleWallet(root);
+  let selector;
   const form = root.querySelector('[data-action="send-looper-agent-wallet"]');
   form.querySelector('[name="recipient"]').value = '0x4444444444444444444444444444444444444444';
   form.querySelector('[name="amount"]').value = '1';
