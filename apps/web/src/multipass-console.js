@@ -228,7 +228,7 @@ export function renderMultipassConsole(snapshot = {}) {
               hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
               open: Boolean(snapshot.session?.needsAgentSelection),
               body: `
-                ${renderAgentSelector(snapshot.session)}
+                ${snapshot.session?.showAgentGallery ? '' : renderAgentSelector(snapshot.session)}
                 <div class="console-agent-list">
                   ${renderAgentRoster(snapshot)}
                 </div>
@@ -350,20 +350,11 @@ function renderConsoleAgentGalleryCard(agent = {}) {
   const accessibleName = `${name}, Looper #${tokenId}`;
   return `
     <article class="console-agent-gallery-card" role="listitem">
-      <div class="console-agent-choice-avatar">
-        ${agent.image
-          ? `<img src="${escapeAttribute(agent.image)}" alt="${escapeAttribute(accessibleName)}" loading="lazy">`
-          : `<span role="img" aria-label="${escapeAttribute(accessibleName)}">${escapeHtml(initialsForLabel(name || tokenId || 'A'))}</span>`}
-      </div>
-      <div class="console-agent-gallery-copy">
-        <span>Looper #${escapeHtml(tokenId)}</span>
-        <h3>${escapeHtml(name)}</h3>
-        <small>${escapeHtml(agent.role ?? 'Agent profile')}</small>
-        <div class="console-agent-gallery-meta">
-          <span>${escapeHtml(agent.cred ?? 'Cred pending')}</span>
-          <span class="console-agent-gallery-verification">${agent.verified ? 'Verified' : 'Verification pending'}</span>
-        </div>
-      </div>
+      ${agent.image
+        ? `<div class="console-agent-choice-avatar"><img src="${escapeAttribute(agent.image)}" alt="${escapeAttribute(accessibleName)}" loading="lazy"></div>`
+        : `<div class="console-agent-choice-avatar" role="img" aria-label="${escapeAttribute(accessibleName)}">${escapeHtml(initialsForLabel(name || tokenId || 'A'))}</div>`}
+      <h3>${escapeHtml(name)}</h3>
+      <p class="console-agent-gallery-summary">Looper #${escapeHtml(tokenId)} · ${escapeHtml(agent.role ?? 'Agent profile')} · ${escapeHtml(agent.cred ?? 'Cred pending')} · ${agent.verified ? 'Verified' : 'Verification pending'}</p>
       <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(tokenId)}" aria-label="${escapeAttribute(`Open ${accessibleName}`)}" ${agent.activationDisabled ? 'disabled' : ''}>Open agent</button>
     </article>
   `;

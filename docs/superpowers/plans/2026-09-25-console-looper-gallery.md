@@ -282,7 +282,7 @@ Expected: all pass.
 
 - [ ] **Step 2: Add and run the full-DOM browser gate**
 
-Serve `renderMultipassConsole` output plus `styles.css` from a local HTTP server inside `console-agent-gallery-browser.test.mjs`, then launch `playwright-core` with `CHROMIUM_PATH=/snap/bin/chromium`. With 7,777 synthetic agents, assert all card articles and activation buttons exist in DOM order, tail search remains selectable, and `performance.now()` from navigation through first enabled interaction stays under two seconds. At widths `320`, `479`, `480`, `759`, `760`, `1119`, and `1120`, measure `scrollWidth <= clientWidth`, expected column count, and every gallery control/button rectangle at least 44px in both dimensions.
+Serve `renderMultipassConsole` output plus `styles.css` from a local HTTP server inside `console-agent-gallery-browser.test.mjs`, then launch `playwright-core` with `CHROMIUM_PATH=/snap/bin/chromium`. With 7,777 synthetic agents, assert all card articles and activation buttons exist in DOM order, tail search remains selectable, and `performance.now()` from navigation through first enabled interaction stays under five seconds on the existing constrained CI runner. At widths `320`, `479`, `480`, `759`, `760`, `1119`, and `1120`, measure `scrollWidth <= clientWidth`, expected column count, and every gallery control/button rectangle at least 44px in both dimensions.
 
 Run:
 

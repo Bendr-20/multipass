@@ -173,7 +173,7 @@ test('authenticated chooser renders the complete semantic Looper gallery beyond 
   assert.match(gallery.textContent, /All 24 Loopers loaded/);
   assert.equal(gallery.querySelector('img')?.alt, 'Looper 1, Looper #1');
   assert.equal(gallery.querySelector('[data-action="activate-console-room"]')?.getAttribute('aria-label'), 'Open Looper 1, Looper #1');
-  assert.match(gallery.querySelector('.console-agent-gallery-verification')?.textContent ?? '', /Verified/i);
+  assert.match(gallery.querySelector('.console-agent-gallery-card')?.textContent ?? '', /Verified/i);
   const heading = gallery.querySelector('#console-agent-onboarding-title');
   assert.ok(heading);
   assert.equal(heading.hasAttribute('tabindex'), false);

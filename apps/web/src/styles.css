@@ -9857,8 +9857,6 @@ h1 {
   align-content: start;
   gap: 11px;
   padding: 12px;
-  content-visibility: auto;
-  contain-intrinsic-size: 286px;
 }
 
 .console-agent-gallery-card .console-agent-choice-avatar {
@@ -9874,21 +9872,7 @@ h1 {
   object-position: center bottom;
 }
 
-.console-agent-gallery-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.console-agent-gallery-copy > span {
-  color: rgba(244, 239, 231, 0.5);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.console-agent-gallery-copy h3 {
+.console-agent-gallery-card h3 {
   overflow: hidden;
   margin: 0;
   color: #f8f3ec;
@@ -9898,30 +9882,13 @@ h1 {
   white-space: nowrap;
 }
 
-.console-agent-gallery-copy > small {
-  overflow: hidden;
-  color: rgba(244, 239, 231, 0.62);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.console-agent-gallery-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-top: 5px;
-}
-
-.console-agent-gallery-meta span {
-  border: 1px solid rgba(244, 239, 231, 0.1);
-  border-radius: 999px;
-  padding: 4px 6px;
-  color: rgba(244, 239, 231, 0.72);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.console-agent-gallery-summary {
+  margin: 0;
+  color: rgba(244, 239, 231, 0.64);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .console-agent-onboarding-grid.console-agent-gallery-grid article > button,

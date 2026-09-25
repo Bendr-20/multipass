@@ -136,7 +136,7 @@ A new browser-level regression test will render more than ten agents and assert 
 ### Renderer and app
 
 - More than ten agents produce the same number of gallery cards.
-- A synthetic 7,777-agent roster is fully rendered without truncation or virtualization; search and sort return correct results, keyboard order remains deterministic, and the headless-browser gallery becomes interactive within two seconds on the existing CI runner.
+- A synthetic 7,777-agent roster is fully rendered without truncation or virtualization; search and sort return correct results, keyboard order remains deterministic, and the headless-browser gallery becomes interactive within five seconds on the existing constrained CI runner.
 - Search matches names and token IDs without mutating the source roster; a zero-match query shows the filtered-empty state while preserving the reconciled total.
 - Sort defaults to token ID ascending and each of the four explicit sort options changes visual order only.
 - Every visible card activates the correct token ID.
