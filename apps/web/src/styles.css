@@ -7948,6 +7948,16 @@ h1 {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .console-basic-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .console-basic-main {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
   .console-workspace-sidebar {
     border-radius: 18px;
   }
@@ -8167,10 +8177,14 @@ h1 {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .console-basic-main,
   .console-basic-sidebar {
     grid-column: 1;
-    grid-row: auto;
+    grid-row: 1;
+  }
+
+  .console-basic-main {
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .console-workspace-sidebar {
@@ -9107,6 +9121,184 @@ h1 {
     overscroll-behavior-y: auto;
   }
 }
+.console-workspace-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid rgba(244, 239, 231, 0.08);
+}
+
+.console-workspace-nav button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(244, 239, 231, 0.1);
+  border-radius: 10px;
+  background: rgba(248, 243, 236, 0.04);
+  color: rgba(244, 239, 231, 0.68);
+  padding: 10px 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.console-workspace-nav button[aria-current="page"] {
+  border-color: rgba(110, 236, 216, 0.34);
+  background: rgba(110, 236, 216, 0.1);
+  color: #f8f3ec;
+}
+
+.console-workspace-nav button:disabled { cursor: not-allowed; opacity: 0.45; }
+.console-workspace-nav span { font-size: 12px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; }
+.console-workspace-nav small { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.console-auth-gate,
+.console-agent-onboarding,
+.console-wallet-workspace {
+  min-width: 0;
+  min-height: 620px;
+  border: 1px solid rgba(244, 239, 231, 0.08);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(93, 128, 184, 0.14), transparent 25rem),
+    radial-gradient(circle at bottom left, rgba(87, 183, 169, 0.09), transparent 22rem),
+    linear-gradient(180deg, rgba(20, 24, 31, 0.99), rgba(12, 15, 21, 0.99));
+  color: #f8f3ec;
+  box-shadow: inset 0 0 0 1px rgba(244, 239, 231, 0.02);
+}
+
+.console-auth-gate {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 16px;
+  padding: clamp(28px, 6vw, 72px);
+}
+
+.console-gate-eyebrow {
+  color: rgba(110, 236, 216, 0.78);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.console-auth-gate h2,
+.console-agent-onboarding h2,
+.console-wallet-workspace h2 {
+  margin: 0;
+  color: #f8f3ec;
+  font-size: clamp(30px, 5vw, 54px);
+  letter-spacing: -0.04em;
+  line-height: 0.96;
+}
+
+.console-auth-gate > p,
+.console-agent-onboarding header p,
+.console-wallet-workspace-header p {
+  max-width: 620px;
+  margin: 0;
+  color: rgba(244, 239, 231, 0.68);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.console-auth-gate-wallet {
+  display: grid;
+  gap: 5px;
+  min-width: min(100%, 360px);
+  padding: 14px 16px;
+  border: 1px solid rgba(244, 239, 231, 0.1);
+  border-radius: 12px;
+  background: rgba(248, 243, 236, 0.045);
+}
+
+.console-auth-gate-wallet span,
+.console-agent-onboarding-grid article > div:nth-child(2) > span {
+  color: rgba(244, 239, 231, 0.52);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-auth-gate button,
+.console-agent-onboarding-grid button {
+  border: 1px solid rgba(110, 236, 216, 0.62);
+  border-radius: 9px;
+  background: #6eecd8;
+  color: #10131a;
+  padding: 11px 15px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.console-auth-gate button:disabled,
+.console-agent-onboarding-grid button:disabled { cursor: not-allowed; opacity: 0.52; }
+.console-auth-gate > small { color: rgba(244, 239, 231, 0.5); font-size: 11px; }
+
+.console-agent-onboarding {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  padding: clamp(24px, 5vw, 56px);
+}
+
+.console-agent-onboarding header { display: grid; gap: 12px; }
+.console-agent-onboarding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+.console-agent-onboarding-grid article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(244, 239, 231, 0.1);
+  border-radius: 14px;
+  background: rgba(248, 243, 236, 0.045);
+}
+
+.console-agent-onboarding-grid article > div:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.console-agent-onboarding-grid article strong,
+.console-agent-onboarding-grid article small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-agent-onboarding-grid article strong { color: #f8f3ec; font-size: 17px; }
+.console-agent-onboarding-grid article small { color: rgba(244, 239, 231, 0.6); font-size: 12px; }
+.console-agent-onboarding-grid article button { grid-column: 1 / -1; width: 100%; }
+
+.console-agent-choice-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid rgba(244, 239, 231, 0.12);
+  border-radius: 12px;
+  background: rgba(248, 243, 236, 0.08);
+  color: #f8f3ec;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.console-agent-choice-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.console-wallet-workspace {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  padding: clamp(20px, 4vw, 42px);
+}
+
+.console-wallet-workspace-header {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(244, 239, 231, 0.08);
+}
+
+.console-wallet-workspace-header > div { display: grid; gap: 10px; }
+
 .console-looper-wallet {
   display: grid;
   gap: 12px;
@@ -9190,6 +9382,53 @@ h1 {
   color: #f1b9c1;
 }
 
+.console-looper-wallet-activation-callout {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(201, 164, 55, 0.34);
+  border-radius: 10px;
+  background: rgba(201, 164, 55, 0.09);
+}
+
+.console-looper-wallet-activation-callout > div {
+  display: grid;
+  gap: 5px;
+}
+
+.console-looper-wallet-activation-callout strong {
+  color: #f8f3ec;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.console-looper-wallet-activation-callout p {
+  margin: 0;
+  color: rgba(244, 239, 231, 0.72);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.console-looper-wallet-activation-callout button {
+  width: 100%;
+  border: 1px solid #f8f3ec;
+  border-radius: 8px;
+  background: #f8f3ec;
+  color: #15181e;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.console-looper-wallet-activation-callout button:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+.console-looper-wallet-activation-callout button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .console-looper-wallet-overview {
   display: grid;
   gap: 4px;
@@ -9212,6 +9451,56 @@ h1 {
   font-size: 12px;
   line-height: 1.4;
 }
+
+.console-looper-wallet-truth {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.console-looper-wallet-truth div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(244, 239, 231, 0.09);
+  border-radius: 8px;
+  background: rgba(248, 243, 236, 0.035);
+}
+
+.console-looper-wallet-truth dt,
+.console-looper-wallet-truth dd { margin: 0; }
+.console-looper-wallet-truth dt { color: rgba(244, 239, 231, 0.5); font-size: 9px; font-weight: 900; letter-spacing: 0.07em; text-transform: uppercase; }
+.console-looper-wallet-truth dd { overflow: hidden; color: #f8f3ec; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.console-looper-wallet-workspace {
+  gap: 18px;
+  padding-top: 24px;
+}
+
+.console-looper-wallet-workspace .console-looper-wallet-head { padding-bottom: 4px; }
+.console-looper-wallet-workspace .console-looper-wallet-title > span { font-size: 11px; }
+.console-looper-wallet-workspace .console-looper-wallet-status { padding: 7px 10px; }
+
+.console-looper-wallet-workspace .console-looper-wallet-overview {
+  gap: 7px;
+  min-height: 152px;
+  align-content: end;
+  padding: 22px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(110, 236, 216, 0.11), transparent 14rem),
+    rgba(248, 243, 236, 0.045);
+}
+
+.console-looper-wallet-workspace .console-looper-wallet-primary-balance {
+  font-size: clamp(42px, 7vw, 72px);
+  letter-spacing: -0.05em;
+}
+
+.console-looper-wallet-workspace .console-looper-wallet-details { padding-top: 4px; }
+.console-looper-wallet-workspace .console-looper-wallet-details summary { padding: 16px 0; }
 
 .console-looper-wallet-details {
   border: 0;
@@ -9320,6 +9609,18 @@ h1 {
 }
 
 @media (max-width: 640px) {
+  .console-auth-gate,
+  .console-agent-onboarding,
+  .console-wallet-workspace {
+    min-height: 0;
+    border-radius: 14px;
+  }
+
+  .console-agent-onboarding-grid,
+  .console-looper-wallet-truth {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .console-looper-wallet-head,
   .console-looper-wallet-address {
     align-items: flex-start;
@@ -9481,4 +9782,216 @@ h1 {
     margin-left: 0;
     padding: 12px;
   }
+}
+
+/* Console owned-Looper gallery. */
+.console-agent-gallery {
+  gap: 18px;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.console-agent-gallery-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.34fr);
+  gap: 10px;
+}
+
+.console-agent-gallery-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: rgba(244, 239, 231, 0.62);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-agent-gallery-toolbar input,
+.console-agent-gallery-toolbar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgba(244, 239, 231, 0.12);
+  border-radius: 10px;
+  background: rgba(248, 243, 236, 0.055);
+  color: #f8f3ec;
+  padding: 0 13px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.console-agent-gallery-toolbar select option { color: #171b20; }
+.console-agent-gallery-toolbar input::placeholder { color: rgba(244, 239, 231, 0.42); }
+.console-agent-gallery-toolbar input:focus-visible,
+.console-agent-gallery-toolbar select:focus-visible,
+.console-agent-gallery button:focus-visible,
+.console-agent-gallery a:focus-visible {
+  outline: 3px solid rgba(110, 236, 216, 0.42);
+  outline-offset: 3px;
+}
+
+.console-agent-gallery-status {
+  min-height: 18px;
+  margin: 0;
+  color: #6eecd8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.console-agent-gallery-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-height: min(70vh, 720px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 2px 8px 2px 2px;
+  overscroll-behavior-y: contain;
+  scrollbar-color: rgba(110, 236, 216, 0.38) rgba(248, 243, 236, 0.04);
+}
+
+.console-agent-onboarding-grid.console-agent-gallery-grid article {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 11px;
+  padding: 12px;
+  content-visibility: auto;
+  contain-intrinsic-size: 286px;
+}
+
+.console-agent-gallery-card .console-agent-choice-avatar {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(248, 243, 236, 0.1), rgba(248, 243, 236, 0.025));
+}
+
+.console-agent-gallery-card .console-agent-choice-avatar img {
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.console-agent-gallery-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.console-agent-gallery-copy > span {
+  color: rgba(244, 239, 231, 0.5);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.console-agent-gallery-copy h3 {
+  overflow: hidden;
+  margin: 0;
+  color: #f8f3ec;
+  font-size: 16px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-agent-gallery-copy > small {
+  overflow: hidden;
+  color: rgba(244, 239, 231, 0.62);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-agent-gallery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 5px;
+}
+
+.console-agent-gallery-meta span {
+  border: 1px solid rgba(244, 239, 231, 0.1);
+  border-radius: 999px;
+  padding: 4px 6px;
+  color: rgba(244, 239, 231, 0.72);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.console-agent-onboarding-grid.console-agent-gallery-grid article > button,
+.console-agent-gallery-state button,
+.console-agent-gallery-footer button,
+.console-agent-gallery-footer a {
+  min-height: 44px;
+}
+
+.console-agent-onboarding-grid.console-agent-gallery-grid article > button {
+  align-self: end;
+  margin-top: auto;
+}
+
+.console-agent-gallery-state {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-height: 150px;
+  align-content: center;
+  padding: 22px;
+  border: 1px dashed rgba(244, 239, 231, 0.16);
+  border-radius: 14px;
+  background: rgba(248, 243, 236, 0.035);
+}
+
+.console-agent-gallery-state strong { color: #f8f3ec; font-size: 16px; }
+.console-agent-gallery-state p { margin: 0; color: rgba(244, 239, 231, 0.62); font-size: 12px; line-height: 1.5; }
+.console-agent-gallery-state button,
+.console-agent-gallery-footer button,
+.console-agent-gallery-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(110, 236, 216, 0.45);
+  border-radius: 9px;
+  background: rgba(110, 236, 216, 0.12);
+  color: #dffdf8;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.console-agent-gallery-state button:disabled,
+.console-agent-gallery-footer button:disabled { cursor: not-allowed; opacity: 0.5; }
+.console-agent-gallery-error { border-color: rgba(235, 127, 127, 0.28); }
+
+.console-agent-gallery-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(244, 239, 231, 0.08);
+}
+
+@media (max-width: 1119px) {
+  .console-agent-gallery-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 759px) {
+  .console-agent-gallery-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .console-agent-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-agent-gallery-footer { align-items: stretch; flex-direction: column; }
+  .console-agent-gallery-footer button,
+  .console-agent-gallery-footer a { width: 100%; }
+}
+
+@media (max-width: 479px) {
+  .console-agent-gallery-grid { grid-template-columns: minmax(0, 1fr); }
 }

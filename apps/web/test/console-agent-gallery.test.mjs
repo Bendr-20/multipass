@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -55,4 +56,13 @@ test('Looper gallery keeps all 7,777 agents in deterministic document order', ()
   assert.equal(descending.visible[0].tokenId, '7777');
   assert.equal(descending.visible.at(-1).tokenId, '1');
   assert.deepEqual(ids(tailSearch), ['7777']);
+});
+
+test('Looper gallery stylesheet locks scrolling, touch targets, and approved breakpoints', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.console-agent-gallery-grid\s*\{[\s\S]*max-height:\s*min\(70vh, 720px\);[\s\S]*overflow-y:\s*auto;/);
+  assert.match(css, /min-height:\s*44px;/);
+  assert.match(css, /@media \(max-width: 1119px\)/);
+  assert.match(css, /@media \(max-width: 759px\)/);
+  assert.match(css, /@media \(max-width: 479px\)/);
 });
