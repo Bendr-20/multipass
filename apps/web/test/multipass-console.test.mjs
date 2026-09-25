@@ -248,6 +248,7 @@ test('agent selection is disabled while any Looper wallet operation is nontermin
       },
     });
     assert.equal(snapshot.session.selectionEnabled, false);
+    assert.equal(snapshot.gallery.refreshDisabled, true);
     assert.equal(snapshot.agents.every((agent) => agent.activationDisabled), true);
     const root = render(renderMultipassConsole(snapshot));
     assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);

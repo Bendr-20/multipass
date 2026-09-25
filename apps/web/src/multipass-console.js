@@ -132,6 +132,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       ...galleryModel,
       status: agentRoster.status ?? 'idle',
       error: agentRoster.error ?? null,
+      activationError: state.consoleAgentGallery?.activationError ?? null,
       refreshDisabled: walletWorkPending,
     },
     identityCard: {
@@ -307,6 +308,7 @@ function renderConsoleAgentOnboarding(snapshot = {}) {
       <p class="console-agent-gallery-status" aria-live="polite">${escapeHtml(loading ? 'Loading all owned Loopers' : completion)}</p>
       ${loading ? renderConsoleAgentGalleryLoading() : ''}
       ${failed ? renderConsoleAgentGalleryError(gallery) : ''}
+      ${loaded && gallery.activationError ? renderConsoleAgentGalleryActivationError(gallery.activationError) : ''}
       ${loaded && gallery.emptyKind === 'owned' ? renderConsoleAgentGalleryOwnedEmpty() : ''}
       ${loaded && gallery.emptyKind === 'filtered' ? renderConsoleAgentGalleryFilteredEmpty(gallery) : ''}
       ${loaded && agents.length ? `<div class="console-agent-onboarding-grid console-agent-gallery-grid" role="list">${agents.map(renderConsoleAgentGalleryCard).join('')}</div>` : ''}
@@ -373,6 +375,10 @@ function renderConsoleAgentGalleryLoading() {
 
 function renderConsoleAgentGalleryError(gallery = {}) {
   return `<div class="console-agent-gallery-state console-agent-gallery-error" role="alert"><strong>Owned Loopers could not be loaded</strong><p>${escapeHtml(gallery.error ?? 'The ownership scan failed.')}</p><button type="button" data-action="refresh-console-owned-agents" ${gallery.refreshDisabled ? 'disabled' : ''}>Retry ownership scan</button></div>`;
+}
+
+function renderConsoleAgentGalleryActivationError(error) {
+  return `<div class="console-agent-gallery-state console-agent-gallery-error" role="alert"><strong>Agent could not be opened</strong><p>${escapeHtml(error)}</p></div>`;
 }
 
 function renderConsoleAgentGalleryOwnedEmpty() {
