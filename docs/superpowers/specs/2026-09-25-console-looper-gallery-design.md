@@ -1,6 +1,6 @@
 # Multipass Console Owned-Looper Gallery Design
 
-**Date:** 2026-09-25  
+**Date:** 2026-09-25
 **Status:** Approved direction, implementation pending
 
 ## Goal
