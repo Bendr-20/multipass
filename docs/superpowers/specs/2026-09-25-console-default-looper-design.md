@@ -59,18 +59,20 @@ The pins are:
 - Loopers collection: `0x1649CD37f4748807b4882FC48765bA0B2aFfa94a`;
 - from block: `51658273`, the released implementation deployment block.
 
-Request anonymous JSON with `credentials: 'omit'`, a four-second total `AbortController` deadline, and the current session's cancellation signal. Read at most 1 MiB per page and at most 16 pages. A successful page has exactly top-level `items` and `next_page_params`; `items` is an array of at most 50 rows, and `next_page_params` is either `null` or an object containing canonical scalar cursor values. Rows must be strictly newest-to-oldest by `(block_number, index)`, and each next cursor must move strictly older than the preceding page. Duplicate or nondecreasing cursors make the lookup unavailable.
+Request anonymous JSON with `credentials: 'omit'`, a four-second total `AbortController` deadline, and the current session's cancellation signal. Read at most 1 MiB per page and at most 16 pages. A successful page has exactly top-level `items` and `next_page_params`; `items` is an array of at most 50 rows. `next_page_params` is either `null` or an object whose `block_number` and `index` are nonnegative safe JSON integers, whose `items_count` is an integer from 1 through 50, and whose `topic` is the exact lowercase event topic. Reject extra cursor keys, strings in numeric fields, unsafe integers, and missing values. Rows must be strictly newest-to-oldest by `(block_number, index)`, and each next cursor must move strictly older than the preceding page. Duplicate or nondecreasing cursors make the lookup unavailable.
 
 Process only rows at or after deployment block `51658273`. Stop successfully when the page reaches a row below that block, or when `next_page_params` is `null`. If 16 pages do not reach either completion condition, any response is oversized/malformed, or the response is truncated, return unavailable rather than a partial set. This is complete-or-fallback: the request count and bytes are fixed even if unrelated registry activity grows indefinitely.
 
-Every processed log must have exactly four topics matching the pinned event, implementation, and collection. Its data must be exactly three ABI words: account address, salt, and chain ID. Accept a row only when:
+First validate every processed row as a generic registry event: exact registry address, canonical safe `block_number` and `index`, four 32-byte hex topics, 96-byte hex data, 32-byte transaction hash, and newest-to-oldest ordering. Because the V2 endpoint filters only registry plus event topic, a well-formed row whose topic 1 implementation or topic 2 collection differs from the released pins is unrelated and must be skipped, not treated as an error.
+
+For rows whose implementation and collection topics match the released pins, require:
 
 - topic 3 is a canonical positive token ID from 1 through 7,777;
 - data salt equals the released salt;
 - data chain ID equals `8453`;
 - data account equals the deterministic released ERC-6551 address derived from the pinned registry, implementation, salt, chain, collection, and token ID.
 
-Any malformed row makes the whole lookup unavailable. Deduplicate exact repeated rows; reject conflicting duplicates. Intersect the complete validated set with the freshly authenticated owned roster before ranking.
+Any malformed generic row or matching-but-invalid released row makes the whole lookup unavailable. Define event identity as lowercase `(transaction_hash, index)`. Deduplicate only when repeated identities have byte-for-byte identical normalized address, block, topics, and data; conflicting duplicates make the lookup unavailable. Intersect the complete validated released set with the freshly authenticated owned roster before ranking.
 
 This lookup is an optional UX hint, not authorization evidence. Timeout, rate limiting, cancellation, malformed data, or network failure falls back to the first owned Looper. Existing owner/controller checks and the Looper wallet controller remain authoritative after selection.
 
@@ -137,9 +139,9 @@ Track the main and sidebar `<details>` state in separate in-memory booleans. A n
 - Await the owned roster first. Do not render an expanded loaded roster with no selection while automatic resolution is pending; keep the compact main summary in `Loading` state to prevent a gallery flash.
 - If a remembered token is present in the fresh roster, abort or ignore activated-wallet discovery and resolve immediately. Otherwise await activated-wallet discovery until its four-second total deadline; use the first activated owned token on available completion or the first owned token on unavailable completion.
 - Immediately before committing the roster, verify that all three roster-context values still equal current state. A mismatch discards the entire result. Put the loaded roster into state without an intermediate render, then call the existing `selectAndActivateConsoleAgent` path for the resolved token. That path allocates the activation request ID, selects the token, closes both drawers, and performs the first render, so there is no loaded-gallery flash.
-- Do not invent a second selection epoch. Existing session generation, roster request ID, activation request ID, selected token, and authenticated wallet are the sole stale-result guards.
+- Do not invent a second selection epoch. Existing session generation, roster request ID, activation request ID, `consoleThreadGeneration`, selected token, and authenticated wallet are the sole stale-result guards.
 - The loaded roster is not interactive before the automatic decision commits, so there is no manual-selection race during discovery. After commit, a manual selection allocates a new activation request ID; existing `isCurrentConsoleAsyncContext` checks discard late activation or wallet results.
-- After `/agent/activate` succeeds, write last-used preference only after `isCurrentConsoleAsyncContext` passes and the response token and authenticated wallet still match the activation context. A stale response cannot write preference state.
+- After `/agent/activate` succeeds, write last-used preference only after the existing `isCurrentConsoleAsyncContext` check passes, including `consoleThreadGeneration`, and the response token and authenticated wallet still match the activation context. A stale response cannot write preference state.
 - A manual roster refresh preserves the current selection if it remains owned. It runs default resolution only when the current selection is absent from the fresh roster.
 - Wallet disconnect, account change, logout, or authorization failure aborts the event fetch, allocates a newer roster request ID through the existing reset/refresh path, and clears in-memory selection. The per-wallet last-used preference may remain locally because it is revalidated against ownership on the next sign-in.
 
@@ -170,7 +172,7 @@ Add focused tests proving:
 - preference is written only after successful runtime activation whose wallet/session/selection/request context is still current;
 - account switching cannot reuse another wallet's selection;
 - exact storage schema/version validation and preservation of other-wallet entries;
-- event rows with the wrong salt, chain ID, account, topics, token range, page shape, or pagination completeness make discovery unavailable;
+- well-formed events for other implementations or collections are skipped, while malformed generic rows and matching released rows with the wrong salt, chain ID, account, token range, duplicate identity, page shape, cursor scalar, or pagination completeness make discovery unavailable;
 - activation discovery obeys its four-second deadline, 16-request maximum, response-size bound, descending cursor checks, deployment-block completion rule, and cancellation signal;
 - the loaded roster commits without an intermediate expanded-gallery render;
 - the main roster drawer remains present above the active room/wallet while closed;
