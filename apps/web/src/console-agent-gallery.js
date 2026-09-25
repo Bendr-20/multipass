@@ -1,3 +1,5 @@
+import { compareLooperTokenIds } from './console-looper-selection.js';
+
 export const CONSOLE_AGENT_GALLERY_SORTS = Object.freeze([
   'token-asc',
   'token-desc',
@@ -36,24 +38,15 @@ function createGalleryComparator(sort) {
   if (sort === 'name-asc' || sort === 'name-desc') {
     return (left, right) => {
       const byName = String(left?.name ?? '').localeCompare(String(right?.name ?? ''), undefined, { sensitivity: 'base', numeric: true });
-      return byName !== 0 ? byName * nameDirection : compareTokenIds(left, right);
+      return byName !== 0 ? byName * nameDirection : compareGalleryTokenIds(left, right);
     };
   }
-  return (left, right) => compareTokenIds(left, right) * tokenDirection;
+  return (left, right) => compareGalleryTokenIds(left, right) * tokenDirection;
 }
 
-function compareTokenIds(left, right) {
-  const leftId = safeTokenId(left?.tokenId);
-  const rightId = safeTokenId(right?.tokenId);
-  if (leftId < rightId) return -1;
-  if (leftId > rightId) return 1;
-  return String(left?.name ?? '').localeCompare(String(right?.name ?? ''), undefined, { sensitivity: 'base', numeric: true });
-}
-
-function safeTokenId(value) {
-  try {
-    return BigInt(String(value ?? '').trim());
-  } catch {
-    return 0n;
-  }
+function compareGalleryTokenIds(left, right) {
+  const byTokenId = compareLooperTokenIds(left?.tokenId, right?.tokenId);
+  return byTokenId !== 0
+    ? byTokenId
+    : String(left?.name ?? '').localeCompare(String(right?.name ?? ''), undefined, { sensitivity: 'base', numeric: true });
 }

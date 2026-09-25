@@ -58,6 +58,12 @@ test('Looper gallery keeps all 7,777 agents in deterministic document order', ()
   assert.deepEqual(ids(tailSearch), ['7777']);
 });
 
+test('Looper gallery reuses the canonical Console token comparator', () => {
+  const source = readFileSync(new URL('../src/console-agent-gallery.js', import.meta.url), 'utf8');
+  assert.match(source, /import\s+\{\s*compareLooperTokenIds\s*\}\s+from\s+'\.\/console-looper-selection\.js'/);
+  assert.doesNotMatch(source, /function\s+(?:compareTokenIds|safeTokenId)\s*\(/);
+});
+
 test('Looper gallery stylesheet locks scrolling, touch targets, and approved breakpoints', () => {
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.console-agent-gallery-grid\s*\{[\s\S]*max-height:\s*min\(70vh, 720px\);[\s\S]*overflow-y:\s*auto;/);
