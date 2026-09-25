@@ -51,13 +51,15 @@ function render(html) {
   return new JSDOM(`<!doctype html><main>${html}</main>`).window.document.querySelector('main');
 }
 
-test('selected Looper renders an active compact operator wallet under its name', () => {
+test('selected Looper renders its active wallet as a dedicated Console workspace', () => {
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
     state: {
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
       consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'wallet',
       looperAgentWallet: {
         mode: 'active',
         tokenId: '1',
@@ -77,8 +79,10 @@ test('selected Looper renders an active compact operator wallet under its name',
     },
   });
   const root = render(renderMultipassConsole(snapshot));
-  const panel = root.querySelector('.console-looper-wallet');
+  const panel = root.querySelector('.console-wallet-workspace .console-looper-wallet');
   assert.ok(panel);
+  assert.equal(root.querySelector('.console-identity-card .console-looper-wallet'), null);
+  assert.equal(root.querySelector('[data-console-view="wallet"]')?.getAttribute('aria-current'), 'page');
   assert.match(panel.textContent, /Looper wallet/i);
   assert.match(panel.textContent, /1\.25 ETH/);
   assert.match(panel.textContent, /2\.5 CRED/);
@@ -94,11 +98,134 @@ test('selected Looper renders an active compact operator wallet under its name',
   assert.equal(panel.querySelector('[data-wallet-truth="looper-wallet"] strong')?.textContent, 'Active');
   assert.equal(panel.querySelector('[data-wallet-truth="owner-signer"] strong')?.textContent, 'Delegated EOA');
   assert.ok(panel.querySelector('[data-action="refresh-looper-agent-wallet"]'));
+  assert.equal(panel.querySelector('.console-looper-wallet-activation-callout'), null);
   assert.ok(details.querySelector('[data-action="send-looper-agent-wallet"]'));
-  const identityBody = root.querySelector('.console-identity-body');
-  assert.equal(identityBody.nextElementSibling, panel);
+  assert.match(root.querySelector('.console-wallet-workspace')?.textContent ?? '', /Bendr 2\.0/i);
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
+});
+
+test('connected but unauthenticated wallet gets an explicit Console sign-in gate', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: null,
+      consoleWalletStatus: 'cancelled',
+      consoleOwnedAgents: { status: 'idle', agents: [] },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const gate = root.querySelector('.console-auth-gate');
+  assert.ok(gate);
+  assert.match(gate.textContent, /Sign in to Console/i);
+  assert.match(gate.textContent, /wallet is connected/i);
+  assert.ok(gate.querySelector('[data-action="connect-console-wallet"]'));
+  assert.equal(snapshot.session.wallet.connected, true);
+  assert.equal(snapshot.session.wallet.authenticated, false);
+  assert.equal(root.querySelector('.console-agent-onboarding'), null);
+});
+
+test('authenticated first visit opens an obvious Looper chooser in the main workspace', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: null,
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const chooser = root.querySelector('.console-agent-onboarding');
+  assert.ok(chooser);
+  assert.match(chooser.textContent, /Choose your Looper/i);
+  assert.equal(chooser.querySelectorAll('[data-action="activate-console-room"]').length, 2);
+  assert.equal(root.querySelector('#console-agents details')?.open, true);
+  assert.equal(snapshot.session.needsAgentSelection, true);
+});
+
+test('authenticated chooser renders the complete semantic Looper gallery beyond ten agents', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const agents = Array.from({ length: 24 }, (_, index) => ({
+    tokenId: String(index + 1),
+    name: `Looper ${index + 1}`,
+    role: index % 2 ? 'Scout' : 'Operator',
+    credLabel: `Cred ${60 + index}`,
+    verified: true,
+    image: `https://helixa.xyz/loopers/images/${index + 1}.png`,
+  }));
+  const snapshot = createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: null,
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const gallery = root.querySelector('.console-agent-gallery');
+  assert.ok(gallery);
+  assert.equal(gallery.querySelectorAll('article.console-agent-gallery-card').length, 24);
+  assert.equal(gallery.querySelectorAll('[data-action="activate-console-room"]').length, 24);
+  assert.match(gallery.textContent, /All 24 Loopers loaded/);
+  assert.equal(gallery.querySelector('img')?.alt, 'Looper 1, Looper #1');
+  assert.equal(gallery.querySelector('[data-action="activate-console-room"]')?.getAttribute('aria-label'), 'Open Looper 1, Looper #1');
+  assert.match(gallery.querySelector('.console-agent-gallery-verification')?.textContent ?? '', /Verified/i);
+  const heading = gallery.querySelector('#console-agent-onboarding-title');
+  assert.ok(heading);
+  assert.equal(heading.hasAttribute('tabindex'), false);
+  const marketplace = gallery.querySelector('a[href="https://opensea.io/collection/loopers-639312714"]');
+  assert.ok(marketplace);
+  assert.equal(marketplace.target, '_blank');
+  assert.equal(marketplace.rel, 'noopener noreferrer');
+});
+
+test('Looper gallery keeps loading, owned-empty, filtered-empty, and error states truthful', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const stateFor = (consoleOwnedAgents, extra = {}) => ({
+    walletSnapshot: { connected: true, address },
+    consoleAuthenticatedWallet: address,
+    consoleOwnedAgents,
+    consoleSelectedAgentId: null,
+    ...extra,
+  });
+
+  let root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [],
+    state: stateFor({ status: 'loading', agents: [] }),
+  })));
+  assert.ok(root.querySelector('.console-agent-gallery'));
+  assert.match(root.textContent, /Loading all owned Loopers/i);
+  assert.doesNotMatch(root.textContent, /All \d+ Loopers loaded/);
+  assert.equal(root.querySelector('.console-agent-gallery')?.getAttribute('aria-busy'), 'true');
+
+  root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [],
+    state: stateFor({ status: 'loaded', agents: [] }),
+  })));
+  assert.match(root.textContent, /No owned Loopers found/i);
+  assert.doesNotMatch(root.textContent, /All \d+ Loopers loaded/);
+
+  const agents = sampleAgents();
+  root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents,
+    state: stateFor({ status: 'loaded', agents }, { consoleAgentGallery: { query: 'missing', sort: 'token-asc' } }),
+  })));
+  assert.match(root.textContent, /All 2 Loopers loaded/);
+  assert.match(root.textContent, /No Loopers match “missing”/i);
+  assert.ok(root.querySelector('[data-action="clear-console-agent-gallery-search"]'));
+
+  root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [],
+    state: stateFor({ status: 'error', error: 'Ownership scan failed.', agents: [] }),
+  })));
+  assert.ok(root.querySelector('[role="alert"]'));
+  assert.match(root.textContent, /Ownership scan failed/i);
+  assert.ok(root.querySelector('[data-action="refresh-console-owned-agents"]'));
+  assert.doesNotMatch(root.textContent, /All \d+ Loopers loaded/);
 });
 
 test('agent selection is disabled while any Looper wallet operation is nonterminal', () => {
@@ -109,6 +236,7 @@ test('agent selection is disabled while any Looper wallet operation is nontermin
         walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
         consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
         consoleSelectedAgentId: '1',
+        consoleWorkspaceView: 'wallet',
         looperAgentWallet: {
           mode: 'active', tokenId: '1', owner: '0x1234567890aBcdef1234567890aBcdef12345678',
           account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [],
@@ -134,14 +262,24 @@ test('inactive and internal legacy-only Looper states fail closed without exposi
     walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
     consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
     consoleSelectedAgentId: '1',
+    consoleWorkspaceView: 'wallet',
   };
   let snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
     state: { ...baseState, looperAgentWallet: { mode: 'inactive', account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [] } },
   });
   let root = render(renderMultipassConsole(snapshot));
-  assert.ok(root.querySelector('[data-action="activate-looper-agent-wallet"]'));
-  assert.match(root.querySelector('.console-looper-wallet')?.textContent ?? '', /inactive/i);
+  const inactivePanel = root.querySelector('.console-looper-wallet');
+  const activationCallout = inactivePanel?.querySelector('.console-looper-wallet-activation-callout');
+  const activationForm = activationCallout?.querySelector('[data-action="activate-looper-agent-wallet"]');
+  assert.ok(activationCallout, 'inactive wallet must expose a prominent activation callout');
+  assert.ok(activationForm, 'activation form must be visible outside technical wallet details');
+  assert.match(activationCallout.textContent, /Activate your Looper wallet/i);
+  assert.match(activationCallout.textContent, /owner-controlled wallet/i);
+  assert.equal(activationForm.querySelector('input[name="confirmed"]')?.required, true);
+  assert.equal(activationForm.querySelector('button[type="submit"]')?.textContent, 'Activate wallet');
+  assert.equal(inactivePanel?.querySelector('.console-looper-wallet-details [data-action="activate-looper-agent-wallet"]'), null);
+  assert.match(inactivePanel?.textContent ?? '', /setup required/i);
 
   snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
@@ -155,6 +293,7 @@ test('inactive and internal legacy-only Looper states fail closed without exposi
   assert.equal(panel?.querySelector('.console-looper-wallet-overview'), null);
   assert.equal(panel?.querySelector('.console-looper-wallet-balances'), null);
   assert.equal(root.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
+  assert.equal(panel?.querySelector('.console-looper-wallet-activation-callout'), null);
   assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
 });
 
@@ -163,6 +302,7 @@ test('Looper permission status and owner-only recovery stay concise and use exis
     walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
     consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
     consoleSelectedAgentId: '1',
+    consoleWorkspaceView: 'wallet',
   };
   const cases = [
     ['owner-only', 'Owner controlled'],
@@ -230,6 +370,7 @@ test('RPC disagreement renders read-only without stale actions, recovery preview
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
       consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'wallet',
       looperAgentWallet: {
         mode: 'read_only', reason: 'rpc_disagreement', tokenId: '1',
         owner: '0x1234567890aBcdef1234567890aBcdef12345678',
@@ -326,7 +467,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelector('.console-agent-portrait img'), null);
   assert.match(root.querySelector('.console-agent-portrait')?.textContent ?? '', /Connect wallet/i);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Pick your agent/i);
-  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[1]?.classList.contains('console-identity-card'), true);
+  assert.equal(root.querySelector('.console-workspace-sidebar')?.children[2]?.classList.contains('console-identity-card'), true);
   assert.match(root.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
   assert.match(text, /Current room/);

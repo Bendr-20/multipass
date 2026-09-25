@@ -1,4 +1,5 @@
 import { renderConsoleAgentThread } from './console-agent-thread.js';
+import { createConsoleAgentGalleryModel } from './console-agent-gallery.js';
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
@@ -9,6 +10,9 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const wallet = state.walletSnapshot ?? {};
   const agentRoster = state.consoleOwnedAgents ?? { status: 'idle', error: null, agents: [] };
   const walletConnected = Boolean(wallet.connected && wallet.address);
+  const walletAuthenticated = walletConnected && (Object.prototype.hasOwnProperty.call(state, 'consoleAuthenticatedWallet')
+    ? normalizeWalletAddress(state.consoleAuthenticatedWallet) === normalizeWalletAddress(wallet.address)
+    : true);
   const aliasMutationPending = state.consoleAgentNameMutation?.status === 'pending';
   const walletWorkPending = hasNonterminalLooperWalletWork(state.looperAgentWallet);
   const activeAgents = Array.isArray(agents) ? agents.filter(Boolean).map(normalizeConsoleAgent) : [];
@@ -51,19 +55,42 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const activeCred = activeAgent?.credLabel ?? 'Cred pending';
   const verifiedLabel = activeAgent?.verified ? 'Verified AgentDNA' : (activeAgent?.tokenId ? 'Verification pending' : 'Awaiting selection');
   const activeAgentLabel = activeAgent?.name
-    ?? (walletConnected
+    ?? (walletAuthenticated
       ? agentRoster.status === 'loading'
         ? 'Loading owned agents'
         : activeAgentCount > 0
           ? 'Pick your agent'
           : 'No owned agents found'
-      : 'Connect wallet');
-  const emptyAgentSummary = walletConnected && activeAgentCount > 0
+      : walletConnected ? 'Sign in to Console' : 'Connect wallet');
+  const emptyAgentSummary = walletAuthenticated && activeAgentCount > 0
     ? 'Pick an owned Looper to load its identity and open the room.'
-    : 'Connect a wallet, then pick your agent from owned Loopers to load its identity and room.';
+    : walletConnected
+      ? 'Sign in with the connected wallet to load its owned Loopers.'
+      : 'Connect a wallet, then pick your agent from owned Loopers to load its identity and room.';
+  const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
+  const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
+  const workspaceView = state.consoleWorkspaceView === 'wallet' && activeAgent?.tokenId ? 'wallet' : 'chat';
+  const galleryModel = createConsoleAgentGalleryModel({
+    agents: activeAgents,
+    query: state.consoleAgentGallery?.query,
+    sort: state.consoleAgentGallery?.sort,
+  });
+  const agentCards = activeAgents.map((agent) => ({
+    tokenId: agent.tokenId ?? '',
+    name: agent.name ?? 'Onchain agent',
+    role: agent.role ?? agent.framework ?? 'Agent profile',
+    cred: agent.credLabel,
+    state: agent.state ?? (agent.verified ? 'Verified profile' : 'Review needed'),
+    verified: Boolean(agent.verified),
+    href: agent.href ?? null,
+    selected: String(agent.tokenId ?? '') !== '' && String(agent.tokenId) === String(activeAgent?.tokenId ?? ''),
+    inRoom: roomParticipants.some((participant) => String(participant.tokenId ?? '') === String(agent.tokenId ?? '')),
+    activationDisabled: aliasMutationPending || walletWorkPending,
+    image: agent.image ?? null,
+  }));
 
   const status = [
-    { label: 'Wallet', value: walletConnected ? connectedWallet : 'Required' },
+    { label: 'Wallet', value: walletAuthenticated ? connectedWallet : walletConnected ? 'Sign in required' : 'Required' },
     { label: 'Agent', value: activeAgent?.tokenId ? activeAgentLabel : 'Select first' },
     { label: 'Chat', value: walletConnected && activeAgent?.tokenId ? formatTransportLabel(agentThread.transport) : 'Standby' },
     { label: 'Memory', value: memoryEntries.length ? `${memoryEntries.length} loaded` : 'Standby' },
@@ -76,6 +103,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
     session: {
       wallet: {
         connected: walletConnected,
+        authenticated: walletAuthenticated,
         unavailable: wallet.configured === false,
         ready: wallet.ready !== false,
         label: walletConnected ? ownerDisplayName : connectedWallet,
@@ -87,15 +115,24 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       activeAgentId: activeAgent?.tokenId ?? null,
       activeAgentLabel,
       activeAgentCount,
+      needsAgentSelection,
+      showAgentGallery,
       roomParticipantCount: roomParticipants.length,
       options: activeAgents.map((agent) => ({
         value: agent.tokenId ?? '',
         label: buildAgentOptionLabel(agent),
       })),
-      selectionEnabled: walletConnected && agentRoster.status === 'loaded' && activeAgentCount > 0 && !aliasMutationPending && !walletWorkPending,
-      selectionHint: createSelectionHint({ walletConnected, agentRosterStatus: agentRoster.status, activeAgentCount, roomParticipantCount: roomParticipants.length }),
-      nextAction: createNextAction({ walletConnected, activeAgentCount, proposalCount, hasMessages: (agentThread.messages?.length ?? 0) > 0, roomParticipantCount: roomParticipants.length }),
+      selectionEnabled: walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !aliasMutationPending && !walletWorkPending,
+      selectionHint: createSelectionHint({ walletConnected: walletAuthenticated, agentRosterStatus: agentRoster.status, activeAgentCount, roomParticipantCount: roomParticipants.length }),
+      nextAction: createNextAction({ walletConnected: walletAuthenticated, activeAgentCount, proposalCount, hasMessages: (agentThread.messages?.length ?? 0) > 0, roomParticipantCount: roomParticipants.length }),
       status,
+    },
+    workspaceView,
+    gallery: {
+      ...galleryModel,
+      status: agentRoster.status ?? 'idle',
+      error: agentRoster.error ?? null,
+      refreshDisabled: walletWorkPending,
     },
     identityCard: {
       name: activeAgentLabel,
@@ -149,17 +186,8 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       thread: agentThread,
       verifiedLabel,
     }),
-    agents: activeAgents.slice(0, 8).map((agent) => ({
-      tokenId: agent.tokenId ?? '',
-      name: agent.name ?? 'Onchain agent',
-      role: agent.role ?? agent.framework ?? 'Agent profile',
-      cred: agent.credLabel,
-      state: agent.state ?? (agent.verified ? 'Verified profile' : 'Review needed'),
-      href: agent.href ?? null,
-      selected: String(agent.tokenId ?? '') !== '' && String(agent.tokenId) === String(activeAgent?.tokenId ?? ''),
-      inRoom: roomParticipants.some((participant) => String(participant.tokenId ?? '') === String(agent.tokenId ?? '')),
-      activationDisabled: aliasMutationPending || walletWorkPending,
-    })),
+    agents: agentCards,
+    rosterPreviewAgents: agentCards.slice(0, 8),
     agentRoster,
   };
 }
@@ -179,11 +207,7 @@ export function renderMultipassConsole(snapshot = {}) {
       ${renderSuitePanel(snapshot)}
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
         <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
-          ${renderConsoleAgentThread({
-            ...snapshot.agentThread,
-            recall: snapshot.recall,
-            contextItems: snapshot.threadContextItems,
-          })}
+          ${renderConsolePrimaryWorkspace(snapshot)}
         </section>
 
         <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
@@ -192,6 +216,7 @@ export function renderMultipassConsole(snapshot = {}) {
               <h1>Multipass Console</h1>
             </div>
           </header>
+          ${renderConsoleWorkspaceNav(snapshot)}
           ${renderIdentityCard(snapshot.identityCard)}
           ${renderSessionPanel(snapshot.session)}
           <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">
@@ -200,7 +225,7 @@ export function renderMultipassConsole(snapshot = {}) {
               title: 'My agents',
               stat: snapshot.session?.activeAgentId ? snapshot.session.activeAgentLabel : rosterStat,
               hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
-              open: false,
+              open: Boolean(snapshot.session?.needsAgentSelection),
               body: `
                 ${renderAgentSelector(snapshot.session)}
                 <div class="console-agent-list">
@@ -214,6 +239,170 @@ export function renderMultipassConsole(snapshot = {}) {
       </section>
     </main>
   `;
+}
+
+function renderConsolePrimaryWorkspace(snapshot = {}) {
+  const session = snapshot.session ?? {};
+  const wallet = session.wallet ?? {};
+  if (wallet.connected && !wallet.authenticated) return renderConsoleAuthGate(wallet);
+  if (session.showAgentGallery) return renderConsoleAgentOnboarding(snapshot);
+  if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
+    return renderConsoleWalletWorkspace(snapshot.identityCard);
+  }
+  return renderConsoleAgentThread({
+    ...snapshot.agentThread,
+    recall: snapshot.recall,
+    contextItems: snapshot.threadContextItems,
+  });
+}
+
+function renderConsoleWorkspaceNav(snapshot = {}) {
+  const walletAvailable = Boolean(snapshot.session?.activeAgentId && snapshot.identityCard?.agentWallet);
+  const view = snapshot.workspaceView === 'wallet' ? 'wallet' : 'chat';
+  return `
+    <nav class="console-workspace-nav" aria-label="Console workspace">
+      <button type="button" data-action="set-console-workspace-view" data-console-view="chat" ${view === 'chat' ? 'aria-current="page"' : ''}>
+        <span>Room</span><small>${snapshot.session?.activeAgentId ? 'Agent chat' : 'Waiting'}</small>
+      </button>
+      <button type="button" data-action="set-console-workspace-view" data-console-view="wallet" ${view === 'wallet' ? 'aria-current="page"' : ''} ${walletAvailable ? '' : 'disabled'}>
+        <span>Wallet</span><small>${walletAvailable ? formatWalletWorkspaceStatus(snapshot.identityCard.agentWallet) : 'Select agent'}</small>
+      </button>
+    </nav>
+  `;
+}
+
+function renderConsoleAuthGate(wallet = {}) {
+  const busy = ['connecting', 'signing', 'loading_roster'].includes(wallet.status);
+  return `
+    <section class="console-auth-gate" aria-labelledby="console-auth-gate-title">
+      <span class="console-gate-eyebrow">One signature left</span>
+      <h2 id="console-auth-gate-title">Sign in to Console</h2>
+      <p>Your wallet is connected, but the private Console is still locked. Sign once to prove ownership and load your Loopers.</p>
+      <div class="console-auth-gate-wallet"><span>Connected wallet</span><strong>${escapeHtml(wallet.label ?? 'Wallet connected')}</strong></div>
+      <button type="button" data-action="connect-console-wallet" ${busy || wallet.unavailable || !wallet.ready ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in with wallet'}</button>
+      ${wallet.error ? `<p class="console-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
+      <small>This does not create a transaction or give the agent spending access.</small>
+    </section>
+  `;
+}
+
+function renderConsoleAgentOnboarding(snapshot = {}) {
+  const gallery = snapshot.gallery ?? {};
+  const agentsById = new Map((Array.isArray(snapshot.agents) ? snapshot.agents : []).map((agent) => [String(agent.tokenId ?? ''), agent]));
+  const agents = (Array.isArray(gallery.visible) ? gallery.visible : [])
+    .map((agent) => agentsById.get(String(agent?.tokenId ?? '')) ?? agent)
+    .filter(Boolean);
+  const loading = gallery.status === 'loading' || gallery.status === 'idle';
+  const failed = gallery.status === 'error';
+  const loaded = gallery.status === 'loaded';
+  const completion = loaded && gallery.total > 0 ? `All ${gallery.total} Loopers loaded` : '';
+  return `
+    <section class="console-agent-onboarding console-agent-gallery" aria-labelledby="console-agent-onboarding-title" aria-busy="${loading ? 'true' : 'false'}">
+      <header>
+        <span class="console-gate-eyebrow">Wallet verified</span>
+        <h2 id="console-agent-onboarding-title">Choose your Looper</h2>
+        <p>Select the agent you want to open. Its private room, identity, memory, and wallet will load together.</p>
+      </header>
+      ${loaded && gallery.total > 0 ? renderConsoleAgentGalleryControls(gallery) : ''}
+      <p class="console-agent-gallery-status" aria-live="polite">${escapeHtml(loading ? 'Loading all owned Loopers' : completion)}</p>
+      ${loading ? renderConsoleAgentGalleryLoading() : ''}
+      ${failed ? renderConsoleAgentGalleryError(gallery) : ''}
+      ${loaded && gallery.emptyKind === 'owned' ? renderConsoleAgentGalleryOwnedEmpty() : ''}
+      ${loaded && gallery.emptyKind === 'filtered' ? renderConsoleAgentGalleryFilteredEmpty(gallery) : ''}
+      ${loaded && agents.length ? `<div class="console-agent-onboarding-grid console-agent-gallery-grid" role="list">${agents.map(renderConsoleAgentGalleryCard).join('')}</div>` : ''}
+      <footer class="console-agent-gallery-footer">
+        <button type="button" data-action="refresh-console-owned-agents" ${gallery.refreshDisabled ? 'disabled' : ''}>Refresh ownership</button>
+        <a href="https://opensea.io/collection/loopers-639312714" target="_blank" rel="noopener noreferrer">Browse Loopers on OpenSea <span aria-hidden="true">↗</span></a>
+      </footer>
+    </section>
+  `;
+}
+
+function renderConsoleAgentGalleryControls(gallery = {}) {
+  return `
+    <div class="console-agent-gallery-toolbar">
+      <label>
+        <span>Search owned Loopers</span>
+        <input type="search" data-action="search-console-agent-gallery" value="${escapeAttribute(gallery.query ?? '')}" placeholder="Name or token ID">
+      </label>
+      <label>
+        <span>Sort agents</span>
+        <select data-action="sort-console-agent-gallery">
+          ${renderGallerySortOption('token-asc', 'Token ID: low to high', gallery.sort)}
+          ${renderGallerySortOption('token-desc', 'Token ID: high to low', gallery.sort)}
+          ${renderGallerySortOption('name-asc', 'Name: A to Z', gallery.sort)}
+          ${renderGallerySortOption('name-desc', 'Name: Z to A', gallery.sort)}
+        </select>
+      </label>
+    </div>
+  `;
+}
+
+function renderGallerySortOption(value, label, selected) {
+  return `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`;
+}
+
+function renderConsoleAgentGalleryCard(agent = {}) {
+  const tokenId = String(agent.tokenId ?? '');
+  const name = String(agent.name ?? 'Onchain agent');
+  const accessibleName = `${name}, Looper #${tokenId}`;
+  return `
+    <article class="console-agent-gallery-card" role="listitem">
+      <div class="console-agent-choice-avatar">
+        ${agent.image
+          ? `<img src="${escapeAttribute(agent.image)}" alt="${escapeAttribute(accessibleName)}" loading="lazy">`
+          : `<span role="img" aria-label="${escapeAttribute(accessibleName)}">${escapeHtml(initialsForLabel(name || tokenId || 'A'))}</span>`}
+      </div>
+      <div class="console-agent-gallery-copy">
+        <span>Looper #${escapeHtml(tokenId)}</span>
+        <h3>${escapeHtml(name)}</h3>
+        <small>${escapeHtml(agent.role ?? 'Agent profile')}</small>
+        <div class="console-agent-gallery-meta">
+          <span>${escapeHtml(agent.cred ?? 'Cred pending')}</span>
+          <span class="console-agent-gallery-verification">${agent.verified ? 'Verified' : 'Verification pending'}</span>
+        </div>
+      </div>
+      <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(tokenId)}" aria-label="${escapeAttribute(`Open ${accessibleName}`)}" ${agent.activationDisabled ? 'disabled' : ''}>Open agent</button>
+    </article>
+  `;
+}
+
+function renderConsoleAgentGalleryLoading() {
+  return '<div class="console-agent-gallery-state"><strong>Loading your collection</strong><p>Checking every Looper owned by this wallet.</p></div>';
+}
+
+function renderConsoleAgentGalleryError(gallery = {}) {
+  return `<div class="console-agent-gallery-state console-agent-gallery-error" role="alert"><strong>Owned Loopers could not be loaded</strong><p>${escapeHtml(gallery.error ?? 'The ownership scan failed.')}</p><button type="button" data-action="refresh-console-owned-agents" ${gallery.refreshDisabled ? 'disabled' : ''}>Retry ownership scan</button></div>`;
+}
+
+function renderConsoleAgentGalleryOwnedEmpty() {
+  return '<div class="console-agent-gallery-state"><strong>No owned Loopers found</strong><p>This wallet does not currently own a Looper.</p></div>';
+}
+
+function renderConsoleAgentGalleryFilteredEmpty(gallery = {}) {
+  return `<div class="console-agent-gallery-state"><strong>No Loopers match “${escapeHtml(gallery.query ?? '')}”</strong><p>Try a different name or token ID.</p><button type="button" data-action="clear-console-agent-gallery-search">Clear search</button></div>`;
+}
+
+function renderConsoleWalletWorkspace(card = {}) {
+  return `
+    <section class="console-wallet-workspace" aria-labelledby="console-wallet-workspace-title">
+      <header class="console-wallet-workspace-header">
+        <div>
+          <span class="console-gate-eyebrow">Agent wallet · Base</span>
+          <h2 id="console-wallet-workspace-title">${escapeHtml(card.name ?? 'Selected agent')} wallet</h2>
+          <p>Owner-controlled funds and permissions for ${escapeHtml(card.tokenLabel ?? 'the selected Looper')}.</p>
+        </div>
+      </header>
+      ${renderLooperAgentWallet(card.agentWallet, { workspace: true })}
+    </section>
+  `;
+}
+
+function formatWalletWorkspaceStatus(wallet = {}) {
+  if (wallet.mode === 'active') return 'Ready';
+  if (wallet.mode === 'inactive') return 'Setup required';
+  if (wallet.mode === 'loading') return 'Loading';
+  return 'Read-only';
 }
 
 function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipants = [], ownerProfile = {}) {
@@ -383,7 +572,6 @@ function renderIdentityCard(card = {}) {
           ${card.erc8004Label ? `<span>${escapeHtml(card.erc8004Label)}</span>` : ''}
         </div>
       </div>
-      ${renderLooperAgentWallet(card.agentWallet)}
       ${(card.badges ?? []).length ? `
         <div class="console-identity-badges">
           ${(card.badges ?? []).map((badge) => `<span>${escapeHtml(badge)}</span>`).join('')}
@@ -485,11 +673,11 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
   };
 }
 
-function renderLooperAgentWallet(wallet) {
+function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
   if (!wallet) return '';
   const account = wallet.account;
   const modeLabel = wallet.mode === 'inactive'
-    ? 'Inactive — activation required'
+    ? 'Setup required'
     : wallet.mode === 'loading'
       ? 'Loading'
       : wallet.policyStatus === 'permission-hook-paused'
@@ -508,10 +696,11 @@ function renderLooperAgentWallet(wallet) {
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.policy?.state);
   const nativeBalance = `${formatWalletUnits(wallet.nativeWei, 18)} ETH`;
   const assetCount = 1 + (wallet.tokens ?? []).length;
+  const canActivate = wallet.mode === 'inactive' && wallet.canTransact;
   const looperWalletLabel = wallet.mode === 'active'
     ? 'Active'
     : wallet.mode === 'inactive'
-      ? 'Activation required'
+      ? 'Ready to activate'
       : wallet.mode === 'loading'
         ? 'Loading'
         : wallet.mode === 'blocked'
@@ -532,7 +721,7 @@ function renderLooperAgentWallet(wallet) {
           ? 'Malformed code — blocked'
           : 'Unverified';
   return `
-    <section class="console-looper-wallet" aria-label="Selected Looper agent wallet">
+    <section class="console-looper-wallet${workspace ? ' console-looper-wallet-workspace' : ''}" aria-label="Selected Looper agent wallet">
       <div class="console-looper-wallet-head">
         <div class="console-looper-wallet-title">
           <span>Looper wallet</span>
@@ -540,6 +729,18 @@ function renderLooperAgentWallet(wallet) {
         </div>
         <button type="button" data-action="refresh-looper-agent-wallet" ${busy ? 'disabled' : ''}>Refresh</button>
       </div>
+      ${canActivate ? `
+        <div class="console-looper-wallet-activation-callout" aria-labelledby="console-looper-wallet-activation-title">
+          <div>
+            <strong id="console-looper-wallet-activation-title">Activate your Looper wallet</strong>
+            <p>Activate once to create your owner-controlled wallet on Base. Your agent remains review-only.</p>
+          </div>
+          <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
+            <label><input type="checkbox" name="confirmed" required> I understand activation requires an owner-approved Base transaction.</label>
+            <button type="submit" ${busy ? 'disabled' : ''}>Activate wallet</button>
+          </form>
+        </div>
+      ` : ''}
       <dl class="console-looper-wallet-truth" aria-label="Agent and wallet status">
         <div data-wallet-truth="agent-runtime"><dt>Agent runtime</dt><dd><strong>Review-only</strong></dd></div>
         <div data-wallet-truth="looper-wallet"><dt>Looper wallet</dt><dd><strong>${escapeHtml(looperWalletLabel)}</strong></dd></div>
@@ -567,12 +768,6 @@ function renderLooperAgentWallet(wallet) {
             <span>${escapeHtml(nativeBalance)}</span>
             ${(wallet.tokens ?? []).map((token) => `<span>${escapeHtml(formatWalletUnits(token.balanceBaseUnits, token.decimals))} ${escapeHtml(token.symbol)}</span>`).join('')}
           </div>` : ''}
-          ${wallet.mode === 'inactive' && wallet.canTransact ? `
-            <form class="console-looper-wallet-activation" data-action="activate-looper-agent-wallet">
-              <label><input type="checkbox" name="confirmed" required> Confirm owner-paid activation on Base</label>
-              <button type="submit" ${busy ? 'disabled' : ''}>Activate wallet</button>
-            </form>
-          ` : ''}
           ${wallet.mode === 'active' && wallet.canTransact ? `
             <form class="console-looper-wallet-send" data-action="send-looper-agent-wallet">
               <label><span>Asset</span><select name="asset"><option value="ETH">ETH</option>${(wallet.tokens ?? []).map((token) => `<option value="${escapeAttribute(token.contract)}">${escapeHtml(token.symbol)}</option>`).join('')}</select></label>
@@ -602,6 +797,10 @@ function renderLooperAgentWallet(wallet) {
       ${wallet.error ? `<p class="console-looper-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
   `;
+}
+
+function normalizeWalletAddress(value) {
+  return String(value ?? '').trim().toLowerCase();
 }
 
 function formatWalletUnits(value, decimals) {
@@ -725,7 +924,7 @@ function renderAgentOptions(session = {}) {
 }
 
 function renderAgentRoster(snapshot = {}) {
-  const agents = Array.isArray(snapshot.agents) ? snapshot.agents : [];
+  const agents = Array.isArray(snapshot.rosterPreviewAgents) ? snapshot.rosterPreviewAgents : [];
   if (agents.length) return agents.map(renderAgentCard).join('');
 
   const status = snapshot.agentRoster?.status ?? 'idle';
