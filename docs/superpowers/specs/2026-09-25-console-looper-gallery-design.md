@@ -29,36 +29,39 @@ After wallet authentication:
 Show:
 
 - `Choose your Looper`
-- The complete owned count, such as `24 Loopers`
-- A truthful completion state only after the API returns a reconciled roster
 - Search by Looper name or token ID
 - Sort by token ID or name
+- The exact completion indicator `All {N} Loopers loaded` only after the authenticated API returns a successfully reconciled roster
+
+During loading, show `Loading all owned Loopers` with neither a numeric count nor the completion indicator. During empty success, show `No owned Loopers found`. During errors, suppress both count and completion text so stale or partial data cannot look authoritative.
 
 Search and sorting are client-side because the owned roster is bounded by the 7,777-token collection and already returned in one authenticated response.
 
 ### Gallery cards
 
-Each card contains:
+Each card is a semantic `<article>` with an accessible heading and contains:
 
-- Looper artwork
+- Looper artwork with alt text `{display name}, Looper #{token ID}`; the initials fallback exposes the same accessible name
 - Token ID
 - Display name
 - Primary role/class
 - Cred label when present
-- Verification state
-- One primary `Open agent` action
+- Verification state as visible text, not color alone
+- One primary button named `Open {display name}, Looper #{token ID}`
 
 Images remain lazy-loaded. Selecting a card uses the existing activation path and opens that Looper's room, identity, memory, and wallet together.
 
 ### Scrolling and responsive behavior
 
-The gallery body scrolls vertically inside the main Console workspace while the header, controls, roster count, and footer remain easy to find.
+The gallery body scrolls vertically inside the main Console workspace with `max-height: min(70vh, 720px)` and `overflow-y: auto`. Header controls remain above the scrolling region and the footer remains below it.
 
-- Desktop: four-column grid where space permits
-- Tablet: three or two columns
-- Mobile: two columns, reducing to one only on very narrow screens
-- No horizontal page overflow
-- Keyboard users can tab through controls and cards in document order
+- `>= 1120px`: four columns
+- `760px–1119px`: three columns
+- `480px–759px`: two columns
+- `< 480px`: one column
+- The gallery and page use no horizontal scrolling at widths from 320px upward
+- Interactive controls have a minimum 44-by-44-pixel target
+- Keyboard users tab through search, sort, cards, refresh, and marketplace link in document order; no offscreen focus trap is introduced
 
 ### Acquisition and refresh actions
 
@@ -75,13 +78,15 @@ The existing API loader reads onchain `balanceOf`, discovers token IDs through B
 
 The gallery will preserve this fail-closed behavior:
 
-1. The UI enters a loading state and clears stale cards.
+1. The UI increments a roster request ID, enters a loading state, clears stale cards, sets the gallery region `aria-busy="true"`, and announces `Loading all owned Loopers` through a polite live region.
 2. The authenticated `/api/loopers/owned` request runs the ownership reconciliation.
-3. A successful response is treated as complete because the API refuses mismatched counts.
-4. The UI renders every returned agent; it must not slice, paginate, truncate, or cap at ten.
-5. If reconciliation fails, the gallery shows an error and retry action rather than a partial roster or a `complete` badge.
+3. A response may commit only when its request ID and normalized authenticated wallet still match current state. Wallet/account changes invalidate prior requests and clear their roster immediately.
+4. A successful response is treated as complete because the API refuses mismatched counts. The UI announces and displays exactly `All {N} Loopers loaded`, then moves focus to the gallery heading only when the load followed an explicit retry or refresh.
+5. The UI renders every returned agent; it must not slice, paginate, truncate, or cap at ten.
+6. If reconciliation fails, the gallery shows an alert and retry action rather than cards, a count, or a completion badge. Focus moves to the alert after an explicit retry failure.
+7. Activation errors keep the reconciled gallery mounted, announce the error with `role="alert"`, and return focus to the failed card's `Open` button.
 
-A new browser-level regression test will render more than ten agents and assert that every card is present and selectable.
+A new browser-level regression test will render more than ten agents and assert that every card is present and selectable. A separate race test resolves older refresh and prior-wallet requests last and proves that neither can replace current ownership state.
 
 ## Components and boundaries
 
@@ -93,8 +98,9 @@ A new browser-level regression test will render more than ten agents and assert 
 
 ### `app.js`
 
-- Store gallery search and sort state.
+- Store gallery search and sort state plus a monotonic roster request ID.
 - Bind search, sort, refresh, and activation events.
+- Discard responses whose request ID or normalized authenticated wallet no longer matches current state.
 - Reuse `refreshConsoleOwnedAgents` and `selectAndActivateConsoleAgent`; no second ownership or activation path is introduced.
 
 ### `styles.css`
@@ -111,12 +117,13 @@ A new browser-level regression test will render more than ten agents and assert 
 
 ## Error handling
 
-- Loading: skeleton/card placeholders and `Loading all owned Loopers` copy.
-- Empty: explain that no owned Loopers were found and show the marketplace CTA.
-- API or ownership mismatch: no cards from the failed request, a concise error, and `Retry ownership scan`.
-- Broken artwork: retain the existing initials/fallback treatment.
-- Agent activation failure: keep the gallery available and show the existing recoverable activation error.
+- Loading: skeleton/card placeholders, `aria-busy="true"`, and live `Loading all owned Loopers` copy; no count or completion state.
+- Empty: announce that no owned Loopers were found and show the marketplace CTA.
+- API or ownership mismatch: no cards from the failed request, a `role="alert"` error, and `Retry ownership scan`.
+- Broken artwork: retain the existing initials fallback and accessible Looper name.
+- Agent activation failure: keep the gallery available, announce the recoverable error, and restore focus to the triggering button.
 - Refresh during wallet work: preserve the current nonterminal-operation lock so selection cannot switch mid-operation.
+- Stale responses: ignore them without changing current loading, success, error, focus, or announcement state.
 
 ## Testing
 
@@ -129,10 +136,13 @@ A new browser-level regression test will render more than ten agents and assert 
 ### Renderer and app
 
 - More than ten agents produce the same number of gallery cards.
+- A synthetic 7,777-agent roster is not truncated; search and sort return correct results, keyboard order remains deterministic, and the headless-browser gallery becomes interactive within two seconds on the existing CI runner. If that bound fails, add windowed rendering without changing the API or visible complete-roster semantics.
 - Search matches names and token IDs without mutating the source roster.
 - Sort changes visual order only.
 - Every visible card activates the correct token ID.
-- Loading, empty, error, and retry states are truthful.
+- Loading, empty, error, and retry states expose the specified text, ARIA state, announcements, and focus transitions.
+- Older request and prior-wallet responses cannot replace the current roster.
+- Breakpoint tests cover 320px, 479px, 480px, 759px, 760px, 1119px, and 1120px with no horizontal overflow and 44-pixel minimum targets.
 - The marketplace link has the approved destination and safe external-link attributes.
 - Existing wallet authentication, single-agent auto-open, room, and wallet tests remain green.
 
@@ -140,11 +150,11 @@ A new browser-level regression test will render more than ten agents and assert 
 
 Capture desktop and mobile gallery states and check:
 
-- all count and completion labels are visible
-- internal vertical scrolling works
-- no horizontal overflow occurs
-- focus and touch targets are usable
-- the layout remains recognizably Multipass Console
+- count/completion text appears only for reconciled success
+- internal vertical scrolling uses the specified height bound
+- no horizontal overflow occurs at the tested breakpoints
+- visible focus and 44-pixel targets work with keyboard and touch
+- the layout uses the existing Console font stack and remains recognizably Multipass Console
 
 ## Non-goals
 
