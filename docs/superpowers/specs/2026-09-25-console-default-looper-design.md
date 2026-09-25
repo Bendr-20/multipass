@@ -1,7 +1,7 @@
 # Console Default Looper and Closed Roster Design
 
 **Date:** 2026-09-25  
-**Status:** Revised draft under review
+**Status:** Approved for planning
 
 **Scope:** Multipass Console web client only
 
@@ -63,7 +63,7 @@ Request anonymous JSON with `credentials: 'omit'`, a four-second total `AbortCon
 
 Process only rows at or after deployment block `51658273`. Stop successfully when the page reaches a row below that block, or when `next_page_params` is `null`. If 16 pages do not reach either completion condition, any response is oversized/malformed, or the response is truncated, return unavailable rather than a partial set. This is complete-or-fallback: the request count and bytes are fixed even if unrelated registry activity grows indefinitely.
 
-First validate every processed row as a generic registry event: exact registry address, canonical safe `block_number` and `index`, four 32-byte hex topics, 96-byte hex data, 32-byte transaction hash, and newest-to-oldest ordering. Because the V2 endpoint filters only registry plus event topic, a well-formed row whose topic 1 implementation or topic 2 collection differs from the released pins is unrelated and must be skipped, not treated as an error.
+First validate every processed row as a generic registry event: exact registry address, canonical safe `block_number` and `index`, four 32-byte hex topics with topic 0 equal to the pinned event signature, 96-byte hex data, 32-byte transaction hash, and newest-to-oldest ordering. Because the V2 endpoint filters only registry plus event topic, a well-formed row whose topic 1 implementation or topic 2 collection differs from the released pins is unrelated and must be skipped, not treated as an error.
 
 For rows whose implementation and collection topics match the released pins, require:
 
