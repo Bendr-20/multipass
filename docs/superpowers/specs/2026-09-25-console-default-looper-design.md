@@ -43,9 +43,11 @@ Wallet keys are lowercase `0x` plus 40 hexadecimal characters. Token values are 
 
 ### Activated-wallet discovery
 
-Fetch the public released-wallet creation set in parallel with the owned roster from:
+Fetch the public released-wallet creation set in parallel with the owned roster from the cursor-paginated Blockscout V2 endpoint:
 
-`https://base.blockscout.com/api?module=logs&action=getLogs&fromBlock=51658273&toBlock=latest&address=0x000000006551c19487814612e58FE06813775758&topic0=0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722&topic1=0x000000000000000000000000f192f350427c8f58bc28e78b1e6af164279f486e&topic2=0x0000000000000000000000001649cd37f4748807b4882fc48765ba0b2affa94a&topic0_1_opr=and&topic0_2_opr=and&topic1_2_opr=and&page={page}&offset=1000`
+`https://base.blockscout.com/api/v2/addresses/0x000000006551c19487814612e58FE06813775758/logs?topic=0x79f19b3655ee38b1ce526556b7731a20c8f218fbda4a3990b6cc4172fdf88722`
+
+For each next page, discard the previous query and append every validated scalar from the prior response's `next_page_params` (`block_number`, `index`, `items_count`, and `topic`) with `URLSearchParams`.
 
 The pins are:
 
@@ -57,9 +59,11 @@ The pins are:
 - Loopers collection: `0x1649CD37f4748807b4882FC48765bA0B2aFfa94a`;
 - from block: `51658273`, the released implementation deployment block.
 
-Request anonymous JSON with `credentials: 'omit'`, a four-second total `AbortController` deadline, and the current session's cancellation signal. Read at most 4 MiB per page. Use `offset=1000`, request pages 1 through 8 sequentially, and stop after the first page containing fewer than 1,000 rows. Eight pages cover the collection's hard maximum of 7,777 token IDs. If page 8 still contains 1,000 rows, any page is oversized/malformed, Blockscout reports an error other than its explicit no-logs result, or the response is truncated, return an unavailable result rather than a partial set.
+Request anonymous JSON with `credentials: 'omit'`, a four-second total `AbortController` deadline, and the current session's cancellation signal. Read at most 1 MiB per page and at most 16 pages. A successful page has exactly top-level `items` and `next_page_params`; `items` is an array of at most 50 rows, and `next_page_params` is either `null` or an object containing canonical scalar cursor values. Rows must be strictly newest-to-oldest by `(block_number, index)`, and each next cursor must move strictly older than the preceding page. Duplicate or nondecreasing cursors make the lookup unavailable.
 
-A successful page has top-level `status: "1"`, `message: "OK"`, and a `result` array. The explicit Blockscout no-logs response is accepted as an empty set only on page 1. Every log must have exactly four topics matching the pinned event, implementation, and collection. Its data must be exactly three ABI words: account address, salt, and chain ID. Accept a row only when:
+Process only rows at or after deployment block `51658273`. Stop successfully when the page reaches a row below that block, or when `next_page_params` is `null`. If 16 pages do not reach either completion condition, any response is oversized/malformed, or the response is truncated, return unavailable rather than a partial set. This is complete-or-fallback: the request count and bytes are fixed even if unrelated registry activity grows indefinitely.
+
+Every processed log must have exactly four topics matching the pinned event, implementation, and collection. Its data must be exactly three ABI words: account address, salt, and chain ID. Accept a row only when:
 
 - topic 3 is a canonical positive token ID from 1 through 7,777;
 - data salt equals the released salt;
@@ -86,15 +90,16 @@ If automatic runtime opening fails, keep the selected Looper visible, show the e
 
 ### Main workspace
 
-Replace the always-expanded preselection gallery with a native `<details>` drawer using the existing Console drawer visual language. It exists only while no Looper runtime is selected: loading, ownership error, empty ownership, and the brief preselection state. After automatic or manual selection, the existing primary renderer replaces it with the room or wallet workspace; the complete roster remains available through the sidebar drawer.
+Replace the always-expanded gallery with a native `<details>` drawer using the existing Console drawer visual language. For an authenticated session, render this drawer at the top of the primary workspace before the room, wallet workspace, or empty/error state. It remains present after automatic or manual selection so every owned Looper stays reachable without reopening the sidebar.
 
 Its summary shows:
 
 - title: **My Loopers**;
 - count/status chip: `N owned`, `Loading`, `Retry`, or `None`;
-- **Choose a Looper to continue** when a loaded roster awaits selection.
+- selected context when available: Looper display name and token ID;
+- otherwise **Choose a Looper to continue**.
 
-Opening the drawer reveals the existing search, sorting, complete semantic gallery, refresh action, empty states, and OpenSea link unchanged. An ownership-load error sets the main drawer open so the retry action is visible; this is an error recovery state, not the default.
+Opening the drawer reveals the existing search, sorting, complete semantic gallery, refresh action, empty states, and OpenSea link unchanged. An ownership-load error sets the main drawer open so the retry action is visible; this is an error recovery state, not the default. During normal automatic selection the drawer remains closed, the room loads below it, and no expanded gallery flashes. A successful selection closes the main drawer but does not remove it.
 
 ### Sidebar
 
@@ -128,14 +133,15 @@ Track the main and sidebar `<details>` state in separate in-memory booleans. A n
 
 ## State and Concurrency
 
-- After session authentication, capture the normalized wallet, session generation, roster request ID, and a new default-selection epoch. Start owned-roster and activated-wallet discovery together.
-- Await the owned roster first. Do not render the full loaded roster with no selection while automatic resolution is pending; keep the compact main summary in `Loading` state to prevent a gallery flash.
-- If a remembered token is present in the fresh roster, increment the selection epoch, cancel or ignore activated-wallet discovery, commit the roster and selection in one state update, and open it immediately.
-- Otherwise await activated-wallet discovery until its four-second total deadline. On available completion, use the first activated owned token; on unavailable completion, use the first owned token. Commit roster and selection together, then call the existing activation path.
-- Every automatic commit and every preference write must still match the captured wallet, session generation, roster request ID, selection epoch, activation request ID, and selected token. Any mismatch discards the result.
-- The loaded roster is not interactive before the automatic decision commits, so there is no manual-selection race during discovery. After commit, a manual selection increments the selection epoch and activation request ID; late automatic or activation results cannot replace it or write preference state.
+- After session authentication, capture one immutable roster context: normalized wallet, session generation, and newly allocated roster request ID. Start owned-roster and activated-wallet discovery together under that context.
+- Await the owned roster first. Do not render an expanded loaded roster with no selection while automatic resolution is pending; keep the compact main summary in `Loading` state to prevent a gallery flash.
+- If a remembered token is present in the fresh roster, abort or ignore activated-wallet discovery and resolve immediately. Otherwise await activated-wallet discovery until its four-second total deadline; use the first activated owned token on available completion or the first owned token on unavailable completion.
+- Immediately before committing the roster, verify that all three roster-context values still equal current state. A mismatch discards the entire result. Put the loaded roster into state without an intermediate render, then call the existing `selectAndActivateConsoleAgent` path for the resolved token. That path allocates the activation request ID, selects the token, closes both drawers, and performs the first render, so there is no loaded-gallery flash.
+- Do not invent a second selection epoch. Existing session generation, roster request ID, activation request ID, selected token, and authenticated wallet are the sole stale-result guards.
+- The loaded roster is not interactive before the automatic decision commits, so there is no manual-selection race during discovery. After commit, a manual selection allocates a new activation request ID; existing `isCurrentConsoleAsyncContext` checks discard late activation or wallet results.
+- After `/agent/activate` succeeds, write last-used preference only after `isCurrentConsoleAsyncContext` passes and the response token and authenticated wallet still match the activation context. A stale response cannot write preference state.
 - A manual roster refresh preserves the current selection if it remains owned. It runs default resolution only when the current selection is absent from the fresh roster.
-- Wallet disconnect, account change, logout, or authorization failure aborts the event fetch, increments the selection epoch, and clears in-memory selection through the existing session reset path. The per-wallet last-used preference may remain locally because it is revalidated against ownership on the next sign-in.
+- Wallet disconnect, account change, logout, or authorization failure aborts the event fetch, allocates a newer roster request ID through the existing reset/refresh path, and clears in-memory selection. The per-wallet last-used preference may remain locally because it is revalidated against ownership on the next sign-in.
 
 ## Error Handling
 
@@ -165,7 +171,9 @@ Add focused tests proving:
 - account switching cannot reuse another wallet's selection;
 - exact storage schema/version validation and preservation of other-wallet entries;
 - event rows with the wrong salt, chain ID, account, topics, token range, page shape, or pagination completeness make discovery unavailable;
-- activation discovery obeys its four-second deadline, eight-request maximum, response-size bound, and cancellation signal;
+- activation discovery obeys its four-second deadline, 16-request maximum, response-size bound, descending cursor checks, deployment-block completion rule, and cancellation signal;
+- the loaded roster commits without an intermediate expanded-gallery render;
+- the main roster drawer remains present above the active room/wallet while closed;
 - both roster drawers are closed by default and expose correct summary text;
 - drawer toggle state survives ordinary root rerenders but resets on successful selection, account change, logout, and fresh load;
 - expanding preserves all search, sort, complete-gallery, empty, refresh, and error behavior;
