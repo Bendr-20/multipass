@@ -189,7 +189,7 @@ test('mobile Console exposes a portrait agent switcher and three mutually exclus
   assert.ok(inactiveRoot.querySelector('.console-basic-main > .console-wallet-workspace'));
 });
 
-test('authenticated Console keeps complete main and sidebar Looper rosters in closed drawers', () => {
+test('authenticated Console keeps one complete full-width desktop roster drawer', () => {
   const address = '0x1234567890abcdef1234567890abcdef12345678';
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
@@ -207,15 +207,15 @@ test('authenticated Console keeps complete main and sidebar Looper rosters in cl
   const mainDrawer = root.querySelector('details[data-console-roster-drawer="main"]');
   const sidebarDrawer = root.querySelector('details[data-console-roster-drawer="sidebar"]');
   assert.ok(mainDrawer);
-  assert.ok(sidebarDrawer);
+  assert.equal(sidebarDrawer, null);
   assert.equal(mainDrawer.open, false);
-  assert.equal(sidebarDrawer.open, false);
-  assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /My Loopers/i);
+  assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /My agents/i);
   assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /2 owned/i);
   assert.match(mainDrawer.querySelector('summary')?.textContent ?? '', /Bendr 2\.0.*Token #1/is);
   assert.equal(mainDrawer.querySelectorAll('.console-agent-gallery-card').length, 2);
-  assert.ok(mainDrawer.compareDocumentPosition(root.querySelector('.console-agent-thread-panel')) & 4);
-  assert.match(sidebarDrawer.querySelector('summary')?.textContent ?? '', /Bendr 2\.0/i);
+  assert.ok(mainDrawer.parentElement?.classList.contains('console-basic-shell'));
+  assert.equal(root.querySelector('.console-basic-main')?.contains(mainDrawer), false);
+  assert.equal(root.querySelectorAll('[data-console-roster-drawer="main"]').length, 1);
 
   const openSnapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
@@ -225,12 +225,11 @@ test('authenticated Console keeps complete main and sidebar Looper rosters in cl
       consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
       consoleSelectedAgentId: '1',
       consoleMainRosterOpen: true,
-      consoleSidebarRosterOpen: true,
     },
   });
   const openRoot = render(renderMultipassConsole(openSnapshot));
   assert.equal(openRoot.querySelector('details[data-console-roster-drawer="main"]')?.open, true);
-  assert.equal(openRoot.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, true);
+  assert.equal(openRoot.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
 });
 
 test('connected but unauthenticated wallet gets an explicit Console sign-in gate', () => {
@@ -271,7 +270,8 @@ test('authenticated first visit keeps the complete Looper chooser in a closed ma
   assert.match(chooser.textContent, /Choose your Looper/i);
   assert.equal(chooser.querySelectorAll('[data-action="activate-console-room"]').length, 2);
   assert.equal(root.querySelector('details[data-console-roster-drawer="main"]')?.open, false);
-  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, false);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
+  assert.equal(root.querySelector('.console-basic-main')?.querySelector('.console-agent-onboarding'), null);
   assert.equal(snapshot.session.needsAgentSelection, true);
 });
 
@@ -599,8 +599,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.ok(root.querySelector('.multipass-console'));
   assert.ok(root.querySelector('.console-basic-shell'));
   assert.ok(root.querySelector('.console-wallet-panel'));
-  assert.equal(root.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
-  assert.match(root.querySelector('.console-sidebar-drawer summary')?.textContent ?? '', /Agent name|Identity profile|My agents|Current room/);
+  assert.equal(root.querySelectorAll('.console-sidebar-drawer').length >= 2, true);
+  assert.match(root.querySelector('.console-sidebar-drawer summary')?.textContent ?? '', /Agent name|Identity data|My agents|Current room/);
   assert.equal(root.querySelectorAll('.console-status-strip div').length, 0);
   assert.equal(root.querySelectorAll('.console-flow-panel li').length, 0);
   assert.ok(root.querySelector('.console-trust-rail'));
@@ -646,8 +646,7 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.doesNotMatch(root.querySelector('.console-proof-rail')?.textContent ?? '', /Bankr-ready|Sibyl-ready/);
   assert.match(text, /live chat|XMTP ready|XMTP room/i);
   assert.match(text, /Review-only/);
-  assert.match(text, /recall/i);
-  assert.match(text, /My agents/);
+  assert.doesNotMatch(text, /My agents/);
   assert.doesNotMatch(text, /The Console only loads real Loopers owned by the connected wallet/);
   assert.doesNotMatch(text, /Agent dossier|Agent Workspace/);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
@@ -719,7 +718,7 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, false);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '1');
   assert.equal(root.querySelector('[data-action="select-console-agent"] option:checked')?.textContent, 'Bendr 2.0');
-  assert.match(root.querySelector('#console-agents > .console-sidebar-drawer > summary')?.textContent ?? '', /Bendr 2\.0/);
+  assert.match(root.querySelector('.console-main-roster-drawer > summary')?.textContent ?? '', /Bendr 2\.0/);
   assert.equal(root.querySelector('.console-thread-chat-copy h2')?.textContent, 'Bendr 2.0 Private Chat');
   assert.doesNotMatch(root.querySelector('.console-thread-chat-copy h2')?.textContent ?? '', /Legacy arbitrary room title/);
   assert.equal(root.querySelector('.console-thread-chat-head .console-thread-avatar-chat'), null);
@@ -731,7 +730,7 @@ test('Multipass Console renderer includes agent runtime messages and review-only
   assert.match(root.querySelector('.console-identity-members-list')?.textContent ?? '', /Bendr 2\.0/);
   const identityDrawerSummaries = [...root.querySelectorAll('.console-identity-card .console-sidebar-drawer summary')]
     .map((summary) => summary.textContent ?? '');
-  assert.ok(identityDrawerSummaries.some((summary) => /Identity profile/.test(summary)));
+  assert.ok(identityDrawerSummaries.some((summary) => /Identity data/.test(summary)));
   assert.ok(identityDrawerSummaries.some((summary) => /Participants/.test(summary)));
   assert.match(text, /Watch NVDAx/);
   assert.match(text, /Saved/);
@@ -1016,6 +1015,56 @@ test('Multipass Console places mobile navigation and chat before sidebar content
   assert.equal(shell?.children[1]?.classList.contains('console-workspace-nav-mobile'), true);
   assert.equal(shell?.children[2]?.classList.contains('console-basic-main'), true);
   assert.equal(shell?.children[3]?.classList.contains('console-basic-sidebar'), true);
+});
+
+test('Multipass Console places the active desktop roster above both aligned workspace panels', () => {
+  const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleAgentThread: { messages: [] },
+    },
+  })));
+  const shell = root.querySelector('.console-basic-shell');
+  const main = root.querySelector('.console-basic-main');
+  const roster = shell?.querySelector(':scope > .console-main-roster-drawer');
+
+  assert.ok(roster);
+  assert.match(roster.querySelector('summary')?.textContent ?? '', /My agents/i);
+  assert.equal(main?.querySelector(':scope > .console-main-roster-drawer'), null);
+  assert.equal(shell?.querySelectorAll('.console-main-roster-drawer').length, 1);
+});
+
+test('Multipass Console identity drawer shows canonical facts instead of repeating the agent bio', () => {
+  const agents = sampleAgents();
+  agents[0].erc8004AgentId = 87069;
+  const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: '1',
+      consoleAgentThread: { messages: [] },
+    },
+  })));
+  const identity = root.querySelector('.console-basic-sidebar .console-identity-card');
+  const identityDrawer = [...identity?.querySelectorAll('.console-sidebar-drawer') ?? []]
+    .find((drawer) => /Identity data/i.test(drawer.querySelector('summary')?.textContent ?? ''));
+  const facts = identityDrawer?.querySelector('.console-identity-data');
+
+  assert.ok(identityDrawer);
+  assert.ok(facts);
+  assert.match(facts.textContent, /Collection\s*Loopers/i);
+  assert.match(facts.textContent, /Token\s*#1/i);
+  assert.match(facts.textContent, /Chain\s*Base \(8453\)/i);
+  assert.match(facts.textContent, /CRED\s*80/i);
+  assert.match(facts.textContent, /ERC-8004\s*#87069/i);
+  assert.doesNotMatch(identityDrawer.textContent, /Lead agent in a direct thread/i);
+  assert.doesNotMatch(identity?.textContent ?? '', /Identity profile/i);
 });
 
 test('Multipass Console associates the visible composer label with its textarea', () => {

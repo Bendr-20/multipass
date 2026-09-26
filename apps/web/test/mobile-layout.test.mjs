@@ -149,8 +149,21 @@ test('mobile Console shows one workspace below the agent switcher and three-way 
   assert.match(mobileBlock, /\.console-workspace-nav-mobile\s*\{[^}]*grid-row:\s*2;/s);
   assert.match(mobileBlock, /\.console-basic-main\s*\{[^}]*grid-row:\s*3;/s);
   assert.match(mobileBlock, /\.console-basic-sidebar\s*\{[^}]*display:\s*none;/s);
-  assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
+  assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer,\s*\.console-basic-shell > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
   assert.match(finalPhoneBlock, /\.multipass-console-shell \.record-header\s*\{[^}]*padding-left:\s*12px;/s);
+});
+
+test('desktop Console roster spans both columns and the lower panels share one stretched row', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.lastIndexOf('@media (max-width: 1100px)'));
+
+  assert.match(css, /\.console-basic-shell\s*\{[^}]*align-items:\s*stretch;/s);
+  assert.match(css, /\.console-basic-shell-roster-active > \.console-main-roster-drawer\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-row:\s*1;/s);
+  assert.match(css, /\.console-basic-sidebar\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1;[^}]*align-self:\s*stretch;/s);
+  assert.match(css, /\.console-basic-main\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1;[^}]*align-self:\s*stretch;/s);
+  assert.match(css, /\.console-basic-shell-roster-active > \.console-basic-sidebar,\s*\.console-basic-shell-roster-active > \.console-basic-main\s*\{[^}]*grid-row:\s*2;/s);
+  assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer,\s*\.console-basic-shell > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
+  assert.match(mobileBlock, /\.console-basic-main,\s*\.console-basic-shell-roster-active > \.console-basic-main\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*3;/s);
 });
 
 test('mobile Console messages wrap inside the chat card without horizontal clipping', async () => {

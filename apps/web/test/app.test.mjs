@@ -1948,7 +1948,7 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.querySelector('.console-trust-rail')?.textContent ?? '', /No verified runtime proof yet/);
   assert.doesNotMatch(consolePage.querySelector('.console-trust-rail')?.textContent ?? '', /Bankr-ready|Sibyl-ready/);
   assert.ok(consolePage.querySelector('.console-identity-card'));
-  assert.equal(consolePage.querySelectorAll('.console-sidebar-drawer').length >= 3, true);
+  assert.equal(consolePage.querySelectorAll('.console-sidebar-drawer').length >= 2, true);
   assert.match(consolePage.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.ok(consolePage.querySelector('.console-thread-shell-header'));
   assert.ok(consolePage.querySelector('.console-thread-toolbar'));
@@ -1959,12 +1959,12 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.match(consolePage.textContent, /No room open/);
   assert.match(consolePage.textContent, /Thread note/);
   assert.match(consolePage.textContent, /Token/);
-  assert.match(consolePage.textContent, /Cred/);
+  assert.match(consolePage.textContent, /CRED/i);
   assert.match(consolePage.textContent, /Mode/);
-  assert.match(consolePage.textContent, /My agents/i);
+  assert.doesNotMatch(consolePage.textContent, /My agents/i);
   assert.doesNotMatch(consolePage.textContent, /The Console only loads real Loopers owned by the connected wallet/i);
-  assert.match(consolePage.textContent, /No recalled memory yet/);
-  assert.doesNotMatch(consolePage.textContent, /Agent dossier|Agent Workspace/);
+  assert.match(consolePage.textContent, /Canonical onchain identifiers/i);
+  assert.doesNotMatch(consolePage.textContent, /No recalled memory yet|Agent dossier|Agent Workspace/);
   assert.equal(consolePage.querySelectorAll('[data-action="connect-console-wallet"]').length, 0);
   assert.doesNotMatch(consolePage.textContent, /Tokenized equities|Vaults|What it's watching|signals feed/i);
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
@@ -2013,7 +2013,7 @@ test('dedicated Console route connects wallet and auto-loads the first owned Loo
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x27E3\.\.\.91Ea/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #617/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Trader \/ Broker/);
-  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /market making/i);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /market[- ]making/i);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '617');
   assert.match(root.querySelector('.console-agent-onboarding')?.textContent ?? '', /Switch Loopers/i);
   assert.equal(root.querySelector('.console-agent-onboarding')?.querySelectorAll('[data-action="activate-console-room"]').length, 2);
@@ -2066,7 +2066,7 @@ test('dedicated Console gallery searches, sorts, clears, and opens agents beyond
   assert.ok(root.querySelector('.console-agent-thread-panel'));
 });
 
-test('dedicated Console preserves explicit roster drawer opens across rerenders and closes them after selection', async () => {
+test('dedicated Console preserves the full-width roster drawer across rerenders and closes it after selection', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   await createApp({
@@ -2078,26 +2078,22 @@ test('dedicated Console preserves explicit roster drawer opens across rerenders 
   await flushAsyncEvents(30);
 
   let main = root.querySelector('details[data-console-roster-drawer="main"]');
-  let sidebar = root.querySelector('details[data-console-roster-drawer="sidebar"]');
   assert.equal(main?.open, false);
-  assert.equal(sidebar?.open, false);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
   main.open = true;
   main.dispatchEvent(new window.Event('toggle'));
-  sidebar.open = true;
-  sidebar.dispatchEvent(new window.Event('toggle'));
 
   const search = main.querySelector('[data-action="search-console-agent-gallery"]');
   search.value = '812';
   search.dispatchEvent(new window.Event('input', { bubbles: true }));
   main = root.querySelector('details[data-console-roster-drawer="main"]');
-  sidebar = root.querySelector('details[data-console-roster-drawer="sidebar"]');
   assert.equal(main?.open, true);
-  assert.equal(sidebar?.open, true);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
 
   main.querySelector('[data-action="activate-console-room"][data-token-id="812"]').click();
   await flushAsyncEvents(20);
   assert.equal(root.querySelector('details[data-console-roster-drawer="main"]')?.open, false);
-  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, false);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '812');
 });
 
@@ -2117,7 +2113,7 @@ test('dedicated Console opens the main roster drawer when ownership loading fail
   const main = root.querySelector('details[data-console-roster-drawer="main"]');
   assert.equal(main?.open, true);
   assert.ok(main?.querySelector('[role="alert"]'));
-  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, false);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]'), null);
   assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent.trim(), '0x27E3...91Ea');
   assert.doesNotMatch(root.textContent, /Loading agents\.\.\./i);
   assert.ok(root.querySelector('[data-action="refresh-console-owned-agents"]'));
@@ -2183,7 +2179,7 @@ test('dedicated Console gallery rolls back a failed activation and restores card
   await flushAsyncEvents(20);
 
   const gallery = root.querySelector('.console-agent-gallery');
-  const restored = root.querySelector('[data-action="activate-console-room"][data-token-id="812"]');
+  const restored = gallery?.querySelector('[data-action="activate-console-room"][data-token-id="812"]');
   assert.ok(gallery);
   assert.ok(restored);
   assert.equal(root.ownerDocument.activeElement, restored);
@@ -3252,7 +3248,7 @@ test('dedicated Console route accepts Base smart wallet identity snapshots', asy
 
   assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x709D...44aE');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x709D\.\.\.44aE/);
-  assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Looper #617/);
+  assert.match(root.querySelector('.console-main-roster-drawer')?.textContent ?? '', /Looper #617/);
   assert.equal(root.querySelector('[data-action="connect-looper-mint-wallet"]'), null);
 });
 
@@ -6809,7 +6805,7 @@ test('Console owner profile resolution is non-blocking and late stale results ar
   await flushAsyncEvents(20);
 
   assert.equal(lookups, 1);
-  assert.match(root.querySelector('.console-agent-panel')?.textContent ?? '', /Looper #617/);
+  assert.match(root.querySelector('.console-main-roster-drawer')?.textContent ?? '', /Looper #617/);
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /0x27E3\.\.\.91Ea \(you\)/i);
 
   walletClient.setSnapshot({ connected: false, address: null, label: null }, { notify: true });

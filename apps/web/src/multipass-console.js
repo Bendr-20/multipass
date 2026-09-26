@@ -176,6 +176,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         verifiedLabel,
       }),
       stats: createIdentityStats({ activeAgent, activeCred, proposalCount }),
+      identityData: createIdentityData({ activeAgent, activeCred }),
       tokenLabel: activeAgent?.tokenId ? `Token #${activeAgent.tokenId}` : 'Token not loaded',
       erc8004Label: getPositiveErc8004AgentId(activeAgent) ? `ERC-8004 #${getPositiveErc8004AgentId(activeAgent)}` : null,
       agentWallet: activeAgentWallet,
@@ -204,19 +205,11 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
 }
 
 export function renderMultipassConsole(snapshot = {}) {
-  const rosterCount = Array.isArray(snapshot.agents) ? snapshot.agents.length : 0;
-  const rosterStatus = snapshot.agentRoster?.status ?? 'idle';
-  const rosterStat = rosterCount
-    ? `${rosterCount} owned`
-    : rosterStatus === 'loading'
-      ? 'Loading'
-      : rosterStatus === 'error'
-        ? 'Retry'
-        : 'Empty';
+  const showDesktopRoster = Boolean(snapshot.session?.wallet?.authenticated);
   return `
     <main class="multipass-console" aria-label="Multipass Console">
       ${renderSuitePanel(snapshot)}
-      <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
+      <section class="console-workspace-grid console-basic-shell${showDesktopRoster ? ' console-basic-shell-roster-active' : ''}" aria-label="Agent console">
         ${renderConsoleAgentSwitcher(snapshot)}
         ${renderConsoleWorkspaceNav(snapshot, { mobile: true })}
         <section class="console-workspace-main console-basic-main" aria-label="Selected agent workspace">
@@ -232,25 +225,8 @@ export function renderMultipassConsole(snapshot = {}) {
           ${renderConsoleWorkspaceNav(snapshot)}
           ${renderIdentityCard(snapshot.identityCard)}
           ${renderSessionPanel(snapshot.session)}
-          <section id="console-agents" class="console-panel console-agent-panel" aria-label="Wallet-owned agents">
-            ${renderConsoleDrawer({
-              label: 'Agents',
-              title: 'My agents',
-              stat: snapshot.session?.activeAgentId ? snapshot.session.activeAgentLabel : rosterStat,
-              hint: snapshot.session?.selectionHint ?? 'Wallet-owned Helixa roster.',
-            open: Boolean(snapshot.rosterDrawers?.sidebarOpen),
-            action: 'toggle-console-roster-drawer',
-            drawer: 'sidebar',
-              body: `
-                ${renderAgentSelector(snapshot.session)}
-                <div class="console-agent-list">
-                  ${renderAgentRoster(snapshot)}
-                </div>
-                ${snapshot.agentRoster?.error ? `<p class="console-agent-error">${escapeHtml(snapshot.agentRoster.error)}</p>` : ''}
-              `,
-            })}
-          </section>
         </aside>
+        ${showDesktopRoster ? renderConsoleMainRosterDrawer(snapshot) : ''}
       </section>
     </main>
   `;
@@ -267,13 +243,12 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
       contextItems: snapshot.threadContextItems,
     });
   }
-  const rosterDrawer = renderConsoleMainRosterDrawer(snapshot);
-  if (!session.activeAgentId) return rosterDrawer;
   const thread = renderConsoleAgentThread({
     ...snapshot.agentThread,
     recall: snapshot.recall,
     contextItems: snapshot.threadContextItems,
   });
+  if (!session.activeAgentId) return thread;
   let workspace;
   if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
     workspace = renderConsoleWalletWorkspace(snapshot.identityCard);
@@ -285,7 +260,7 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   const inactiveThread = snapshot.workspaceView === 'chat'
     ? ''
     : `<div class="console-inactive-chat" hidden>${thread}</div>`;
-  return `${rosterDrawer}${workspace}${inactiveThread}`;
+  return `${workspace}${inactiveThread}`;
 }
 
 function renderConsoleAgentSwitcher(snapshot = {}) {
@@ -336,7 +311,7 @@ function renderConsoleMainRosterDrawer(snapshot = {}) {
     : 'Choose a Looper to continue';
   return renderConsoleDrawer({
     label: 'Agents',
-    title: 'My Loopers',
+    title: 'My agents',
     stat,
     hint,
     open: Boolean(snapshot.rosterDrawers?.mainOpen),
@@ -697,21 +672,19 @@ function renderIdentityCard(card = {}) {
       }) : ''}
       ${renderConsoleDrawer({
         label: 'Identity',
-        title: 'Identity profile',
-        stat: trustStat,
-        hint: card.summary ?? '',
+        title: 'Identity data',
+        stat: card.tokenLabel ?? trustStat,
+        hint: 'Canonical onchain identifiers for this Looper.',
         open: false,
         body: `
-          ${(card.stats ?? []).length ? `
-            <div class="console-identity-stats">
-              ${(card.stats ?? []).map(renderMiniStat).join('')}
-            </div>
-          ` : ''}
-          ${(card.dossier ?? []).length ? `
-            <div class="console-identity-dossier">
-              ${(card.dossier ?? []).map(renderIdentityDossierEntry).join('')}
-            </div>
-          ` : ''}
+          <dl class="console-identity-data">
+            ${(card.identityData ?? []).map((item) => `
+              <div>
+                <dt>${escapeHtml(item.label)}</dt>
+                <dd>${escapeHtml(item.value)}</dd>
+              </div>
+            `).join('')}
+          </dl>
         `,
       })}
       ${memberCount > 1 ? renderConsoleDrawer({
@@ -1354,6 +1327,18 @@ function createIdentityStats({ activeAgent = null, activeCred = 'Cred pending', 
     { label: 'Token', value: activeAgent?.tokenId ? `#${activeAgent.tokenId}` : 'Not loaded' },
     { label: 'Cred', value: activeCred },
     { label: activeAgent?.profileLane ? 'Lane' : 'Mode', value: activeAgent?.profileLane ?? (proposalCount ? `${proposalCount} queued` : 'Review-only') },
+  ];
+}
+
+function createIdentityData({ activeAgent = null, activeCred = 'Cred pending' } = {}) {
+  const erc8004AgentId = getPositiveErc8004AgentId(activeAgent);
+  const credValue = String(activeCred ?? 'Cred pending').replace(/^cred\s*/iu, '').trim() || 'Pending';
+  return [
+    { label: 'Collection', value: 'Loopers' },
+    { label: 'Token', value: activeAgent?.tokenId ? `#${activeAgent.tokenId}` : 'Not loaded' },
+    { label: 'Chain', value: 'Base (8453)' },
+    { label: 'CRED', value: credValue },
+    { label: 'ERC-8004', value: erc8004AgentId ? `#${erc8004AgentId}` : 'Not registered' },
   ];
 }
 
