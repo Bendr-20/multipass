@@ -287,10 +287,18 @@ async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expe
       });
     }
     const results = await completeMulticallWithFallback(publicClients, contracts);
-    results.forEach((result, index) => {
-      if (String(result.result ?? '').toLowerCase() !== owner.toLowerCase()) return;
+    for (let index = 0; index < results.length; index += 1) {
+      let result = results[index];
+      if (result?.status !== 'success') {
+        try {
+          result = { status: 'success', result: await readWithFallback(publicClients, contracts[index]) };
+        } catch {
+          continue;
+        }
+      }
+      if (String(result.result ?? '').toLowerCase() !== owner.toLowerCase()) continue;
       owned.push(String(start + index));
-    });
+    }
   }
   return owned.slice(0, targetCount);
 }

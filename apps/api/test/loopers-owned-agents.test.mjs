@@ -8,7 +8,8 @@ const WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const OTHER_WALLET = '0x0000000000000000000000000000000000000001';
 const AUTH_COOKIE = { cookie: 'multipass_console=test-session' };
 
-function createOwnershipClient({ incomplete = false, owns617 = false, failedTokenId = null } = {}) {
+function createOwnershipClient({ incomplete = false, owns617 = false, failedTokenId = null, failedTokenIdOnce = null } = {}) {
+  let droppedTransientToken = false;
   return {
     async readContract({ functionName, args = [] }) {
       if (functionName === 'balanceOf') return 1n;
@@ -21,7 +22,9 @@ function createOwnershipClient({ incomplete = false, owns617 = false, failedToke
     async multicall({ contracts }) {
       return contracts.map((contract, index) => {
         const tokenId = contract.args[0];
-        if ((incomplete && index === 0) || tokenId === failedTokenId) {
+        const dropsTransientToken = tokenId === failedTokenIdOnce && !droppedTransientToken;
+        if (dropsTransientToken) droppedTransientToken = true;
+        if ((incomplete && index === 0) || tokenId === failedTokenId || dropsTransientToken) {
           return { status: 'failure', error: new Error('dropped') };
         }
         if (contract.functionName === 'ownerOf') {
@@ -59,6 +62,17 @@ test('owned Looper scan tolerates permanent ownerOf gaps when the balance is ful
   const agents = await loadOwnedLooperAgents({
     address: WALLET,
     publicClients: [createOwnershipClient({ owns617: true, failedTokenId: 616n })],
+    fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper scan retries a dropped owner slot with a direct chain read', async () => {
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClients: [createOwnershipClient({ owns617: true, failedTokenIdOnce: 617n })],
     fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
   });
 
