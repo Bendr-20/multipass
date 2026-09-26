@@ -2118,6 +2118,9 @@ test('dedicated Console opens the main roster drawer when ownership loading fail
   assert.equal(main?.open, true);
   assert.ok(main?.querySelector('[role="alert"]'));
   assert.equal(root.querySelector('details[data-console-roster-drawer="sidebar"]')?.open, false);
+  assert.equal(root.querySelector('[data-action="connect-console-wallet"]')?.textContent.trim(), '0x27E3...91Ea');
+  assert.doesNotMatch(root.textContent, /Loading agents\.\.\./i);
+  assert.ok(root.querySelector('[data-action="refresh-console-owned-agents"]'));
 });
 
 test('dedicated Console gallery ignores older refresh responses', async () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
-import { loadOwnedLooperAgents } from '../src/loopers-owned-agents.js';
+import { createLoopersPublicClients, loadOwnedLooperAgents } from '../src/loopers-owned-agents.js';
 
 const WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const OTHER_WALLET = '0x0000000000000000000000000000000000000001';
@@ -42,6 +42,13 @@ function createOwnershipClient({ incomplete = false, owns617 = false, failedToke
   };
 }
 
+test('owned Looper clients include a third live Base fallback', () => {
+  assert.deepEqual(
+    createLoopersPublicClients().map((client) => client.transport.url),
+    ['https://base-rpc.publicnode.com', 'https://base.drpc.org', 'https://mainnet.base.org'],
+  );
+});
+
 test('owned Looper scan falls back after an RPC drops a chunk and resolves the canonical identity', async () => {
   const agents = await loadOwnedLooperAgents({
     address: WALLET,
@@ -74,6 +81,20 @@ test('owned Looper scan retries a dropped owner slot with a direct chain read', 
     address: WALLET,
     publicClients: [createOwnershipClient({ owns617: true, failedTokenIdOnce: 617n })],
     fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper loader abandons a stalled indexer and uses the bounded chain fallback', { timeout: 1_000 }, async () => {
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClients: [createOwnershipClient({ owns617: true })],
+    indexerTimeoutMs: 5,
+    fetchImpl: async (url) => String(url).includes('/instances?')
+      ? new Promise(() => {})
+      : new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
   });
 
   assert.equal(agents.length, 1);

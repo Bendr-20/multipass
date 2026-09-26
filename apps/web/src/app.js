@@ -1187,6 +1187,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       state = {
         ...state,
         walletSnapshot,
+        consoleWalletStatus: 'connected',
         consoleOwnedAgents: {
           status: 'error',
           error: getSafeConsoleError(error, { phase: 'roster' }),

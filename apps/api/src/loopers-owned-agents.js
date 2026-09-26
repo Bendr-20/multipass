@@ -4,7 +4,13 @@ import { base } from 'viem/chains';
 export const LOOPERS_MAINNET_CONTRACT = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
 export const LOOPERS_MAINNET_ADAPTER = '0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27';
 export const LOOPERS_MAINNET_CHAIN_ID = 8453;
-const DEFAULT_RPC_URLS = ['https://base.drpc.org', 'https://mainnet.base.org'];
+const DEFAULT_RPC_URLS = [
+  'https://base-rpc.publicnode.com',
+  'https://base.drpc.org',
+  'https://mainnet.base.org',
+];
+const DEFAULT_RPC_TIMEOUT_MS = 5_000;
+const DEFAULT_INDEXER_TIMEOUT_MS = 5_000;
 const DEFAULT_METADATA_BASE_URL = 'https://helixa.xyz/loopers/metadata-hotfix/';
 const DEFAULT_IMAGE_BASE_URL = 'https://helixa.xyz/loopers/images/';
 const DEFAULT_INDEXER_BASE_URL = 'https://base.blockscout.com/api/v2';
@@ -54,7 +60,10 @@ export function createLoopersPublicClients({ rpcUrl, rpcUrls, publicClient, publ
   if (injected.length) return injected;
   if (publicClient) return [publicClient];
   const urls = rpcUrl ? [rpcUrl, ...DEFAULT_RPC_URLS.filter((url) => url !== rpcUrl)] : (rpcUrls ?? DEFAULT_RPC_URLS);
-  return [...new Set(urls)].map((url) => createPublicClient({ chain: base, transport: http(url) }));
+  return [...new Set(urls)].map((url) => createPublicClient({
+    chain: base,
+    transport: http(url, { timeout: DEFAULT_RPC_TIMEOUT_MS, retryCount: 0 }),
+  }));
 }
 
 export function createLoopersOwnedAgentLoader({
@@ -68,6 +77,7 @@ export function createLoopersOwnedAgentLoader({
   metadataBaseUrl = DEFAULT_METADATA_BASE_URL,
   imageBaseUrl = DEFAULT_IMAGE_BASE_URL,
   indexerBaseUrl = DEFAULT_INDEXER_BASE_URL,
+  indexerTimeoutMs = DEFAULT_INDEXER_TIMEOUT_MS,
   ownerChunkSize = DEFAULT_OWNER_CHUNK_SIZE,
 } = {}) {
   const clients = createLoopersPublicClients({ rpcUrl, rpcUrls, publicClient, publicClients });
@@ -81,6 +91,7 @@ export function createLoopersOwnedAgentLoader({
       metadataBaseUrl,
       imageBaseUrl,
       indexerBaseUrl,
+      indexerTimeoutMs,
       ownerChunkSize,
     });
   };
@@ -96,6 +107,7 @@ export async function loadOwnedLooperAgents({
   metadataBaseUrl = DEFAULT_METADATA_BASE_URL,
   imageBaseUrl = DEFAULT_IMAGE_BASE_URL,
   indexerBaseUrl = DEFAULT_INDEXER_BASE_URL,
+  indexerTimeoutMs = DEFAULT_INDEXER_TIMEOUT_MS,
   ownerChunkSize = DEFAULT_OWNER_CHUNK_SIZE,
 } = {}) {
   const owner = normalizeAddress(address);
@@ -121,6 +133,7 @@ export async function loadOwnedLooperAgents({
     expectedBalance: balance,
     fetchImpl,
     indexerBaseUrl,
+    indexerTimeoutMs,
   });
   const ownedTokenIds = indexedTokenIds ?? await findOwnedTokenIdsByOwnerOf({
     publicClients: clients,
@@ -305,23 +318,23 @@ async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expe
 
 async function completeMulticallWithFallback(clients, contracts) {
   const merged = Array.from({ length: contracts.length }, () => null);
+  const responses = await Promise.allSettled(clients.map((client) => client.multicall({ contracts, allowFailure: true })));
   let completedResponse = false;
   let lastError = null;
-  for (const client of clients) {
-    try {
-      const results = await client.multicall({ contracts, allowFailure: true });
-      if (!Array.isArray(results) || results.length !== contracts.length) {
-        lastError = new Error('RPC returned an incomplete ownership chunk.');
-        continue;
-      }
-      completedResponse = true;
-      results.forEach((result, index) => {
-        if (result?.status === 'success') merged[index] = result;
-      });
-      if (merged.every(Boolean)) break;
-    } catch (error) {
-      lastError = error;
+  for (const response of responses) {
+    if (response.status === 'rejected') {
+      lastError = response.reason;
+      continue;
     }
+    const results = response.value;
+    if (!Array.isArray(results) || results.length !== contracts.length) {
+      lastError = new Error('RPC returned an incomplete ownership chunk.');
+      continue;
+    }
+    completedResponse = true;
+    results.forEach((result, index) => {
+      if (result?.status === 'success') merged[index] = result;
+    });
   }
   if (!completedResponse) {
     throw new Error(`Looper ownership scan incomplete: ${lastError?.message ?? 'all providers failed'}`);
@@ -330,25 +343,21 @@ async function completeMulticallWithFallback(clients, contracts) {
 }
 
 async function readWithFallback(clients, request) {
-  let lastError = null;
-  for (const client of clients) {
-    try {
-      return await client.readContract(request);
-    } catch (error) {
-      lastError = error;
-    }
-  }
+  const responses = await Promise.allSettled(clients.map((client) => client.readContract(request)));
+  const completed = responses.find((response) => response.status === 'fulfilled');
+  if (completed) return completed.value;
+  const lastError = responses.findLast((response) => response.status === 'rejected')?.reason;
   throw new Error(`Looper chain read failed: ${lastError?.message ?? 'all providers failed'}`);
 }
 
 async function readExpectedOwnerWithFallback(clients, request, expectedOwner) {
+  const responses = await Promise.allSettled(clients.map((client) => client.readContract(request)));
   let completedRead = false;
-  for (const client of clients) {
-    try {
-      const actualOwner = normalizeAddress(await client.readContract(request));
-      completedRead = true;
-      if (actualOwner.toLowerCase() === expectedOwner.toLowerCase()) return actualOwner;
-    } catch {}
+  for (const response of responses) {
+    if (response.status !== 'fulfilled') continue;
+    const actualOwner = normalizeAddress(response.value);
+    completedRead = true;
+    if (actualOwner.toLowerCase() === expectedOwner.toLowerCase()) return actualOwner;
   }
   const error = new Error(completedRead
     ? 'Authenticated wallet does not own this Looper.'
@@ -358,12 +367,10 @@ async function readExpectedOwnerWithFallback(clients, request, expectedOwner) {
 }
 
 async function readMaxUint(clients, request) {
-  const values = [];
-  for (const client of clients) {
-    try {
-      values.push(BigInt(await client.readContract(request)));
-    } catch {}
-  }
+  const responses = await Promise.allSettled(clients.map((client) => client.readContract(request)));
+  const values = responses
+    .filter((response) => response.status === 'fulfilled')
+    .map((response) => BigInt(response.value));
   if (!values.length) throw new Error('Looper chain read failed on every provider.');
   return values.reduce((max, value) => value > max ? value : max, 0n);
 }
@@ -417,7 +424,7 @@ async function hydrateOwnedLooper({ tokenId, owner, authorization, fetchImpl, me
   };
 }
 
-async function findOwnedTokenIdsFromIndexer({ owner, contract, expectedBalance, fetchImpl, indexerBaseUrl }) {
+async function findOwnedTokenIdsFromIndexer({ owner, contract, expectedBalance, fetchImpl, indexerBaseUrl, indexerTimeoutMs }) {
   if (!indexerBaseUrl || typeof fetchImpl !== 'function') return null;
   const endpoint = `${String(indexerBaseUrl).replace(/\/+$/u, '')}/tokens/${getAddress(contract)}/instances`;
   const tokenIds = new Set();
@@ -428,7 +435,10 @@ async function findOwnedTokenIdsFromIndexer({ owner, contract, expectedBalance, 
     for (const [key, value] of Object.entries(nextPageParams)) {
       if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
     }
-    const response = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' } }).catch(() => null);
+    const response = await fetchWithTimeout(fetchImpl, url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+    }, indexerTimeoutMs);
     if (!response?.ok) return null;
     const body = await response.json().catch(() => null);
     if (!Array.isArray(body?.items)) return null;
@@ -450,6 +460,24 @@ async function findOwnedTokenIdsFromIndexer({ owner, contract, expectedBalance, 
   return tokenIds.size === Number(expectedBalance)
     ? [...tokenIds].sort((left, right) => Number(left) - Number(right))
     : null;
+}
+
+async function fetchWithTimeout(fetchImpl, url, init, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(fetchImpl(url, { ...init, signal: controller.signal })).catch(() => null),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          resolve(null);
+        }, Math.max(1, Number(timeoutMs) || DEFAULT_INDEXER_TIMEOUT_MS));
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchLooperMetadata({ tokenId, fetchImpl, metadataBaseUrl }) {
