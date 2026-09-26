@@ -85,7 +85,8 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
     tokenId: agent.tokenId ?? '',
     name: agent.name ?? 'Onchain agent',
     role: agent.role ?? agent.framework ?? 'Agent profile',
-    cred: agent.credLabel,
+    cred: agent.cred,
+    credLabel: agent.credLabel,
     state: agent.state ?? (agent.verified ? 'Verified profile' : 'Review needed'),
     verified: Boolean(agent.verified),
     href: agent.href ?? null,
@@ -425,7 +426,8 @@ function renderConsoleAgentGalleryCard(agent = {}) {
         ? `<div class="console-agent-choice-avatar"><img src="${escapeAttribute(agent.image)}" alt="${escapeAttribute(accessibleName)}" loading="lazy"></div>`
         : `<div class="console-agent-choice-avatar" role="img" aria-label="${escapeAttribute(accessibleName)}">${escapeHtml(initialsForLabel(name || tokenId || 'A'))}</div>`}
       <h3>${escapeHtml(name)}</h3>
-      <p class="console-agent-gallery-summary">Looper #${escapeHtml(tokenId)} · ${escapeHtml(agent.role ?? 'Agent profile')} · ${escapeHtml(agent.cred ?? 'Cred pending')} · ${agent.verified ? 'Verified' : 'Verification pending'}</p>
+      <p class="console-agent-gallery-summary">Looper #${escapeHtml(tokenId)} · ${escapeHtml(agent.role ?? 'Agent profile')} · ${agent.verified ? 'Verified' : 'Verification pending'}</p>
+      ${renderCompactCred(agent)}
       <button type="button" data-action="activate-console-room" data-token-id="${escapeAttribute(tokenId)}" aria-label="${escapeAttribute(`Open ${accessibleName}`)}" ${agent.activationDisabled ? 'disabled' : ''}>Open agent</button>
     </article>
   `;
@@ -1330,16 +1332,19 @@ function createIdentityStats({ activeAgent = null, activeCred = 'Cred pending', 
   ];
 }
 
-function createIdentityData({ activeAgent = null, activeCred = 'Cred pending' } = {}) {
+function createIdentityData({ activeAgent = null, activeCred = 'CRED pending' } = {}) {
   const erc8004AgentId = getPositiveErc8004AgentId(activeAgent);
-  const credValue = String(activeCred ?? 'Cred pending').replace(/^cred\s*/iu, '').trim() || 'Pending';
+  const cred = activeAgent?.cred;
+  const available = isAvailableCred(cred);
   return [
     { label: 'Collection', value: 'Loopers' },
     { label: 'Token', value: activeAgent?.tokenId ? `#${activeAgent.tokenId}` : 'Not loaded' },
     { label: 'Chain', value: 'Base (8453)' },
-    { label: 'CRED', value: credValue },
+    { label: 'CRED', value: available ? `${cred.score} · ${cred.tier}` : String(activeCred ?? 'CRED pending').replace(/^cred\s*/iu, '').trim() || 'Pending' },
+    available ? { label: 'Evidence', value: `${cred.coverage.label} · ${cred.coverage.score}%` } : null,
+    available ? { label: 'Freshness', value: formatCredFreshness(cred) } : null,
     { label: 'ERC-8004', value: erc8004AgentId ? `#${erc8004AgentId}` : 'Not registered' },
-  ];
+  ].filter(Boolean);
 }
 
 function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idle', activeAgentCount = 0 } = {}) {
@@ -1371,15 +1376,21 @@ function buildAgentOptionLabel(agent = {}) {
 }
 
 export function normalizeConsoleCred(agent = {}) {
-  const credScore = Number.isFinite(agent?.credScore) ? agent.credScore : null;
-  const rawLabel = String(agent?.credLabel ?? '').trim();
-  const hasTrustedLabel = Boolean(rawLabel && !isPendingCredLabel(rawLabel));
-  if (credScore !== null) {
-    return { credScore, credLabel: hasTrustedLabel ? rawLabel : `Cred ${credScore}` };
+  const cred = agent?.cred;
+  if (isAvailableCred(cred)) {
+    return {
+      cred,
+      credScore: cred.score,
+      credLabel: `CRED ${cred.score} · ${cred.tier}${cred.status === 'stale' ? ' · STALE' : ''}`,
+    };
   }
-  if (hasTrustedLabel) return { credScore: null, credLabel: rawLabel };
-  if (String(agent?.tokenId ?? '').trim() === '614') return { credScore: 65, credLabel: 'Cred 65' };
-  return { credScore: null, credLabel: rawLabel || 'Cred pending' };
+  if (cred?.status === 'unavailable') {
+    return { cred, credScore: null, credLabel: 'CRED unavailable' };
+  }
+  if (cred?.status === 'pending') {
+    return { cred, credScore: null, credLabel: 'CRED pending' };
+  }
+  return { cred: null, credScore: null, credLabel: 'CRED pending' };
 }
 
 function normalizeConsoleAgent(agent = {}) {
@@ -1403,6 +1414,44 @@ function createMultipassFacts({ activeAgent = null, ownerDisplayName = null } = 
 
 function isPendingCredLabel(value) {
   return /^(?:cred\s+)?pending$/iu.test(String(value ?? '').trim());
+}
+
+function isAvailableCred(cred) {
+  return Boolean(cred)
+    && ['available', 'stale'].includes(cred.status)
+    && Number.isInteger(cred.score)
+    && cred.score >= 0
+    && cred.score <= 100
+    && ['JUNK', 'MARGINAL', 'QUALIFIED', 'PRIME', 'PREFERRED'].includes(cred.tier)
+    && Number.isInteger(cred.coverage?.score)
+    && cred.coverage.score >= 0
+    && cred.coverage.score <= 100
+    && ['THIN', 'PARTIAL', 'GOOD', 'STRONG'].includes(cred.coverage?.label)
+    && typeof cred.freshness?.stale === 'boolean';
+}
+
+function formatCredFreshness(cred) {
+  if (!isAvailableCred(cred)) return 'Unavailable';
+  if (!cred.freshness.stale) return cred.freshness.cached ? 'Fresh · cached' : 'Fresh';
+  const ageSeconds = Number.isInteger(cred.freshness.ageSeconds) ? cred.freshness.ageSeconds : 0;
+  const age = ageSeconds >= 3600
+    ? `${Math.floor(ageSeconds / 3600)}h old`
+    : ageSeconds >= 60 ? `${Math.floor(ageSeconds / 60)}m old` : `${ageSeconds}s old`;
+  return `Stale · ${age}`;
+}
+
+function renderCompactCred(agent = {}) {
+  const cred = agent.cred;
+  if (!isAvailableCred(cred)) {
+    return `<div class="console-cred-summary" aria-label="Authoritative CRED" data-cred-status="${escapeAttribute(cred?.status ?? 'pending')}"><strong>${escapeHtml(agent.credLabel ?? 'CRED pending')}</strong></div>`;
+  }
+  return `
+    <div class="console-cred-summary" aria-label="Authoritative CRED" data-cred-status="${escapeAttribute(cred.status)}">
+      <strong>${escapeHtml(agent.credLabel)}</strong>
+      <span>Evidence ${escapeHtml(cred.coverage.label)} · ${escapeHtml(cred.coverage.score)}%</span>
+      <small>${escapeHtml(formatCredFreshness(cred))}</small>
+    </div>
+  `;
 }
 
 function decorateConsoleMessages(messages, { activeAgent = null, ownerProfile = {} } = {}) {

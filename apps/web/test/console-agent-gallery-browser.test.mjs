@@ -18,13 +18,25 @@ const EXPECTED_COLUMNS = new Map([
 ]);
 
 function agents(count) {
-  return Array.from({ length: count }, (_, index) => ({
-    tokenId: String(index + 1),
-    name: `Looper ${String(index + 1).padStart(4, '0')}`,
-    role: index % 2 ? 'Scout' : 'Operator',
-    credLabel: `Cred ${60 + (index % 30)}`,
-    verified: true,
-  }));
+  return Array.from({ length: count }, (_, index) => {
+    const score = 60 + (index % 30);
+    return {
+      tokenId: String(index + 1),
+      name: `Looper ${String(index + 1).padStart(4, '0')}`,
+      role: index % 2 ? 'Scout' : 'Operator',
+      cred: {
+        score,
+        tier: score >= 76 ? 'PRIME' : 'QUALIFIED',
+        coverage: { score: 45, label: 'PARTIAL', present: ['binding', 'metadata'], missing: ['continuity', 'erc6551Activity', 'erc8004Reputation', 'verifiedReceipts'] },
+        freshness: { status: 'fresh', stale: false, cached: false, ageSeconds: 0, maxAgeSeconds: 300, staleIfErrorSeconds: 86400 },
+        methodologyVersion: 'looper-cred-v1',
+        computedAt: '2026-09-26T22:00:00.000Z',
+        updatedAt: '2026-09-26T22:00:00.000Z',
+        status: 'available',
+      },
+      verified: true,
+    };
+  });
 }
 
 function pageMarkup({ count = 24, status = 'loaded', query = '', error = null } = {}, css = '') {
@@ -98,6 +110,8 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
   const interactiveMs = performance.now() - startedAt;
   assert.ok(interactiveMs < 2_000, `100-card gallery became interactive in ${Math.round(interactiveMs)}ms`);
   assert.equal(await page.locator('.console-agent-gallery-card').count(), 100);
+  assert.equal(await page.locator('.console-cred-summary[aria-label="Authoritative CRED"]').count(), 100);
+  assert.match(await page.locator('.console-cred-summary').first().textContent(), /CRED 60.*Evidence PARTIAL.*45%/s);
 
   await page.goto(`${fixture.origin}/full`, { waitUntil: 'domcontentloaded' });
   await openMainRoster(page);

@@ -28,13 +28,39 @@ function sampleData() {
   };
 }
 
+function canonicalCred(score, tier = 'PRIME', overrides = {}) {
+  return {
+    score,
+    tier,
+    coverage: {
+      score: 70,
+      label: 'GOOD',
+      present: ['binding', 'metadata', 'continuity', 'erc6551Activity'],
+      missing: ['erc8004Reputation', 'verifiedReceipts'],
+    },
+    freshness: {
+      status: 'fresh',
+      stale: false,
+      cached: false,
+      ageSeconds: 0,
+      maxAgeSeconds: 300,
+      staleIfErrorSeconds: 86400,
+    },
+    methodologyVersion: 'looper-cred-v1',
+    computedAt: '2026-09-26T22:00:00.000Z',
+    updatedAt: '2026-09-26T22:00:00.000Z',
+    status: 'available',
+    ...overrides,
+  };
+}
+
 function sampleAgents() {
   return [
     {
       tokenId: '1',
       name: 'Bendr 2.0',
       role: 'Lead agent',
-      credScore: 80,
+      cred: canonicalCred(80),
       helixaId: '8453:1',
       intuition: { label: 'Published', canonicalAgentId: '8453:18531' },
       proofCount: 2,
@@ -43,7 +69,7 @@ function sampleAgents() {
       verified: true,
       href: '/multipass/?agent=1',
     },
-    { tokenId: '81', name: 'Quigbot', role: 'Strategy agent', credScore: 75, proofCount: 1, routeCount: 1, standardsCount: 1, verified: true, href: '/multipass/?agent=81' },
+    { tokenId: '81', name: 'Quigbot', role: 'Strategy agent', cred: canonicalCred(75, 'QUALIFIED'), proofCount: 1, routeCount: 1, standardsCount: 1, verified: true, href: '/multipass/?agent=81' },
   ];
 }
 
@@ -581,7 +607,7 @@ test('Multipass Console snapshot frames onchain agent operations without collect
   assert.equal(snapshot.identityCard.badges.length, 3);
   assert.equal(snapshot.identityCard.dossier.length, 4);
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Token')?.value, '#1');
-  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'Cred 80');
+  assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Cred')?.value, 'CRED 80 · PRIME');
   assert.equal(snapshot.identityCard.stats.find((item) => item.label === 'Mode')?.value, 'Review-only');
   assert.equal(snapshot.suiteChecks.length, 0);
   assert.equal(snapshot.agentThread.agentName, 'Bendr 2.0');
@@ -1115,12 +1141,91 @@ test('Multipass Console keeps participants and technical room context in closed 
   assert.equal(header?.querySelector('.console-thread-shell-meta'), null);
 });
 
-test('Console Cred normalization follows numeric label and Looper 614 precedence', () => {
-  assert.deepEqual(normalizeConsoleCred({ tokenId: '1', credScore: 72.5, credLabel: 'Cred pending' }), { credScore: 72.5, credLabel: 'Cred 72.5' });
-  assert.deepEqual(normalizeConsoleCred({ tokenId: '1', credScore: null, credLabel: 'Trusted peer' }), { credScore: null, credLabel: 'Trusted peer' });
-  assert.deepEqual(normalizeConsoleCred({ tokenId: '614', credScore: null, credLabel: 'Cred pending' }), { credScore: 65, credLabel: 'Cred 65' });
-  assert.deepEqual(normalizeConsoleCred({ tokenId: 614, credScore: undefined, credLabel: '' }), { credScore: 65, credLabel: 'Cred 65' });
-  assert.deepEqual(normalizeConsoleCred({ tokenId: '615', credScore: null, credLabel: 'Cred pending' }), { credScore: null, credLabel: 'Cred pending' });
+test('Console CRED normalization uses only canonical CRED and never token-specific or legacy fallback values', () => {
+  const available = canonicalCred(40, 'MARGINAL');
+  const stale = canonicalCred(41, 'MARGINAL', {
+    status: 'stale',
+    freshness: {
+      status: 'stale', stale: true, cached: true, ageSeconds: 901,
+      maxAgeSeconds: 300, staleIfErrorSeconds: 86400, reason: 'upstream_timeout',
+    },
+  });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '614', cred: available, credScore: 65, credLabel: 'Cred 65' }), {
+    cred: available,
+    credScore: 40,
+    credLabel: 'CRED 40 · MARGINAL',
+  });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '614', cred: stale }), {
+    cred: stale,
+    credScore: 41,
+    credLabel: 'CRED 41 · MARGINAL · STALE',
+  });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '614', credScore: 65, credLabel: 'Cred 65' }), {
+    cred: null,
+    credScore: null,
+    credLabel: 'CRED pending',
+  });
+  assert.deepEqual(normalizeConsoleCred({ tokenId: '615', cred: { status: 'unavailable', score: null } }), {
+    cred: { status: 'unavailable', score: null },
+    credScore: null,
+    credLabel: 'CRED unavailable',
+  });
+});
+
+test('Console renders canonical score, evidence coverage, freshness, and escaped unavailable states', () => {
+  const freshAgent = {
+    ...sampleAgents()[0],
+    tokenId: '614',
+    name: '<img src=x onerror=alert(1)>',
+    erc8004AgentId: '87043',
+    cred: canonicalCred(40, 'MARGINAL'),
+  };
+  const freshRoot = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [freshAgent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents: [freshAgent] },
+      consoleSelectedAgentId: '614',
+    },
+  })));
+  assert.match(freshRoot.textContent, /CRED 40.*MARGINAL/s);
+  assert.match(freshRoot.textContent, /GOOD.*70%|70%.*GOOD/s);
+  assert.match(freshRoot.textContent, /Fresh/);
+  assert.equal(freshRoot.querySelector('img[src="x"]'), null);
+
+  const staleAgent = {
+    ...freshAgent,
+    tokenId: '615',
+    name: 'Looper #615',
+    cred: canonicalCred(41, 'MARGINAL', {
+      status: 'stale',
+      freshness: {
+        status: 'stale', stale: true, cached: true, ageSeconds: 901,
+        maxAgeSeconds: 300, staleIfErrorSeconds: 86400, reason: 'upstream_timeout',
+      },
+    }),
+  };
+  const unavailableAgent = {
+    ...freshAgent,
+    tokenId: '616',
+    name: 'Looper #616',
+    cred: { status: 'unavailable', score: null, error: { code: '<script>alert(1)</script>' } },
+  };
+  const rosterRoot = render(renderMultipassConsole(createMultipassConsoleSnapshot({
+    agents: [staleAgent, unavailableAgent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents: [staleAgent, unavailableAgent] },
+      consoleSelectedAgentId: null,
+      consoleMainRosterOpen: true,
+    },
+  })));
+  assert.match(rosterRoot.textContent, /CRED 41.*STALE/s);
+  assert.match(rosterRoot.textContent, /Evidence GOOD.*70%/s);
+  assert.match(rosterRoot.textContent, /CRED unavailable/);
+  assert.equal(rosterRoot.querySelector('script'), null);
 });
 
 test('Multipass drawer is closed by default and exposes only available public facts and evidence', () => {
@@ -1153,7 +1258,7 @@ test('Multipass drawer is closed by default and exposes only available public fa
   assert.match(drawer.textContent, /Owner.*quigley\.eth/s);
   assert.match(drawer.textContent, /Token.*#1/s);
   assert.match(drawer.textContent, /ERC-8004.*#87069/s);
-  assert.match(drawer.textContent, /Cred.*Cred 80/s);
+  assert.match(drawer.textContent, /Cred.*CRED 80 · PRIME/s);
   assert.doesNotMatch(drawer.textContent, /Sibyl/);
 });
 

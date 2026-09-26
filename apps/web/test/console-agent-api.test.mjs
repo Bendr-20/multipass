@@ -58,6 +58,58 @@ test('owned loading and agent writes rely on cookie session instead of a wallet 
   assert.equal(calls[2].init.headers['x-csrf-token'], 'csrf-1');
 });
 
+test('owned Looper browser model keeps canonical stale CRED and ignores ambiguous legacy scores', async () => {
+  const calls = [];
+  const cred = {
+    score: 40,
+    tier: 'MARGINAL',
+    coverage: {
+      score: 45,
+      label: 'PARTIAL',
+      present: ['binding', 'metadata'],
+      missing: ['continuity', 'erc6551Activity', 'erc8004Reputation', 'verifiedReceipts'],
+    },
+    freshness: {
+      status: 'stale',
+      stale: true,
+      cached: true,
+      ageSeconds: 901,
+      maxAgeSeconds: 300,
+      staleIfErrorSeconds: 86400,
+      reason: 'upstream_timeout',
+    },
+    methodologyVersion: 'looper-cred-v1',
+    computedAt: '2026-09-26T22:00:00.000Z',
+    updatedAt: '2026-09-26T22:00:00.000Z',
+    status: 'stale',
+  };
+  const agents = await fetchOwnedLooperAgents({
+    apiBase: 'https://helixa.test',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({
+        agents: [
+          { tokenId: '614', name: 'Looper #614', cred, credScore: 65, credLabel: 'Cred 65' },
+          { tokenId: '615', name: 'Looper #615', cred: { ...cred, score: '<script>alert(1)</script>' }, credScore: 99, credLabel: 'Cred 99' },
+          { tokenId: '616', name: 'Looper #616', credScore: 88, credLabel: 'Cred 88' },
+        ],
+      }));
+    },
+  });
+
+  assert.deepEqual(calls, ['https://helixa.test/api/loopers/owned']);
+  assert.deepEqual(agents[0].cred, cred);
+  assert.equal(agents[0].credScore, 40);
+  assert.equal(agents[0].credLabel, 'CRED 40 · MARGINAL · STALE');
+  assert.equal(agents[1].cred.status, 'unavailable');
+  assert.equal(agents[1].credScore, null);
+  assert.equal(agents[1].credLabel, 'CRED unavailable');
+  assert.equal(agents[2].cred.status, 'pending');
+  assert.equal(agents[2].credScore, null);
+  assert.equal(agents[2].credLabel, 'CRED pending');
+  assert.equal(calls.some((url) => url.includes('api.helixa.xyz') || url.includes('/api/v2/agent/')), false);
+});
+
 test('agent messages include only strict read-only owner-scoped wallet context', async () => {
   let body;
   const walletContext = {

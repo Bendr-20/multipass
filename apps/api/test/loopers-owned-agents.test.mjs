@@ -301,11 +301,13 @@ test('GET /api/loopers/owned returns every agent when the wallet owns more than 
 });
 
 test('GET /api/loopers/owned rejects caller-supplied addresses without an authenticated session', async () => {
+  let credCalls = 0;
   const api = createMultipassApi({
     store: createMemoryStore(),
     loopersOwnedAgentLoader: async () => {
       throw new Error('loader should not be called');
     },
+    looperCredClient: { async getCred() { credCalls += 1; } },
   });
 
   const response = await api.handleRequest(new Request(`https://helixa.test/api/loopers/owned?address=${WALLET}`));
@@ -313,4 +315,49 @@ test('GET /api/loopers/owned rejects caller-supplied addresses without an authen
 
   assert.equal(response.status, 401);
   assert.equal(body.error.code, 'unauthorized');
+  assert.equal(credCalls, 0);
+});
+
+test('GET /api/loopers/owned enriches only the authorized resolved roster with canonical CRED', async () => {
+  const events = [];
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    consoleAuthStore: { validateSession: () => ({ wallet: WALLET.toLowerCase() }) },
+    loopersOwnedAgentLoader: async ({ address }) => {
+      events.push(`authorized:${address}`);
+      return [{
+        tokenId: '614',
+        erc8004AgentId: '87043',
+        chainId: 8453,
+        owner: address,
+        credScore: 65,
+        credLabel: 'Cred 65',
+      }];
+    },
+    looperCredClient: {
+      async getCred(subject) {
+        events.push(`cred:${subject.agentId}:${subject.looperTokenId}`);
+        return {
+          score: 40,
+          tier: 'MARGINAL',
+          coverage: { score: 45, label: 'PARTIAL', present: ['binding', 'metadata'], missing: ['continuity', 'erc6551Activity', 'erc8004Reputation', 'verifiedReceipts'] },
+          freshness: { status: 'fresh', stale: false, cached: false, ageSeconds: 0, maxAgeSeconds: 300, staleIfErrorSeconds: 86400 },
+          methodologyVersion: 'looper-cred-v1',
+          computedAt: '2026-09-26T22:00:00.000Z',
+          updatedAt: '2026-09-26T22:00:00.000Z',
+          status: 'available',
+        };
+      },
+    },
+  });
+
+  const response = await api.handleRequest(new Request('https://helixa.test/api/loopers/owned', { headers: AUTH_COOKIE }));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(events, [`authorized:${WALLET.toLowerCase()}`, 'cred:87043:614']);
+  assert.equal(body.agents[0].cred.score, 40);
+  assert.equal(body.agents[0].cred.coverage.score, 45);
+  assert.equal(body.agents[0].credScore, 40);
+  assert.equal(body.agents[0].credLabel, 'CRED 40 · MARGINAL');
 });

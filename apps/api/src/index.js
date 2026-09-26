@@ -25,6 +25,10 @@ import { createBankrLlmClient } from './bankr-llm/index.js';
 import { createConsoleAuthStore } from './console-auth.js';
 import { createConsoleReadSkillExecutor } from './console-read-skills.js';
 import {
+  createLooperCredClient,
+  enrichOwnedLoopersWithCred,
+} from './looper-cred-client.js';
+import {
   LOOPERS_MAINNET_CHAIN_ID,
   LOOPERS_MAINNET_CONTRACT,
   authorizeLooperControl,
@@ -198,6 +202,10 @@ export function createMultipassApi({
   loopersOwnedMetadataBaseUrl,
   loopersPublicClients,
   loopersAuthorizer,
+  looperCredClient,
+  loopersCredApiBaseUrl,
+  loopersCredTimeoutMs,
+  loopersCredConcurrency,
   consoleAuthStore,
   consoleRuntimeRegistry,
   bankrLlmKey,
@@ -262,11 +270,27 @@ export function createMultipassApi({
       rpcUrl: loopersOwnedRpcUrl,
       publicClients: loopersPublicClients,
     });
-  const ownedLoopersLoader = loopersOwnedAgentLoader ?? createLoopersOwnedAgentLoader({
+  const authorizedOwnedLoopersLoader = loopersOwnedAgentLoader ?? createLoopersOwnedAgentLoader({
     fetchImpl,
     publicClients: looperClients,
     ...(loopersOwnedMetadataBaseUrl ? { metadataBaseUrl: loopersOwnedMetadataBaseUrl } : {}),
   });
+  const canonicalCredClient = looperCredClient ?? (loopersCredApiBaseUrl
+    ? createLooperCredClient({
+      baseUrl: loopersCredApiBaseUrl,
+      fetchImpl,
+      ...(loopersCredTimeoutMs ? { timeoutMs: loopersCredTimeoutMs } : {}),
+    })
+    : null);
+  const ownedLoopersLoader = canonicalCredClient
+    ? async (input) => enrichOwnedLoopersWithCred(
+      await authorizedOwnedLoopersLoader(input),
+      {
+        credClient: canonicalCredClient,
+        ...(loopersCredConcurrency ? { concurrency: loopersCredConcurrency } : {}),
+      },
+    )
+    : authorizedOwnedLoopersLoader;
   const authorizeLooper = loopersAuthorizer ?? ((input) => authorizeLooperControl({ ...input, publicClients: looperClients }));
   const context = {
     store,

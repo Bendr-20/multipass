@@ -28,6 +28,9 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+    loopersCredTimeoutMs: 4000,
+    loopersCredConcurrency: 4,
     bankrLlmKey: null,
     bankrReadonlyApiKey: null,
     bankrLlmModel: null,
@@ -70,6 +73,9 @@ test('CLI flags override environment values', () => {
       loopersAllowlistSubnetRateLimit: undefined,
       loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
+      loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+      loopersCredTimeoutMs: 4000,
+      loopersCredConcurrency: 4,
       bankrLlmKey: null,
       bankrReadonlyApiKey: null,
       bankrLlmModel: null,
@@ -112,6 +118,9 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+    loopersCredTimeoutMs: 4000,
+    loopersCredConcurrency: 4,
     bankrLlmKey: null,
     bankrReadonlyApiKey: null,
     bankrLlmModel: null,
@@ -127,6 +136,28 @@ test('parseServerOptions accepts claim management security env', () => {
     consoleXmtpGatewayHost: null,
     consoleXmtpAppVersion: 'multipass-console',
   });
+});
+
+
+test('parseServerOptions configures bounded server-side Looper CRED reads without a secret', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_LOOPER_CRED_API_BASE_URL: 'https://cred.internal.example/root/',
+    MULTIPASS_LOOPER_CRED_TIMEOUT_MS: '2500',
+    MULTIPASS_LOOPER_CRED_CONCURRENCY: '3',
+  });
+  assert.equal(options.loopersCredApiBaseUrl, 'https://cred.internal.example/root');
+  assert.equal(options.loopersCredTimeoutMs, 2500);
+  assert.equal(options.loopersCredConcurrency, 3);
+  assert.equal(Object.keys(options).some((key) => /cred.*(?:key|secret|token)/iu.test(key)), false);
+
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_LOOPER_CRED_TIMEOUT_MS: '0' }),
+    /MULTIPASS_LOOPER_CRED_TIMEOUT_MS/,
+  );
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_LOOPER_CRED_CONCURRENCY: '17' }),
+    /MULTIPASS_LOOPER_CRED_CONCURRENCY/,
+  );
 });
 
 test('parseServerOptions rejects invalid ports', () => {
@@ -228,8 +259,9 @@ test('parseServerOptions keeps skill proposals independently default-off and rej
   );
 });
 
-test('startServer composes the skill proposal flag into production bootstrap independently of Bankr chat', async () => {
+test('startServer composes Console and Looper CRED configuration into the correct server boundaries', async () => {
   let bootstrapOptions;
+  let apiOptions;
   const runtime = { async handleMessage() {}, async getThread() { return null; } };
   const server = await startServer({
     fixture: 'generic',
@@ -237,6 +269,9 @@ test('startServer composes the skill proposal flag into production bootstrap ind
     port: 0,
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: true,
+    loopersCredApiBaseUrl: 'https://cred.internal.example',
+    loopersCredTimeoutMs: 2500,
+    loopersCredConcurrency: 3,
     consoleBootstrapFactory: async (options) => {
       bootstrapOptions = options;
       return {
@@ -250,13 +285,19 @@ test('startServer composes the skill proposal flag into production bootstrap ind
         async closeClient() {},
       };
     },
-    apiFactory: () => ({
-      async handleRequest() { return new Response('{}', { status: 200 }); },
-    }),
+    apiFactory: (options) => {
+      apiOptions = options;
+      return {
+        async handleRequest() { return new Response('{}', { status: 200 }); },
+      };
+    },
   });
   try {
     assert.equal(bootstrapOptions.consoleAgentBankrLlmEnabled, false);
     assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, true);
+    assert.equal(apiOptions.loopersCredApiBaseUrl, 'https://cred.internal.example');
+    assert.equal(apiOptions.loopersCredTimeoutMs, 2500);
+    assert.equal(apiOptions.loopersCredConcurrency, 3);
   } finally {
     await server.close();
   }

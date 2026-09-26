@@ -63,6 +63,20 @@ pnpm api:bendr
 
 Default URL: `http://127.0.0.1:8787`.
 
+### Canonical Looper CRED
+
+Authenticated `GET /api/loopers/owned` responses enrich each already-authorized Looper with a normalized `cred` object from the canonical server endpoint `GET /api/v2/cred/erc8004/:chainId/:agentId`. The browser reads only the same-origin Multipass route. It never calls the CRED service directly and receives no internal service credential.
+
+Server-only configuration:
+
+```bash
+MULTIPASS_LOOPER_CRED_API_BASE_URL=https://api.helixa.xyz
+MULTIPASS_LOOPER_CRED_TIMEOUT_MS=4000
+MULTIPASS_LOOPER_CRED_CONCURRENCY=4
+```
+
+The production-safe base URL is the default, no secret is required, the timeout is capped at 30 seconds, and concurrency is capped at 16. Multipass validates the returned chain, canonical ERC-8004 registry, identity ID, Loopers collection, Looper token ID, score, coverage, freshness, methodology, and timestamps before exposing a score. Failures return `cred.status: "unavailable"`; stale backend snapshots retain their score only with explicit stale freshness metadata. Legacy `credScore` and `credLabel` fields are derived solely from validated canonical `cred` during migration.
+
 Advertise a production URL while listening locally:
 
 ```bash

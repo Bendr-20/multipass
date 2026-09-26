@@ -7,6 +7,11 @@ import { createJsonAllowlistStore, createMemoryAllowlistStore } from './allowlis
 import { createConsoleProductionBootstrap } from './console-production-bootstrap.js';
 import { loadFixtureStore } from './fixtures.js';
 import { createMultipassApi } from './index.js';
+import {
+  DEFAULT_LOOPER_CRED_API_BASE_URL,
+  DEFAULT_LOOPER_CRED_CONCURRENCY,
+  DEFAULT_LOOPER_CRED_TIMEOUT_MS,
+} from './looper-cred-client.js';
 import { createSqliteSavedRecords } from './saved-records.js';
 
 const DEFAULT_FIXTURE = 'generic';
@@ -41,6 +46,9 @@ export function parseServerOptions(argv = [], env = process.env) {
       windowSeconds: env.MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE_WINDOW_SECONDS,
     }, 'MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE'),
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
+    loopersCredApiBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_LOOPER_CRED_API_BASE_URL, 'MULTIPASS_LOOPER_CRED_API_BASE_URL') ?? DEFAULT_LOOPER_CRED_API_BASE_URL,
+    loopersCredTimeoutMs: parseBoundedPositiveInteger(env.MULTIPASS_LOOPER_CRED_TIMEOUT_MS, DEFAULT_LOOPER_CRED_TIMEOUT_MS, 'MULTIPASS_LOOPER_CRED_TIMEOUT_MS', 30_000),
+    loopersCredConcurrency: parseBoundedPositiveInteger(env.MULTIPASS_LOOPER_CRED_CONCURRENCY, DEFAULT_LOOPER_CRED_CONCURRENCY, 'MULTIPASS_LOOPER_CRED_CONCURRENCY', 16),
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
     bankrReadonlyApiKey: env.BANKR_READONLY_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
@@ -98,6 +106,9 @@ export async function startServer(options = {}) {
     loopersAllowlistSubnetRateLimit: options.loopersAllowlistSubnetRateLimit,
     loopersAllowlistGlobalRateLimit: options.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
+    loopersCredApiBaseUrl: normalizeOptionalBaseUrl(options.loopersCredApiBaseUrl ?? DEFAULT_LOOPER_CRED_API_BASE_URL, 'loopersCredApiBaseUrl'),
+    loopersCredTimeoutMs: parseBoundedPositiveInteger(options.loopersCredTimeoutMs, DEFAULT_LOOPER_CRED_TIMEOUT_MS, 'loopersCredTimeoutMs', 30_000),
+    loopersCredConcurrency: parseBoundedPositiveInteger(options.loopersCredConcurrency, DEFAULT_LOOPER_CRED_CONCURRENCY, 'loopersCredConcurrency', 16),
     bankrLlmKey: options.bankrLlmKey ?? null,
     bankrReadonlyApiKey: options.bankrReadonlyApiKey ?? null,
     bankrLlmModel: options.bankrLlmModel ?? null,
@@ -199,6 +210,9 @@ export async function startServer(options = {}) {
       loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
       loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
       loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
+      loopersCredApiBaseUrl: parsed.loopersCredApiBaseUrl,
+      loopersCredTimeoutMs: parsed.loopersCredTimeoutMs,
+      loopersCredConcurrency: parsed.loopersCredConcurrency,
       loopersOwnedAgentLoader: consoleBootstrap.ownedAgentLoader,
       loopersPublicClients: consoleBootstrap.publicClients,
       loopersAuthorizer: consoleBootstrap.authorizeLooper,
@@ -323,6 +337,13 @@ function parseOptionalPositiveInteger(value, source) {
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`Invalid positive integer for ${source}: ${value}`);
   }
+  return parsed;
+}
+
+function parseBoundedPositiveInteger(value, fallback, source, max) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = parseOptionalPositiveInteger(value, source);
+  if (parsed > max) throw new Error(`Invalid positive integer for ${source}: ${value}`);
   return parsed;
 }
 
