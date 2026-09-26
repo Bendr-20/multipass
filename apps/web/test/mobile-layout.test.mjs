@@ -141,6 +141,7 @@ test('console portrait keeps the full Looper image visible in the sidebar card',
 test('mobile Console shows one workspace below the agent switcher and three-way navigation', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
   const mobileBlock = css.slice(css.indexOf('@media (max-width: 1100px)'));
+  const finalPhoneBlock = css.slice(css.lastIndexOf('@media (max-width: 560px)'));
 
   assert.match(css, /\.console-agent-switcher-mobile\s*\{[^}]*display:\s*none;/s);
   assert.match(css, /\.console-workspace-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/s);
@@ -149,6 +150,7 @@ test('mobile Console shows one workspace below the agent switcher and three-way 
   assert.match(mobileBlock, /\.console-basic-main\s*\{[^}]*grid-row:\s*3;/s);
   assert.match(mobileBlock, /\.console-basic-sidebar\s*\{[^}]*display:\s*none;/s);
   assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
+  assert.match(finalPhoneBlock, /\.multipass-console-shell \.record-header\s*\{[^}]*padding-left:\s*12px;/s);
 });
 
 test('mobile Console messages wrap inside the chat card without horizontal clipping', async () => {
