@@ -49,6 +49,13 @@ async function openMainRoster(page) {
   await drawer.locator('.console-agent-gallery-card').first().waitFor({ state: 'visible' });
 }
 
+async function openMobileAgentSwitcher(page) {
+  const switcher = page.locator('.console-agent-switcher-mobile');
+  assert.equal(await switcher.getAttribute('open'), null, 'mobile agent switcher must default closed');
+  await switcher.locator('summary').click();
+  await switcher.locator('[data-action="select-console-agent"]').waitFor({ state: 'visible' });
+}
+
 async function startFixtureServer(css) {
   const pages = new Map([
     ['/owner-scale', pageMarkup({ count: 100 }, css)],
@@ -108,6 +115,24 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
   for (const [width, columns] of EXPECTED_COLUMNS) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${fixture.origin}/gallery`, { waitUntil: 'domcontentloaded' });
+    if (width <= 1100) {
+      await openMobileAgentSwitcher(page);
+      const measurements = await page.evaluate(() => {
+        const switcher = document.querySelector('.console-agent-switcher-mobile');
+        const selector = switcher?.querySelector('[data-action="select-console-agent"]');
+        return {
+          pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          selectorFits: Boolean(switcher && selector && selector.scrollWidth <= switcher.clientWidth),
+          options: selector?.querySelectorAll('option').length ?? 0,
+          selectorHeight: selector?.getBoundingClientRect().height ?? 0,
+        };
+      });
+      assert.equal(measurements.pageFits, true, `${width}px page must not overflow horizontally`);
+      assert.equal(measurements.selectorFits, true, `${width}px mobile selector must fit its switcher`);
+      assert.equal(measurements.options, 25, `${width}px mobile selector must expose every owned Looper`);
+      assert.ok(measurements.selectorHeight >= 44, `${width}px mobile selector must remain touch-sized`);
+      continue;
+    }
     await openMainRoster(page);
     const measurements = await page.evaluate(() => {
       const grid = document.querySelector('.console-agent-gallery-grid');
@@ -135,7 +160,7 @@ test('Console gallery is fast at owner scale, fully renders 7,777 agents, and me
     await page.screenshot({ path: '/home/ubuntu/.openclaw/workspace/multipass-looper-gallery-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 480, height: 920 });
     await page.goto(`${fixture.origin}/gallery`, { waitUntil: 'domcontentloaded' });
-    await openMainRoster(page);
+    await openMobileAgentSwitcher(page);
     await page.screenshot({ path: '/home/ubuntu/.openclaw/workspace/multipass-looper-gallery-mobile.png', fullPage: true });
     for (const state of ['loading', 'empty', 'filtered', 'error']) {
       await page.goto(`${fixture.origin}/${state}`, { waitUntil: 'domcontentloaded' });

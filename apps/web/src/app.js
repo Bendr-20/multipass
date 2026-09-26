@@ -159,7 +159,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleMainRosterOpen: false,
     consoleSidebarRosterOpen: false,
     consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
-    consoleWorkspaceView: consoleMockState?.consoleWorkspaceView === 'wallet' ? 'wallet' : 'chat',
+    consoleWorkspaceView: consoleMockState
+      ? (['chat', 'wallet', 'multipass'].includes(consoleMockState.consoleWorkspaceView) ? consoleMockState.consoleWorkspaceView : 'chat')
+      : null,
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
     consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
     looperAgentWallet: consoleMockState?.looperAgentWallet ?? activeLooperWalletController.getSnapshot(),
@@ -1164,6 +1166,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         await selectAndActivateConsoleAgent(selectedAgentId, {
           resetSelection: false,
           ignoreWalletWork: selectionChanged && !preservedAgentId,
+          useDefaultWorkspace: true,
         });
       } else {
         render(root, state, handlers);
@@ -1247,7 +1250,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function toggleConsoleRosterDrawer(event) {
     const drawer = String(event?.currentTarget?.dataset?.consoleRosterDrawer ?? '');
     const open = Boolean(event?.currentTarget?.open);
-    if (drawer === 'main') state = { ...state, consoleMainRosterOpen: open };
+    if (drawer === 'main' || drawer === 'switcher') state = { ...state, consoleMainRosterOpen: open };
     if (drawer === 'sidebar') state = { ...state, consoleSidebarRosterOpen: open };
   }
 
@@ -1336,7 +1339,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: null } };
       render(root, state, handlers);
       const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
-      state = { ...state, looperAgentWallet: { ...walletState, error: null } };
+      state = {
+        ...state,
+        looperAgentWallet: { ...walletState, error: null },
+        consoleWorkspaceView: walletState.mode === 'active' ? 'multipass' : state.consoleWorkspaceView,
+      };
     } catch (error) {
       state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: getSafeConsoleError(error, { phase: 'wallet' }) } };
     }
@@ -1435,8 +1442,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function setConsoleWorkspaceView(event) {
     const view = String(event?.currentTarget?.dataset?.consoleView ?? '').trim();
-    if (view !== 'chat' && view !== 'wallet') return;
-    if (view === 'wallet' && !state.consoleSelectedAgentId) return;
+    if (!['chat', 'wallet', 'multipass'].includes(view)) return;
+    if (!state.consoleSelectedAgentId) return;
     state = { ...state, consoleWorkspaceView: view };
     render(root, state, handlers);
   }
@@ -1452,6 +1459,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     resetSelection = true,
     restoreGalleryOnFailure = false,
     ignoreWalletWork = false,
+    useDefaultWorkspace = false,
   } = {}) {
     const normalizedTokenId = String(tokenId ?? '').trim();
     if (!normalizedTokenId) return;
@@ -1483,7 +1491,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleSelectedAgentId: normalizedTokenId,
       consoleMainRosterOpen: false,
       consoleSidebarRosterOpen: false,
-      consoleWorkspaceView: 'chat',
+      consoleWorkspaceView: useDefaultWorkspace ? null : (resetSelection ? 'chat' : state.consoleWorkspaceView),
       consoleParticipantAgentIds: participantAgentIds,
       consoleAgentThread: {
         ...(resetSelection ? createInitialConsoleAgentThreadState() : state.consoleAgentThread),
@@ -2463,7 +2471,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleMainRosterOpen: false,
     consoleSidebarRosterOpen: false,
     consoleSelectedAgentId: null,
-    consoleWorkspaceView: 'chat',
+    consoleWorkspaceView: null,
     consoleParticipantAgentIds: [],
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     looperAgentWallet: {

@@ -94,17 +94,20 @@ test('wallet workspace is balance-first and keeps send and advanced controls con
   assert.equal(await page.locator('.console-workspace-nav-mobile').isVisible(), true);
   assert.equal(await page.locator('.console-workspace-sidebar .console-workspace-nav').isVisible(), false);
   const mobileOrder = await page.evaluate(() => {
+    const switcher = document.querySelector('.console-agent-switcher-mobile');
     const nav = document.querySelector('.console-workspace-nav-mobile');
     const main = document.querySelector('.console-workspace-main');
     const sidebar = document.querySelector('.console-workspace-sidebar');
     return {
+      switcherTop: switcher?.getBoundingClientRect().top ?? Infinity,
       navTop: nav?.getBoundingClientRect().top ?? Infinity,
       mainTop: main?.getBoundingClientRect().top ?? Infinity,
-      sidebarTop: sidebar?.getBoundingClientRect().top ?? Infinity,
+      sidebarVisible: Boolean(sidebar && getComputedStyle(sidebar).display !== 'none'),
     };
   });
+  assert.ok(mobileOrder.switcherTop < mobileOrder.navTop, 'mobile agent switcher must precede workspace navigation');
   assert.ok(mobileOrder.navTop < mobileOrder.mainTop, 'mobile workspace navigation must precede the wallet workspace');
-  assert.ok(mobileOrder.mainTop < mobileOrder.sidebarTop, 'mobile wallet workspace must precede the identity sidebar');
+  assert.equal(mobileOrder.sidebarVisible, false, 'mobile identity sidebar must stay hidden until Multipass is selected');
   assert.equal(await page.locator('[data-wallet-action="advanced"]').getAttribute('open'), null);
   assert.equal(await page.locator('.console-looper-wallet-policy').isVisible(), false);
 

@@ -69,7 +69,13 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       : 'Owned Loopers appear here after wallet sign-in.';
   const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
   const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
-  const workspaceView = state.consoleWorkspaceView === 'wallet' && activeAgent?.tokenId ? 'wallet' : 'chat';
+  const activeAgentWallet = activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null;
+  const requestedWorkspaceView = ['chat', 'wallet', 'multipass'].includes(state.consoleWorkspaceView)
+    ? state.consoleWorkspaceView
+    : null;
+  const workspaceView = activeAgent?.tokenId
+    ? (requestedWorkspaceView ?? (activeAgentWallet ? (activeAgentWallet.mode === 'active' ? 'multipass' : 'wallet') : 'chat'))
+    : 'chat';
   const galleryModel = createConsoleAgentGalleryModel({
     agents: activeAgents,
     query: state.consoleAgentGallery?.query,
@@ -172,7 +178,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       stats: createIdentityStats({ activeAgent, activeCred, proposalCount }),
       tokenLabel: activeAgent?.tokenId ? `Token #${activeAgent.tokenId}` : 'Token not loaded',
       erc8004Label: getPositiveErc8004AgentId(activeAgent) ? `ERC-8004 #${getPositiveErc8004AgentId(activeAgent)}` : null,
-      agentWallet: activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null,
+      agentWallet: activeAgentWallet,
     },
     suiteChecks: createProofChecks({
       activeAgent,
@@ -211,12 +217,13 @@ export function renderMultipassConsole(snapshot = {}) {
     <main class="multipass-console" aria-label="Multipass Console">
       ${renderSuitePanel(snapshot)}
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
+        ${renderConsoleAgentSwitcher(snapshot)}
         ${renderConsoleWorkspaceNav(snapshot, { mobile: true })}
-        <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
+        <section class="console-workspace-main console-basic-main" aria-label="Selected agent workspace">
           ${renderConsolePrimaryWorkspace(snapshot)}
         </section>
 
-        <aside class="console-workspace-sidebar console-basic-sidebar" aria-label="Wallet and agents">
+        <aside class="console-workspace-sidebar console-basic-sidebar${snapshot.workspaceView === 'multipass' ? ' console-basic-sidebar-multipass-active' : ''}" aria-label="Wallet and agents">
           <header class="console-dashboard-header console-sidebar-header">
             <div class="console-sidebar-brand">
               <h1>Multipass Console</h1>
@@ -262,14 +269,55 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   }
   const rosterDrawer = renderConsoleMainRosterDrawer(snapshot);
   if (!session.activeAgentId) return rosterDrawer;
-  const workspace = snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet
-    ? renderConsoleWalletWorkspace(snapshot.identityCard)
-    : renderConsoleAgentThread({
-      ...snapshot.agentThread,
-      recall: snapshot.recall,
-      contextItems: snapshot.threadContextItems,
-    });
-  return `${rosterDrawer}${workspace}`;
+  const thread = renderConsoleAgentThread({
+    ...snapshot.agentThread,
+    recall: snapshot.recall,
+    contextItems: snapshot.threadContextItems,
+  });
+  let workspace;
+  if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
+    workspace = renderConsoleWalletWorkspace(snapshot.identityCard);
+  } else if (snapshot.workspaceView === 'multipass') {
+    workspace = renderIdentityCard(snapshot.identityCard);
+  } else {
+    workspace = thread;
+  }
+  const inactiveThread = snapshot.workspaceView === 'chat'
+    ? ''
+    : `<div class="console-inactive-chat" hidden>${thread}</div>`;
+  return `${rosterDrawer}${workspace}${inactiveThread}`;
+}
+
+function renderConsoleAgentSwitcher(snapshot = {}) {
+  const session = snapshot.session ?? {};
+  const card = snapshot.identityCard ?? {};
+  const rosterCount = Array.isArray(snapshot.agents) ? snapshot.agents.length : 0;
+  const rosterStatus = snapshot.agentRoster?.status ?? 'idle';
+  const stat = rosterCount
+    ? `${rosterCount} owned`
+    : rosterStatus === 'loading'
+      ? 'Loading'
+      : rosterStatus === 'error'
+        ? 'Retry'
+        : 'None';
+  const imageUrl = safeConsoleAvatarUrl(card.image);
+  const portraitFallback = escapeHtml(card.portraitPlaceholder ?? initialsForLabel(card.name ?? 'Agent'));
+  return `
+    <details class="console-agent-switcher-mobile" data-action="toggle-console-roster-drawer" data-console-roster-drawer="switcher" ${snapshot.rosterDrawers?.mainOpen ? 'open' : ''}>
+      <summary>
+        <div class="console-agent-switcher-current">
+          <div class="console-agent-switcher-portrait">
+            ${imageUrl
+              ? `<img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy" data-console-avatar-image><span class="console-thread-avatar-fallback" hidden>${portraitFallback}</span>`
+              : `<span class="console-thread-avatar-fallback">${portraitFallback}</span>`}
+          </div>
+          <span><small>Agent</small><strong>${escapeHtml(card.name ?? 'Select agent')}</strong></span>
+        </div>
+        <span class="console-agent-switcher-affordance"><strong>${escapeHtml(stat)}</strong><i aria-hidden="true"></i></span>
+      </summary>
+      <div class="console-agent-switcher-body">${renderAgentSelector(session)}</div>
+    </details>
+  `;
 }
 
 function renderConsoleMainRosterDrawer(snapshot = {}) {
@@ -300,16 +348,20 @@ function renderConsoleMainRosterDrawer(snapshot = {}) {
 }
 
 function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
-  const walletAvailable = Boolean(snapshot.session?.activeAgentId && snapshot.identityCard?.agentWallet);
-  const view = snapshot.workspaceView === 'wallet' ? 'wallet' : 'chat';
+  const agentAvailable = Boolean(snapshot.session?.activeAgentId);
+  const walletAvailable = Boolean(agentAvailable && snapshot.identityCard?.agentWallet);
+  const view = ['wallet', 'multipass'].includes(snapshot.workspaceView) ? snapshot.workspaceView : 'chat';
   const placementClass = mobile ? 'console-workspace-nav-mobile' : 'console-workspace-nav-sidebar';
   return `
     <nav class="console-workspace-nav ${placementClass}" aria-label="Console workspace${mobile ? ' mobile' : ''}">
-      <button type="button" data-action="set-console-workspace-view" data-console-view="chat" ${view === 'chat' ? 'aria-current="page"' : ''}>
-        <span>Room</span><small>${snapshot.session?.activeAgentId ? 'Agent chat' : 'Waiting'}</small>
+      <button type="button" data-action="set-console-workspace-view" data-console-view="chat" ${view === 'chat' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
+        <span>Room</span><small>${agentAvailable ? 'Agent chat' : 'Waiting'}</small>
       </button>
       <button type="button" data-action="set-console-workspace-view" data-console-view="wallet" ${view === 'wallet' ? 'aria-current="page"' : ''} ${walletAvailable ? '' : 'disabled'}>
         <span>Wallet</span><small>${walletAvailable ? formatWalletWorkspaceStatus(snapshot.identityCard.agentWallet) : 'Select agent'}</small>
+      </button>
+      <button type="button" data-action="set-console-workspace-view" data-console-view="multipass" ${view === 'multipass' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
+        <span>Multipass</span><small>Manage</small>
       </button>
     </nav>
   `;

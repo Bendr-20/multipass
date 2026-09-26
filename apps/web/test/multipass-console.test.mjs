@@ -120,6 +120,75 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
 });
 
+test('mobile Console exposes a portrait agent switcher and three mutually exclusive workspaces', () => {
+  const agents = Array.from({ length: 45 }, (_, index) => ({
+    ...sampleAgents()[index % 2],
+    tokenId: String(index + 1),
+    name: index === 0 ? 'Fool Spec' : `Looper ${index + 1}`,
+    image: index === 0 ? 'https://example.test/fool-spec.png' : null,
+  }));
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const activeSnapshot = createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: '1',
+      looperAgentWallet: {
+        mode: 'active',
+        tokenId: '1',
+        owner: address,
+        account: '0x9999999999999999999999999999999999999999',
+        nativeWei: '0',
+        tokens: [],
+        activation: { state: 'idle' },
+        send: { state: 'idle' },
+        policy: { state: 'idle' },
+      },
+    },
+  });
+  const activeRoot = render(renderMultipassConsole(activeSnapshot));
+  const switcher = activeRoot.querySelector('.console-agent-switcher-mobile');
+  const mobileNav = activeRoot.querySelector('.console-workspace-nav-mobile');
+
+  assert.equal(activeSnapshot.workspaceView, 'multipass');
+  assert.ok(switcher);
+  assert.equal(switcher.querySelector('img')?.src, 'https://example.test/fool-spec.png');
+  assert.match(switcher.querySelector('summary')?.textContent ?? '', /Fool Spec/i);
+  assert.match(switcher.querySelector('summary')?.textContent ?? '', /45 owned/i);
+  assert.equal(mobileNav?.querySelectorAll('button').length, 3);
+  assert.match(mobileNav?.querySelector('[data-console-view="multipass"]')?.textContent ?? '', /MultipassManage/i);
+  assert.equal(mobileNav?.querySelectorAll('[aria-current="page"]').length, 1);
+  assert.equal(mobileNav?.querySelector('[data-console-view="multipass"]')?.getAttribute('aria-current'), 'page');
+  assert.ok(activeRoot.querySelector('.console-basic-main > .console-identity-card'));
+
+  const inactiveSnapshot = createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: '1',
+      looperAgentWallet: {
+        mode: 'inactive',
+        tokenId: '1',
+        owner: address,
+        account: '0x9999999999999999999999999999999999999999',
+        nativeWei: '0',
+        tokens: [],
+        activation: { state: 'idle' },
+        send: { state: 'idle' },
+        policy: { state: 'idle' },
+      },
+    },
+  });
+  const inactiveRoot = render(renderMultipassConsole(inactiveSnapshot));
+  assert.equal(inactiveSnapshot.workspaceView, 'wallet');
+  assert.equal(inactiveRoot.querySelector('.console-workspace-nav-mobile [data-console-view="wallet"]')?.getAttribute('aria-current'), 'page');
+  assert.ok(inactiveRoot.querySelector('.console-basic-main > .console-wallet-workspace'));
+});
+
 test('authenticated Console keeps complete main and sidebar Looper rosters in closed drawers', () => {
   const address = '0x1234567890abcdef1234567890abcdef12345678';
   const snapshot = createMultipassConsoleSnapshot({
@@ -943,9 +1012,10 @@ test('Multipass Console places mobile navigation and chat before sidebar content
   })));
   const shell = root.querySelector('.console-basic-shell');
 
-  assert.equal(shell?.firstElementChild?.classList.contains('console-workspace-nav-mobile'), true);
-  assert.equal(shell?.children[1]?.classList.contains('console-basic-main'), true);
-  assert.equal(shell?.children[2]?.classList.contains('console-basic-sidebar'), true);
+  assert.equal(shell?.firstElementChild?.classList.contains('console-agent-switcher-mobile'), true);
+  assert.equal(shell?.children[1]?.classList.contains('console-workspace-nav-mobile'), true);
+  assert.equal(shell?.children[2]?.classList.contains('console-basic-main'), true);
+  assert.equal(shell?.children[3]?.classList.contains('console-basic-sidebar'), true);
 });
 
 test('Multipass Console associates the visible composer label with its textarea', () => {
