@@ -1954,8 +1954,8 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.ok(consolePage.querySelector('.console-thread-toolbar'));
   assert.equal(consolePage.querySelector('.console-trust-graph-card'), null);
   assert.equal(consolePage.querySelector('.console-agent-portrait img'), null);
-  assert.match(consolePage.querySelector('.console-agent-portrait')?.textContent ?? '', /Connect wallet/i);
-  assert.match(consolePage.querySelector('.console-identity-card')?.textContent ?? '', /Pick your agent/i);
+  assert.match(consolePage.querySelector('.console-agent-portrait')?.textContent ?? '', /No agent selected/i);
+  assert.match(consolePage.querySelector('.console-identity-card')?.textContent ?? '', /Owned Loopers appear here after wallet sign-in/i);
   assert.match(consolePage.textContent, /No room open/);
   assert.match(consolePage.textContent, /Thread note/);
   assert.match(consolePage.textContent, /Token/);
@@ -1970,7 +1970,8 @@ test('dedicated Console route renders a human-facing operating surface for oncha
   assert.equal(consolePage.querySelector('a[href="/multipass/?agent=1"]'), null);
   assert.equal(root.querySelectorAll('[data-action="connect-console-wallet"]').length, 1);
   assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, 'Connect wallet');
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Connect wallet to load your agents\./);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Sign in to load owned Loopers\./);
+  assert.equal((consolePage.textContent.match(/Connect wallet/gi) ?? []).length, 0);
   assert.doesNotMatch(consolePage.textContent, /Use the header button|Use the top-right wallet control/i);
   assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);

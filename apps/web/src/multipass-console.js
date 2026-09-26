@@ -61,12 +61,12 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
         : activeAgentCount > 0
           ? 'Pick your agent'
           : 'No owned agents found'
-      : walletConnected ? 'Sign in to Console' : 'Connect wallet');
+      : walletConnected ? 'Sign in to Console' : 'No agent selected');
   const emptyAgentSummary = walletAuthenticated && activeAgentCount > 0
     ? 'Pick an owned Looper to load its identity and open the room.'
     : walletConnected
       ? 'Sign in with the connected wallet to load its owned Loopers.'
-      : 'Connect a wallet, then pick your agent from owned Loopers to load its identity and room.';
+      : 'Owned Loopers appear here after wallet sign-in.';
   const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
   const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
   const workspaceView = state.consoleWorkspaceView === 'wallet' && activeAgent?.tokenId ? 'wallet' : 'chat';
@@ -143,11 +143,11 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       name: activeAgentLabel,
       role: activeAgent?.canonicalName && activeAgent.canonicalName !== activeAgent.name
         ? activeAgent.canonicalName
-        : (activeAgent?.role ?? (walletConnected ? 'Choose an owned Looper' : 'Connect wallet')),
+        : (activeAgent?.role ?? (walletConnected ? 'Choose an owned Looper' : 'Wallet sign-in required')),
       image: activeAgent?.image ?? null,
       portraitPlaceholder: activeAgent?.tokenId
         ? null
-        : (walletConnected && activeAgentCount > 0 ? 'Pick agent' : 'Connect wallet'),
+        : (walletConnected && activeAgentCount > 0 ? 'Pick agent' : 'No agent selected'),
       walletLabel: ownerDisplayName,
       roomName: activeAgent?.presenceLabel ?? (activeAgent?.tokenId
         ? (roomParticipants.length > 1 ? agentThread.roomName : 'Direct operator line')
@@ -211,6 +211,7 @@ export function renderMultipassConsole(snapshot = {}) {
     <main class="multipass-console" aria-label="Multipass Console">
       ${renderSuitePanel(snapshot)}
       <section class="console-workspace-grid console-basic-shell" aria-label="Agent console">
+        ${renderConsoleWorkspaceNav(snapshot, { mobile: true })}
         <section class="console-workspace-main console-basic-main" aria-label="Selected agent chat">
           ${renderConsolePrimaryWorkspace(snapshot)}
         </section>
@@ -298,11 +299,12 @@ function renderConsoleMainRosterDrawer(snapshot = {}) {
   });
 }
 
-function renderConsoleWorkspaceNav(snapshot = {}) {
+function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
   const walletAvailable = Boolean(snapshot.session?.activeAgentId && snapshot.identityCard?.agentWallet);
   const view = snapshot.workspaceView === 'wallet' ? 'wallet' : 'chat';
+  const placementClass = mobile ? 'console-workspace-nav-mobile' : 'console-workspace-nav-sidebar';
   return `
-    <nav class="console-workspace-nav" aria-label="Console workspace">
+    <nav class="console-workspace-nav ${placementClass}" aria-label="Console workspace${mobile ? ' mobile' : ''}">
       <button type="button" data-action="set-console-workspace-view" data-console-view="chat" ${view === 'chat' ? 'aria-current="page"' : ''}>
         <span>Room</span><small>${snapshot.session?.activeAgentId ? 'Agent chat' : 'Waiting'}</small>
       </button>
@@ -498,7 +500,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     summary: latestAgentMessage
       ? 'Live chat updated.'
       : !connected
-        ? 'Connect wallet to open a room.'
+        ? 'Your private room opens after wallet sign-in.'
       : loadingAgents
         ? 'Loading wallet-owned agents.'
       : rosterError
@@ -524,10 +526,10 @@ function renderSessionPanel(session = {}) {
     ? 'Room is bound to the selected wallet-owned agent.'
     : connected
       ? 'Choose an agent from My agents to open the room.'
-      : 'Connect wallet to open a room.';
+      : 'Waiting for a wallet-owned agent.';
   const sessionNote = connected
     ? null
-    : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Connect wallet to load your agents.');
+    : (wallet.unavailable ? 'Wallet login is unavailable for this build.' : 'Sign in to load owned Loopers.');
   const walletOperation = createWalletOperation(wallet.status, session.rosterStatus);
 
   return `
@@ -591,7 +593,7 @@ function renderIdentityCard(card = {}) {
   const trustStat = card.emptyState ? 'Not loaded' : (statsSummary || card.badges?.[0] || 'Awaiting trust');
   const memberCount = Array.isArray(card.participants) ? card.participants.length : 0;
   return `
-    <section class="console-visual-card console-identity-card" aria-label="Selected agent">
+    <section class="console-visual-card console-identity-card${card.emptyState ? ' console-identity-card-empty' : ''}" aria-label="Selected agent">
       <div class="console-agent-portrait">
         ${imageUrl
           ? `<img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy" data-console-avatar-image><span class="console-thread-avatar-fallback" hidden>${portraitFallback}</span>`
@@ -775,11 +777,16 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
   ] : [];
   const canSend = wallet.mode === 'active' && wallet.canTransact;
   const canRecoverPolicy = Boolean(wallet.policyRecoveryAllowed);
-  const ownerControlCopy = wallet.mode === 'active' && wallet.canTransact
-    ? 'Every transaction requires your wallet approval.'
+  const reasonCopy = wallet.reason ? formatWalletReason(wallet.reason) : null;
+  const controlState = wallet.mode === 'active' && wallet.canTransact
+    ? { tone: 'ready', icon: '✓', title: 'Owner approval required', body: 'Every transaction requires your wallet approval.' }
     : wallet.mode === 'inactive'
-      ? 'Activate once before this wallet can send assets.'
-      : 'Transfers stay disabled until wallet verification is complete.';
+      ? { tone: 'warning', icon: '!', title: 'Activation required', body: reasonCopy ?? 'Activate once before this wallet can send assets.' }
+      : wallet.mode === 'loading'
+        ? { tone: 'neutral', icon: '…', title: 'Checking wallet', body: 'Verifying the canonical account and owner permissions on Base.' }
+        : wallet.mode === 'blocked'
+          ? { tone: 'error', icon: '!', title: 'Wallet blocked', body: reasonCopy ?? 'Wallet writes are blocked until verification succeeds.' }
+          : { tone: 'warning', icon: '!', title: 'Transfers unavailable', body: reasonCopy ?? 'Wallet writes are disabled because verification is incomplete.' };
   return `
     <section class="console-looper-wallet${workspace ? ' console-looper-wallet-workspace' : ''}" aria-label="Selected Looper agent wallet">
       <div class="console-looper-wallet-head">
@@ -858,9 +865,9 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
           </article>`).join('')}
         </div>
       </section>` : ''}
-      <aside class="console-looper-wallet-control-note">
-        <span aria-hidden="true">✓</span>
-        <div><strong>${escapeHtml(modeLabel)}</strong><small>${escapeHtml(ownerControlCopy)}</small></div>
+      <aside class="console-looper-wallet-control-note" data-wallet-tone="${escapeAttribute(controlState.tone)}">
+        <span aria-hidden="true">${escapeHtml(controlState.icon)}</span>
+        <div><strong>${escapeHtml(controlState.title)}</strong><small>${escapeHtml(controlState.body)}</small></div>
       </aside>
       ${uncertainAttempts.map((kind) => `
         <div class="console-looper-wallet-outcome" role="alert">
@@ -889,7 +896,6 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
           </dl>
         </div>
       </details>` : ''}
-      ${wallet.reason ? `<small class="console-looper-wallet-reason">${escapeHtml(formatWalletReason(wallet.reason))}</small>` : ''}
       ${wallet.error ? `<p class="console-looper-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
   `;
@@ -1025,7 +1031,7 @@ function renderAgentRoster(snapshot = {}) {
 
   const status = snapshot.agentRoster?.status ?? 'idle';
   let title = 'No agents loaded';
-  let body = 'Connect wallet to load the agents tied to this operator.';
+  let body = 'Owned Loopers appear here after wallet sign-in.';
   if (status === 'loading') {
     title = 'Loading owned agents';
     body = 'Checking live Looper ownership for this wallet.';
@@ -1200,7 +1206,7 @@ function createIdentityDossier({
   const identityBody = activeAgent?.identityBody
     ?? (activeAgent?.helixaId
       ? `${verifiedLabel}. AgentDNA ${activeAgent.helixaId}.`
-      : (activeAgent?.name ? verifiedLabel : 'Connect wallet to load a wallet-owned Looper identity.'));
+      : (activeAgent?.name ? verifiedLabel : 'Sign in to load a wallet-owned Looper identity.'));
   const temperamentValue = stripReviewOnlyTemperCopy(activeAgent?.temperament ?? activeAgent?.role ?? 'Operator');
   const temperamentBody = stripReviewOnlyTemperCopy(activeAgent?.temperamentBody
     ?? (activeAgent?.tokenId
@@ -1300,7 +1306,7 @@ function createIdentityStats({ activeAgent = null, activeCred = 'Cred pending', 
 }
 
 function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idle', activeAgentCount = 0 } = {}) {
-  if (!walletConnected) return 'Connect wallet first.';
+  if (!walletConnected) return 'Sign in to load owned Loopers.';
   if (agentRosterStatus === 'loading') return 'Loading wallet-owned agents.';
   if (agentRosterStatus === 'error') return 'Wallet-owned agent lookup failed.';
   if (activeAgentCount === 0) return 'This wallet does not own a Looper yet.';
@@ -1308,7 +1314,7 @@ function createSelectionHint({ walletConnected = false, agentRosterStatus = 'idl
 }
 
 function createNextAction({ walletConnected = false, activeAgentCount = 0, proposalCount = 0, hasMessages = false, roomParticipantCount = 0 } = {}) {
-  if (!walletConnected) return { title: 'Wallet required', body: 'Connect wallet before the room can load an agent.' };
+  if (!walletConnected) return { title: 'Wallet required', body: 'Sign in before the room can load an agent.' };
   if (activeAgentCount === 0) return { title: 'No owned Loopers', body: 'This wallet needs an owned Looper before chat can start.' };
   if (proposalCount > 0) return { title: 'Review queue', body: `${proposalCount} proposal${proposalCount === 1 ? '' : 's'} waiting for approval.` };
   if (hasMessages) return { title: 'Keep the room live', body: 'The thread is active. Keep the operator conversation moving.' };

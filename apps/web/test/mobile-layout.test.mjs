@@ -147,6 +147,13 @@ test('mobile Console messages wrap inside the chat card without horizontal clipp
   assert.match(css, /\.console-thread-entry p\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
 });
 
+test('signed-out Console removes the inactive transcript and composer from the visual hierarchy', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-agent-thread-panel-empty\s*{[^}]*min-height:\s*220px;/s);
+  assert.match(css, /\.console-agent-thread-panel-empty \.console-thread-messages,[\s\S]*?\.console-agent-thread-panel-empty \.console-thread-composer\s*{[^}]*display:\s*none;/s);
+});
+
 test('skill proposal surfaces wrap full addresses without leaking controls on narrow viewports', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
   const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
@@ -155,5 +162,6 @@ test('skill proposal surfaces wrap full addresses without leaking controls on na
   assert.match(css, /\.console-unverified-transfer code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
   assert.match(css, /\.console-skill-capabilities\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
   assert.match(mobileBlock, /\.console-unverified-transfer-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
-  assert.doesNotMatch(css, /\.console-unverified-transfer[^}]*cursor:\s*pointer/s);
+  assert.match(css, /\.console-unverified-transfer > summary\s*{[^}]*cursor:\s*pointer;/s);
+  assert.doesNotMatch(css, /\.console-unverified-transfer\s*{[^}]*cursor:\s*pointer/s);
 });

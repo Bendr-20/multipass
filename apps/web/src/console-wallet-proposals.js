@@ -150,23 +150,26 @@ export function renderConsoleCapabilitySurface(model) {
 export function renderUnverifiedTransferSuggestion(model) {
   if (!model) return '';
   return `
-    <article class="console-unverified-transfer" aria-label="Unverified transfer suggestion">
-      <header>
+    <details class="console-unverified-transfer" aria-label="Unverified transfer suggestion">
+      <summary>
         <span class="console-skill-badge">${escapeHtml(model.skill.name)} catalog knowledge</span>
         <strong>${escapeHtml(model.heading)}</strong>
-      </header>
-      <dl class="console-unverified-transfer-grid">
-        <div><dt>Asset type</dt><dd>${escapeHtml(model.assetType)}</dd></div>
-        ${model.assetContract === null
-          ? '<div><dt>Asset contract</dt><dd>None (native)</dd></div>'
-          : `<div><dt>Asset contract</dt><dd><code>${escapeHtml(model.assetContract)}</code></dd></div>`}
-        <div><dt>Recipient</dt><dd><code>${escapeHtml(model.recipient)}</code></dd></div>
-        <div><dt>Base-unit amount</dt><dd><code>${escapeHtml(model.amountBaseUnits)}</code></dd></div>
-        <div><dt>Participant</dt><dd>${escapeHtml(model.participant.label)}</dd></div>
-        <div><dt>Source message</dt><dd><code>${escapeHtml(model.sourceMessage.id)}</code></dd></div>
-      </dl>
-      <p>${escapeHtml(model.rationale)}</p>
-    </article>
+        <small>Review details</small>
+      </summary>
+      <div class="console-unverified-transfer-body">
+        <dl class="console-unverified-transfer-grid">
+          <div><dt>Asset type</dt><dd>${escapeHtml(model.assetType)}</dd></div>
+          ${model.assetContract === null
+            ? '<div><dt>Asset contract</dt><dd>None (native)</dd></div>'
+            : `<div><dt>Asset contract</dt><dd><code>${escapeHtml(model.assetContract)}</code></dd></div>`}
+          <div><dt>Recipient</dt><dd><code>${escapeHtml(model.recipient)}</code></dd></div>
+          <div><dt>Base-unit amount</dt><dd><code>${escapeHtml(model.amountBaseUnits)}</code></dd></div>
+          <div><dt>Participant</dt><dd>${escapeHtml(model.participant.label)}</dd></div>
+          <div><dt>Source message</dt><dd><code>${escapeHtml(model.sourceMessage.id)}</code></dd></div>
+        </dl>
+        <p>${escapeHtml(model.rationale)}</p>
+      </div>
+    </details>
   `;
 }
 

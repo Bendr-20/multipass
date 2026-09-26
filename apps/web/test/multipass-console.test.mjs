@@ -452,6 +452,34 @@ test('RPC disagreement renders read-only without stale actions, recovery preview
   assert.equal(panel.querySelector('[data-action="refresh-looper-agent-wallet"]')?.disabled, false);
 });
 
+test('read-only wallet state uses one neutral explanation instead of a success check or repeated reason', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'wallet',
+      looperAgentWallet: {
+        mode: 'read_only', reason: 'ownership_mismatch', tokenId: '1',
+        account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [],
+        policyStatus: 'read-only', canTransact: false,
+        activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const panel = root.querySelector('.console-looper-wallet');
+  const note = panel.querySelector('.console-looper-wallet-control-note');
+
+  assert.equal(note?.getAttribute('data-wallet-tone'), 'warning');
+  assert.equal(note?.querySelector(':scope > span')?.textContent, '!');
+  assert.match(note?.textContent ?? '', /Transfers unavailable/i);
+  assert.match(note?.textContent ?? '', /authority does not match the current Looper owner/i);
+  assert.doesNotMatch(note?.textContent ?? '', /Read-only/i);
+  assert.equal(panel.querySelector('.console-looper-wallet-reason'), null);
+});
+
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),
@@ -517,7 +545,11 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(proofRail.tagName, 'DETAILS');
   assert.equal(proofRail.open, false);
   assert.equal(main?.firstElementChild?.classList.contains('console-agent-thread-panel'), true);
+  assert.equal(main?.firstElementChild?.classList.contains('console-agent-thread-panel-empty'), true);
+  assert.ok(root.querySelector('.console-workspace-nav-mobile'));
+  assert.ok(root.querySelector('.console-workspace-sidebar .console-workspace-nav-sidebar'));
   assert.ok(root.querySelector('.console-identity-card'));
+  assert.equal(root.querySelector('.console-identity-card')?.classList.contains('console-identity-card-empty'), true);
   assert.equal(root.querySelector('[data-action="update-console-agent-name"]'), null);
   assert.ok(root.querySelector('.console-thread-shell-header'));
   assert.equal(root.querySelector('.console-thread-chat-copy h2')?.textContent, 'Agent Private Chat');
@@ -526,8 +558,8 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelector('.console-thread-formatting'), null);
   assert.equal(root.querySelector('.console-trust-graph-card'), null);
   assert.equal(root.querySelector('.console-agent-portrait img'), null);
-  assert.match(root.querySelector('.console-agent-portrait')?.textContent ?? '', /Connect wallet/i);
-  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Pick your agent/i);
+  assert.match(root.querySelector('.console-agent-portrait')?.textContent ?? '', /No agent selected/i);
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Owned Loopers appear here after wallet sign-in/i);
   assert.equal(root.querySelector('.console-workspace-sidebar')?.children[2]?.classList.contains('console-identity-card'), true);
   assert.match(root.querySelector('.console-sidebar-header h1')?.textContent ?? '', /Multipass Console/);
   assert.equal(root.querySelector('.console-basic-shell')?.getAttribute('aria-label'), 'Agent console');
@@ -556,12 +588,13 @@ test('Multipass Console renderer includes memory missions and runtime checks as 
   assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="reset-console-session"]')?.disabled, true);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.disabled, true);
-  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Connect wallet to load your agents\./);
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Sign in to load owned Loopers\./);
   assert.doesNotMatch(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Pick an agent to open its room/);
   assert.doesNotMatch(text, /Use the header button|Use the top-right wallet control/i);
   assert.doesNotMatch(root.querySelector('.console-identity-card')?.textContent ?? '', /Wallet required|No wallet connected/i);
   assert.match(text, /Review-only\. Nothing executes without your approval/i);
-  assert.match(text, /Connect a wallet, then pick your agent from owned Loopers to load its identity and room\./i);
+  assert.match(text, /Owned Loopers appear here after wallet sign-in\./i);
+  assert.equal((text.match(/Connect wallet/gi) ?? []).length, 0);
   assert.doesNotMatch(text, /Direct line to Quigley|mouthy night-shift/i);
   assert.equal(root.querySelector('.console-thread-room-state'), null);
   assert.equal(root.querySelector('.console-thread-status'), null);
@@ -898,7 +931,7 @@ test('Multipass Console withholds Review-only proof for contradictory execution 
   }
 });
 
-test('Multipass Console places proof and chat before sidebar content in document order', () => {
+test('Multipass Console places mobile navigation and chat before sidebar content in document order', () => {
   const root = render(renderMultipassConsole(createMultipassConsoleSnapshot({
     agents: sampleAgents(),
     state: {
@@ -910,8 +943,9 @@ test('Multipass Console places proof and chat before sidebar content in document
   })));
   const shell = root.querySelector('.console-basic-shell');
 
-  assert.equal(shell?.firstElementChild?.classList.contains('console-basic-main'), true);
-  assert.equal(shell?.children[1]?.classList.contains('console-basic-sidebar'), true);
+  assert.equal(shell?.firstElementChild?.classList.contains('console-workspace-nav-mobile'), true);
+  assert.equal(shell?.children[1]?.classList.contains('console-basic-main'), true);
+  assert.equal(shell?.children[2]?.classList.contains('console-basic-sidebar'), true);
 });
 
 test('Multipass Console associates the visible composer label with its textarea', () => {

@@ -51,7 +51,7 @@ export function renderConsoleAgentThread(thread = {}) {
   const operation = createOperationState(thread);
 
   return `
-    <section class="console-panel console-agent-thread-panel" aria-label="Live agent chat">
+    <section class="console-panel console-agent-thread-panel${selectedAgentName ? '' : ' console-agent-thread-panel-empty'}" aria-label="Live agent chat">
       <header class="console-thread-shell-header">
         <div class="console-thread-shell-heading">
           <div class="console-thread-chat-head">
@@ -86,6 +86,7 @@ export function renderConsoleAgentThread(thread = {}) {
               <p>${escapeHtml(roomNotes)}</p>
             </div>
           ` : ''}
+          ${skillProposalSurface.capabilities ? renderConsoleCapabilitySurface(skillProposalSurface.capabilities) : ''}
           <div class="console-thread-local-actions">
             <p>Hide the messages already shown on this browser. XMTP history stays intact.</p>
             <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Hide chat locally</button>
@@ -102,7 +103,6 @@ export function renderConsoleAgentThread(thread = {}) {
           ${thread.activationRetryAvailable ? `<button type="button" data-action="retry-console-agent-activation" ${thread.roomActivationDisabled ? 'disabled' : ''}>Retry room activation</button>` : ''}
         </div>
       ` : ''}
-      ${skillProposalSurface.capabilities ? renderConsoleCapabilitySurface(skillProposalSurface.capabilities) : ''}
       <div class="console-thread-messages" data-console-room-key="${escapeAttribute(thread.roomKey ?? '')}" data-console-scroll-request="${escapeAttribute(thread.scrollRequest ?? 0)}">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>

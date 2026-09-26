@@ -40,6 +40,8 @@ test('places each unverified candidate directly beside only its exact published 
   assert.ok(candidate);
   assert.equal(secondMessage?.nextElementSibling, candidate);
   assert.equal(root.querySelector('[data-console-message-identity="id:message-a"]')?.nextElementSibling, secondMessage);
+  assert.equal(candidate.tagName, 'DETAILS');
+  assert.equal(candidate.open, false);
   assert.match(candidate.textContent, /Agent B/);
   assert.match(candidate.textContent, /message-b/);
   assert.equal(root.querySelectorAll('.console-unverified-transfer').length, 1);
@@ -63,9 +65,14 @@ test('withholds invalid or stale candidate provenance without moving it to anoth
   assert.equal(duplicateMessageRoot.querySelector('.console-unverified-transfer'), null);
 });
 
-test('shows skill capability copy only when an enabled response supplies both capability fields', () => {
+test('shows skill capability copy only inside collapsed room details when an enabled response supplies both capability fields', () => {
   const enabled = render({ agentName: 'Agent A', messages, participants, capabilities, proposalCandidates: [] });
-  assert.match(enabled.querySelector('.console-skill-capabilities')?.textContent ?? '', /Understands.*Can propose.*Cannot execute directly/s);
+  const roomDetails = enabled.querySelector('.console-thread-secondary-details');
+  const capabilitySurface = enabled.querySelector('.console-skill-capabilities');
+  assert.ok(roomDetails);
+  assert.equal(roomDetails.open, false);
+  assert.equal(roomDetails.contains(capabilitySurface), true);
+  assert.match(capabilitySurface?.textContent ?? '', /Understands.*Can propose.*Cannot execute directly/s);
 
   for (const thread of [
     { agentName: 'Agent A', messages, participants },

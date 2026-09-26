@@ -9151,6 +9151,7 @@ h1 {
 .console-workspace-nav button:disabled { cursor: not-allowed; opacity: 0.45; }
 .console-workspace-nav span { font-size: 12px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; }
 .console-workspace-nav small { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.console-workspace-nav-mobile { display: none; }
 
 .console-auth-gate,
 .console-agent-onboarding,
@@ -9861,6 +9862,18 @@ h1 {
   color: #def8f1;
   font-weight: 900;
 }
+.console-looper-wallet-control-note[data-wallet-tone="warning"] > span {
+  background: rgba(201, 164, 55, 0.14);
+  color: #f0d98f;
+}
+.console-looper-wallet-control-note[data-wallet-tone="error"] > span {
+  background: rgba(185, 71, 88, 0.16);
+  color: #f1b9c1;
+}
+.console-looper-wallet-control-note[data-wallet-tone="neutral"] > span {
+  background: rgba(248, 243, 236, 0.08);
+  color: rgba(244, 239, 231, 0.72);
+}
 .console-looper-wallet-control-note div { display: grid; gap: 3px; min-width: 0; }
 .console-looper-wallet-control-note strong { color: #f8f3ec; font-size: 13px; }
 .console-looper-wallet-control-note small { color: rgba(244, 239, 231, 0.56); font-size: 11px; line-height: 1.4; }
@@ -9994,8 +10007,9 @@ h1 {
 
 .console-skill-capability dl div {
   padding: 8px 10px;
+  border: 1px solid rgba(244, 239, 231, 0.08);
   border-radius: 10px;
-  background: #f4efe7;
+  background: rgba(248, 243, 236, 0.045);
 }
 
 .console-skill-capability dt,
@@ -10015,11 +10029,11 @@ h1 {
 }
 
 .console-skill-capability dt {
-  color: #555a55;
+  color: rgba(244, 239, 231, 0.54);
 }
 
 .console-skill-capability dd {
-  color: var(--ink);
+  color: rgba(244, 239, 231, 0.84);
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -10055,17 +10069,32 @@ h1 {
   color: #f8f3ec;
 }
 
-.console-unverified-transfer header {
+.console-unverified-transfer > summary {
   display: grid;
   gap: 8px;
   min-width: 0;
+  cursor: pointer;
+  list-style: none;
 }
 
-.console-unverified-transfer header strong {
+.console-unverified-transfer > summary::-webkit-details-marker { display: none; }
+.console-unverified-transfer > summary strong {
   color: #f8f3ec;
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+.console-unverified-transfer > summary small {
+  color: rgba(244, 239, 231, 0.54);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.console-unverified-transfer-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
 }
 
 .console-unverified-transfer-grid {
@@ -10296,4 +10325,55 @@ h1 {
 
 @media (max-width: 479px) {
   .console-agent-gallery-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Console review pass: keep empty states compact and put the selected workspace first on narrow screens. */
+.console-agent-thread-panel-empty {
+  align-content: start;
+  min-height: 220px;
+}
+
+.console-agent-thread-panel-empty .console-thread-messages,
+.console-agent-thread-panel-empty .console-thread-secondary-details,
+.console-agent-thread-panel-empty .console-thread-daybreak,
+.console-agent-thread-panel-empty .console-thread-composer {
+  display: none;
+}
+
+.console-identity-card-empty .console-agent-portrait,
+.console-identity-card-empty .console-identity-keyline,
+.console-identity-card-empty .console-identity-badges {
+  display: none;
+}
+
+.console-identity-card-empty {
+  gap: 10px;
+  padding-top: 14px;
+}
+
+@media (max-width: 1100px) {
+  .console-workspace-nav-mobile {
+    display: grid;
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid rgba(244, 239, 231, 0.08);
+    border-radius: 14px;
+    background: #11141a;
+  }
+
+  .console-basic-main {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .console-basic-sidebar {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .console-workspace-sidebar .console-workspace-nav-sidebar {
+    display: none;
+  }
 }

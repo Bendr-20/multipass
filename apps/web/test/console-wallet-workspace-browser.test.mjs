@@ -91,6 +91,20 @@ test('wallet workspace is balance-first and keeps send and advanced controls con
 
   assert.equal(await page.locator('.console-looper-wallet-hero').isVisible(), true);
   assert.equal(await page.locator('.console-looper-wallet-asset-row').count(), 2);
+  assert.equal(await page.locator('.console-workspace-nav-mobile').isVisible(), true);
+  assert.equal(await page.locator('.console-workspace-sidebar .console-workspace-nav').isVisible(), false);
+  const mobileOrder = await page.evaluate(() => {
+    const nav = document.querySelector('.console-workspace-nav-mobile');
+    const main = document.querySelector('.console-workspace-main');
+    const sidebar = document.querySelector('.console-workspace-sidebar');
+    return {
+      navTop: nav?.getBoundingClientRect().top ?? Infinity,
+      mainTop: main?.getBoundingClientRect().top ?? Infinity,
+      sidebarTop: sidebar?.getBoundingClientRect().top ?? Infinity,
+    };
+  });
+  assert.ok(mobileOrder.navTop < mobileOrder.mainTop, 'mobile workspace navigation must precede the wallet workspace');
+  assert.ok(mobileOrder.mainTop < mobileOrder.sidebarTop, 'mobile wallet workspace must precede the identity sidebar');
   assert.equal(await page.locator('[data-wallet-action="advanced"]').getAttribute('open'), null);
   assert.equal(await page.locator('.console-looper-wallet-policy').isVisible(), false);
 
@@ -126,6 +140,8 @@ test('wallet workspace is balance-first and keeps send and advanced controls con
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(fixture.origin, { waitUntil: 'domcontentloaded' });
   await page.locator('.console-wallet-workspace').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.console-workspace-nav-mobile').isVisible(), false);
+  assert.equal(await page.locator('.console-workspace-sidebar .console-workspace-nav').isVisible(), true);
   const assetWidths = await page.evaluate(() => {
     const ledger = document.querySelector('.console-looper-wallet-balances');
     return [...document.querySelectorAll('.console-looper-wallet-asset-row')].map((row) => ({
