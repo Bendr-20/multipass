@@ -472,6 +472,14 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['Show restake status', 'bankr_read'],
     ['Show restaking status', 'bankr_read'],
     ['View my restaking history', 'bankr_read'],
+    ['Compare BTC vs ETH technicals', 'market_research', 'comparison'],
+    ['Compare BTC and ETH performance', 'market_research', 'comparison'],
+    ['Show crypto news and sentiment', 'market_research', 'news'],
+    ['Summarize crypto narratives and news', 'market_research', 'news'],
+    ['Show ETH price and volume', 'market_research', 'market'],
+    ['Show my portfolio and balances', 'bankr_read'],
+    ['Show Polymarket odds and positions', 'bankr_read'],
+    ['Show DCA and TWAP status', 'bankr_read'],
     ['/bankr research Give me the latest Base ecosystem news', 'market_research', 'news'],
     ['/bankr price ETH', 'price'],
   ];
@@ -483,6 +491,117 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     if (kind) assert.equal(intent?.kind, kind, message);
     assert.match(intent?.command ?? '', /^\/bankr (?:read|price|research (?:market|news|comparison)) /, message);
   }
+});
+
+test('closed Bankr read grammar rejects unseen actions and mixed clauses before intent or fetch', async () => {
+  const unsafeQueries = [
+    'Show my portfolio and donate ETH',
+    'List my balances then gift USDC',
+    'Display holdings while paying 1 ETH',
+    'View my positions after hedging ETH',
+    'Check Polymarket odds before committing capital',
+    'Get order status; revise the order',
+    'Find NFTs and acquire one',
+    'Search NFT floor prices and make an offer',
+    'Analyze ETH price, rotate into SOL',
+    'Compare BTC and ETH and rebalance into SOL',
+    'Summarize crypto news but sponsor this wallet',
+    'Report market sentiment and fund the account',
+    'Give me ETH price along with wrapping ETH',
+    'Tell me current volume as well as unwrapping WETH',
+    'Show my portfolio plus forwarding ETH',
+    'List balances and remit USDC',
+    'Display holdings and route funds',
+    'View positions and lock collateral',
+    'Check leverage status and unlock collateral',
+    'Get DCA status and compound rewards',
+    'Show TWAP history and harvest yield',
+    'List active orders and provide liquidity',
+    'Show order history and remove liquidity',
+    'View automation status and add liquidity',
+    'Check my positions and refinance debt',
+    'Show my balances and repay the loan',
+    'Display holdings and collateralize ETH',
+    'List NFTs and delegate voting power',
+    'Show my NFT portfolio and undelegate votes',
+    'Check token deployment status and register a name',
+    'View token fee status and renew the name',
+    'Show my holdings and burn a token',
+    'Get my portfolio and freeze USDC',
+    'List balances and thaw the account',
+    'Show order status and revoke approval',
+    'View positions and permit spending',
+    'Check odds and authorize a relayer',
+    'Show portfolio and settle the debt',
+    'Show NFT bid status and rebid',
+    'Show NFT bid status and outbid the leader',
+    'Show order amendment status and apply amendments',
+    'Show automation history and amend it',
+    'Show my portfolio and restake ETH',
+    'Show my portfolio donate ETH',
+    'Get my balances gift USDC',
+    'Tell me ETH price exercise the option',
+    'Show my positions accept the offer',
+  ];
+  let fetches = 0;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+  });
+
+  for (const query of unsafeQueries) {
+    assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+    for (const command of [`/bankr read ${query}`, `/bankr research market ${query}`]) {
+      await assert.rejects(executor.execute(command), /Unsupported Console read skill command/, command);
+    }
+  }
+  assert.equal(fetches, 0);
+});
+
+test('closed Bankr read grammar rejects every clause separator unless the full compound is approved', () => {
+  for (const query of [
+    'Show my portfolio then donate ETH',
+    'Show my portfolio while donating ETH',
+    'Show my portfolio after donating ETH',
+    'Show my portfolio before donating ETH',
+    'Show my portfolio; donate ETH',
+    'Show my portfolio\nand donate ETH',
+    'Show my portfolio, donate ETH',
+    'Show my portfolio but donate ETH',
+    'Show my portfolio and then donate ETH',
+  ]) assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+
+  for (const query of [
+    'Compare BTC and ETH performance',
+    'Compare BTC vs ETH technicals',
+    'Show crypto news and sentiment',
+    'Show crypto narratives and news',
+    'Show ETH price and volume',
+    'Show my portfolio and balances',
+    'Show Polymarket odds and positions',
+    'Show DCA and TWAP status',
+  ]) assert.ok(resolveConsoleReadSkillIntent(query), query);
+});
+
+test('contextual read follow-ups require the prior and current text to form the same closed grammar', () => {
+  assert.equal(resolveConsoleReadSkillIntent('And volume?'), null);
+  assert.deepEqual(
+    resolveConsoleReadSkillIntent('And volume?', { priorMessage: 'Show ETH price' }),
+    {
+      skill: 'bankr',
+      operation: 'market_research',
+      kind: 'market',
+      command: '/bankr research market Show ETH price and volume?',
+    },
+  );
+  assert.equal(
+    resolveConsoleReadSkillIntent('Then donate ETH', { priorMessage: 'Show my portfolio' }),
+    null,
+  );
+  assert.equal(
+    resolveConsoleReadSkillIntent('And rebalance into SOL', { priorMessage: 'Compare BTC and ETH performance' }),
+    null,
+  );
 });
 
 test('fails closed for Bankr actions, mixed read/write requests, injection, calldata, and scheduled writes', () => {
