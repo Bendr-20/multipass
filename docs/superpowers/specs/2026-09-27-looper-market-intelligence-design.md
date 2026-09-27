@@ -75,15 +75,15 @@ Allow the Looper to browse and synthesize any current page.
 
 Natural language is the primary interface. Users do not need slash commands.
 
-The Looper returns one of three compact shapes based on the request:
+The resolver assigns one server-owned request kind and the Looper returns its matching compact shape:
 
 1. **Market brief** — timestamped market snapshot, major movers, trends, and interpretation.
-2. **News brief** — at most three important stories, each with publication time, publisher, direct HTTPS URL, verified facts, and a short interpretation.
+2. **News brief** — at most three important stories, each with publication time, publisher, direct HTTPS URL, reported facts, and a short interpretation.
 3. **Asset comparison** — timestamped comparable price, volume, market-cap, and trend observations for the requested assets.
 
-Every response ends with a short boundary line:
+After validating and truncating provider prose, the server—not the provider—appends this boundary line:
 
-> Read-only market research; not financial advice or a transaction.
+> Read-only market research; informational only.
 
 If current data or usable sources are unavailable, the Looper says so plainly instead of filling gaps from model memory.
 
@@ -91,12 +91,12 @@ If current data or usable sources are unavailable, the Looper says so plainly in
 
 ### 1. Intent resolution
 
-`apps/api/src/console-read-skills.js` remains the only natural-language entry point.
+`apps/api/src/console-read-skills.js` remains the only natural-language entry point. Market reads receive a dedicated `MULTIPASS_CONSOLE_MARKET_READ_ENABLED` gate and are not coupled to `MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED`. The Bankr credential must also be present. This allows research to be enabled without enabling transfer proposals or any other action-capable surface.
 
-The resolver will recognize bounded crypto-market and crypto-news terms, including:
+The resolver uses an explicit two-axis rule: the message must contain a crypto/asset/ecosystem context or a recognized crypto-market phrase, and it must contain a research intent. It recognizes bounded terms including:
 
 - market analysis, overview, update, trend, movers, volatility, volume, and market cap;
-- crypto news, headlines, latest stories, what happened today, and Base ecosystem news;
+- crypto news, crypto headlines, latest crypto stories, what happened in crypto today, Base ecosystem news, and current news plus market trends;
 - sentiment, narratives, attention, and trending tokens; and
 - bounded asset comparison questions.
 
@@ -108,7 +108,9 @@ The resolver will continue to reject:
 - empty or oversized input; and
 - unrelated conversation that belongs on the ordinary LLM path.
 
-Resolution produces the existing internal `market_research` operation and a normalized `/bankr research …` command. The operator’s original text remains the provenance source displayed in the thread.
+Resolution produces the existing internal `market_research` operation, one of `market`, `news`, or `comparison`, and a normalized `/bankr research …` command. Generic current-events prompts such as “tell me today’s news” do not route. Contextual follow-ups such as “what about ETH?” are deferred from v1 rather than concatenating untrusted prior messages into a new provider prompt.
+
+The current human message immediately precedes the resulting skill message in the canonical thread and is the v1 provenance link. No explicit source-message field is claimed.
 
 ### 2. Provider request
 
@@ -123,7 +125,7 @@ The fixed instruction requires:
 - named sources;
 - direct public HTTPS URLs for news claims;
 - no more than three news items;
-- separate “Verified facts” and “Market interpretation” sections;
+- separate “Reported facts” and “Market interpretation” sections;
 - a plain statement when current data is unavailable; and
 - no action, wallet use, order creation, or transaction submission.
 
@@ -137,14 +139,17 @@ The provider result remains plain display-only text with immutable metadata:
 - `operation: market_research`
 - `provider: bankr_agent_api`
 - normalized query
+- server-owned request kind
 
-The UTF-8 result ceiling increases from 2,048 to 4,096 bytes for `market_research` only. Exact price reads keep their current smaller contract. Truncation remains code-point safe.
+For market and comparison briefs, the server requires a UTC timestamp and at least one named source. For news briefs, it additionally requires one to three direct `https://` URLs, rejects non-HTTPS URLs and more than three links, and requires distinct “Reported facts” and “Market interpretation” headings. A response that fails its shape is not published as current research; the Console receives a bounded unavailable/error response instead.
+
+The UTF-8 result ceiling increases from 2,048 to 4,096 bytes for `market_research` only. Exact price reads keep their current smaller contract. Truncation remains code-point safe and reserves room for the server-owned boundary line. The runtime projection uses the same operation-specific ceiling so it cannot independently remove that boundary.
 
 Provider output cannot create wallet proposals, candidates, approvals, or executable controls. The runtime accepts only the expected skill, operation, and provider tuple before publishing a message.
 
 Direct HTTPS source URLs remain visible as text in the first trial. Clickable-link rendering is deferred rather than widening the HTML rendering surface during a provider change.
 
-### 4. Capability catalog
+### 4. Independent feature gate and capability catalog
 
 The Bankr descriptor will truthfully advertise:
 
@@ -160,16 +165,17 @@ Constraints will state that:
 - source links are provider-returned and not an independent Helixa verification; and
 - transaction actions remain unavailable.
 
-No proposal or execution capability is added.
+No proposal or execution capability is added. When market reads are enabled but skill proposals are disabled, the returned capability catalog contains read-only Bankr and Helixa descriptors only. Existing transfer-proposal behavior remains behind its separate flag and is outside this release.
 
 ## Failure handling
 
 - A missing credential produces the existing bounded disabled-capability error.
 - Provider HTTP, JSON, job-ID, status, timeout, and polling failures produce sanitized Console errors.
 - A malformed provider result is rejected before publication.
-- A source-free news response is still labeled as provider synthesis and must not claim independently verified reporting.
+- A source-free or malformed news response is rejected rather than presented as current reporting.
 - Duplicate identical requests share the existing in-flight provider call.
-- A user can retry after failure; no wallet or conversation state is mutated by the failed read.
+- Runtime cancellation propagates through prompt submission, job polling, and waits. A timed-out call stops before its in-flight dedupe entry is released, preventing overlapping retries.
+- Intent resolution occurs before durable-memory extraction. Market-read prompts are not written as durable preferences, and a failed read mutates no wallet, durable memory, or published conversation state.
 
 ## Safety model
 
@@ -178,7 +184,7 @@ This release preserves four independent boundaries:
 1. **Read-only intent boundary:** action and credential requests never reach Bankr.
 2. **Fixed-host egress boundary:** only the existing Bankr prompt and validated job endpoints are called.
 3. **Display-only result boundary:** provider prose cannot become a proposal, transaction, approval, or wallet action.
-4. **Truthful provenance boundary:** current facts, publisher links, and market interpretation are visibly separated.
+4. **Truthful provenance boundary:** reported facts, provider-returned publisher links, and market interpretation are visibly separated; “verified” is never claimed by Helixa.
 
 Market research is informational. It is not financial advice, an execution recommendation, or proof that a linked publisher is correct.
 
@@ -190,9 +196,9 @@ Add positive intent cases for:
 
 - current crypto news;
 - Base ecosystem headlines;
+- the exact natural phrases “What is moving crypto today?”, “What is the latest crypto news?”, and “Can you tell me current news and market trends?”;
 - market movers and narratives;
-- BTC/ETH comparisons; and
-- common follow-up wording when recent thread context is market-related.
+- BTC/ETH comparisons.
 
 Add negative cases for:
 
@@ -203,18 +209,21 @@ Add negative cases for:
 - oversized and control-character input; and
 - unsupported explicit commands.
 
-Verify the provider prompt requires timestamps, direct HTTPS source URLs, no more than three stories, and facts-versus-interpretation separation.
+Verify the provider prompt requires timestamps, direct HTTPS source URLs, no more than three stories, and reported-facts-versus-interpretation separation. Verify response validation rejects missing timestamps, missing named sources, source-free news, non-HTTPS URLs, more than three news URLs, and missing required headings.
 
-Verify 4,096-byte UTF-8 truncation, operation-specific limits, malformed jobs, provider failures, polling bounds, deduplication, timeout behavior, and immutable projected results.
+Verify 4,096-byte UTF-8 truncation with reserved footer space, operation-specific limits in both executor and runtime projection, malformed jobs, provider failures, polling bounds, deduplication, abort propagation, timeout behavior, and immutable projected results.
 
 ### Integration tests
 
 Verify an authenticated Console message:
 
 - routes news and market questions through the read-only executor rather than the ordinary LLM;
-- preserves participant and source-message provenance;
+- preserves participant attribution and canonical human-message-then-skill-message ordering;
 - publishes no proposal candidates or wallet controls; and
+- proves market reads work with skill proposals disabled; and
 - leaves action-oriented prompts on the non-skill path or returns the bounded rejection expected by the existing runtime contract.
+
+Verify successful and failed market reads do not write durable memory. Verify a timed-out provider call is aborted before an identical retry can create a second in-flight request.
 
 Run the focused read-skill and agent-runtime suites, then the complete API suite.
 
@@ -234,9 +243,10 @@ Use one market brief, one news brief, and one asset comparison against the confi
 1. Implement on an isolated branch based on the reviewed skill-aware runtime.
 2. Run focused and complete API tests.
 3. Trial the module directly with the configured read-only provider.
-4. Deploy to the existing Console API service only after review.
-5. Run authenticated Console smokes for market, news, and asset comparison prompts.
-6. Roll back to the prior service source and restart only if a live gate fails.
+4. Inspect and merge the existing systemd environment without whole-file replacement; enable `MULTIPASS_CONSOLE_MARKET_READ_ENABLED=1` only on the production Console unit that serves nginx port 8792.
+5. Deploy to the existing Console API service only after review, restart it once, and verify the PID, source revision, dedicated gate, Bankr credential presence, and port.
+6. Run authenticated Console smokes for market, news, and asset comparison prompts through the same public endpoint a holder uses—not by calling the executor directly.
+7. Roll back the service source and environment to the recorded backup, restart, and verify the prior health state if any live gate fails.
 
 No web bundle deployment is required unless later work adds clickable source rendering.
 
