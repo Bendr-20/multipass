@@ -127,7 +127,11 @@ function normalizeConversationHistory(history) {
 
 function normalizeHistoryText(entry, catalog) {
   const text = String(entry?.text ?? '').trim();
-  if (entry?.role === 'agent' && entry?.inferenceProvider === 'bankr_llm_gateway') {
+  const provider = String(entry?.inferenceProvider ?? '').trim();
+  if (
+    entry?.role === 'agent'
+    && (provider === 'bankr_llm_gateway' || !provider)
+  ) {
     return projectConsoleLlmDisplayText(text, { catalog });
   }
   return text;
