@@ -2,7 +2,10 @@ import {
   getConsoleSkillCatalog,
   getConsoleSkillCatalogPromptProjection,
 } from '../console-skill-catalog.js';
-import { decodeConsoleLlmEnvelope } from '../console-transfer-candidate.js';
+import {
+  decodeConsoleLlmEnvelope,
+  projectConsoleLlmDisplayText,
+} from '../console-transfer-candidate.js';
 
 const DEFAULT_BANKR_LLM_MODEL = 'claude-haiku-4.5';
 
@@ -65,10 +68,12 @@ export function createBankrLlmClient({
       if (!response.ok) {
         throw new Error(body?.error?.message ?? `Bankr LLM Gateway request failed with ${response.status}.`);
       }
+      const content = body?.choices?.[0]?.message?.content
+        ?? body?.content?.[0]?.text
+        ?? 'Bankr LLM returned an empty response.';
+      const catalog = getConsoleSkillCatalog();
       if (skillProposalsEnabled) {
-        const decoded = decodeConsoleLlmEnvelope(body?.choices?.[0]?.message?.content, {
-          catalog: getConsoleSkillCatalog(),
-        });
+        const decoded = decodeConsoleLlmEnvelope(content, { catalog });
         return {
           provider: 'bankr_llm_gateway',
           text: decoded.text,
@@ -78,7 +83,7 @@ export function createBankrLlmClient({
       }
       return {
         provider: 'bankr_llm_gateway',
-        text: body?.choices?.[0]?.message?.content ?? body?.content?.[0]?.text ?? 'Bankr LLM returned an empty response.',
+        text: projectConsoleLlmDisplayText(content, { catalog }),
       };
     },
   };
@@ -125,27 +130,21 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
 
 function normalizeConversationHistory(history) {
   if (!Array.isArray(history)) return [];
+  const catalog = getConsoleSkillCatalog();
   return history
     .filter((entry) => entry && (entry.role === 'human' || entry.role === 'agent'))
     .slice(-8)
     .map((entry) => ({
       role: entry.role === 'human' ? 'user' : 'assistant',
-      content: normalizeHistoryText(entry.text),
+      content: normalizeHistoryText(entry, catalog),
     }))
     .filter((entry) => entry.content);
 }
 
-function normalizeHistoryText(value) {
-  let text = String(value ?? '').trim();
-  const fenced = text.match(/^```(?:json)?[ \t]*\n([\s\S]*?)\n```$/iu);
-  if (fenced) text = fenced[1].trim();
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === 'object' && typeof parsed.assistant_text === 'string') {
-      return parsed.assistant_text.trim();
-    }
-  } catch {
-    // Plain chat history stays unchanged.
+function normalizeHistoryText(entry, catalog) {
+  const text = String(entry?.text ?? '').trim();
+  if (entry?.role === 'agent' && entry?.inferenceProvider === 'bankr_llm_gateway') {
+    return projectConsoleLlmDisplayText(text, { catalog });
   }
   return text;
 }

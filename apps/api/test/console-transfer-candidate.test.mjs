@@ -4,7 +4,10 @@ import test from 'node:test';
 import { getAddress } from 'viem';
 
 import { getConsoleSkillCatalog } from '../src/console-skill-catalog.js';
-import { decodeConsoleLlmEnvelope } from '../src/console-transfer-candidate.js';
+import {
+  decodeConsoleLlmEnvelope,
+  projectConsoleLlmDisplayText,
+} from '../src/console-transfer-candidate.js';
 
 const catalog = getConsoleSkillCatalog();
 const recipient = '0x1111111111111111111111111111111111111111';
@@ -57,6 +60,10 @@ function frozenCatalog(skills) {
   return Object.freeze({ version: 'test', skills });
 }
 
+function assertNoEnvelopeLeak(text) {
+  assert.doesNotMatch(text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+}
+
 test('normalizes the exact native transfer envelope into frozen non-authoritative data', () => {
   const result = decode(envelope());
 
@@ -101,6 +108,59 @@ test('unwraps one exact JSON markdown fence without leaking the schema envelope 
   assertRecursivelyFrozen(result);
 });
 
+test('projects exact and fenced strict envelopes to assistant text only', () => {
+  const expected = 'Only this operator-safe answer should render.';
+  const exact = JSON.stringify(envelope({ assistant_text: expected, transfer_candidates: [] }));
+  const fenced = `\`\`\`json\n${exact}\n\`\`\``;
+
+  for (const content of [exact, fenced]) {
+    const text = projectConsoleLlmDisplayText(content, { catalog });
+    assert.equal(text, expected);
+    assertNoEnvelopeLeak(text);
+  }
+});
+
+test('projects prose plus exactly one complete strict envelope without rendering schema text', () => {
+  const expected = 'Use the verified assistant answer.';
+  const content = `Provider preface that must not expose the envelope.\n${JSON.stringify(envelope({
+    assistant_text: expected,
+    transfer_candidates: [],
+  }))}\nProvider suffix.`;
+
+  const text = projectConsoleLlmDisplayText(content, { catalog });
+
+  assert.equal(text, expected);
+  assertNoEnvelopeLeak(text);
+});
+
+test('projects malformed or truncated envelope markers to one bounded server-owned retry message', () => {
+  const malformed = [
+    '{"schema_version":"0.1.0",',
+    '```json\n{"schema_version":"0.1.0"\n```',
+    'prefix {"assistant_text":"never render me"',
+    `${JSON.stringify(envelope({ assistant_text: 'A valid object must not mask a second truncated marker.' }))}\n{"assistant_text":"truncated"`,
+    JSON.stringify({ ...envelope(), unexpected: true }),
+  ];
+  const outputs = malformed.map((content) => projectConsoleLlmDisplayText(content, { catalog }));
+
+  assert.equal(new Set(outputs).size, 1);
+  assert.ok(outputs[0].length > 0);
+  assert.ok(Buffer.byteLength(outputs[0], 'utf8') <= 4_096);
+  assertNoEnvelopeLeak(outputs[0]);
+  for (const content of malformed) assert.notEqual(outputs[0], content);
+});
+
+test('leaves plain prose unchanged and truncates it on a valid UTF-8 boundary', () => {
+  const plain = 'Plain Console prose remains exactly readable.';
+  assert.equal(projectConsoleLlmDisplayText(plain, { catalog }), plain);
+
+  const oversized = `${'a'.repeat(4_095)}💸trailing`;
+  const projected = projectConsoleLlmDisplayText(oversized, { catalog });
+  assert.equal(projected, 'a'.repeat(4_095));
+  assert.equal(Buffer.byteLength(projected, 'utf8'), 4_095);
+  assert.doesNotMatch(projected, /�/);
+});
+
 test('normalizes an ERC-20 candidate address while preserving canonical amount text', () => {
   const value = envelope({
     transfer_candidates: [{
@@ -142,15 +202,21 @@ test('accepts zero candidates and up to four unique known bounded skill referenc
   assertRecursivelyFrozen(result);
 });
 
-test('turns malformed, mixed, duplicate-key, empty, and non-string content into safe fallback text', () => {
+test('decode fails closed through display projection and returns no refs or candidates', () => {
+  const ordinary = decodeConsoleLlmEnvelope('  ordinary assistant prose  ', { catalog });
+  assert.equal(ordinary.text, 'ordinary assistant prose');
+  assert.deepEqual(ordinary.skillRefs, []);
+  assert.deepEqual(ordinary.transferCandidates, []);
+  assertRecursivelyFrozen(ordinary);
+
   for (const content of [
-    '  ordinary assistant prose  ',
     'prefix {"schema_version":"0.1.0"}',
     '{"schema_version":"0.1.0",',
     '{"schema_version":"0.1.0","schema_version":"evil"}',
   ]) {
     const result = decodeConsoleLlmEnvelope(content, { catalog });
-    assert.equal(result.text, content.trim());
+    assert.notEqual(result.text, content.trim());
+    assertNoEnvelopeLeak(result.text);
     assert.deepEqual(result.skillRefs, []);
     assert.deepEqual(result.transferCandidates, []);
     assertRecursivelyFrozen(result);

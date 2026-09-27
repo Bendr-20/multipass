@@ -17,44 +17,120 @@ const MAX_SKILL_ID_BYTES = 32;
 const MAX_SKILL_REFS = 4;
 const MAX_UINT256 = (1n << 256n) - 1n;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const SAFE_RETRY_TEXT = 'I could not safely read that response. Please try again.';
 
 export function decodeConsoleLlmEnvelope(content, { catalog } = {}) {
   const skills = indexFrozenCatalog(catalog);
   if (typeof content !== 'string' || content.trim().length === 0) return emptyResult();
 
   try {
-    const envelope = parseStrictJsonObject(unwrapExactJsonFence(content));
-    assertExactKeys(envelope, ENVELOPE_KEYS, 'Console LLM envelope');
-    if (envelope.schema_version !== '0.1.0') {
-      throw new TypeError('Console LLM envelope schema version is unsupported.');
-    }
-    assertBoundedString(envelope.assistant_text, 'assistant_text', MAX_ASSISTANT_TEXT_BYTES);
-
-    const skillRefs = normalizeSkillRefs(envelope.skill_refs, skills);
-    const transferCandidates = normalizeTransferCandidates(
-      envelope.transfer_candidates,
-      skillRefs,
-      skills,
-    );
-
-    return deepFreezeJson({
-      text: envelope.assistant_text,
-      skillRefs,
-      transferCandidates,
-    });
+    return parseConsoleLlmEnvelopeCandidate(unwrapExactJsonFence(content), skills);
   } catch {
     return deepFreezeJson({
-      text: truncateUtf8(content.trim(), MAX_ASSISTANT_TEXT_BYTES),
+      text: projectConsoleLlmDisplayText(content, { catalog }),
       skillRefs: [],
       transferCandidates: [],
     });
   }
 }
 
+export function projectConsoleLlmDisplayText(content, { catalog } = {}) {
+  if (typeof content !== 'string' || content.trim().length === 0) return '';
+  const trimmed = content.trim();
+  const { candidates, hasIncompleteCandidate } = findCompleteJsonObjectCandidates(trimmed);
+
+  if (candidates.length === 1 && !hasIncompleteCandidate) {
+    try {
+      const skills = indexFrozenCatalog(catalog);
+      return parseConsoleLlmEnvelopeCandidate(candidates[0], skills).text;
+    } catch {
+      // Envelope-like failures are replaced below with server-owned text.
+    }
+  }
+
+  if (containsEnvelopeMarkers(trimmed)) return SAFE_RETRY_TEXT;
+  return truncateUtf8(trimmed, MAX_ASSISTANT_TEXT_BYTES);
+}
+
+function parseConsoleLlmEnvelopeCandidate(content, skills) {
+  const envelope = parseStrictJsonObject(content);
+  assertExactKeys(envelope, ENVELOPE_KEYS, 'Console LLM envelope');
+  if (envelope.schema_version !== '0.1.0') {
+    throw new TypeError('Console LLM envelope schema version is unsupported.');
+  }
+  assertBoundedString(envelope.assistant_text, 'assistant_text', MAX_ASSISTANT_TEXT_BYTES);
+  if (containsEnvelopeMarkers(envelope.assistant_text)) {
+    throw new TypeError('assistant_text contains reserved envelope markers.');
+  }
+
+  const skillRefs = normalizeSkillRefs(envelope.skill_refs, skills);
+  const transferCandidates = normalizeTransferCandidates(
+    envelope.transfer_candidates,
+    skillRefs,
+    skills,
+  );
+
+  return deepFreezeJson({
+    text: envelope.assistant_text,
+    skillRefs,
+    transferCandidates,
+  });
+}
+
 function unwrapExactJsonFence(content) {
   const trimmed = content.trim();
   const match = /^```(?:json)?\r?\n([\s\S]*?)\r?\n```$/.exec(trimmed);
   return match ? match[1] : content;
+}
+
+function findCompleteJsonObjectCandidates(content) {
+  const candidates = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (start === -1) {
+      if (character === '{') {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        candidates.push(content.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return {
+    candidates,
+    hasIncompleteCandidate: start !== -1,
+  };
+}
+
+function containsEnvelopeMarkers(content) {
+  const normalized = String(content).toLowerCase();
+  return normalized.includes('schema_version')
+    || normalized.includes('assistant_text')
+    || normalized.includes('skill_refs')
+    || normalized.includes('transfer_candidates')
+    || normalized.includes('```');
 }
 
 function normalizeSkillRefs(value, skills) {
