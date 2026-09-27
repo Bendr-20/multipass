@@ -1041,6 +1041,7 @@ test('executor rejects unsupported account status reads before Bankr access', as
 test('classifies only bounded crypto market intelligence into typed market_research intents', () => {
   const positives = [
     ['What is moving crypto today?', 'market'],
+    ['What is the live price of btc', 'market'],
     ['Give me the latest Base ecosystem news.', 'news'],
     ['What is the latest crypto news?', 'news'],
     ['Can you tell me current news and market trends?', 'news'],
