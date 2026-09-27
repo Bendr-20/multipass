@@ -306,7 +306,22 @@ test('skill-aware Bankr prompt uses only the exact server projection and request
   assert.match(systemPrompt, /schema_version.*assistant_text.*skill_refs.*transfer_candidates/is);
   assert.match(systemPrompt, /no markdown|without markdown/i);
   assert.match(systemPrompt, /never claim.*outside.*enabledCapabilities/i);
-  assert.doesNotMatch(projection, /market_research|portfolio_read|swap|token_launch/);
+  assert.match(projection, /read_market_news_sentiment/);
+  assert.match(projection, /read_portfolio_balances/);
+  assert.match(projection, /read_nfts/);
+  assert.match(projection, /read_polymarket/);
+  assert.match(projection, /read_positions_orders_automation/);
+  assert.match(projection, /read_token_fee_deployment_status/);
+  assert.match(projection, /propose_transfer/);
+  assert.match(projection, /propose_other_wallet_actions/);
+  assert.match(systemPrompt, /direct reads.*server routing/i);
+  assert.match(systemPrompt, /market.*technical.*news.*sentiment/is);
+  assert.match(systemPrompt, /portfolio.*balances.*NFT.*Polymarket/is);
+  assert.match(systemPrompt, /write requests.*unsigned review proposals/i);
+  assert.match(systemPrompt, /assumptions.*parameters.*missing fields/i);
+  assert.match(systemPrompt, /never claim.*execut/i);
+  assert.match(systemPrompt, /sole structured candidate.*transfer/i);
+  assert.match(systemPrompt, /other write proposals.*natural-language/i);
   assert.equal('tools' in requestBody, false);
   for (const sentinel of Object.values(sentinels)) assert.equal(section.includes(sentinel), false);
 
