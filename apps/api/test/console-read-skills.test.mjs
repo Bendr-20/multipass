@@ -462,6 +462,16 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['View token issuance status', 'bankr_read'],
     ['Show token issuance history', 'bankr_read'],
     ['List token issuance history', 'bankr_read'],
+    ['Show order amendment status', 'bankr_read'],
+    ['View automation amendment history', 'bankr_read'],
+    ['Show amendment status', 'bankr_read'],
+    ['Show my NFT bid status', 'bankr_read'],
+    ['List my market bid history', 'bankr_read'],
+    ['Show bid status', 'bankr_read'],
+    ['View bidding history', 'bankr_read'],
+    ['Show restake status', 'bankr_read'],
+    ['Show restaking status', 'bankr_read'],
+    ['View my restaking history', 'bankr_read'],
     ['/bankr research Give me the latest Base ecosystem news', 'market_research', 'news'],
     ['/bankr price ETH', 'price'],
   ];
@@ -579,6 +589,20 @@ test('fails closed for Bankr actions, mixed read/write requests, injection, call
     'Launch a coin',
     'Show my portfolio then create an ERC-20',
     'Close the position after reviewing the next hourly candle, current liquidity, recent volatility, funding rates, and the latest risk limits',
+    'Show active orders then amend one',
+    'Show order history while amending it',
+    'Amend my oldest order',
+    'Amends the automation schedule',
+    'Amended the DCA automation',
+    'Show my NFT portfolio then bid on one',
+    'Show Polymarket odds then place a bid',
+    'Bid on this NFT',
+    'Bids on the market after showing odds',
+    'Bidding on an order',
+    'Show my portfolio then restake ETH',
+    'Restakes my ETH rewards',
+    'Restaked the ETH position',
+    'Restaking my staked ETH',
   ];
   for (const message of writes) assert.equal(resolveConsoleReadSkillIntent(message), null, message);
 });
@@ -659,6 +683,18 @@ test('executor performs zero Bankr fetches for every action-bearing direct comma
     '/bankr read Cash out my ETH position',
     '/bankr read Redeem USDC for ETH',
     '/bankr read Show my portfolio then create an ERC-20',
+    '/bankr read Show active orders then amend one',
+    '/bankr read Show automation status while amending it',
+    '/bankr read Amends the automation schedule',
+    '/bankr read Amended the DCA automation',
+    '/bankr read Show my NFT portfolio then bid on one',
+    '/bankr read Show Polymarket odds then place a bid',
+    '/bankr read Bids on the market after showing odds',
+    '/bankr read Bidding on an order',
+    '/bankr read Show my portfolio then restake ETH',
+    '/bankr read Restakes my ETH rewards',
+    '/bankr read Restaked the ETH position',
+    '/bankr read Restaking my staked ETH',
   ]) {
     await assert.rejects(executor.execute(command), /Unsupported Console read skill command/);
   }
@@ -745,8 +781,45 @@ test('validates, frames, and UTF-8 bounds typed market and news results', async 
     assert.equal(result.operation, 'market_research');
     assert.equal(result.data.kind, fixture.kind);
     assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4_096);
+    assert.match(result.text, /Data timestamp: 2026-09-27 15:20:00 UTC/);
+    assert.match(result.text, /Sources?: (?:Bankr market data|Example News)/);
+    if (fixture.kind === 'news') assert.match(result.text, /https:\/\/example\.com\/base-news/);
+    assert.equal(result.text, Buffer.from(result.text, 'utf8').toString('utf8'));
+    assert.doesNotMatch(result.text, /\uFFFD/);
     assert.match(result.text, /\n\nRead-only market research; informational only\.$/);
   }
+});
+
+test('maximal multibyte market framing reserves timestamp, source, and public-link metadata', async () => {
+  const publicUrl = 'https://example.com/base-news';
+  const response = [
+    'Reported facts',
+    `${'🪙'.repeat(2_000)} ${publicUrl}`,
+    'Market interpretation',
+    `${'市場'.repeat(2_000)} remains interpretive only.`,
+    'Data timestamp: 2026-09-27 15:20:00 UTC',
+    'Source: Example News',
+  ].join('\n');
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    now: () => '2026-09-27T15:24:00.000Z',
+    sleep: async () => {},
+    fetchImpl: async (url) => String(url) === BANKR_PROMPT_URL
+      ? jsonResponse({ success: true, status: 'pending', jobId: 'job_max_utf8' })
+      : jsonResponse({ success: true, status: 'completed', jobId: 'job_max_utf8', response }),
+  });
+
+  const result = await executor.execute('/bankr research news Give me maximal current Base news');
+
+  assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4_096);
+  assert.match(result.text, /^Reported facts$/m);
+  assert.match(result.text, /^Market interpretation$/m);
+  assert.match(result.text, /^Data timestamp: 2026-09-27 15:20:00 UTC$/m);
+  assert.match(result.text, /^Source: Example News$/m);
+  assert.match(result.text, new RegExp(`^${publicUrl}$`, 'm'));
+  assert.equal(result.text, Buffer.from(result.text, 'utf8').toString('utf8'));
+  assert.doesNotMatch(result.text, /\uFFFD/);
+  assert.match(result.text, /\n\nRead-only market research; informational only\.$/);
 });
 
 test('rejects malformed, stale, or unsafe typed market results before display', async () => {

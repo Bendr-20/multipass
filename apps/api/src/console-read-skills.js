@@ -21,10 +21,12 @@ const BANKR_READ_INTENTS = [
   /\b(?:positions?|leverage (?:positions?|status|history)|long\/short positions?|long positions?|short positions?)\b/i,
   /\b(?:(?:token|deployment|fee) status|(?:token|coin) (?:issuance|deployment|fee) (?:status|history)|deployment status|fee status)\b/i,
   /\b(?:automation (?:execution )?(?:status|history)|(?:dca|twap) (?:execution )?(?:status|history|orders?)|active orders?|open orders?|pending orders?|order status|order history|active limit orders?)\b/i,
+  /\b(?:(?:orders?|automation) amendment|(?:nft|market|order) bids?|amendment|bid(?:s|ding)?|restak(?:e|ing)) (?:status|history)\b/i,
 ];
 const BANKR_WRITE_INTENTS = [
   /\b(?:buy(?:s|ing)?|sell(?:s|ing)?|trad(?:e|es|ed|ing)|swap(?:s|ped|ping)|send(?:s|ing)?|sent|transfer(?:s|red|ring)?|bridg(?:e|es|ed|ing)|wager(?:s|ed|ing)?|bet(?:s|ting)?|stak(?:e|es|ed|ing)|unstak(?:e|es|ed|ing)|mint(?:s|ed|ing)?|purchas(?:e|es|ed|ing)|claim(?:s|ed|ing)?|deploy(?:s|ed|ing)?|launch(?:es|ed|ing)?|sign(?:s|ed|ing)?|submit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|deposit(?:s|ed|ing)?|borrow(?:s|ed|ing)?|lend(?:s|ing)?|execut(?:e|es|ed|ing)|plac(?:e|es|ed|ing)|cancel(?:s|ed|ing|led|ling)?)\b/i,
   /\b(?:convert(?:s|ed|ing)?|redeem(?:s|ed|ing)?|exchang(?:e|es|ed|ing)|liquidat(?:e|es|ed|ing)|longing|shorting)\b/i,
+  /\b(?:amend(?:s|ed|ing)?|bid(?:s|ded|ding)?|restak(?:e|es|ed|ing))\b/i,
   /\b(?:tak(?:e|es|en|ing)|enter(?:s|ed|ing)?)\b.{0,48}\b(?:long|short|positions?)\b/i,
   /\b(?:open|close|opening|closing)\s+(?:(?:an?|my|the|new|more)\s+)?(?:\d+(?:\.\d+)?x\s+)?(?:long|short|leverage|positions?|trade|orders?)\b/i,
   /\b(?:open|close|opening|closing)\b.{0,48}\bpositions?\b/i,
@@ -187,6 +189,10 @@ function maskReadOnlyNounPhrases(query) {
     .replace(/\b(?:dca|twap)\s+(?:execution\s+)?(?:status|history)\b/gi, 'automation status')
     .replace(/\bautomation\s+(?:execution\s+)?(?:status|history)\b/gi, 'automation status')
     .replace(/\b(?:token|coin)\s+issuance\s+(?:status|history)\b/gi, 'token status')
+    .replace(/\b(?:orders?|automation)\s+amendment\s+(?:status|history)\b/gi, 'order status')
+    .replace(/\b(?:nft|market|order)\s+bids?\s+(?:status|history)\b/gi, 'order status')
+    .replace(/\bbid(?:s|ding)?\s+(?:status|history)\b/gi, 'order status')
+    .replace(/\brestak(?:e|ing)\s+(?:status|history)\b/gi, 'yield status')
     .replace(/\b(?:show|list|display|view|check)(?:\s+me)?\s+(?:my\s+)?(?:dca|twap)\s+orders?\b/gi, 'read orders')
     .replace(/\bwhat(?:'s| is| are)\s+(?:my\s+)?(?:dca|twap)\s+orders?\b/gi, 'read orders')
     .replace(/\b(?:show|list|display|view|check)(?:\s+me)?\s+(?:(?:my|the|all)\s+)?open positions?\b/gi, 'read positions')
@@ -290,10 +296,62 @@ function isPublicHttpsUrl(value) {
   return true;
 }
 
-function frameMarketResearchResult(text) {
-  const suffix = `\n\n${MARKET_RESULT_FOOTER}`;
-  const bodyLimit = MAX_MARKET_RESULT_TEXT_BYTES - Buffer.byteLength(suffix, 'utf8');
-  return `${truncateUtf8(text.trim(), bodyLimit)}${suffix}`;
+function frameMarketResearchResult(text, { kind }) {
+  const timestampLine = text.match(/^data timestamp:\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\s*$/im)?.[0]?.trim();
+  const sourceLine = text.match(/^sources?:\s*.+\s*$/im)?.[0]?.trim();
+  if (!timestampLine || !sourceLine) throw invalidMarketResearchResponse();
+
+  const urls = kind === 'news' ? [...new Set(extractHttpUrls(text))] : [];
+  const publicUrls = urls.filter((url) => !sourceLine.includes(url));
+  const metadata = [
+    timestampLine,
+    sourceLine,
+    ...(publicUrls.length > 0 ? ['Public links:', ...publicUrls] : []),
+  ].join('\n');
+  const suffix = `${metadata}\n\n${MARKET_RESULT_FOOTER}`;
+  const separator = '\n\n';
+  const bodyLimit = MAX_MARKET_RESULT_TEXT_BYTES
+    - Buffer.byteLength(separator, 'utf8')
+    - Buffer.byteLength(suffix, 'utf8');
+  if (bodyLimit < 0) throw invalidMarketResearchResponse();
+
+  const prose = text
+    .replace(/^data timestamp:\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\s*$/gim, '')
+    .replace(/^sources?:\s*.+\s*$/gim, '')
+    .trim();
+  const body = kind === 'news'
+    ? frameNewsBody(prose, bodyLimit)
+    : truncateUtf8(prose, bodyLimit).trim();
+  const framed = body ? `${body}${separator}${suffix}` : suffix;
+  if (Buffer.byteLength(framed, 'utf8') > MAX_MARKET_RESULT_TEXT_BYTES) {
+    throw invalidMarketResearchResponse();
+  }
+  return framed;
+}
+
+function frameNewsBody(prose, maxBytes) {
+  const sections = prose.match(/^reported facts\s*$([\s\S]*?)^market interpretation\s*$([\s\S]*)/im);
+  if (!sections) throw invalidMarketResearchResponse();
+  const facts = stripHttpUrls(sections[1]).trim();
+  const interpretation = stripHttpUrls(sections[2]).trim();
+  const shell = 'Reported facts\n\n\nMarket interpretation\n';
+  const contentLimit = maxBytes - Buffer.byteLength(shell, 'utf8');
+  if (contentLimit < 0) throw invalidMarketResearchResponse();
+
+  let framedFacts = truncateUtf8(facts, Math.floor(contentLimit / 2));
+  let framedInterpretation = truncateUtf8(
+    interpretation,
+    contentLimit - Buffer.byteLength(framedFacts, 'utf8'),
+  );
+  framedFacts = truncateUtf8(
+    facts,
+    contentLimit - Buffer.byteLength(framedInterpretation, 'utf8'),
+  );
+  return `Reported facts\n${framedFacts}\n\nMarket interpretation\n${framedInterpretation}`.trim();
+}
+
+function stripHttpUrls(text) {
+  return text.replace(/https?:\/\/[^\s<>()]+/gi, '');
 }
 
 function invalidMarketResearchResponse() {
@@ -369,12 +427,15 @@ async function executeBankrRead({ operation, query, kind, apiKey, fetchImpl, sle
       const text = job.response.trim();
       if (containsUnsafeArtifact(text)) throw new Error('Unsafe Bankr price response.');
       if (operation === 'market_research') {
-        validateMarketResearchResponse(text, { kind, now: now() });
+        const validationNow = now();
+        validateMarketResearchResponse(text, { kind, now: validationNow });
+        const framedText = frameMarketResearchResult(text, { kind });
+        validateMarketResearchResponse(framedText, { kind, now: validationNow });
         return freezeResult({
           skill: 'bankr',
           operation,
           provider: 'bankr_agent_api',
-          text: frameMarketResearchResult(text),
+          text: framedText,
           data: { kind, query },
         });
       }
