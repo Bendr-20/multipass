@@ -126,6 +126,42 @@ test('Bankr request includes recent Console conversation history before the curr
   );
 });
 
+test('Bankr sanitizes legacy fenced agent history without provider metadata only', async () => {
+  let requestBody = null;
+  const legacyEnvelope = `\`\`\`json\n${validEnvelope({
+    assistant_text: 'Legacy history answer.',
+    transfer_candidates: [],
+  })}\n\`\`\``;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Current answer.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'Continue.',
+    history: [
+      { role: 'agent', text: legacyEnvelope },
+      { role: 'agent', text: 'Plain legacy agent prose.' },
+      { role: 'human', text: legacyEnvelope },
+    ],
+  });
+
+  assert.deepEqual(
+    requestBody.messages.slice(1, -1).map(({ role, content }) => ({ role, content })),
+    [
+      { role: 'assistant', content: 'Legacy history answer.' },
+      { role: 'assistant', content: 'Plain legacy agent prose.' },
+      { role: 'user', content: legacyEnvelope },
+    ],
+  );
+});
+
 test('skill proposals default off keeps the request stable while projecting envelope replies', async () => {
   const requests = [];
   const fetchImpl = async (_url, request) => {
