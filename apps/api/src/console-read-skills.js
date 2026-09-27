@@ -53,6 +53,14 @@ const MARKET_READ_WORDS = new Set([
   'performance', 'technical', 'technicals', 'analysis', 'social', 'sentiment', 'price', 'prices', 'volume', 'volatility', 'hour', 'hours',
   'day', 'days', 'week', 'weeks', 'and', 'plus', 'with', 'activity', 'gaining', 'attention', 'concise', 'maximal', 'data',
 ]);
+const PUBLIC_PRICE_QUERY_WORDS = new Set([
+  'a', 'an', 'the', 'my', 'live', 'current', 'latest', 'real', 'time', 'realtime', 'spot', 'market',
+  'price', 'prices', 'quote', 'quotes', 'rate', 'rates', 'value', 'worth', 'feed', 'feeds',
+  'of', 'for', 'now', 'right', 'today', 'at', 'can', 'could', 'would', 'you', 'tell', 'show',
+  'give', 'get', 'check', 'find', 'pull', 'fetch', 'me', 'please', 'what', 'whats', 'is', 'are',
+  'how', 'much', 'do', 'have', 'has', 'and', 'or', 'plus', 'vs', 'versus',
+]);
+const PUBLIC_PRICE_ASSETS = new Set(['btc', 'bitcoin', 'eth', 'ethereum', 'sol', 'solana', 'usdc']);
 const HARD_CLAUSE_SEPARATOR = /[;,\r\n]|\b(?:then|while|after|before|but|also)\b|\b(?:along with|as well as|followed by)\b/i;
 const SAFE_COMPOUND_PATTERNS = [
   /\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b\s+(?:and|plus|&)\s+\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b/i,
@@ -259,8 +267,12 @@ function matchesClosedBankrReadGrammar(query) {
 }
 
 function classifyClosedBankrRead(query) {
+  if (HARD_CLAUSE_SEPARATOR.test(query)) return null;
+  const publicPriceKind = classifyBoundedPublicPriceQuery(query);
+  if (publicPriceKind) return { operation: 'market_research', kind: publicPriceKind };
+
   const lead = query.match(READ_LEAD_PATTERN);
-  if (!lead || HARD_CLAUSE_SEPARATOR.test(query)) return null;
+  if (!lead) return null;
   const connectors = query.match(/\b(?:and|plus)\b|&/gi) ?? [];
   if (connectors.length > 1
     || (connectors.length === 1 && !SAFE_COMPOUND_PATTERNS.some((pattern) => pattern.test(query)))) {
@@ -284,6 +296,24 @@ function classifyClosedBankrRead(query) {
   return kind !== null && hasClosedMarketVocabulary(body)
     ? { operation: 'market_research', kind }
     : null;
+}
+
+function classifyBoundedPublicPriceQuery(query) {
+  if (/[^A-Za-z0-9$/'’?.!\-\s]/.test(query)) return null;
+  const normalized = query
+    .replace(/([A-Za-z0-9])['’]s\b/g, '$1')
+    .replace(/-/g, ' ');
+  const words = normalized.match(/[A-Za-z0-9$]+/g)?.map((word) => word.toLowerCase()) ?? [];
+  if (words.length < 2 || words.length > 16) return null;
+  const assets = words.filter((word) => PUBLIC_PRICE_ASSETS.has(word));
+  if (assets.length < 1 || assets.length > 2) return null;
+  const connectors = words.filter((word) => ['and', 'or', 'plus', 'vs', 'versus'].includes(word));
+  if (connectors.length > 1) return null;
+  const hasPriceMetric = words.some((word) => ['price', 'prices', 'quote', 'quotes', 'rate', 'rates', 'value', 'worth'].includes(word))
+    || /\bhow much\b/i.test(normalized);
+  if (!hasPriceMetric) return null;
+  if (!words.every((word) => PUBLIC_PRICE_QUERY_WORDS.has(word) || PUBLIC_PRICE_ASSETS.has(word))) return null;
+  return new Set(assets).size > 1 ? 'comparison' : 'market';
 }
 
 function isReorderedOwnerReadQuery(query) {
