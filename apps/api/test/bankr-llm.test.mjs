@@ -126,7 +126,7 @@ test('Bankr request includes recent Console conversation history before the curr
   );
 });
 
-test('skill proposals default off leaves the complete Bankr request and response byte-for-byte unchanged', async () => {
+test('skill proposals default off keeps the request stable while projecting envelope replies', async () => {
   const requests = [];
   const fetchImpl = async (_url, request) => {
     requests.push(request.body);
@@ -152,7 +152,51 @@ test('skill proposals default off leaves the complete Bankr request and response
   assert.equal(requests[0], requests[1]);
   assert.deepEqual(implicit, explicit);
   assert.deepEqual(Object.keys(explicit).sort(), ['provider', 'text']);
-  assert.equal(explicit.text, validEnvelope());
+  assert.equal(explicit.text, 'Review this transfer suggestion.');
+  assert.doesNotMatch(explicit.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+});
+
+test('Bankr projects valid, mixed, malformed, and plain replies with proposals enabled or disabled', async () => {
+  const assistantText = 'Render only this safe Bankr answer.';
+  const exact = validEnvelope({ assistant_text: assistantText, transfer_candidates: [] });
+  const cases = [
+    { content: exact, expected: assistantText },
+    { content: `\`\`\`json\n${exact}\n\`\`\``, expected: assistantText },
+    { content: `Gateway preface\n${exact}\nGateway suffix`, expected: assistantText },
+    { content: 'Plain Bankr prose.', expected: 'Plain Bankr prose.' },
+  ];
+
+  for (const skillProposalsEnabled of [false, true]) {
+    for (const fixture of cases) {
+      const client = createBankrLlmClient({
+        apiKey: 'test-key',
+        skillProposalsEnabled,
+        fetchImpl: async () => new Response(JSON.stringify({
+          choices: [{ message: { content: fixture.content } }],
+        }), { status: 200 }),
+      });
+      const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Status?' });
+      assert.equal(result.text, fixture.expected);
+      assert.doesNotMatch(result.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+    }
+
+    const malformed = '{"schema_version":"0.1.0","assistant_text":"never leak"';
+    const client = createBankrLlmClient({
+      apiKey: 'test-key',
+      skillProposalsEnabled,
+      fetchImpl: async () => new Response(JSON.stringify({
+        choices: [{ message: { content: malformed } }],
+      }), { status: 200 }),
+    });
+    const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Status?' });
+    assert.notEqual(result.text, malformed);
+    assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4_096);
+    assert.doesNotMatch(result.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+    if (skillProposalsEnabled) {
+      assert.deepEqual(result.skillRefs, []);
+      assert.deepEqual(result.transferCandidates, []);
+    }
+  }
 });
 
 test('skill-aware Bankr prompt uses only the exact server projection and requests the strict review-only envelope', async () => {

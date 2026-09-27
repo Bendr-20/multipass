@@ -41,6 +41,15 @@ function secureConsoleRequest(body, path = '/api/multipass/console/agent/message
   });
 }
 
+function consoleEnvelope(assistantText = 'Historical safe answer.') {
+  return JSON.stringify({
+    schema_version: '0.1.0',
+    assistant_text: assistantText,
+    skill_refs: ['bankr'],
+    transfer_candidates: [],
+  });
+}
+
 function hasFrontendReviewOnlyProof(payload = {}) {
   const agent = { tokenId: '1234', name: 'Agent #1234', verified: true };
   const snapshot = createMultipassConsoleSnapshot({
@@ -111,6 +120,157 @@ test('runtime profile preserves the server-derived canonical Looper persona', ()
   });
   assert.notEqual(transferred.memoryNamespace, profile.memoryNamespace);
   assert.equal(profile.permissions.trading, 'review_only');
+});
+
+test('getThread sanitizes stored Bankr envelopes while preserving metadata and non-Bankr messages', async () => {
+  const rawBankr = {
+    id: 'bankr-stored',
+    role: 'agent',
+    text: consoleEnvelope('Stored Bankr answer.'),
+    sentAt: '2026-09-27T01:00:00.000Z',
+    transport: 'xmtp_group',
+    inferenceProvider: 'bankr_llm_gateway',
+    senderLabel: 'Looper #1234',
+    participantId: '1234',
+    conversationId: 'conversation-1',
+    xmtpMessageId: 'xmtp-1',
+    customMetadata: { retained: true },
+  };
+  const human = { ...rawBankr, id: 'human-stored', role: 'human', inferenceProvider: undefined };
+  const readSkill = { ...rawBankr, id: 'read-stored', text: consoleEnvelope('Read skill raw text.'), inferenceProvider: 'bankr_agent_api' };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: {
+      provider: 'test_memory',
+      async loadThread() { return [rawBankr, human, readSkill]; },
+      async recallMemory() { return []; },
+    },
+    xmtpClient: { provider: 'xmtp_disabled', transport: 'unavailable' },
+  });
+
+  const result = await runtime.getThread({ wallet: WALLET, agentId: 'looper-1234', tokenId: '1234' });
+
+  assert.deepEqual(result.thread.messages[0], { ...rawBankr, text: 'Stored Bankr answer.' });
+  assert.deepEqual(result.thread.messages[1], human);
+  assert.deepEqual(result.thread.messages[2], readSkill);
+  assert.equal(rawBankr.text, consoleEnvelope('Stored Bankr answer.'));
+});
+
+test('getThread sanitizes Bankr envelopes from XMTP fallback without changing message metadata', async () => {
+  const valid = {
+    id: 'bankr-xmtp-valid',
+    role: 'agent',
+    text: `Gateway preface\n${consoleEnvelope('XMTP Bankr answer.')}\nGateway suffix`,
+    sentAt: '2026-09-27T01:10:00.000Z',
+    transport: 'xmtp_group',
+    inferenceProvider: 'bankr_llm_gateway',
+    senderLabel: 'Looper #1234',
+    participantId: '1234',
+    conversationId: 'conversation-2',
+    xmtpMessageId: 'xmtp-2',
+    customMetadata: { retained: true },
+  };
+  const malformed = {
+    ...valid,
+    id: 'bankr-xmtp-malformed',
+    text: '{"schema_version":"0.1.0","assistant_text":"never leak"',
+    xmtpMessageId: 'xmtp-3',
+  };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: {
+      provider: 'test_memory',
+      async loadThread() { return []; },
+      async recallMemory() { return []; },
+    },
+    xmtpClient: {
+      provider: 'test_xmtp',
+      transport: 'xmtp_group',
+      async getThread() {
+        return {
+          transport: 'xmtp_group',
+          adapter: 'test_xmtp',
+          conversationId: 'conversation-2',
+          participants: [],
+          messages: [valid, malformed],
+        };
+      },
+    },
+  });
+
+  const result = await runtime.getThread({ wallet: WALLET, agentId: 'looper-1234', tokenId: '1234' });
+
+  assert.deepEqual(result.thread.messages[0], { ...valid, text: 'XMTP Bankr answer.' });
+  assert.deepEqual(
+    { ...result.thread.messages[1], text: undefined },
+    { ...malformed, text: undefined },
+  );
+  assert.notEqual(result.thread.messages[1].text, malformed.text);
+  assert.doesNotMatch(result.thread.messages[1].text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+  assert.ok(Buffer.byteLength(result.thread.messages[1].text, 'utf8') <= 4_096);
+});
+
+test('runtime sanitizes stored Bankr replies before passing inference history without mutating human text', async () => {
+  const storedBankr = {
+    id: 'bankr-history-valid',
+    role: 'agent',
+    text: consoleEnvelope('Sanitized history answer.'),
+    sentAt: '2026-09-27T01:20:00.000Z',
+    transport: 'xmtp_group',
+    inferenceProvider: 'bankr_llm_gateway',
+    participantId: '1234',
+    metadata: { retained: true },
+  };
+  const malformedBankr = {
+    ...storedBankr,
+    id: 'bankr-history-malformed',
+    text: '{"schema_version":"0.1.0",',
+  };
+  const human = {
+    id: 'human-history',
+    role: 'human',
+    text: consoleEnvelope('Human text must remain raw.'),
+    sentAt: '2026-09-27T01:21:00.000Z',
+    transport: 'xmtp_group',
+    metadata: { retained: true },
+  };
+  let capturedHistory = null;
+  const memoryClient = {
+    provider: 'test_memory',
+    async loadThread() { return [storedBankr, malformedBankr, human]; },
+    async recallMemory() { return []; },
+    async searchMemory() { return []; },
+    async saveMemory() { return null; },
+    async appendThread({ messages }) { return messages; },
+  };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient,
+    xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-27T01:22:00.000Z' }),
+    now: () => '2026-09-27T01:22:00.000Z',
+    llmClient: {
+      provider: 'bankr_llm_gateway',
+      async generate({ history }) {
+        capturedHistory = history;
+        return { provider: 'bankr_llm_gateway', text: 'Current safe answer.' };
+      },
+    },
+  });
+
+  await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+    message: 'Continue.',
+  });
+
+  assert.deepEqual(capturedHistory[0], { ...storedBankr, text: 'Sanitized history answer.' });
+  assert.deepEqual(
+    { ...capturedHistory[1], text: undefined },
+    { ...malformedBankr, text: undefined },
+  );
+  assert.notEqual(capturedHistory[1].text, malformedBankr.text);
+  assert.doesNotMatch(capturedHistory[1].text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+  assert.deepEqual(capturedHistory[2], human);
+  assert.equal(storedBankr.text, consoleEnvelope('Sanitized history answer.'));
+  assert.equal(human.text, consoleEnvelope('Human text must remain raw.'));
 });
 
 test('local Sibyl adapter saves and recalls durable watchlist memory', async () => {

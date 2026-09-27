@@ -4,6 +4,7 @@ import {
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
 import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
+import { projectConsoleLlmDisplayText } from '../console-transfer-candidate.js';
 import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
 import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
@@ -26,7 +27,8 @@ export function createConsoleAgentRuntime({
   bankrReadEnabled = true,
   skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
 } = {}) {
-  const capabilities = skillProposalsEnabled ? getConsoleSkillCatalog() : null;
+  const consoleCatalog = getConsoleSkillCatalog();
+  const capabilities = skillProposalsEnabled ? consoleCatalog : null;
   const skillTimeoutMs = normalizeSkillProviderTimeout(skillProviderTimeoutMs);
   const inFlightSkillCalls = new Map();
   return {
@@ -35,7 +37,8 @@ export function createConsoleAgentRuntime({
       const profile = createRuntimeProfile(input);
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
-      const messages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
+      const storedMessages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
+      const messages = sanitizeBankrLlmMessages(storedMessages, consoleCatalog);
       const recalledMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
       const transportThread = xmtpClient.transport === 'unavailable'
         ? {
@@ -70,7 +73,9 @@ export function createConsoleAgentRuntime({
           conversationId: transportThread.conversationId ?? room.conversationId ?? null,
           roomName: transportThread.roomName ?? room.name,
           participants: transportThread.participants?.length ? transportThread.participants : room.participants,
-          messages: messages.length ? messages : (transportThread.messages ?? []),
+          messages: messages.length
+            ? messages
+            : sanitizeBankrLlmMessages(transportThread.messages ?? [], consoleCatalog),
         },
         memory: {
           provider: memoryClient.provider ?? 'sibyl_memory',
@@ -94,7 +99,8 @@ export function createConsoleAgentRuntime({
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
-      const priorMessages = (await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [])
+      const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
+      const priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, consoleCatalog)
         .filter(isSafeInferenceHistoryMessage);
       const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
       const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
@@ -172,10 +178,13 @@ export function createConsoleAgentRuntime({
             history: priorMessages,
             walletContext,
           });
+          const displayText = llm.provider === 'bankr_llm_gateway'
+            ? projectConsoleLlmDisplayText(llm.text, { catalog: consoleCatalog })
+            : llm.text;
           const agentMessage = createThreadMessage({
-            id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
+            id: `msg_${hashish(`${threadId}:${participant.participantId}:${displayText}:${now()}`)}`,
             role: 'agent',
-            text: llm.text,
+            text: displayText,
             sentAt: now(),
             transport: xmtpClient.transport ?? 'xmtp_local',
             inferenceProvider: llm.provider,
@@ -332,6 +341,20 @@ function truncateUtf8(value, maxBytes) {
 
 function isSafeInferenceHistoryMessage(message) {
   return !['bankr_agent_api', 'helixa_public_api'].includes(String(message?.inferenceProvider ?? ''));
+}
+
+function sanitizeBankrLlmMessages(messages, catalog) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((message) => {
+    if (
+      message?.role !== 'agent'
+      || message?.inferenceProvider !== 'bankr_llm_gateway'
+    ) return message;
+    return {
+      ...message,
+      text: projectConsoleLlmDisplayText(message.text, { catalog }),
+    };
+  });
 }
 
 function normalizeRuntimeSkillRefs(value, catalog) {
