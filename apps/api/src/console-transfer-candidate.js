@@ -27,11 +27,15 @@ export function decodeConsoleLlmEnvelope(content, { catalog } = {}) {
   try {
     return parseConsoleLlmEnvelopeCandidate(unwrapExactJsonFence(content), skills);
   } catch {
-    return deepFreezeJson({
-      text: projectConsoleLlmDisplayText(content, { catalog }),
-      skillRefs: [],
-      transferCandidates: [],
-    });
+    try {
+      return parseSingleEmbeddedConsoleLlmEnvelope(content.trim(), skills);
+    } catch {
+      return deepFreezeJson({
+        text: projectConsoleLlmDisplayText(content, { catalog }),
+        skillRefs: [],
+        transferCandidates: [],
+      });
+    }
   }
 }
 
@@ -51,6 +55,37 @@ export function projectConsoleLlmDisplayText(content, { catalog } = {}) {
 
   if (containsEnvelopeMarkers(trimmed)) return SAFE_RETRY_TEXT;
   return truncateUtf8(trimmed, MAX_ASSISTANT_TEXT_BYTES);
+}
+
+function parseSingleEmbeddedConsoleLlmEnvelope(content, skills) {
+  const { candidates, hasIncompleteCandidate } = findCompleteJsonObjectCandidates(content);
+  if (candidates.length !== 1 || hasIncompleteCandidate) {
+    throw new TypeError('Console LLM response must contain exactly one complete envelope.');
+  }
+
+  const candidate = candidates[0];
+  const candidateStart = content.indexOf(candidate);
+  const wrapper = `${content.slice(0, candidateStart)}${content.slice(candidateStart + candidate.length)}`;
+  const wrapperWithoutFences = removeJsonFenceMarkers(wrapper);
+  if (containsEnvelopeMarkers(wrapperWithoutFences)) {
+    throw new TypeError('Console LLM response wrapper contains envelope markers.');
+  }
+  return parseConsoleLlmEnvelopeCandidate(candidate, skills);
+}
+
+function removeJsonFenceMarkers(content) {
+  let output = '';
+  for (let index = 0; index < content.length;) {
+    if (content.slice(index, index + 7).toLowerCase() === '```json') {
+      index += 7;
+    } else if (content.slice(index, index + 3) === '```') {
+      index += 3;
+    } else {
+      output += content[index];
+      index += 1;
+    }
+  }
+  return output;
 }
 
 function parseConsoleLlmEnvelopeCandidate(content, skills) {
