@@ -46,7 +46,7 @@ const BANKR_PUBLIC_MARKET_READ_BODIES = [
   /^(?:me\s+)?(?:the\s+)?(?:price\s+)?(?:outlook|forecast|prediction) for (?:btc|eth|sol|usdc|bitcoin|ethereum)(?:\s+(?:or|and|plus|&)\s+(?:btc|eth|sol|usdc|bitcoin|ethereum))?$/i,
 ];
 const MARKET_READ_WORDS = new Set([
-  'a', 'an', 'the', 'my', 'current', 'latest', 'today', 'now', 'this', 'last', 'over', 'in', 'on', 'for', 'of', 'by', 'to', 'from',
+  'a', 'an', 'the', 'my', 'current', 'latest', 'live', 'today', 'now', 'this', 'last', 'over', 'in', 'on', 'for', 'of', 'by', 'to', 'from',
   'what', 'are', 'is', 'was', 'were', 'has', 'happened', 'market', 'markets', 'crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'sol', 'usdc',
   'base', 'ecosystem', 'token', 'tokens', 'coin', 'coins', 'defi', 'nft', 'nfts', 'polymarket',
   'news', 'headline', 'headlines', 'narrative', 'narratives', 'moving', 'trend', 'trends', 'trending', 'comparison', 'versus', 'vs',
