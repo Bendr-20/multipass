@@ -14,7 +14,7 @@ const MAX_PROFILE_FIELD_BYTES = 160;
 const MAX_RESEARCH_QUERY_BYTES = 320;
 const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
 const MARKET_KINDS = new Set(['market', 'news', 'comparison']);
-const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|which|how|current|latest|status|history)\s+(.+?)[?.!]*$/i;
+const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|which|how|current|latest|price|status|history)\s+(.+?)[?.!]*$/i;
 const BANKR_NATIVE_READ_BODIES = [
   /^(?:(?:my|the|all|current|wallet|token|base)\s+)*(?:portfolio|balances?|holdings?)(?:\s+(?:and|plus|&)\s+(?:portfolio|balances?|holdings?))?(?:\s+(?:on|for|across)\s+(?:base|ethereum))?$/i,
   /^(?:(?:my|the|all|current)\s+)*(?:nfts?|non-fungible tokens?)(?:\s+portfolio)?(?:\s+in\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2}\s+collection)?$/i,
@@ -42,6 +42,7 @@ const MARKET_READ_WORDS = new Set([
 const HARD_CLAUSE_SEPARATOR = /[;,\r\n]|\b(?:then|while|after|before|but|also)\b|\b(?:along with|as well as|followed by)\b/i;
 const SAFE_COMPOUND_PATTERNS = [
   /\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b\s+(?:and|plus|&)\s+\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b/i,
+  /\b[A-Z][A-Z0-9]{1,9}\s+(?:and|plus|&)\s+[A-Z][A-Z0-9]{1,9}\b/,
   /\b(?:news|headlines?|narratives?|sentiment|market trends?)\b\s+(?:and|plus|&)\s+\b(?:news|headlines?|narratives?|sentiment|market trends?)\b/i,
   /\bprices?\b\s+(?:and|plus|&)\s+\bvolume\b|\bvolume\b\s+(?:and|plus|&)\s+\bprices?\b/i,
   /\b(?:portfolio|balances?|holdings?)\b\s+(?:and|plus|&)\s+\b(?:portfolio|balances?|holdings?)\b/i,
@@ -50,6 +51,7 @@ const SAFE_COMPOUND_PATTERNS = [
 ];
 const BANKR_WRITE_INTENTS = [
   /\b(?:buy(?:s|ing)?|sell(?:s|ing)?|trad(?:e|es|ed|ing)|swap(?:s|ped|ping)|send(?:s|ing)?|sent|transfer(?:s|red|ring)?|bridg(?:e|es|ed|ing)|wager(?:s|ed|ing)?|bet(?:s|ting)?|stak(?:e|es|ed|ing)|unstak(?:e|es|ed|ing)|mint(?:s|ed|ing)?|purchas(?:e|es|ed|ing)|claim(?:s|ed|ing)?|deploy(?:s|ed|ing)?|launch(?:es|ed|ing)?|sign(?:s|ed|ing)?|submit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|deposit(?:s|ed|ing)?|borrow(?:s|ed|ing)?|lend(?:s|ing)?|execut(?:e|es|ed|ing)|plac(?:e|es|ed|ing)|cancel(?:s|ed|ing|led|ling)?)\b/i,
+  /\b(?:donat(?:e|es|ed|ing)|remit(?:s|ted|ting)?|pay(?:s|ing)?|paid|gift(?:s|ed|ing)?|tip(?:s|ped|ping)?|airdrop(?:s|ped|ping)?|rebalanc(?:e|es|ed|ing))\b/i,
   /\b(?:convert(?:s|ed|ing)?|redeem(?:s|ed|ing)?|exchang(?:e|es|ed|ing)|liquidat(?:e|es|ed|ing)|longing|shorting)\b/i,
   /\b(?:amend(?:s|ed|ing)?|amendments?|(?:re|out)?bid(?:s|ded|ding)?|restak(?:e|es|ed|ing))\b/i,
   /\b(?:tak(?:e|es|en|ing)|enter(?:s|ed|ing)?)\b.{0,48}\b(?:long|short|positions?)\b/i,
@@ -246,12 +248,39 @@ function matchesClosedBankrReadGrammar(query) {
 function hasClosedMarketVocabulary(body) {
   if (/[^A-Za-z0-9$/'’?.!\-\s]/.test(body)) return false;
   const words = body.match(/[A-Za-z0-9$]+/g) ?? [];
-  return words.length > 0 && words.every((word) => {
+  return words.length > 0 && words.every((word, index) => {
+    if (isAssetToken(word) && !isExplicitAssetSlot(words, index)) return false;
     if (MARKET_READ_WORDS.has(word.toLowerCase())) return true;
     if (/^\d+(?:\.\d+)?(?:h|d|w|m)?$/i.test(word)) return true;
     if (/^\$?\d+(?:\.\d+)?[km]?$/i.test(word)) return true;
-    return /^[A-Z][A-Z0-9]{1,9}$/.test(word);
+    return isAssetToken(word);
   });
+}
+
+function isAssetToken(word) {
+  return /^(?:btc|eth|sol|usdc)$/i.test(word) || /^[A-Z][A-Z0-9]{1,9}$/.test(word);
+}
+
+function isExplicitAssetSlot(words, index) {
+  const previous = words[index - 1]?.toLowerCase();
+  const next = words[index + 1]?.toLowerCase();
+  const following = words[index + 2]?.toLowerCase();
+  const assetMetric = /^(?:price|prices|volume|volatility|performance|technical|technicals|analysis|news|sentiment|trend|trends|trending)$/;
+  const comparisonTail = (first, second) => first === undefined
+    || /^(?:today|now)$/.test(first)
+    || assetMetric.test(first)
+    || (first === 'market' && assetMetric.test(second ?? ''));
+  if (['of', 'for', 'token', 'coin'].includes(previous)) return true;
+  if (assetMetric.test(next ?? '')) return true;
+
+  const connector = /^(?:and|plus|vs|versus)$/;
+  if (connector.test(next ?? '')
+    && isAssetToken(words[index + 2] ?? '')
+    && comparisonTail(words[index + 3]?.toLowerCase(), words[index + 4]?.toLowerCase())) return true;
+  if (connector.test(previous ?? '')
+    && isAssetToken(words[index - 2] ?? '')
+    && comparisonTail(next, following)) return true;
+  return false;
 }
 
 function maskReadOnlyNounPhrases(query) {
@@ -294,7 +323,20 @@ function classifyMarketResearchIntent(query) {
 
 function hasCryptoContext(query) {
   return /\b(?:crypto|bitcoin|ethereum|btc|eth|sol|usdc|base(?: ecosystem)?|tokens?|coins?|defi|nfts?|polymarket)\b/i.test(query)
-    || /\b(?:crypto market|market trends?|market analysis|market performance|technical analysis|technicals?|moving crypto)\b/i.test(query);
+    || /\b(?:crypto market|market trends?|market analysis|market performance|technical analysis|technicals?|moving crypto)\b/i.test(query)
+    || hasExplicitUnknownAssetContext(query);
+}
+
+function hasExplicitUnknownAssetContext(query) {
+  const symbol = '[A-Z][A-Z0-9]{1,9}';
+  const metric = '(?:prices?|volume|volatility|performance|technicals?|analysis|news|sentiment|trends?|trending)';
+  const afterSymbol = new RegExp(`\\b(${symbol})\\s+${metric}\\b`, 'i').exec(query);
+  const afterMetric = new RegExp(`\\b${metric}\\s+(?:of|for)\\s+(${symbol})\\b`, 'i').exec(query);
+  const comparison = new RegExp(`\\bcompare\\s+(${symbol})\\s+(?:and|plus|vs|versus)\\s+(${symbol})\\s+(?:market\\s+)?${metric}\\b`, 'i').exec(query);
+  const isUppercaseSymbol = (value) => /^[A-Z][A-Z0-9]{1,9}$/.test(value ?? '');
+  return isUppercaseSymbol(afterSymbol?.[1])
+    || isUppercaseSymbol(afterMetric?.[1])
+    || (isUppercaseSymbol(comparison?.[1]) && isUppercaseSymbol(comparison?.[2]));
 }
 
 function hasResearchIntent(query) {

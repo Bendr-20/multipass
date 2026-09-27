@@ -477,6 +477,9 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['Show crypto news and sentiment', 'market_research', 'news'],
     ['Summarize crypto narratives and news', 'market_research', 'news'],
     ['Show ETH price and volume', 'market_research', 'market'],
+    ['Show PEPE price', 'market_research', 'market'],
+    ['Price of AERO', 'market_research', 'market'],
+    ['Compare AERO vs DEGEN performance', 'market_research', 'comparison'],
     ['Show my portfolio and balances', 'bankr_read'],
     ['Show Polymarket odds and positions', 'bankr_read'],
     ['Show DCA and TWAP status', 'bankr_read'],
@@ -556,6 +559,34 @@ test('closed Bankr read grammar rejects unseen actions and mixed clauses before 
     }
   }
   assert.equal(fetches, 0);
+});
+
+test('unknown uppercase symbols are accepted only in explicit asset slots and never as trailing actions', async () => {
+  const reviewerProbes = [
+    'Show ETH price DONATE',
+    'Show ETH price REMIT',
+    'Show ETH price and volume DONATE',
+    'Compare BTC and ETH performance DONATE',
+    'Give me crypto market data DONATE ETH',
+    'Show NFTs in Based donate collection',
+  ];
+  let fetches = 0;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+  });
+
+  for (const query of reviewerProbes) {
+    assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+    for (const command of [`/bankr read ${query}`, `/bankr research market ${query}`]) {
+      await assert.rejects(executor.execute(command), /Unsupported Console read skill command/, command);
+    }
+  }
+  assert.equal(fetches, 0);
+
+  for (const query of ['Show PEPE price', 'Price of AERO', 'Compare AERO vs DEGEN performance']) {
+    assert.ok(resolveConsoleReadSkillIntent(query), query);
+  }
 });
 
 test('closed Bankr read grammar rejects every clause separator unless the full compound is approved', () => {
