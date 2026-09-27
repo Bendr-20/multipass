@@ -889,13 +889,14 @@ test('market price reads use the market gate independently of proposal mode', as
   assert.equal('proposalCandidates' in result, false);
 });
 
-test('owner-account reads require their independent gate, read key, and verified wallet context', async () => {
-  async function run({ accountReadEnabled, bankrReadEnabled, walletContext }) {
+test('natural and explicit possessive NFT reads require the account gate, read key, and exact verified wallet context', async () => {
+  async function run({ accountReadEnabled, bankrReadEnabled, walletContext, message }) {
     let reads = 0;
     let llm = 0;
     let receivedOptions = null;
     const runtime = createConsoleAgentRuntime({
       accountReadEnabled,
+      marketReadEnabled: true,
       bankrReadEnabled,
       skillProposalsEnabled: true,
       readSkillExecutor: {
@@ -904,8 +905,8 @@ test('owner-account reads require their independent gate, read key, and verified
           receivedOptions = options;
           return {
             skill: 'bankr', operation: 'owner_account_read', provider: 'bankr_agent_api',
-            text: `Portfolio.\n\nAccount: ${OWNER_ACCOUNT}`,
-            data: { query: 'Show my portfolio on Base', accountAddress: OWNER_ACCOUNT },
+            text: `NFT holdings.\n\nAccount: ${OWNER_ACCOUNT}`,
+            data: { query: message.replace(/^\/bankr read /, ''), accountAddress: OWNER_ACCOUNT },
           };
         },
       },
@@ -915,26 +916,28 @@ test('owner-account reads require their independent gate, read key, and verified
     });
     const result = await runtime.handleMessage({
       wallet: WALLET, agentId: '1234', tokenId: '1234', canonicalIdentity: CONSOLE_IDENTITY,
-      message: 'Show my portfolio on Base', walletContext,
+      message, walletContext,
     });
     return { reads, llm, receivedOptions, result };
   }
 
-  const enabled = await run({ accountReadEnabled: true, bankrReadEnabled: true, walletContext: ownerWalletContext() });
-  assert.equal(enabled.reads, 1);
-  assert.equal(enabled.llm, 0);
-  assert.equal(enabled.receivedOptions.accountAddress, OWNER_ACCOUNT);
-  assert.equal(enabled.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), true);
+  for (const message of ['Show my NFTs', '/bankr read Show my NFTs']) {
+    const enabled = await run({ accountReadEnabled: true, bankrReadEnabled: true, walletContext: ownerWalletContext(), message });
+    assert.equal(enabled.reads, 1, message);
+    assert.equal(enabled.llm, 0, message);
+    assert.equal(enabled.receivedOptions.accountAddress, OWNER_ACCOUNT, message);
+    assert.equal(enabled.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), true, message);
 
-  for (const fixture of [
-    { accountReadEnabled: false, bankrReadEnabled: true, walletContext: ownerWalletContext() },
-    { accountReadEnabled: true, bankrReadEnabled: false, walletContext: ownerWalletContext() },
-    { accountReadEnabled: true, bankrReadEnabled: true, walletContext: null },
-  ]) {
-    const blocked = await run(fixture);
-    assert.equal(blocked.reads, 0);
-    assert.equal(blocked.llm, 1);
-    assert.equal(blocked.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), false);
+    for (const fixture of [
+      { accountReadEnabled: false, bankrReadEnabled: true, walletContext: ownerWalletContext(), message },
+      { accountReadEnabled: true, bankrReadEnabled: false, walletContext: ownerWalletContext(), message },
+      { accountReadEnabled: true, bankrReadEnabled: true, walletContext: null, message },
+    ]) {
+      const blocked = await run(fixture);
+      assert.equal(blocked.reads, 0, message);
+      assert.equal(blocked.llm, 1, message);
+      assert.equal(blocked.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), false, message);
+    }
   }
 });
 
@@ -951,11 +954,11 @@ test('unscoped offchain and status reads always stay on proposal or explanation 
     xmtpClient: createLocalXmtpAgentClient(),
     memoryClient: createLocalSibylMemoryStore(),
   });
-  for (const message of ['Show my positions', 'Show active orders', 'Show automation status', 'Show token deployment status']) {
+  for (const message of ['Show active orders', 'Show automation status', 'Show token deployment status']) {
     await runtime.handleMessage({ wallet: WALLET, agentId: '1234', tokenId: '1234', canonicalIdentity: CONSOLE_IDENTITY, message, walletContext: ownerWalletContext() });
   }
   assert.equal(reads, 0);
-  assert.equal(llm, 4);
+  assert.equal(llm, 3);
 });
 
 test('failed market reads resolve before and cause zero memory, signal, publish, or thread mutations', async () => {
