@@ -428,6 +428,13 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['List my token balances and holdings', 'owner_account_read'],
     ['Show my NFT portfolio', 'owner_account_read'],
     ['Show my NFTs', 'owner_account_read'],
+    ['Show my NFT trends', 'owner_account_read'],
+    ['Show latest my NFT news', 'owner_account_read'],
+    ['/bankr read Show my latest NFT trends', 'owner_account_read'],
+    ['/bankr read Latest my NFT news', 'owner_account_read'],
+    ['Show my ETH balance', 'owner_account_read'],
+    ['/bankr read Show my BTC holdings', 'owner_account_read'],
+    ['Show my SOL position', 'owner_account_read'],
     ['/bankr read Show my NFTs', 'owner_account_read'],
     ['Show my positions', 'owner_account_read'],
     ['Show my open positions', 'owner_account_read'],
@@ -465,8 +472,14 @@ test('splits explicit NFT market semantics from verified-owner account reads and
     'List my token balances and holdings',
     'Show my NFT portfolio',
     'Show my NFTs',
-    '/bankr read Show my NFTs',
+    'Show my NFT trends',
+    'Show latest my NFT news',
+    '/bankr read Show my latest NFT trends',
+    '/bankr read Latest my NFT news',
     'List my NFT holdings',
+    'Show my ETH balance',
+    '/bankr read Show my BTC holdings',
+    'Show my SOL position',
     'Show my positions',
     'Show my open positions',
   ]) {
@@ -483,7 +496,12 @@ test('splits explicit NFT market semantics from verified-owner account reads and
   }
   for (const query of [
     'Show NFTs',
+    'Show NFT prices',
+    'Show NFT volume',
+    'Show NFT sentiment',
+    '/bankr read Show NFT prices',
     '/bankr research Show my NFTs',
+    '/bankr research news Latest my NFT news',
     'Show leverage status',
     'Show my active orders',
     'Show automation status',
@@ -493,8 +511,20 @@ test('splits explicit NFT market semantics from verified-owner account reads and
   ]) assert.equal(resolveConsoleReadSkillIntent(query), null, query);
 });
 
-test('possessive account reads require verified context before any provider fetch', async () => {
-  for (const command of ['/bankr read Show my NFTs', '/bankr read List my NFT holdings', '/bankr read Show my positions', '/bankr read Show my open positions']) {
+test('possessive NFT and asset-qualified account reads require verified context before any provider fetch', async () => {
+  for (const command of [
+    '/bankr read Show my NFTs',
+    '/bankr read Show my NFT trends',
+    '/bankr read Show latest my NFT news',
+    '/bankr read Show my latest NFT trends',
+    '/bankr read Latest my NFT news',
+    '/bankr read List my NFT holdings',
+    '/bankr read Show my ETH balance',
+    '/bankr read Show my BTC holdings',
+    '/bankr read Show my SOL position',
+    '/bankr read Show my positions',
+    '/bankr read Show my open positions',
+  ]) {
     let fetches = 0;
     const executor = createConsoleReadSkillExecutor({
       bankrApiKey: 'read-only-test-key',
@@ -503,6 +533,21 @@ test('possessive account reads require verified context before any provider fetc
     await assert.rejects(executor.execute(command), /verified owner account is required/i, command);
     assert.equal(fetches, 0, command);
   }
+});
+
+test('generic NFT price, volume, and sentiment queries never reach the market provider', async () => {
+  let fetches = 0;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+  });
+  for (const query of ['Show NFT prices', 'Show NFT volume', 'Show NFT sentiment']) {
+    assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+    for (const command of [`/bankr read ${query}`, `/bankr research market ${query}`]) {
+      await assert.rejects(executor.execute(command), /Unsupported Console read skill command/, command);
+    }
+  }
+  assert.equal(fetches, 0);
 });
 
 test('owner-account reads require an out-of-band verified account and bind the prompt and result to it', async () => {

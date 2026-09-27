@@ -17,12 +17,17 @@ const MARKET_KINDS = new Set(['market', 'news', 'comparison']);
 const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|which|how|current|latest|price|status|history)\s+(.+?)[?.!]*$/i;
 const BANKR_OWNER_ACCOUNT_READ_BODIES = [
   /^(?:(?:my|the|all|current|wallet|token|base)\s+)*(?:portfolio|balances?|holdings?|(?:open\s+)?positions?)(?:\s+(?:and|plus|&)\s+(?:portfolio|balances?|holdings?|(?:open\s+)?positions?))?(?:\s+(?:on|for|across)\s+(?:base|ethereum))?$/i,
-  /^(?:my|the|all|current|wallet)\s+(?:nfts?|non-fungible tokens?)(?:\s+(?:portfolio|holdings?))?$/i,
+  /^(?:(?:current|latest|all)\s+)?(?:my|our|wallet(?:'s|’s)?)\s+(?:(?:current|latest)\s+)?(?:nfts?|non-fungible tokens?)(?:\s+(?:portfolio|holdings?|floor price|(?:market\s+)?trends?|news|prices?|volume|sentiment))?$/i,
   /^(?:nfts?|non-fungible tokens?)\s+(?:portfolio|holdings?)$/i,
 ];
-const BANKR_PUBLIC_MARKET_READ_BODIES = [
+const BANKR_OWNER_ASSET_READ_BODY = /^(?:my|the|all|current|wallet)\s+([A-Za-z][A-Za-z0-9]{1,9})\s+(?:balances?|holdings?|(?:open\s+)?positions?)(?:\s+(?:on|for)\s+(?:base|ethereum))?$/i;
+const BANKR_PUBLIC_NFT_READ_BODIES = [
   /^(?:nfts?|non-fungible tokens?)\s+in\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2}\s+collection$/i,
-  /^(?:the\s+)?floor price(?:\s+(?:of|for)\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2})?$/i,
+  /^(?:(?:the|current|latest)\s+)?(?:nfts?|non-fungible tokens?)\s+(?:market\s+)?trends?$/i,
+  /^(?:(?:the|current|latest)\s+)?(?:nfts?|non-fungible tokens?)\s+news$/i,
+  /^(?:(?:the|current)\s+)?(?:(?:nft|non-fungible token)\s+)?floor price(?:\s+(?:of|for)\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2})?$/i,
+];
+const BANKR_PUBLIC_MARKET_READ_BODIES = [
   /^(?:(?:the|all|current|open)\s+)*(?:polymarket\s+)?(?:markets?|odds)(?:\s+on\s+(?:btc|eth|sol|usdc|bitcoin|ethereum)\s+reaching\s+\$?\d+(?:\.\d+)?[km]?)?$/i,
 ];
 const MARKET_READ_WORDS = new Set([
@@ -248,9 +253,14 @@ function classifyClosedBankrRead(query) {
   }
 
   const body = lead[1].trim();
-  if (BANKR_OWNER_ACCOUNT_READ_BODIES.some((pattern) => pattern.test(body))) {
+  if (isOwnerAssetReadBody(body)
+    || BANKR_OWNER_ACCOUNT_READ_BODIES.some((pattern) => pattern.test(body))) {
     return { operation: 'owner_account_read' };
   }
+  if (BANKR_PUBLIC_NFT_READ_BODIES.some((pattern) => pattern.test(body))) {
+    return { operation: 'market_research', kind: classifyMarketResearchIntent(query) ?? 'market' };
+  }
+  if (/\b(?:nfts?|non-fungible tokens?)\b/i.test(body)) return null;
   if (BANKR_PUBLIC_MARKET_READ_BODIES.some((pattern) => pattern.test(body))) {
     return { operation: 'market_research', kind: 'market' };
   }
@@ -258,6 +268,12 @@ function classifyClosedBankrRead(query) {
   return kind !== null && hasClosedMarketVocabulary(body)
     ? { operation: 'market_research', kind }
     : null;
+}
+
+function isOwnerAssetReadBody(body) {
+  const asset = body.match(BANKR_OWNER_ASSET_READ_BODY)?.[1];
+  return /^(?:btc|eth|sol|usdc)$/i.test(asset ?? '')
+    || /^[A-Z][A-Z0-9]{1,9}$/.test(asset ?? '');
 }
 
 function hasClosedMarketVocabulary(body) {

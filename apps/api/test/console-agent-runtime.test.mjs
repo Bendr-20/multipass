@@ -977,7 +977,7 @@ test('market price reads use the market gate independently of proposal mode', as
   assert.equal('proposalCandidates' in result, false);
 });
 
-test('natural and explicit possessive NFT reads require the account gate, read key, and exact verified wallet context', async () => {
+test('natural and explicit possessive NFT or asset reads require the account gate, read key, and exact verified wallet context', async () => {
   async function run({ accountReadEnabled, bankrReadEnabled, walletContext, message }) {
     let reads = 0;
     let llm = 0;
@@ -1009,7 +1009,12 @@ test('natural and explicit possessive NFT reads require the account gate, read k
     return { reads, llm, receivedOptions, result };
   }
 
-  for (const message of ['Show my NFTs', '/bankr read Show my NFTs']) {
+  for (const message of [
+    'Show my NFT trends',
+    '/bankr read Latest my NFT news',
+    'Show my ETH balance',
+    '/bankr read Show my SOL position',
+  ]) {
     const enabled = await run({ accountReadEnabled: true, bankrReadEnabled: true, walletContext: ownerWalletContext(), message });
     assert.equal(enabled.reads, 1, message);
     assert.equal(enabled.llm, 0, message);
