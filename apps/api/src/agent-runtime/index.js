@@ -70,7 +70,7 @@ export function createConsoleAgentRuntime({
           conversationId: transportThread.conversationId ?? room.conversationId ?? null,
           roomName: transportThread.roomName ?? room.name,
           participants: transportThread.participants?.length ? transportThread.participants : room.participants,
-          messages: messages.length ? messages : (transportThread.messages ?? []),
+          messages: mergeRecoveredThreadMessages(messages, transportThread.messages),
         },
         memory: {
           provider: memoryClient.provider ?? 'sibyl_memory',
@@ -88,12 +88,18 @@ export function createConsoleAgentRuntime({
     async handleMessage(input = {}) {
       const wallet = requireWallet(input.wallet);
       const message = String(input.message ?? '').trim();
-      if (!message) throw new TypeError('Message is required.');
+      const attachment = normalizeRuntimeImageAttachment(input.attachment);
+      if (!message && !attachment) throw new TypeError('Message or image is required.');
+      if (attachment && llmClient?.supportsVision !== true) {
+        throw new Error('Image understanding is unavailable because a vision-capable LLM is not configured.');
+      }
 
       const profile = createRuntimeProfile(input);
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
+      const clientMessageId = normalizeClientMessageId(input.clientMessageId ?? input.inboundMessageId);
+      if (attachment && !clientMessageId) throw new TypeError('Image turns require a stable client message id.');
       const priorMessages = (await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [])
         .filter(isSafeInferenceHistoryMessage);
       const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
@@ -103,9 +109,12 @@ export function createConsoleAgentRuntime({
       const signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
 
       const userMessage = createThreadMessage({
-        id: `msg_${hashish(`${threadId}:human:${message}:${now()}`)}`,
+        id: `msg_${hashish(clientMessageId
+          ? `${threadId}:human:${clientMessageId}`
+          : `${threadId}:human:${message}:${now()}`)}`,
         role: 'human',
         text: message,
+        attachment,
         sentAt: now(),
         transport: xmtpClient.transport ?? 'xmtp_local',
         senderLabel: 'You',
@@ -123,7 +132,7 @@ export function createConsoleAgentRuntime({
 
       const agentMessages = [];
       const participantResponses = [];
-      const explicitSkillCommand = skillProposalsEnabled ? resolveConsoleReadSkillIntent(message) : null;
+      const explicitSkillCommand = skillProposalsEnabled && !attachment ? resolveConsoleReadSkillIntent(message) : null;
       if (explicitSkillCommand) {
         if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
           throw new Error('Console read skill executor is not configured.');
@@ -143,7 +152,7 @@ export function createConsoleAgentRuntime({
         });
         const participant = selectSkillParticipant(room);
         const agentMessage = createThreadMessage({
-          id: `msg_${hashish(`${threadId}:${participant.participantId}:${skillResult.text}:${now()}`)}`,
+          id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
           role: 'agent',
           text: skillResult.text,
           sentAt: now(),
@@ -171,9 +180,10 @@ export function createConsoleAgentRuntime({
             signals,
             history: priorMessages,
             walletContext,
+            attachment,
           });
           const agentMessage = createThreadMessage({
-            id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
+            id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
             role: 'agent',
             text: llm.text,
             sentAt: now(),
@@ -220,6 +230,7 @@ export function createConsoleAgentRuntime({
         namespace,
         messages: threadBatch.slice(-MAX_THREAD_HISTORY),
       });
+      const responseThreadMessages = hydrateCurrentThreadAttachments(threadMessages, threadBatch);
 
       return {
         schema_version: '0.1.0',
@@ -235,7 +246,7 @@ export function createConsoleAgentRuntime({
           conversationId: publishedRoom.conversationId ?? null,
           roomName: publishedRoom.roomName ?? room.name,
           participants: publishedRoom.participants ?? room.participants,
-          messages: threadMessages,
+          messages: responseThreadMessages,
         },
         memory: {
           provider: memoryClient.provider ?? 'sibyl_memory',
@@ -459,6 +470,7 @@ export function createRuntimeProfile(input = {}) {
 export function createLocalLlmClient() {
   return {
     provider: 'local_bankr_adapter',
+    supportsVision: false,
     async generate({ profile, participant, room, memory, signals, history } = {}) {
       const memoryLine = memory?.length
         ? `I found ${memory.length} Sibyl memory item${memory.length === 1 ? '' : 's'} tied to this agent.`
@@ -643,6 +655,13 @@ function requireWallet(value) {
   return wallet;
 }
 
+function normalizeClientMessageId(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(normalized)) throw new TypeError('clientMessageId is invalid.');
+  return normalized;
+}
+
 function createThreadMessage(message = {}) {
   return {
     id: String(message.id ?? `msg_${hashish(`${message.role}:${message.text}:${message.sentAt}`)}`),
@@ -654,7 +673,62 @@ function createThreadMessage(message = {}) {
     ...(message.participantId ? { participantId: String(message.participantId) } : {}),
     ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
     ...(message.xmtpMessageId ? { xmtpMessageId: String(message.xmtpMessageId) } : {}),
+    ...(message.captionXmtpMessageId ? { captionXmtpMessageId: String(message.captionXmtpMessageId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
+    ...(message.attachment ? { attachment: message.attachment } : {}),
+  };
+}
+
+function mergeRecoveredThreadMessages(storedMessages, transportMessages) {
+  const stored = Array.isArray(storedMessages) ? storedMessages : [];
+  const transport = Array.isArray(transportMessages) ? transportMessages : [];
+  if (!stored.length) return transport;
+  const keyOf = (message) => String(message?.id ?? message?.xmtpMessageId ?? '');
+  const transportById = new Map(transport.map((message) => [keyOf(message), message]));
+  const merged = stored.map((message) => {
+    const recovered = transportById.get(keyOf(message));
+    return recovered?.attachment?.base64 ? { ...message, attachment: recovered.attachment } : message;
+  });
+  const seen = new Set(merged.flatMap((message) => [
+    keyOf(message),
+    String(message?.xmtpMessageId ?? ''),
+    String(message?.captionXmtpMessageId ?? ''),
+  ]).filter(Boolean));
+  for (const message of transport) {
+    const key = keyOf(message);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(message);
+  }
+  return merged.sort((left, right) => String(left?.sentAt ?? '').localeCompare(String(right?.sentAt ?? '')));
+}
+
+function hydrateCurrentThreadAttachments(storedMessages, currentMessages) {
+  const attachmentById = new Map(
+    (Array.isArray(currentMessages) ? currentMessages : [])
+      .filter((message) => message?.attachment?.base64)
+      .map((message) => [String(message.id ?? ''), message.attachment]),
+  );
+  return (Array.isArray(storedMessages) ? storedMessages : []).map((message) => {
+    const attachment = attachmentById.get(String(message?.id ?? ''));
+    return attachment ? { ...message, attachment } : message;
+  });
+}
+
+function normalizeRuntimeImageAttachment(value) {
+  if (!value) return null;
+  if (value.kind !== 'image' || !(value.content instanceof Uint8Array)) {
+    throw new TypeError('Runtime image attachment is invalid.');
+  }
+  return {
+    kind: 'image',
+    mimeType: String(value.mimeType),
+    filename: String(value.filename),
+    content: value.content,
+    byteLength: Number(value.byteLength),
+    width: value.width ?? null,
+    height: value.height ?? null,
+    sha256: String(value.sha256),
   };
 }
 

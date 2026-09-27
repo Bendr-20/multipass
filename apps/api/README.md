@@ -149,7 +149,7 @@ MULTIPASS_XMTP_AGENT_NAME=Quigbot \
 pnpm --filter @helixa/multipass-api xmtp:worker
 ```
 
-The worker listens for inbound XMTP text messages, resolves the sender wallet from the conversation member identity, passes the turn through the existing Console runtime, stores recall in Sibyl, and sends only the agent response back into the same XMTP conversation. Incoming human messages are stored with their XMTP message ID but are not re-sent.
+The worker listens for inbound XMTP text and built-in static image attachments, resolves the sender wallet from the conversation member identity, revalidates image bytes, passes the turn through the existing Console runtime, stores recall in Sibyl, and sends only the agent response back into the same XMTP conversation. Incoming human messages are stored with their XMTP message ID but are not re-sent. Sibyl stores image MIME, sanitized filename, dimensions when known, decoded byte length, and SHA-256 digest only - never base64 or plaintext payload bytes.
 
 For hackathon proof, run the cold-start verifier with real Sibyl required:
 
@@ -170,7 +170,14 @@ MULTIPASS_XMTP_DB_PATH=/var/lib/helixa/multipass-xmtp.db3
 MULTIPASS_XMTP_APP_VERSION=multipass-console-worker
 MULTIPASS_AGENT_BANKR_LLM_ENABLED=true
 MULTIPASS_AGENT_LLM_MODEL=...
+MULTIPASS_AGENT_LLM_VISION_MODEL=...
 ```
+
+Image understanding fails visibly unless `MULTIPASS_AGENT_LLM_VISION_MODEL` names a Bankr model verified to accept OpenAI-compatible image input. Text-only turns continue to use `MULTIPASS_AGENT_LLM_MODEL`.
+
+Console image V1 accepts exactly one JPEG, PNG, WebP, or GIF with an optional 2,000-byte caption. JPEG/PNG/WebP source files are capped at 12 MiB, browser-decoded, and re-encoded at no more than 2,048 px per axis to remove EXIF/GPS, then reduced to at most 750 KiB decoded. GIF is strict MIME/magic validated and capped at 512 KiB. The JSON request body is stream-counted and capped at 1,100,000 bytes, including dishonest or chunked requests. The server independently verifies canonical base64, decoded size, sanitized filename, MIME, magic bytes, encoded dimensions, ownership, CSRF, and quotas before provider calls. Every image turn carries a retry-stable client message ID so XMTP attachment and caption idempotency keys remain unchanged after ambiguous failures.
+
+Images use XMTP SDK 6.1.0 built-in static attachments: `sendAttachment({ filename, mimeType, content: Uint8Array }, { idempotencyKey })`. The encrypted XMTP attachment is sent first; an optional caption follows as deterministic adjacent text. The inbound worker briefly buffers an authorized attachment so an immediately adjacent caption becomes one vision turn, and restart recovery collapses the attachment/caption pair back into one thread message. No public object storage or plaintext off-network URL is used.
 
 Mint handoff: this JSON allowlist is the collection/admin source, not the final onchain gate. Before a Looper mint, snapshot the normalized addresses, generate a Merkle tree, set the Merkle root in the mint contract, and serve the frozen proof snapshot separately:
 

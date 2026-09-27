@@ -123,3 +123,23 @@ test('prove-sibyl-cold-start script fails when the required bridge is unavailabl
   assert.ok(error);
   assert.match(error.stderr, /missing-sibyl-python|ENOENT|Sibyl bridge unavailable/i);
 });
+
+test('Sibyl thread projection stores image metadata and excludes payload bytes', async () => {
+  const memory = createLocalSibylMemoryStore({ now: () => '2026-09-27T00:00:00.000Z' });
+  const messages = await memory.appendThread({
+    namespace: 'multipass:image-test',
+    messages: [{
+      id: 'image-1', role: 'human', text: '', sentAt: '2026-09-27T00:00:00.000Z',
+      attachment: {
+        kind: 'image', mimeType: 'image/png', filename: 'proof.png', byteLength: 4,
+        width: 12, height: 8, sha256: 'a'.repeat(64), base64: 'iVBORw==', content: [1, 2, 3],
+      },
+    }],
+  });
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].attachment, {
+    kind: 'image', mimeType: 'image/png', filename: 'proof.png', byteLength: 4,
+    width: 12, height: 8, sha256: 'a'.repeat(64),
+  });
+  assert.doesNotMatch(JSON.stringify(messages), /base64|content|iVBORw/);
+});

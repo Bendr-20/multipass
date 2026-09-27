@@ -68,6 +68,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
     ? factories.createBankrLlmClient({
       apiKey: options.bankrLlmKey,
       model: options.bankrLlmModel,
+      visionModel: options.bankrLlmVisionModel,
       fetchImpl: options.fetchImpl ?? fetch,
       skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
     }) ?? undefined

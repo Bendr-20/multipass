@@ -1,5 +1,8 @@
+import { contentTypeAttachment } from '@xmtp/node-sdk';
 import { hexToBytes } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+
+import { normalizeConsoleImageAttachment, projectConsoleImageMetadata } from '../console-image-attachment.js';
 
 const ETHEREUM_IDENTIFIER_KIND = 0;
 
@@ -80,7 +83,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
           sentAt: now(),
           transport: 'xmtp_local',
           conversationId: room.conversationId,
-        })).filter(Boolean)
+        })).filter(Boolean).map((message) => projectPublishedMessage(message))
         : [];
 
       room.messages.push(...nextMessages);
@@ -168,15 +171,36 @@ export async function createNodeXmtpAgentClient({
           conversationId: room.conversation.id,
         });
         if (!normalized) continue;
+        if (normalized.attachment) {
+          const attachmentMessageId = await room.conversation.sendAttachment({
+            filename: normalized.attachment.filename,
+            mimeType: normalized.attachment.mimeType,
+            content: normalized.attachment.content,
+          }, normalized.id ? { idempotencyKey: `${normalized.id}:attachment` } : undefined);
+          let captionMessageId = null;
+          if (normalized.text) {
+            captionMessageId = await room.conversation.sendText(
+              buildOutboundText(normalized),
+              normalized.id ? { idempotencyKey: `${normalized.id}:caption` } : undefined,
+            );
+          }
+          publishedMessages.push(projectPublishedMessage({
+            ...normalized,
+            id: attachmentMessageId || normalized.id,
+            xmtpMessageId: attachmentMessageId || normalized.id,
+            ...(captionMessageId ? { captionXmtpMessageId: captionMessageId } : {}),
+          }));
+          continue;
+        }
         const xmtpMessageId = await room.conversation.sendText(
           buildOutboundText(normalized),
           normalized.id ? { idempotencyKey: normalized.id } : undefined,
         );
-        publishedMessages.push({
+        publishedMessages.push(projectPublishedMessage({
           ...normalized,
           id: xmtpMessageId || normalized.id,
           xmtpMessageId: xmtpMessageId || normalized.id,
-        });
+        }));
       }
 
       room.participants = mergeParticipants(room.participants, input.participants);
@@ -299,10 +323,123 @@ async function openBoundRoom({ rooms, client, threadId, conversationId, topicId,
     topicId: String(topicId ?? threadId),
     roomName,
     participants: mergeParticipants([], participants),
-    messages: [],
+    messages: await loadConversationMessages(conversation, { ownInboxId: client?.inboxId }),
   };
   rooms.set(threadId, room);
   return room;
+}
+
+async function loadConversationMessages(conversation, { ownInboxId = null } = {}) {
+  if (typeof conversation?.messages !== 'function') return [];
+  const recovered = await conversation.messages({ limit: 50 }).catch(() => []);
+  const normalized = (Array.isArray(recovered) ? recovered : [])
+    .map((message) => normalizeRecoveredMessage(message, { ownInboxId }))
+    .filter(Boolean);
+  return pairRecoveredImageCaptions(normalized);
+}
+
+function normalizeRecoveredMessage(message = {}, { ownInboxId = null } = {}) {
+  const id = String(message.id ?? '').trim();
+  const senderInboxId = String(message.senderInboxId ?? '').trim();
+  const base = {
+    id: id || `xmtp_recovered_${String(message.sentAtNs ?? message.sentAt ?? '')}`,
+    xmtpMessageId: id || undefined,
+    role: ownInboxId && senderInboxId === String(ownInboxId) ? 'agent' : 'human',
+    text: '',
+    sentAt: normalizeRecoveredTimestamp(message),
+    transport: 'xmtp_group',
+    senderInboxId,
+    ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
+  };
+  if (typeof message.content === 'string') return { ...base, text: message.content.trim() };
+  if (sameContentType(message.contentType, contentTypeAttachment())) {
+    const content = message.content;
+    const bytes = content?.content instanceof Uint8Array
+      ? content.content
+      : (content?.data instanceof Uint8Array ? content.data : null);
+    if (bytes) {
+      try {
+        const normalized = normalizeConsoleImageAttachment({
+          mimeType: content.mimeType,
+          filename: content.filename,
+          base64: Buffer.from(bytes).toString('base64'),
+          width: null,
+          height: null,
+        }, { allowUnknownDimensions: true });
+        return {
+          ...base,
+          attachment: {
+            ...projectConsoleImageMetadata(normalized),
+            base64: Buffer.from(normalized.content).toString('base64'),
+          },
+        };
+      } catch {
+        return {
+          ...base,
+          attachment: { kind: 'unsupported', filename: String(content?.filename ?? 'image'), unavailable: true },
+        };
+      }
+    }
+  }
+  return {
+    ...base,
+    text: 'Unsupported XMTP content.',
+    attachment: { kind: 'unsupported', filename: 'attachment', unavailable: true },
+  };
+}
+
+function pairRecoveredImageCaptions(messages) {
+  const paired = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const current = messages[index];
+    const next = messages[index + 1];
+    if (current?.attachment?.kind === 'image'
+      && next?.text
+      && current.senderInboxId
+      && current.senderInboxId === next.senderInboxId
+      && timestampsAreNear(current.sentAt, next.sentAt)) {
+      const ownAgentCaption = /^\[[^\]]{1,100}\]\s/u.test(next.text);
+      paired.push(stripRecoveryInternals({
+        ...current,
+        role: ownAgentCaption ? 'agent' : 'human',
+        text: next.text,
+        captionXmtpMessageId: next.xmtpMessageId ?? next.id,
+      }));
+      index += 1;
+      continue;
+    }
+    paired.push(stripRecoveryInternals(current));
+  }
+  return paired;
+}
+
+function timestampsAreNear(left, right) {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs >= leftMs && rightMs - leftMs <= 10_000;
+}
+
+function stripRecoveryInternals(message) {
+  if (!message) return message;
+  const { senderInboxId, ...publicMessage } = message;
+  return publicMessage;
+}
+
+function sameContentType(left, right) {
+  if (!left || !right) return false;
+  return String(left.authorityId ?? left.authority_id ?? '') === String(right.authorityId ?? right.authority_id ?? '')
+    && String(left.typeId ?? left.type_id ?? '') === String(right.typeId ?? right.type_id ?? '')
+    && Number(left.versionMajor ?? left.version_major ?? 0) === Number(right.versionMajor ?? right.version_major ?? 0)
+    && Number(left.versionMinor ?? left.version_minor ?? 0) === Number(right.versionMinor ?? right.version_minor ?? 0);
+}
+
+function normalizeRecoveredTimestamp(message) {
+  const direct = String(message.sentAt ?? '').trim();
+  if (direct) return direct;
+  try {
+    if (message.sentAtNs !== undefined) return new Date(Number(BigInt(message.sentAtNs) / 1_000_000n)).toISOString();
+  } catch {}
+  return new Date(0).toISOString();
 }
 
 function buildMemberIdentifiers(wallet) {
@@ -322,17 +459,45 @@ function buildOutboundText(message = {}) {
 
 function normalizeOutboundMessage(message = {}, defaults = {}) {
   const text = String(message.text ?? '').trim();
-  if (!text) return null;
+  const attachment = normalizeOutboundAttachment(message.attachment);
+  if (!text && !attachment) return null;
   return {
     id: String(message.id ?? defaults.fallbackId ?? '').trim() || defaults.fallbackId,
     role: String(message.role ?? 'agent') === 'human' ? 'human' : 'agent',
     text,
+    ...(attachment ? { attachment } : {}),
     sentAt: String(message.sentAt ?? defaults.sentAt ?? new Date().toISOString()),
     transport: String(message.transport ?? defaults.transport ?? 'xmtp_local'),
     ...(message.senderLabel ? { senderLabel: String(message.senderLabel) } : {}),
     ...(message.participantId ? { participantId: String(message.participantId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
     ...(defaults.conversationId ? { conversationId: String(defaults.conversationId) } : {}),
+  };
+}
+
+function normalizeOutboundAttachment(value) {
+  if (!value || value.kind !== 'image' || !(value.content instanceof Uint8Array)) return null;
+  return {
+    kind: 'image',
+    filename: String(value.filename ?? 'image'),
+    mimeType: String(value.mimeType ?? ''),
+    content: value.content,
+    byteLength: Number(value.byteLength ?? value.content.byteLength),
+    width: value.width ?? null,
+    height: value.height ?? null,
+    sha256: String(value.sha256 ?? ''),
+  };
+}
+
+function projectPublishedMessage(message) {
+  if (!message?.attachment) return message;
+  const { content, ...metadata } = message.attachment;
+  return {
+    ...message,
+    attachment: {
+      ...metadata,
+      base64: Buffer.from(content).toString('base64'),
+    },
   };
 }
 

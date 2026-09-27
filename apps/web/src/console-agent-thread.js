@@ -20,7 +20,8 @@ export function renderConsoleAgentThread(thread = {}) {
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
   const sending = thread.status === 'sending';
   const activating = thread.status === 'activating';
-  const disabled = Boolean(thread.disabled || sending || activating);
+  const preparingImage = thread.attachment?.status === 'preparing';
+  const disabled = Boolean(thread.disabled || sending || activating || preparingImage);
   const selectedAgentName = String(thread.agentName ?? '').trim();
   const agentName = selectedAgentName || 'Selected agent';
   const roomName = String(thread.roomName ?? '').trim() || `${agentName} room`;
@@ -106,19 +107,28 @@ export function renderConsoleAgentThread(thread = {}) {
       <div class="console-thread-messages" data-console-room-key="${escapeAttribute(thread.roomKey ?? '')}" data-console-scroll-request="${escapeAttribute(thread.scrollRequest ?? 0)}">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>
-      <form class="console-thread-composer" data-action="send-console-agent-message">
+      <form class="console-thread-composer" data-action="send-console-agent-message" data-console-image-dropzone aria-busy="${preparingImage ? 'true' : 'false'}">
         <label class="console-thread-composer-label" for="console-agent-message">
           <span>Message room</span>
         </label>
         <div class="console-thread-composer-shell">
-          <textarea id="console-agent-message" name="message" rows="4" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}>${escapeHtml(thread.draft ?? '')}</textarea>
+          ${renderComposerAttachment(thread.attachment, { disabled })}
+          <textarea id="console-agent-message" name="message" rows="4" aria-describedby="console-image-help console-image-error" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}>${escapeHtml(thread.draft ?? '')}</textarea>
           <div class="console-thread-actions">
+            <div class="console-thread-attachment-actions">
+              <label class="console-attachment-button${disabled ? ' disabled' : ''}">
+                <span>Attach image</span>
+                <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" data-console-image-input ${disabled ? 'disabled' : ''}>
+              </label>
+              <small id="console-image-help">JPEG, PNG, WebP, or GIF. One image, 750 KiB prepared maximum. Paste or drop works too.</small>
+            </div>
             <small class="console-thread-actions-note">Review-only. Nothing executes without your approval.</small>
             <button class="console-send-button" type="submit" aria-label="${thread.retryAvailable ? 'Retry message' : 'Send message'}" ${disabled ? 'disabled' : ''}>
               <span>${sending ? 'Sending...' : (thread.retryAvailable ? 'Retry' : 'Send')}</span>
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z"/></svg>
             </button>
           </div>
+          <p id="console-image-error" class="console-image-error" role="alert" aria-live="polite">${escapeHtml(thread.attachment?.error ?? '')}</p>
         </div>
       </form>
       ${thread.error ? `<p class="console-thread-error">${escapeHtml(thread.error)}</p>` : ''}
@@ -170,10 +180,57 @@ function renderThreadMessage(message = {}, agentName = 'Selected agent') {
         <span class="console-thread-meta">
           <strong class="console-thread-role">${escapeHtml(role)}</strong>
         </span>
-        <p>${escapeHtml(message.text ?? '')}</p>
+        ${renderMessageAttachment(message.attachment, role)}
+        ${message.text ? `<p>${escapeHtml(message.text)}</p>` : ''}
       </div>
     </article>
   `;
+}
+
+function renderComposerAttachment(attachment, { disabled = false } = {}) {
+  if (attachment?.status === 'preparing') {
+    return '<div class="console-composer-image-status" role="status" aria-live="polite">Preparing image...</div>';
+  }
+  if (!attachment?.prepared || !attachment.previewUrl) return '';
+  const filename = String(attachment.prepared.filename ?? 'Attached image');
+  return `
+    <div class="console-composer-image-preview" data-console-image-preview>
+      <img src="${escapeAttribute(attachment.previewUrl)}" alt="Preview of ${escapeAttribute(filename)}">
+      <div><strong>${escapeHtml(filename)}</strong><small>${escapeHtml(formatImageBytes(attachment.prepared.byteLength))}</small></div>
+      <button type="button" data-action="remove-console-image" aria-label="Remove attached image" ${disabled ? 'disabled' : ''}>Remove</button>
+    </div>
+  `;
+}
+
+function renderMessageAttachment(attachment, role) {
+  if (!attachment) return '';
+  const src = safeInlineImageSrc(attachment);
+  const filename = String(attachment.filename ?? 'image');
+  if (!src) {
+    return `<div class="console-message-image-placeholder" role="img" aria-label="Image unavailable">Image unavailable: ${escapeHtml(filename)}</div>`;
+  }
+  return `
+    <figure class="console-message-image">
+      <img src="${escapeAttribute(src)}" alt="Image sent by ${escapeAttribute(role)}: ${escapeAttribute(filename)}" loading="lazy">
+      <figcaption>${escapeHtml(filename)}</figcaption>
+    </figure>
+  `;
+}
+
+function safeInlineImageSrc(attachment) {
+  const previewUrl = String(attachment.previewUrl ?? '');
+  if (/^blob:/u.test(previewUrl)) return previewUrl;
+  const mimeType = String(attachment.mimeType ?? '').toLowerCase();
+  const base64 = String(attachment.base64 ?? '');
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mimeType)) return null;
+  if (!base64 || base64.length > 1_024_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(base64)) return null;
+  return `data:${mimeType};base64,${base64}`;
+}
+
+function formatImageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 1) return 'Prepared image';
+  return `${Math.ceil(bytes / 1024)} KiB`;
 }
 
 function renderInlineProposal(proposal = {}) {

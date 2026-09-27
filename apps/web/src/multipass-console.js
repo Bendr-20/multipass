@@ -496,6 +496,7 @@ function createAgentThreadSnapshot(state = {}, activeAgent = null, roomParticipa
     activationRetryAvailable: Boolean(thread.activationRetryAvailable),
     roomActivationDisabled: state.consoleAgentNameMutation?.status === 'pending',
     draft: String(thread.draft ?? ''),
+    attachment: thread.attachment ?? null,
     title: thread.title ?? null,
     metaLabel: thread.metaLabel ?? null,
     contextLabel: thread.contextLabel ?? null,

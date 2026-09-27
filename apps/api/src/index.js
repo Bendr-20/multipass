@@ -23,6 +23,10 @@ import { getAllowlistProof } from './allowlist-snapshot.js';
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
 import { createConsoleAuthStore } from './console-auth.js';
+import {
+  CONSOLE_IMAGE_REQUEST_MAX_BYTES,
+  normalizeConsoleImageAttachment,
+} from './console-image-attachment.js';
 import { createConsoleReadSkillExecutor } from './console-read-skills.js';
 import {
   createLooperCredClient,
@@ -211,6 +215,7 @@ export function createMultipassApi({
   bankrLlmKey,
   bankrReadonlyApiKey,
   bankrLlmModel,
+  bankrLlmVisionModel,
   consoleAgentBankrLlmEnabled = false,
   consoleSkillProposalsEnabled = false,
   consoleXmtpEnabled = false,
@@ -239,6 +244,7 @@ export function createMultipassApi({
       ? createBankrLlmClient({
         apiKey: bankrLlmKey,
         model: bankrLlmModel,
+        visionModel: bankrLlmVisionModel,
         fetchImpl,
         skillProposalsEnabled: consoleSkillProposalsEnabled,
       }) ?? undefined
@@ -388,7 +394,7 @@ export function createMultipassApi({
         return handlePublicRead(parts, context);
       } catch (error) {
         if (error instanceof ApiInputError) {
-          return errorResponse(400, error.code, error.message);
+          return errorResponse(error.status ?? 400, error.code, error.message);
         }
         if (error instanceof ApiUnauthorizedError) {
           return errorResponse(401, 'unauthorized', error.message);
@@ -575,15 +581,27 @@ async function handleConsoleAgentActivate(request, context) {
 
 async function handleConsoleAgentMessage(request, context) {
   const session = requireConsoleSession(request, context, { requireCsrf: true });
-  const body = await readJsonBody(request);
+  const body = await readBoundedJsonBody(request, CONSOLE_IMAGE_REQUEST_MAX_BYTES);
   const tokenId = normalizeLooperTokenId(body.tokenId);
   const rawMessage = String(body.message ?? '');
   if (Buffer.byteLength(rawMessage, 'utf8') > CONSOLE_MESSAGE_MAX_BYTES) {
     throw new ApiInputError('message_too_large', 'Message must be at most 2,000 UTF-8 bytes.');
   }
   const message = rawMessage.trim();
-  if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
+  if (!message && !body.attachment) throw new ApiInputError('invalid_request', 'Message or image is required.');
   const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  let attachment = null;
+  if (body.attachment) {
+    try {
+      attachment = normalizeConsoleImageAttachment(body.attachment);
+    } catch (error) {
+      throw new ApiInputError('invalid_image_attachment', error.message);
+    }
+  }
+  const clientMessageId = normalizeConsoleClientMessageId(body.clientMessageId);
+  if (attachment && !clientMessageId) {
+    throw new ApiInputError('invalid_request', 'Image turns require a stable clientMessageId.');
+  }
   const quotaKey = `${session.wallet}:${identity.tokenId}`;
   const shortWindow = context.consoleMessageShortRateLimiter.check(quotaKey);
   if (!shortWindow.allowed) {
@@ -618,6 +636,8 @@ async function handleConsoleAgentMessage(request, context) {
       canonicalIdentity: activation.identity,
       canonicalConversationId: activation.conversationId,
       message,
+      attachment,
+      clientMessageId,
       walletContext,
     });
     if (result?.thread?.conversationId) {
@@ -1288,6 +1308,15 @@ function normalizeLooperTokenId(value) {
   } catch {
     throw new ApiInputError('invalid_request', 'Provide a valid Looper token ID.');
   }
+}
+
+function normalizeConsoleClientMessageId(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(normalized)) {
+    throw new ApiInputError('invalid_client_message_id', 'clientMessageId is invalid.');
+  }
+  return normalized;
 }
 
 function requireManagerSession(request, identifier, context) {
@@ -2152,6 +2181,43 @@ function mapAdminClaimError(error) {
 
 async function readJsonBody(request) {
   const raw = await request.text();
+  return parseJsonBody(raw);
+}
+
+async function readBoundedJsonBody(request, maxBytes) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && (/^\d+$/u.test(declared) === false || Number(declared) > maxBytes)) {
+    throw new ApiInputError('request_too_large', `Request body must be at most ${maxBytes} bytes.`, 413);
+  }
+  if (!request.body) return {};
+  const reader = request.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new ApiInputError('request_too_large', `Request body must be at most ${maxBytes} bytes.`, 413);
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return parseJsonBody(new TextDecoder('utf-8', { fatal: true }).decode(merged));
+  } catch (error) {
+    if (error instanceof ApiInputError) throw error;
+    throw new ApiInputError('invalid_json', 'Request body must be valid UTF-8 JSON.');
+  }
+}
+
+function parseJsonBody(raw) {
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw);
@@ -2161,10 +2227,11 @@ async function readJsonBody(request) {
 }
 
 class ApiInputError extends Error {
-  constructor(code, message) {
+  constructor(code, message, status = 400) {
     super(message);
     this.name = 'ApiInputError';
     this.code = code;
+    this.status = status;
   }
 }
 

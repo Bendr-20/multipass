@@ -44,9 +44,14 @@ export async function sendConsoleAgentMessage({
   tokenId,
   csrfToken,
   walletContext,
+  attachment,
+  clientMessageId,
   fetchImpl = fetch,
 } = {}) {
   const normalizedTokenId = String(tokenId ?? '').trim();
+  if (attachment && !/^[A-Za-z0-9_-]{8,128}$/u.test(String(clientMessageId ?? '').trim())) {
+    throw new SavedMultipassError('Image turns require a stable client message id.');
+  }
   const normalizedWalletContext = normalizeReadOnlyWalletContext(walletContext, normalizedTokenId);
   return requestConsoleJson({
     apiBase,
@@ -56,10 +61,29 @@ export async function sendConsoleAgentMessage({
     body: {
       tokenId: normalizedTokenId,
       message: String(message ?? '').trim(),
+      ...(clientMessageId ? { clientMessageId: String(clientMessageId) } : {}),
+      ...(attachment ? { attachment: normalizeImageAttachment(attachment) } : {}),
       ...(normalizedWalletContext ? { walletContext: normalizedWalletContext } : {}),
     },
     fetchImpl,
   });
+}
+
+function normalizeImageAttachment(value) {
+  if (value?.kind !== 'image'
+    || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(value.mimeType)
+    || typeof value.base64 !== 'string'
+    || !value.base64) {
+    throw new SavedMultipassError('Prepared image attachment is invalid.');
+  }
+  return {
+    kind: 'image',
+    mimeType: value.mimeType,
+    filename: String(value.filename ?? 'image'),
+    base64: value.base64,
+    width: value.width ?? null,
+    height: value.height ?? null,
+  };
 }
 
 function normalizeReadOnlyWalletContext(context, tokenId) {

@@ -40,6 +40,7 @@ import {
 import { createLooperAgentWalletController, createReadOnlyLooperWalletContext } from './looper-agent-wallet-controller.js';
 import { createLooperWalletRpcClient } from './looper-agent-wallet-rpc.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
+import { createImagePreview, prepareConsoleImage, preparedImageBlob } from './console-image-preparation.js';
 import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
 import { renderRuntimeSubmission } from './runtime-submission.js';
 import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
@@ -73,7 +74,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -107,6 +108,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
   const consoleMockState = getInitialConsoleMockState();
   const consoleAgentNameOverrides = consoleMockState?.consoleAgentNameOverrides ?? loadConsoleAgentNameOverrides();
+  let consoleImagePreview = null;
+  let consoleImagePreparationId = 0;
+  const clearConsoleImagePreview = () => {
+    consoleImagePreparationId += 1;
+    consoleImagePreview?.clear();
+  };
+  const clearConsoleSessionStateWithPreview = (currentState, options) => {
+    clearConsoleImagePreview();
+    return clearConsoleSessionState(currentState, options);
+  };
 
   let state = {
     pageKind: getInitialPageKind(),
@@ -176,7 +187,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (state.pageKind === 'console' && state.consoleMockMode) return;
       if (state.pageKind === 'console' && !state.consoleMockMode && consoleWalletBoundaryChanged(state, walletSnapshot)) {
         abortConsoleReleasedLooperDiscovery();
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot,
           status: walletSnapshot.connected && walletSnapshot.address ? 'wallet_changed' : 'disconnected',
           error: walletSnapshot.connected && walletSnapshot.address
@@ -640,6 +651,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function connectConsoleWallet() {
     abortConsoleReleasedLooperDiscovery();
+    clearConsoleImagePreview();
     const sessionGeneration = state.consoleSessionGeneration + 1;
     state = {
       ...state,
@@ -719,7 +731,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     } catch (error) {
       if (state.consoleSessionGeneration !== sessionGeneration) return;
       if (isConsoleAuthorizationError(error)) {
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
           error: 'Console authorization failed. Connect again and approve the wallet signature.',
@@ -754,11 +766,61 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  async function selectConsoleImage(event) {
+    const files = event?.target?.files ?? event?.dataTransfer?.files ?? event?.clipboardData?.files ?? [];
+    if (files.length) event?.preventDefault?.();
+    if (state.consoleAgentThread?.status === 'sending') return;
+    const images = [...files].filter((file) => String(file?.type ?? '').startsWith('image/'));
+    if (!images.length) return;
+    if (files.length !== 1 || images.length !== 1) {
+      clearConsoleImagePreview();
+      state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, attachment: { error: 'Attach one image at a time.' } } };
+      render(root, state, handlers);
+      return;
+    }
+    const preparationId = ++consoleImagePreparationId;
+    state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, attachment: { status: 'preparing', error: null } } };
+    render(root, state, handlers);
+    try {
+      const prepared = await prepareConsoleImageImpl(images[0]);
+      if (preparationId !== consoleImagePreparationId) return;
+      consoleImagePreview ??= imagePreviewFactory();
+      const previewUrl = consoleImagePreview.set(preparedImageBlob(prepared));
+      state = {
+        ...state,
+        consoleAgentThread: {
+          ...state.consoleAgentThread,
+          attachment: {
+            status: 'ready',
+            prepared,
+            previewUrl,
+            clientMessageId: createConsoleClientMessageId(),
+            error: null,
+          },
+        },
+      };
+    } catch (error) {
+      if (preparationId !== consoleImagePreparationId) return;
+      consoleImagePreview?.clear();
+      state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, attachment: { status: 'error', error: error.message || 'Image preparation failed.' } } };
+    }
+    render(root, state, handlers);
+  }
+
+  function removeConsoleImage() {
+    clearConsoleImagePreview();
+    state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, attachment: null } };
+    render(root, state, handlers);
+  }
+
   async function sendConsoleAgentMessage(event) {
     event?.preventDefault?.();
     const form = event?.currentTarget;
     const message = String(form?.querySelector?.('textarea[name="message"]')?.value ?? '').trim();
-    if (!message) return;
+    if (state.consoleAgentThread?.attachment?.status === 'preparing') return;
+    const preparedAttachment = state.consoleAgentThread?.attachment?.prepared ?? null;
+    const clientMessageId = state.consoleAgentThread?.attachment?.clientMessageId ?? null;
+    if (!message && !preparedAttachment) return;
     const walletSnapshot = activeWalletClient.getSnapshot();
     if (!walletSnapshot.connected || !walletSnapshot.address) {
       state = {
@@ -850,6 +912,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         message,
         csrfToken: state.consoleCsrfToken,
         walletContext: createReadOnlyLooperWalletContext(state.looperAgentWallet),
+        attachment: preparedAttachment,
+        clientMessageId,
         fetchImpl,
       });
       let result;
@@ -889,6 +953,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         state.consoleAuthenticatedWallet,
         activeConsoleAgent.tokenId,
       );
+      clearConsoleImagePreview();
       state = {
         ...state,
         consoleScrollRequest: Number(state.consoleScrollRequest ?? 0) + 1,
@@ -899,6 +964,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           retryAvailable: false,
           operationStatus: null,
           draft: '',
+          attachment: null,
           messages: visibleMessages,
           proposals: result.proposals ?? [],
           ...getConsoleSkillProposalResponseFields(result),
@@ -922,7 +988,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     } catch (error) {
       if (!isCurrentConsoleAsyncContext(state, sendContext)) return;
       if (isConsoleUnauthorized(error)) {
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
           error: 'Console session expired. Connect again to continue.',
@@ -939,6 +1005,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           errorKind: isConsoleCancellation(error) ? 'cancelled' : (isConsoleAuthorizationError(error) ? 'authorization' : 'transport'),
           retryAvailable: !isConsoleCancellation(error),
           draft: message,
+          attachment: state.consoleAgentThread?.attachment ?? null,
           error: getSafeConsoleError(error, { phase: 'send' }),
         },
       };
@@ -996,7 +1063,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleAgentNameMutation: { status: 'idle', requestId, tokenId: null },
       };
       if (isConsoleUnauthorized(error)) {
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
           error: 'Console session expired. Connect again to continue.',
@@ -1075,7 +1142,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   } = {}) {
     if (!walletSnapshot.connected || !walletSnapshot.address) {
       abortConsoleReleasedLooperDiscovery();
-      state = clearConsoleSessionState(state, {
+      state = clearConsoleSessionStateWithPreview(state, {
         walletSnapshot,
         status: 'disconnected',
       });
@@ -1176,7 +1243,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (state.consoleSessionGeneration !== sessionGeneration || state.consoleOwnedAgentsRequestId !== rosterRequestId) return;
       if (isConsoleUnauthorized(error)) {
         abortConsoleReleasedLooperDiscovery();
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
           error: 'Console session expired. Connect again to continue.',
@@ -1475,6 +1542,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const previousSelectedAgentId = state.consoleSelectedAgentId;
     const previousParticipantAgentIds = state.consoleParticipantAgentIds;
     const requestId = state.consoleActivationRequestId + 1;
+    if (resetSelection && normalizedTokenId !== previousSelectedAgentId) clearConsoleImagePreview();
     state = {
       ...state,
       consoleActivationRequestId: requestId,
@@ -1567,7 +1635,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     } catch (error) {
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
       if (isConsoleUnauthorized(error)) {
-        state = clearConsoleSessionState(state, {
+        state = clearConsoleSessionStateWithPreview(state, {
           walletSnapshot: activeWalletClient.getSnapshot(),
           status: 'authorization_failed',
           error: 'Console session expired. Connect again to continue.',
@@ -1621,6 +1689,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function resetConsoleSession() {
     abortConsoleReleasedLooperDiscovery();
+    clearConsoleImagePreview();
     const walletSnapshot = activeWalletClient.getSnapshot();
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
     hideConsoleMessagesLocally(
@@ -2199,7 +2268,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start };
 }
@@ -2447,6 +2516,12 @@ function consoleWalletBoundaryChanged(state = {}, walletSnapshot = {}) {
   if (!authenticatedWallet) return false;
   if (!walletSnapshot.connected || !walletSnapshot.address) return true;
   return normalizeConsoleWalletKey(walletSnapshot.address) !== authenticatedWallet;
+}
+
+function createConsoleClientMessageId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  const random = Math.random().toString(36).slice(2);
+  return `console_${Date.now().toString(36)}_${random}`;
 }
 
 function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = null, error = null } = {}) {
@@ -4634,7 +4709,15 @@ function bindProductHomeEvents(root, handlers, state) {
   });
   root.querySelector('[data-action="update-console-agent-name"]')?.addEventListener('submit', (event) => handlers.updateConsoleAgentName?.(event));
   root.querySelector('[data-action="reset-console-agent-name"]')?.addEventListener('click', () => handlers.resetConsoleAgentName?.());
-  root.querySelector('[data-action="send-console-agent-message"]')?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
+  const consoleComposer = root.querySelector('[data-action="send-console-agent-message"]');
+  consoleComposer?.addEventListener('submit', (event) => handlers.sendConsoleAgentMessage?.(event));
+  consoleComposer?.querySelector('[data-console-image-input]')?.addEventListener('change', (event) => handlers.selectConsoleImage?.(event));
+  consoleComposer?.addEventListener('paste', (event) => handlers.selectConsoleImage?.(event));
+  consoleComposer?.addEventListener('dragover', (event) => {
+    if ([...(event.dataTransfer?.items ?? [])].some((item) => item.kind === 'file')) event.preventDefault();
+  });
+  consoleComposer?.addEventListener('drop', (event) => handlers.selectConsoleImage?.(event));
+  consoleComposer?.querySelector('[data-action="remove-console-image"]')?.addEventListener('click', () => handlers.removeConsoleImage?.());
   root.querySelector('[data-action="reset-console-session"]')?.addEventListener('click', () => handlers.resetConsoleSession?.());
   root.querySelector('[data-action="refresh-looper-agent-wallet"]')?.addEventListener('click', () => handlers.refreshLooperAgentWallet?.());
   root.querySelector('[data-action="activate-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.activateLooperAgentWallet?.(event));

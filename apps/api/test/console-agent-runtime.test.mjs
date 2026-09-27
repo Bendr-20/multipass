@@ -113,6 +113,94 @@ test('runtime profile preserves the server-derived canonical Looper persona', ()
   assert.equal(profile.permissions.trading, 'review_only');
 });
 
+test('image-only runtime turn sends bytes to vision and XMTP while Sibyl stores metadata only', async () => {
+  const memoryClient = createLocalSibylMemoryStore({ now: () => '2026-09-27T00:00:00.000Z' });
+  const content = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  let visionAttachment;
+  const runtime = createConsoleAgentRuntime({
+    memoryClient,
+    xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-27T00:00:00.000Z' }),
+    now: () => '2026-09-27T00:00:00.000Z',
+    llmClient: {
+      supportsVision: true,
+      async generate({ attachment }) {
+        visionAttachment = attachment;
+        return { provider: 'bankr_llm_gateway', text: 'I can see the uploaded image.' };
+      },
+    },
+  });
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    canonicalIdentity: CONSOLE_IDENTITY,
+    agentName: 'Image Looper',
+    message: '',
+    clientMessageId: 'console-image-1',
+    attachment: {
+      kind: 'image', mimeType: 'image/png', filename: 'proof.png', content,
+      byteLength: content.length, width: 12, height: 8, sha256: 'a'.repeat(64),
+    },
+  });
+  assert.equal(visionAttachment.content, content);
+  const human = result.thread.messages.find((message) => message.role === 'human');
+  assert.equal(human.text, '');
+  assert.equal(human.attachment.base64, Buffer.from(content).toString('base64'));
+  const stored = await memoryClient.loadThread({ namespace: result.memory.namespace, limit: 10 });
+  const serialized = JSON.stringify(stored);
+  assert.equal(serialized.includes('base64'), false);
+  assert.equal(serialized.includes(Buffer.from(content).toString('base64')), false);
+  assert.equal(stored[0].attachment.sha256, 'a'.repeat(64));
+});
+
+test('image turns fail closed when only the local text adapter is configured', async () => {
+  const runtime = createConsoleAgentRuntime({ memoryClient: createLocalSibylMemoryStore() });
+  await assert.rejects(runtime.handleMessage({
+    wallet: WALLET,
+    canonicalIdentity: CONSOLE_IDENTITY,
+    agentName: 'Image Looper',
+    attachment: {
+      kind: 'image', mimeType: 'image/png', filename: 'proof.png', content: new Uint8Array([1]),
+      byteLength: 1, width: 1, height: 1, sha256: 'a'.repeat(64),
+    },
+  }), /vision-capable LLM is not configured/i);
+});
+
+test('thread recovery keeps Sibyl text and appends canonical XMTP-only image history', async () => {
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: {
+      provider: 'sibyl_memory',
+      async loadThread() {
+        return [
+          { id: 'stored-1', role: 'human', text: 'Stored text.', sentAt: '2026-09-27T00:00:00.000Z' },
+          {
+            id: 'xmtp-image', xmtpMessageId: 'xmtp-image', captionXmtpMessageId: 'xmtp-caption',
+            role: 'human', text: 'What is this?', sentAt: '2026-09-27T00:00:01.000Z',
+            attachment: { kind: 'image', mimeType: 'image/png', filename: 'history.png', byteLength: 8, width: 10, height: 20, sha256: 'a'.repeat(64) },
+          },
+        ];
+      },
+      async recallMemory() { return []; },
+    },
+    xmtpClient: {
+      provider: 'xmtp_node_sdk', transport: 'xmtp_group',
+      async getThread() {
+        return {
+          transport: 'xmtp_group', participants: [],
+          messages: [
+            {
+              id: 'xmtp-image', role: 'human', text: '', sentAt: '2026-09-27T00:00:01.000Z',
+              attachment: { kind: 'image', mimeType: 'image/png', filename: 'history.png', base64: 'iVBORw0KGgo=' },
+            },
+            { id: 'xmtp-caption', role: 'human', text: 'What is this?', sentAt: '2026-09-27T00:00:01.100Z' },
+          ],
+        };
+      },
+    },
+  });
+  const result = await runtime.getThread({ wallet: WALLET, canonicalIdentity: CONSOLE_IDENTITY, agentName: 'Image Looper' });
+  assert.deepEqual(result.thread.messages.map((message) => message.id), ['stored-1', 'xmtp-image']);
+  assert.equal(result.thread.messages[1].attachment.filename, 'history.png');
+});
+
 test('local Sibyl adapter saves and recalls durable watchlist memory', async () => {
   const memory = createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' });
   const namespace = buildSibylMemoryNamespace({

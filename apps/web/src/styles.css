@@ -10648,8 +10648,153 @@ h1 {
   }
 }
 
+/* Console image attachments */
+.console-thread-attachment-actions {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 18rem;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.console-thread-attachment-actions small,
+.console-composer-image-preview small,
+.console-message-image figcaption {
+  overflow-wrap: anywhere;
+}
+
+.console-attachment-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.35rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.65rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.console-attachment-button:focus-within {
+  outline: 2px solid var(--mint, #6eecd8);
+  outline-offset: 2px;
+}
+
+.console-attachment-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.console-attachment-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.console-composer-image-status {
+  padding: 0.65rem;
+  border: 1px dashed rgba(110, 236, 216, 0.3);
+  border-radius: 0.75rem;
+}
+
+.console-composer-image-preview {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 100%;
+  padding: 0.65rem;
+  border: 1px solid rgba(110, 236, 216, 0.3);
+  border-radius: 0.75rem;
+  background: rgba(110, 236, 216, 0.06);
+}
+
+.console-composer-image-preview img {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  object-fit: cover;
+  border-radius: 0.5rem;
+}
+
+.console-composer-image-preview div {
+  display: grid;
+  min-width: 0;
+}
+
+.console-composer-image-preview button {
+  min-height: 2.25rem;
+}
+
+.console-image-error:empty {
+  display: none;
+}
+
+.console-image-error {
+  margin: 0;
+  color: #ffb7c5;
+}
+
+.console-message-image {
+  width: min(100%, 30rem);
+  margin: 0 0 0.65rem;
+}
+
+.console-message-image img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 28rem;
+  object-fit: contain;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.console-message-image figcaption {
+  margin-top: 0.35rem;
+  font-size: 0.76rem;
+  opacity: 0.72;
+}
+
+.console-message-image-placeholder {
+  max-width: 100%;
+  margin-bottom: 0.65rem;
+  padding: 0.75rem;
+  border: 1px dashed rgba(255, 255, 255, 0.24);
+  border-radius: 0.65rem;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 560px) {
   .multipass-console-shell .record-header {
     padding-left: 12px;
+  }
+
+  .console-composer-image-preview {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  .console-composer-image-preview img {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+
+  .console-composer-image-preview button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .console-thread-attachment-actions,
+  .console-thread-actions {
+    min-width: 0;
+  }
+
+  .console-message-image img {
+    max-height: 20rem;
   }
 }

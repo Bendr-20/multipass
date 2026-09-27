@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { contentTypeAttachment } from '@xmtp/node-sdk';
+
 import { createConsoleAgentRuntime } from '../src/agent-runtime/index.js';
 import { buildCanonicalConsoleRoom, createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 import { buildSibylMemoryNamespace, createLocalSibylMemoryStore } from '../src/sibyl-memory/index.js';
 import {
   buildConsoleXmtpWorkerOptionsFromEnv,
   createConsoleXmtpMessageHandler,
+  extractMessageAttachment,
   extractMessageText,
   resolveSenderWallet,
   startConsoleXmtpWorker,
@@ -41,6 +44,83 @@ test('extractMessageText accepts XMTP text and fallback content', () => {
   assert.equal(extractMessageText({ content: { content: ' Reply text ' } }), 'Reply text');
   assert.equal(extractMessageText({ fallback: ' Fallback text ' }), 'Fallback text');
   assert.equal(extractMessageText({ content: { amount: '1' } }), '');
+});
+
+test('extractMessageAttachment accepts only validated XMTP static image content', () => {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x14]);
+  const attachment = extractMessageAttachment({
+    contentType: contentTypeAttachment(),
+    content: { filename: 'proof.png', mimeType: 'image/png', content: bytes },
+  });
+  assert.equal(attachment.mimeType, 'image/png');
+  assert.deepEqual(attachment.content, bytes);
+  assert.equal(extractMessageAttachment({
+    contentType: { ...contentTypeAttachment(), typeId: 'not-attachment' },
+    content: { filename: 'proof.png', mimeType: 'image/png', content: bytes },
+  }), null);
+  assert.equal(extractMessageAttachment({
+    contentType: contentTypeAttachment(),
+    content: { filename: 'fake.png', mimeType: 'image/png', content: new Uint8Array([1, 2, 3]) },
+  }), null);
+});
+
+test('XMTP worker routes an authorized static image to the vision runtime', async () => {
+  let runtimeInput;
+  const handler = createConsoleXmtpMessageHandler({
+    ownInboxId: 'agent-inbox',
+    runtimeRegistry: createBoundRuntimeRegistry(),
+    authorizeLooper: async () => IDENTITY,
+    getConversation: async () => ({
+      async members() {
+        return [{ inboxId: 'human-inbox', accountIdentifiers: [{ identifier: WALLET, identifierKind: 0 }] }];
+      },
+    }),
+    runtime: { async handleMessage(input) { runtimeInput = input; return { ok: true }; } },
+    captionWaitMs: 10_000,
+  });
+  const result = await handler.handleMessage({
+    id: 'xmtp-image-1', conversationId: 'conversation-1', senderInboxId: 'human-inbox',
+    contentType: contentTypeAttachment(),
+    content: {
+      filename: 'proof.png', mimeType: 'image/png',
+      content: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x14]),
+    },
+  });
+  assert.deepEqual(result, { processed: false, reason: 'attachment_buffered' });
+  const [flushed] = await handler.flushPending();
+  assert.equal(flushed.processed, true);
+  assert.equal(runtimeInput.message, '');
+  assert.equal(runtimeInput.attachment.filename, 'proof.png');
+  assert.equal(runtimeInput.publishHumanMessage, false);
+});
+
+test('XMTP worker pairs an attachment with its immediate caption into one vision turn', async () => {
+  const calls = [];
+  const handler = createConsoleXmtpMessageHandler({
+    ownInboxId: 'agent-inbox',
+    runtimeRegistry: createBoundRuntimeRegistry(),
+    authorizeLooper: async () => IDENTITY,
+    getConversation: async () => ({
+      async members() {
+        return [{ inboxId: 'human-inbox', accountIdentifiers: [{ identifier: WALLET, identifierKind: 0 }] }];
+      },
+    }),
+    runtime: { async handleMessage(input) { calls.push(input); return { ok: true }; } },
+    captionWaitMs: 10_000,
+  });
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x14]);
+  assert.equal((await handler.handleMessage({
+    id: 'image-id', conversationId: 'conversation-1', senderInboxId: 'human-inbox',
+    contentType: contentTypeAttachment(), content: { filename: 'proof.png', mimeType: 'image/png', content: bytes },
+  })).reason, 'attachment_buffered');
+  const result = await handler.handleMessage({
+    id: 'caption-id', conversationId: 'conversation-1', senderInboxId: 'human-inbox', content: 'What is this?',
+  });
+  assert.equal(result.processed, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].message, 'What is this?');
+  assert.equal(calls[0].attachment.filename, 'proof.png');
+  assert.equal(calls[0].clientMessageId, 'image-id');
 });
 
 test('resolveSenderWallet reads the EVM identifier from conversation members', async () => {
@@ -340,11 +420,13 @@ test('worker env builder maps XMTP runtime defaults without enabling Bankr by ac
     MULTIPASS_XMTP_WALLET_KEY: '0xkey',
     MULTIPASS_XMTP_AGENT_ID: '81',
     MULTIPASS_XMTP_AGENT_NAME: 'Quigbot',
+    MULTIPASS_AGENT_LLM_VISION_MODEL: 'vision-model',
   });
 
   assert.equal(options.env, 'dev');
   assert.equal(options.walletKey, '0xkey');
   assert.equal(options.consoleAgentBankrLlmEnabled, false);
+  assert.equal(options.bankrLlmVisionModel, 'vision-model');
   assert.equal(options.consoleSkillProposalsEnabled, false);
   assert.equal(options.defaults.agentId, '81');
   assert.equal(options.defaults.tokenId, '81');

@@ -289,9 +289,10 @@ function normalizeNamespacePart(value, fallback) {
 
 function normalizeThreadMessage(message = {}) {
   const text = String(message.text ?? '').trim();
-  if (!text) return null;
+  const attachment = normalizeThreadAttachment(message.attachment);
+  if (!text && !attachment) return null;
   return {
-    id: String(message.id ?? `msg_${hashish(`${message.role}:${text}:${message.sentAt ?? ''}`)}`),
+    id: String(message.id ?? `msg_${hashish(`${message.role}:${text}:${attachment?.sha256 ?? ''}:${message.sentAt ?? ''}`)}`),
     role: String(message.role ?? 'agent') === 'human' ? 'human' : 'agent',
     text,
     sentAt: String(message.sentAt ?? new Date().toISOString()),
@@ -300,7 +301,32 @@ function normalizeThreadMessage(message = {}) {
     ...(message.participantId ? { participantId: String(message.participantId) } : {}),
     ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
     ...(message.xmtpMessageId ? { xmtpMessageId: String(message.xmtpMessageId) } : {}),
+    ...(message.captionXmtpMessageId ? { captionXmtpMessageId: String(message.captionXmtpMessageId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
+    ...(attachment ? { attachment } : {}),
+  };
+}
+
+function normalizeThreadAttachment(value) {
+  if (!value || value.kind !== 'image') return null;
+  const mimeType = String(value.mimeType ?? '').trim();
+  const sha256 = String(value.sha256 ?? '').trim().toLowerCase();
+  const byteLength = Number(value.byteLength);
+  const maximum = mimeType === 'image/gif' ? 512 * 1024 : 750 * 1024;
+  if (!/^image\/(?:jpeg|png|webp|gif)$/u.test(mimeType)
+    || !/^[a-f0-9]{64}$/u.test(sha256)
+    || !Number.isInteger(byteLength)
+    || byteLength < 1
+    || byteLength > maximum) return null;
+  const dimension = (input) => Number.isInteger(input) && input >= 1 && input <= 2048 ? input : null;
+  return {
+    kind: 'image',
+    mimeType,
+    filename: String(value.filename ?? 'image').slice(0, 96),
+    byteLength,
+    width: dimension(value.width),
+    height: dimension(value.height),
+    sha256,
   };
 }
 

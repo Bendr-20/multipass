@@ -94,3 +94,39 @@ test('candidate surface itself has no control or generic wallet-form prefill lin
   assert.equal(candidate.closest('.console-looper-wallet-send'), null);
   assert.equal(candidate.onclick, null);
 });
+
+test('renders accessible image controls, escaped captions, inline images, and safe placeholders', () => {
+  const root = render({
+    agentName: 'Image Looper',
+    attachment: {
+      prepared: { filename: 'preview.png', byteLength: 1024 },
+      previewUrl: 'blob:https://helixa.test/preview',
+    },
+    messages: [
+      {
+        id: 'image-1', role: 'human', senderLabel: 'You', text: '<script>caption</script>',
+        attachment: { filename: 'proof.png', mimeType: 'image/png', base64: 'iVBORw0KGgo=' },
+      },
+      {
+        id: 'image-2', role: 'human', senderLabel: 'You', text: '',
+        attachment: { kind: 'unsupported', filename: '<bad>.svg', unavailable: true },
+      },
+    ],
+  });
+  const input = root.querySelector('input[type="file"]');
+  assert.equal(input.accept, 'image/jpeg,image/png,image/webp,image/gif');
+  assert.ok(root.querySelector('[data-console-image-dropzone]'));
+  assert.equal(root.querySelector('[data-action="remove-console-image"]')?.getAttribute('aria-label'), 'Remove attached image');
+  const image = root.querySelector('.console-message-image img');
+  assert.equal(image.src, 'data:image/png;base64,iVBORw0KGgo=');
+  assert.match(image.alt, /Image sent by You: proof.png/);
+  assert.match(root.textContent, /<script>caption<\/script>/);
+  assert.equal(root.querySelector('script'), null);
+  assert.match(root.querySelector('.console-message-image-placeholder')?.textContent ?? '', /Image unavailable/);
+  assert.doesNotMatch(root.innerHTML, /<bad>\.svg/);
+
+  const preparing = render({ agentName: 'Image Looper', attachment: { status: 'preparing' }, messages: [] });
+  assert.equal(preparing.querySelector('form')?.getAttribute('aria-busy'), 'true');
+  assert.match(preparing.querySelector('[role="status"]')?.textContent ?? '', /Preparing image/);
+  assert.equal(preparing.querySelector('.console-send-button')?.disabled, true);
+});

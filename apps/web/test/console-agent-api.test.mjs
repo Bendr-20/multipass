@@ -173,3 +173,30 @@ test('activation returns a canonical recovered XMTP thread without sending conve
   assert.equal(activated.thread.messages[0].xmtpMessageId, 'xmtp-1');
   assert.equal(activated.memory.recalled[0].text, 'Prior mission.');
 });
+
+test('Console client sends one prepared image with an optional caption through same-origin JSON', async () => {
+  let request;
+  await sendConsoleAgentMessage({
+    apiBase: 'https://helixa.test',
+    tokenId: '617',
+    message: 'What is this?',
+    csrfToken: 'csrf-1',
+    clientMessageId: 'console_image_617_1',
+    attachment: {
+      kind: 'image', mimeType: 'image/png', filename: 'proof.png',
+      base64: 'iVBORw0KGgo=', byteLength: 8, width: 12, height: 8,
+    },
+    fetchImpl: async (url, init) => {
+      request = { url, init, body: JSON.parse(init.body) };
+      return new Response(JSON.stringify({ thread: { messages: [] } }));
+    },
+  });
+  assert.equal(request.url, 'https://helixa.test/api/multipass/console/agent/message');
+  assert.equal(request.init.credentials, 'include');
+  assert.equal(request.body.message, 'What is this?');
+  assert.equal(request.body.clientMessageId, 'console_image_617_1');
+  assert.deepEqual(request.body.attachment, {
+    kind: 'image', mimeType: 'image/png', filename: 'proof.png',
+    base64: 'iVBORw0KGgo=', width: 12, height: 8,
+  });
+});

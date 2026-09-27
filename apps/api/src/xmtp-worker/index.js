@@ -1,4 +1,7 @@
+import { contentTypeAttachment } from '@xmtp/node-sdk';
+
 import { createConsoleAgentRuntime } from '../agent-runtime/index.js';
+import { normalizeConsoleImageAttachment } from '../console-image-attachment.js';
 import { createBankrLlmClient } from '../bankr-llm/index.js';
 import { createNodeXmtpAgentClient, createXmtpNodeClient } from '../xmtp-agent/index.js';
 
@@ -11,6 +14,7 @@ export function createConsoleXmtpMessageHandler({
   ownInboxId,
   getConversation,
   logger = console,
+  captionWaitMs = 750,
 } = {}) {
   if (!runtime?.handleMessage) throw new TypeError('XMTP worker requires a Console runtime.');
   if (!runtimeRegistry?.getByConversationId || !runtimeRegistry?.get) {
@@ -19,71 +23,108 @@ export function createConsoleXmtpMessageHandler({
   if (typeof authorizeLooper !== 'function') throw new TypeError('XMTP worker requires fresh Looper authorization.');
   if (typeof getConversation !== 'function') throw new TypeError('XMTP worker requires a conversation resolver.');
   const processedMessageIds = new Set();
+  const pendingAttachments = new Map();
+  const waitMs = Number.isInteger(captionWaitMs) && captionWaitMs >= 0 ? captionWaitMs : 750;
+
+  async function processDelivery(delivery) {
+    if (delivery.messageIds.some((id) => processedMessageIds.has(id))) {
+      return { processed: false, reason: 'duplicate_message' };
+    }
+    for (const id of delivery.messageIds) processedMessageIds.add(id);
+    try {
+      const result = await runtime.handleMessage({
+        wallet: delivery.wallet,
+        tokenId: delivery.identity.tokenId,
+        agentId: delivery.identity.erc8004AgentId,
+        activationId: delivery.activation.key,
+        agentName: delivery.activation.runtimeName,
+        canonicalIdentity: delivery.identity,
+        canonicalConversationId: delivery.conversationId,
+        message: delivery.text,
+        attachment: delivery.attachment,
+        threadId: delivery.activation.threadId,
+        inboundMessageId: delivery.messageIds[0],
+        clientMessageId: delivery.messageIds[0],
+        publishHumanMessage: false,
+      });
+      return { processed: true, conversationId: delivery.conversationId, wallet: delivery.wallet, result };
+    } catch (error) {
+      for (const id of delivery.messageIds) processedMessageIds.delete(id);
+      logger.error?.('Console XMTP message failed', {
+        conversationId: delivery.conversationId,
+        messageId: delivery.messageIds[0],
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  function flushPendingEntry(key) {
+    const pending = pendingAttachments.get(key);
+    if (!pending) return Promise.resolve({ processed: false, reason: 'no_pending_attachment' });
+    clearTimeout(pending.timer);
+    pendingAttachments.delete(key);
+    return processDelivery(pending.delivery);
+  }
 
   return {
     async handleMessage(message = {}) {
-      const text = extractMessageText(message);
-      if (!text) return { processed: false, reason: 'non_text_message' };
+      const attachment = extractMessageAttachment(message);
+      const text = attachment ? '' : extractMessageText(message);
+      if (!text && !attachment) return { processed: false, reason: 'non_text_message' };
 
       const senderInboxId = String(message.senderInboxId ?? '').trim();
       if (ownInboxId && senderInboxId && senderInboxId === ownInboxId) {
         return { processed: false, reason: 'own_message' };
       }
-
       const conversationId = String(message.conversationId ?? '').trim();
       if (!conversationId) return { processed: false, reason: 'missing_conversation_id' };
       const messageId = String(message.id ?? '').trim();
       if (!messageId) return { processed: false, reason: 'missing_message_id' };
+      if (processedMessageIds.has(messageId)) return { processed: false, reason: 'duplicate_message' };
       const binding = runtimeRegistry.getByConversationId(conversationId);
       if (!binding) return { processed: false, reason: 'unbound_conversation' };
-
-      if (processedMessageIds.has(messageId)) return { processed: false, reason: 'duplicate_message' };
-
       const conversation = await getConversation(conversationId);
       if (!conversation) return { processed: false, reason: 'conversation_not_found' };
-
       const wallet = await resolveSenderWallet({ conversation, senderInboxId });
       if (!wallet) return { processed: false, reason: 'sender_wallet_unresolved' };
       if (wallet !== binding.identity.owner) return { processed: false, reason: 'unbound_sender' };
-
-      try {
-        const identity = await authorizeLooper({ tokenId: binding.identity.tokenId, wallet });
-        if (!sameCanonicalIdentity(identity, binding.identity)) {
-          return { processed: false, reason: 'canonical_identity_mismatch' };
-        }
-        const activation = runtimeRegistry.get(identity);
-        if (!activation || activation.conversationId !== conversationId) {
-          return { processed: false, reason: 'inactive_runtime' };
-        }
-        if (messageId) processedMessageIds.add(messageId);
-        const result = await runtime.handleMessage({
-          wallet,
-          tokenId: identity.tokenId,
-          agentId: identity.erc8004AgentId,
-          activationId: activation.key,
-          agentName: activation.runtimeName,
-          canonicalIdentity: identity,
-          canonicalConversationId: conversationId,
-          message: text,
-          threadId: activation.threadId,
-          inboundMessageId: message.id,
-          publishHumanMessage: false,
-        });
-        return {
-          processed: true,
-          conversationId,
-          wallet,
-          result,
-        };
-      } catch (error) {
-        if (messageId) processedMessageIds.delete(messageId);
-        logger.error?.('Console XMTP message failed', {
-          conversationId,
-          messageId: message.id,
-          error: error.message,
-        });
-        throw error;
+      const identity = await authorizeLooper({ tokenId: binding.identity.tokenId, wallet });
+      if (!sameCanonicalIdentity(identity, binding.identity)) {
+        return { processed: false, reason: 'canonical_identity_mismatch' };
       }
+      const activation = runtimeRegistry.get(identity);
+      if (!activation || activation.conversationId !== conversationId) {
+        return { processed: false, reason: 'inactive_runtime' };
+      }
+
+      const key = `${conversationId}:${senderInboxId}`;
+      const delivery = { conversationId, wallet, identity, activation, text, attachment, messageIds: [messageId] };
+      if (attachment) {
+        if (pendingAttachments.has(key)) await flushPendingEntry(key);
+        const timer = setTimeout(() => {
+          flushPendingEntry(key).catch((error) => logger.error?.('Console XMTP attachment flush failed', error));
+        }, waitMs);
+        pendingAttachments.set(key, { timer, delivery });
+        return { processed: false, reason: 'attachment_buffered' };
+      }
+
+      const pending = pendingAttachments.get(key);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingAttachments.delete(key);
+        return processDelivery({
+          ...pending.delivery,
+          text,
+          messageIds: [...pending.delivery.messageIds, messageId],
+        });
+      }
+      return processDelivery(delivery);
+    },
+
+    async flushPending() {
+      const keys = [...pendingAttachments.keys()];
+      return Promise.all(keys.map((key) => flushPendingEntry(key)));
     },
   };
 }
@@ -98,6 +139,7 @@ export async function startConsoleXmtpWorker(options = {}) {
     fetchImpl = fetch,
     bankrLlmKey = null,
     bankrLlmModel = null,
+    bankrLlmVisionModel = null,
     consoleAgentBankrLlmEnabled = false,
     consoleSkillProposalsEnabled = false,
     retryAttempts = 10,
@@ -114,6 +156,7 @@ export async function startConsoleXmtpWorker(options = {}) {
       ? createBankrLlmClient({
         apiKey: bankrLlmKey,
         model: bankrLlmModel,
+        visionModel: bankrLlmVisionModel,
         fetchImpl,
         skillProposalsEnabled: consoleSkillProposalsEnabled,
       }) ?? undefined
@@ -145,6 +188,7 @@ export async function startConsoleXmtpWorker(options = {}) {
     for await (const message of stream) {
       await handler.handleMessage(message);
     }
+    await handler.flushPending();
   })();
 
   done.catch((error) => {
@@ -185,6 +229,7 @@ export function buildConsoleXmtpWorkerOptionsFromEnv(env = process.env) {
     appVersion: env.MULTIPASS_XMTP_APP_VERSION || 'multipass-console-worker',
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
+    bankrLlmVisionModel: env.MULTIPASS_AGENT_LLM_VISION_MODEL || null,
     consoleAgentBankrLlmEnabled: parseBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED),
     consoleSkillProposalsEnabled: parseStrictOptionalBoolean(
       env.MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED,
@@ -206,6 +251,36 @@ export function extractMessageText(message = {}) {
   if (typeof message.content?.content === 'string') return message.content.content.trim();
   if (typeof message.fallback === 'string') return message.fallback.trim();
   return '';
+}
+
+export function extractMessageAttachment(message = {}) {
+  if (!sameContentType(message.contentType, contentTypeAttachment())) return null;
+  const content = message.content;
+  if (!content || typeof content !== 'object' || typeof content.mimeType !== 'string') return null;
+  const bytes = content.content instanceof Uint8Array
+    ? content.content
+    : (content.data instanceof Uint8Array ? content.data : null);
+  if (!bytes) return null;
+  try {
+    return normalizeConsoleImageAttachment({
+      kind: 'image',
+      mimeType: content.mimeType,
+      filename: content.filename,
+      base64: Buffer.from(bytes).toString('base64'),
+      width: null,
+      height: null,
+    }, { allowUnknownDimensions: true });
+  } catch {
+    return null;
+  }
+}
+
+function sameContentType(left, right) {
+  if (!left || !right) return false;
+  return String(left.authorityId ?? left.authority_id ?? '') === String(right.authorityId ?? right.authority_id ?? '')
+    && String(left.typeId ?? left.type_id ?? '') === String(right.typeId ?? right.type_id ?? '')
+    && Number(left.versionMajor ?? left.version_major ?? 0) === Number(right.versionMajor ?? right.version_major ?? 0)
+    && Number(left.versionMinor ?? left.version_minor ?? 0) === Number(right.versionMinor ?? right.version_minor ?? 0);
 }
 
 export async function resolveSenderWallet({ conversation, senderInboxId } = {}) {

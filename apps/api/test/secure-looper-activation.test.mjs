@@ -5,6 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import { createConsoleAgentRuntime } from '../src/agent-runtime/index.js';
 import { createConsoleAuthStore } from '../src/console-auth.js';
+import { CONSOLE_IMAGE_REQUEST_MAX_BYTES } from '../src/console-image-attachment.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
 import { LOOPERS_MAINNET_CONTRACT } from '../src/loopers-owned-agents.js';
 import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
@@ -354,4 +355,81 @@ test('unrelated wallet is forbidden before canonical XMTP thread read or Sibyl r
   assert.equal(response.status, 403);
   assert.equal(xmtpRead, false);
   assert.equal(memoryRead, false);
+});
+
+test('authenticated image message is owner-authorized and reaches runtime as validated bytes', async () => {
+  let runtimeInput = null;
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    baseUrl: 'https://helixa.test',
+    allowedOrigins: ['https://helixa.test'],
+    signatureVerifier: verifier,
+    consoleAuthStore: createConsoleAuthStore(),
+    consoleRuntimeRegistry: {
+      get() { return { key: 'runtime-617', runtimeName: 'Image Looper', identity, conversationId: null }; },
+      bindConversation() {},
+    },
+    loopersOwnedAgentLoader: async () => [{ ...identity }],
+    loopersAuthorizer: async ({ wallet }) => ({ ...identity, owner: wallet }),
+    consoleAgentRuntime: {
+      async handleMessage(input) {
+        runtimeInput = input;
+        return { thread: { messages: [], participants: [], conversationId: null }, proposals: [], missions: [] };
+      },
+    },
+  });
+  const session = await authenticate(api, holder);
+  const bytes = Buffer.from('89504e470d0a1a0a0000000d494844520000000a00000014', 'hex');
+  const response = await api.handleRequest(secureRequest('https://helixa.test/api/multipass/console/agent/message', session, {
+    method: 'POST',
+    body: {
+      tokenId: '617', message: '',
+      clientMessageId: 'console-image-1',
+      attachment: { kind: 'image', mimeType: 'image/png', filename: '../proof.png', base64: bytes.toString('base64'), width: 10, height: 20 },
+    },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(runtimeInput.wallet, holder.address.toLowerCase());
+  assert.equal(runtimeInput.clientMessageId, 'console-image-1');
+  assert.equal(runtimeInput.attachment.filename, 'proof.png');
+  assert.deepEqual(Buffer.from(runtimeInput.attachment.content), bytes);
+  assert.match(runtimeInput.attachment.sha256, /^[a-f0-9]{64}$/);
+});
+
+test('Console image body reader rejects declared, dishonest, and chunked overflow before runtime', async () => {
+  let runtimeCalled = false;
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    baseUrl: 'https://helixa.test',
+    allowedOrigins: ['https://helixa.test'],
+    signatureVerifier: verifier,
+    consoleAuthStore: createConsoleAuthStore(),
+    consoleRuntimeRegistry: createLooperRuntimeRegistry(),
+    loopersOwnedAgentLoader: async () => [{ ...identity }],
+    loopersAuthorizer: async () => ({ ...identity, owner: holder.address.toLowerCase() }),
+    consoleAgentRuntime: { async handleMessage() { runtimeCalled = true; return {}; } },
+  });
+  const session = await authenticate(api, holder);
+  const headers = {
+    origin: 'https://helixa.test', cookie: session.cookie,
+    'content-type': 'application/json', 'x-csrf-token': session.csrfToken,
+  };
+  const declared = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
+    method: 'POST', headers: { ...headers, 'content-length': String(CONSOLE_IMAGE_REQUEST_MAX_BYTES + 1) }, body: '{}',
+  }));
+  assert.equal(declared.status, 413);
+
+  const oversized = new Uint8Array(CONSOLE_IMAGE_REQUEST_MAX_BYTES + 1).fill(0x20);
+  const dishonestStream = new ReadableStream({ start(controller) { controller.enqueue(oversized); controller.close(); } });
+  const dishonest = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
+    method: 'POST', headers: { ...headers, 'content-length': '1' }, body: dishonestStream, duplex: 'half',
+  }));
+  assert.equal(dishonest.status, 413);
+
+  const stream = new ReadableStream({ start(controller) { controller.enqueue(oversized); controller.close(); } });
+  const chunked = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/message', {
+    method: 'POST', headers, body: stream, duplex: 'half',
+  }));
+  assert.equal(chunked.status, 413);
+  assert.equal(runtimeCalled, false);
 });

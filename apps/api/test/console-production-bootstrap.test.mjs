@@ -211,8 +211,10 @@ test('Bankr construction is independent and occurs only behind its explicit flag
     consoleAgentBankrLlmEnabled: true,
     bankrLlmKey: 'injected-test-reference',
     bankrLlmModel: 'fake-model',
+    bankrLlmVisionModel: 'fake-vision-model',
   }, enabledHarness.factories);
   assert.equal(countOf(enabledHarness, 'bankrLlmClient'), 1);
+  assert.equal(enabledHarness.calls.bankrLlmClient.visionModel, 'fake-vision-model');
   assert.strictEqual(enabledHarness.calls.runtime.llmClient, enabledHarness.objects.llmClient);
 });
 

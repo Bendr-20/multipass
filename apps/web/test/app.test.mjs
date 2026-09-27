@@ -2600,6 +2600,116 @@ test('dedicated Console route sends wallet-scoped agent thread messages', async 
   assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Saved through the hosted worker/);
 });
 
+test('Console image picker, paste, drop, removal, retry, and success stay ephemeral', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const sent = [];
+  const revoked = [];
+  let previewSequence = 0;
+  let sendAttempts = 0;
+  let rejectFirstSend;
+  const walletClient = createWalletClientFixture({
+    snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: '0x27E3...91Ea' },
+  });
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    prepareConsoleImageImpl: async (file) => ({
+      kind: 'image', mimeType: 'image/png', filename: file.name, base64: 'iVBORw0KGgo=', byteLength: 8, width: 12, height: 8,
+    }),
+    imagePreviewFactory: () => {
+      let url = null;
+      return {
+        set() { if (url) revoked.push(url); url = `blob:preview-${++previewSequence}`; return url; },
+        clear() { if (url) revoked.push(url); url = null; },
+        get url() { return url; },
+      };
+    },
+    claimApi: {
+      activateConsoleAgent: async () => ({
+        thread: { transport: 'xmtp_local', participants: [{ tokenId: '617', displayName: 'Looper #617' }], messages: [] },
+      }),
+      sendConsoleAgentMessage: async (input) => {
+        sent.push(input);
+        sendAttempts += 1;
+        if (sendAttempts === 1) {
+          return new Promise((_resolve, reject) => { rejectFirstSend = reject; });
+        }
+        return {
+          thread: {
+            transport: 'xmtp_local', participants: [{ tokenId: '617', displayName: 'Looper #617' }],
+            messages: [
+              { id: 'image-human', role: 'human', text: input.message, attachment: input.attachment, transport: 'xmtp_local' },
+              { id: 'image-agent', role: 'agent', text: 'I can see the uploaded chart.', inferenceProvider: 'bankr_llm_gateway', transport: 'xmtp_local' },
+            ],
+          },
+          memory: { provider: 'sibyl_memory', saved: [], recalled: [] }, proposals: [], missions: [],
+        };
+      },
+    },
+  }).start();
+  await flushAsyncEvents();
+
+  root.querySelector('[data-action="activate-console-room"][data-token-id="617"]')?.click();
+  await flushAsyncEvents();
+  const fakeFile = (name) => ({ name, type: 'image/png' });
+
+  let input = root.querySelector('[data-console-image-input]');
+  Object.defineProperty(input, 'files', { configurable: true, value: [fakeFile('picker.png')] });
+  input.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents();
+  assert.match(root.querySelector('[data-console-image-preview]')?.textContent ?? '', /picker\.png/);
+  root.querySelector('[data-action="remove-console-image"]')?.click();
+  await flushAsyncEvents();
+  assert.equal(root.querySelector('[data-console-image-preview]'), null);
+  input = root.querySelector('[data-console-image-input]');
+  Object.defineProperty(input, 'files', { configurable: true, value: [fakeFile('one.png'), fakeFile('two.png')] });
+  input.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.console-image-error')?.textContent ?? '', /one image/i);
+
+  let form = root.querySelector('[data-action="send-console-agent-message"]');
+  const drop = new window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: { files: [fakeFile('drop.png')], items: [{ kind: 'file' }] } });
+  form.dispatchEvent(drop);
+  await flushAsyncEvents();
+  assert.match(root.querySelector('[data-console-image-preview]')?.textContent ?? '', /drop\.png/);
+
+  form = root.querySelector('[data-action="send-console-agent-message"]');
+  const paste = new window.Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, 'clipboardData', { value: { files: [fakeFile('paste.png')] } });
+  form.dispatchEvent(paste);
+  await flushAsyncEvents();
+  assert.match(root.querySelector('[data-console-image-preview]')?.textContent ?? '', /paste\.png/);
+  assert.ok(revoked.length >= 2, 'replacement and removal revoke prior object URLs');
+
+  form = root.querySelector('[data-action="send-console-agent-message"]');
+  form.querySelector('textarea[name="message"]').value = 'Read this chart.';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  const blockedPaste = new window.Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(blockedPaste, 'clipboardData', { value: { files: [fakeFile('must-not-replace.png')] } });
+  root.querySelector('[data-action="send-console-agent-message"]')?.dispatchEvent(blockedPaste);
+  await flushAsyncEvents();
+  assert.match(root.querySelector('[data-console-image-preview]')?.textContent ?? '', /paste\.png/);
+  rejectFirstSend(new Error('temporary image provider failure'));
+  await flushAsyncEvents();
+  assert.equal(root.querySelector('[data-action="send-console-agent-message"] button[type="submit"]')?.textContent.trim(), 'Retry');
+  assert.ok(root.querySelector('[data-console-image-preview]'), 'failed image remains available for retry');
+
+  root.querySelector('[data-action="send-console-agent-message"]')?.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].attachment.filename, 'paste.png');
+  assert.match(sent[0].clientMessageId, /^[A-Za-z0-9_-]{8,128}$/);
+  assert.equal(sent[1].clientMessageId, sent[0].clientMessageId);
+  assert.equal(root.querySelector('[data-console-image-preview]'), null);
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /I can see the uploaded chart/);
+  assert.ok(root.querySelector('.console-message-image img'));
+  assert.match(root.textContent, /CRED/);
+});
+
 test('dedicated Console verifies XMTP registration before the first live room send', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const order = [];

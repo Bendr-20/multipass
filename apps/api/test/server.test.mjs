@@ -34,6 +34,7 @@ test('parseServerOptions returns safe defaults', () => {
     bankrLlmKey: null,
     bankrReadonlyApiKey: null,
     bankrLlmModel: null,
+    bankrLlmVisionModel: null,
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
     consoleXmtpEnabled: false,
@@ -79,6 +80,7 @@ test('CLI flags override environment values', () => {
       bankrLlmKey: null,
       bankrReadonlyApiKey: null,
       bankrLlmModel: null,
+    bankrLlmVisionModel: null,
       consoleAgentBankrLlmEnabled: false,
       consoleSkillProposalsEnabled: false,
       consoleXmtpEnabled: false,
@@ -124,6 +126,7 @@ test('parseServerOptions accepts claim management security env', () => {
     bankrLlmKey: null,
     bankrReadonlyApiKey: null,
     bankrLlmModel: null,
+    bankrLlmVisionModel: null,
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
     consoleXmtpEnabled: false,
@@ -211,10 +214,12 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
   const defaultOptions = parseServerOptions([], {
     BANKR_LLM_KEY: 'test-key',
     MULTIPASS_AGENT_LLM_MODEL: 'test-model',
+    MULTIPASS_AGENT_LLM_VISION_MODEL: 'vision-model',
   });
 
   assert.equal(defaultOptions.bankrLlmKey, 'test-key');
   assert.equal(defaultOptions.bankrLlmModel, 'test-model');
+  assert.equal(defaultOptions.bankrLlmVisionModel, 'vision-model');
   assert.equal(defaultOptions.consoleAgentBankrLlmEnabled, false);
 
   const enabledOptions = parseServerOptions([], {

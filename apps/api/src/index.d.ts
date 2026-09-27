@@ -64,6 +64,7 @@ export interface MultipassApiOptions {
   consoleRuntimeRegistry?: unknown;
   bankrLlmKey?: string | null;
   bankrLlmModel?: string | null;
+  bankrLlmVisionModel?: string | null;
   consoleAgentBankrLlmEnabled?: boolean;
   consoleSkillProposalsEnabled?: boolean;
   consoleXmtpEnabled?: boolean;

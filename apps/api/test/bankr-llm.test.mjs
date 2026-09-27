@@ -200,3 +200,46 @@ test('skill-aware Bankr decodes only assistant message content and fails malform
   assert.deepEqual(result.skillRefs, []);
   assert.deepEqual(result.transferCandidates, []);
 });
+
+test('image turns require an explicitly configured vision model before provider access', async () => {
+  let called = false;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async () => { called = true; throw new Error('must not fetch'); },
+  });
+  await assert.rejects(
+    () => client.generate({
+      profile: { displayName: 'Bendr' },
+      message: '',
+      attachment: { mimeType: 'image/png', content: new Uint8Array([1, 2, 3]) },
+    }),
+    /vision.*not configured/i,
+  );
+  assert.equal(called, false);
+});
+
+test('image turns use the explicit vision model and OpenAI multimodal content', async () => {
+  let requestBody;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    model: 'text-model',
+    visionModel: 'vision-model',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'I can see a chart.' } }] }), { status: 200 });
+    },
+  });
+  const result = await client.generate({
+    profile: { displayName: 'Bendr' },
+    message: 'What is this?',
+    attachment: { mimeType: 'image/png', content: new Uint8Array([1, 2, 3]) },
+  });
+  assert.equal(requestBody.model, 'vision-model');
+  assert.deepEqual(requestBody.messages[1].content, [
+    { type: 'text', text: JSON.stringify({ message: 'What is this?', memory: [], signals: [] }) },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+  ]);
+  assert.match(requestBody.messages[0].content, /image.*untrusted/i);
+  assert.match(requestBody.messages[0].content, /no tool.*authority/i);
+  assert.equal(result.text, 'I can see a chart.');
+});
