@@ -168,6 +168,28 @@ test('fails closed on malformed envelopes with JSON-escaped field-name markers',
   for (const content of escaped) assert.notEqual(outputs[0], content);
 });
 
+test('fails closed on truncated JSON-escaped envelope keys without overmatching ordinary prose', () => {
+  const truncated = [
+    '{"\\u0073chema_version"',
+    '{"\\u0061ssistant_text"',
+    '{"skill_\\u0072efs"',
+    '{"transfer_\\u0063andidates"',
+  ];
+  const generic = projectConsoleLlmDisplayText('{"schema_version"', { catalog });
+
+  for (const content of truncated) {
+    assert.equal(projectConsoleLlmDisplayText(content, { catalog }), generic);
+  }
+
+  for (const prose of [
+    'The literal sequence \\u0073chema_version is ordinary prose.',
+    'Quoted "\\u0061ssistant_text" without an object marker stays prose.',
+    'References to skill_\\u0072efs and transfer_\\u0063andidates stay readable.',
+  ]) {
+    assert.equal(projectConsoleLlmDisplayText(prose, { catalog }), prose);
+  }
+});
+
 test('leaves plain prose unchanged and truncates it on a valid UTF-8 boundary', () => {
   const plain = 'Plain Console prose remains exactly readable.';
   assert.equal(projectConsoleLlmDisplayText(plain, { catalog }), plain);

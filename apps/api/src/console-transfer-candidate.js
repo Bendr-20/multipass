@@ -141,13 +141,18 @@ function containsEscapedEnvelopeKey(content) {
 
     let cursor = end + 1;
     while (/\s/u.test(content[cursor] ?? '')) cursor += 1;
-    if (content[cursor] === ':') {
-      try {
-        const key = JSON.parse(content.slice(start, end + 1));
-        if (typeof key === 'string' && ENVELOPE_KEY_SET.has(key.toLowerCase())) return true;
-      } catch {
-        // Invalid JSON string tokens are handled by the surrounding fail-closed checks.
-      }
+    try {
+      const key = JSON.parse(content.slice(start, end + 1));
+      if (
+        typeof key === 'string'
+        && ENVELOPE_KEY_SET.has(key.toLowerCase())
+        && (
+          content[cursor] === ':'
+          || isTruncatedJsonObjectKey(content, start, cursor)
+        )
+      ) return true;
+    } catch {
+      // Invalid JSON string tokens are handled by the surrounding fail-closed checks.
     }
     start = end;
   }
@@ -163,6 +168,29 @@ function findJsonStringEnd(content, start) {
     else if (character === '"') return index;
   }
   return -1;
+}
+
+function isTruncatedJsonObjectKey(content, start, cursor) {
+  if (cursor !== content.length) return false;
+  const prefix = content.slice(0, start).trimEnd();
+  const separator = prefix.at(-1);
+  return (separator === '{' || separator === ',') && hasOpenJsonObject(prefix);
+}
+
+function hasOpenJsonObject(content) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (const character of content) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+    } else if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
 }
 
 function normalizeSkillRefs(value, skills) {
