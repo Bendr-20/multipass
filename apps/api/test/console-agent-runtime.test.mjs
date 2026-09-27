@@ -1014,6 +1014,18 @@ test('natural and explicit possessive NFT or asset reads require the account gat
     '/bankr read Latest my NFT news',
     'Show my ETH balance',
     '/bankr read Show my SOL position',
+    'Latest news for my NFTs',
+    '/bankr read Latest news for my NFTs',
+    'Show trends for my NFTs',
+    '/bankr read Show trends for my NFTs',
+    'Show my NFTs latest news',
+    '/bankr read Show my NFTs latest news',
+    'Show balance of my ETH',
+    '/bankr read Show balance of my ETH',
+    'Show holdings of my BTC',
+    '/bankr read Show holdings of my BTC',
+    'Show position for my SOL',
+    '/bankr read Show position for my SOL',
   ]) {
     const enabled = await run({ accountReadEnabled: true, bankrReadEnabled: true, walletContext: ownerWalletContext(), message });
     assert.equal(enabled.reads, 1, message);

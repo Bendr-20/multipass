@@ -21,6 +21,16 @@ const BANKR_OWNER_ACCOUNT_READ_BODIES = [
   /^(?:nfts?|non-fungible tokens?)\s+(?:portfolio|holdings?)$/i,
 ];
 const BANKR_OWNER_ASSET_READ_BODY = /^(?:my|the|all|current|wallet)\s+([A-Za-z][A-Za-z0-9]{1,9})\s+(?:balances?|holdings?|(?:open\s+)?positions?)(?:\s+(?:on|for)\s+(?:base|ethereum))?$/i;
+const BANKR_REORDERED_OWNER_NFT_QUERIES = [
+  /^latest news for my nfts[?.!]*$/i,
+  /^show trends for my nfts[?.!]*$/i,
+  /^show my nfts latest news[?.!]*$/i,
+];
+const BANKR_REORDERED_OWNER_ASSET_QUERIES = [
+  /^show balance of my ([A-Za-z][A-Za-z0-9]{1,9})[?.!]*$/i,
+  /^show holdings of my ([A-Za-z][A-Za-z0-9]{1,9})[?.!]*$/i,
+  /^show position for my ([A-Za-z][A-Za-z0-9]{1,9})[?.!]*$/i,
+];
 const BANKR_PUBLIC_NFT_READ_BODIES = [
   /^(?:nfts?|non-fungible tokens?)\s+in\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2}\s+collection$/i,
   /^(?:(?:the|current|latest)\s+)?(?:nfts?|non-fungible tokens?)\s+(?:market\s+)?trends?$/i,
@@ -253,7 +263,8 @@ function classifyClosedBankrRead(query) {
   }
 
   const body = lead[1].trim();
-  if (isOwnerAssetReadBody(body)
+  if (isReorderedOwnerReadQuery(query)
+    || isOwnerAssetReadBody(body)
     || BANKR_OWNER_ACCOUNT_READ_BODIES.some((pattern) => pattern.test(body))) {
     return { operation: 'owner_account_read' };
   }
@@ -270,8 +281,19 @@ function classifyClosedBankrRead(query) {
     : null;
 }
 
+function isReorderedOwnerReadQuery(query) {
+  if (BANKR_REORDERED_OWNER_NFT_QUERIES.some((pattern) => pattern.test(query))) return true;
+  return BANKR_REORDERED_OWNER_ASSET_QUERIES.some((pattern) => {
+    const asset = query.match(pattern)?.[1];
+    return isBoundedAccountAsset(asset);
+  });
+}
+
 function isOwnerAssetReadBody(body) {
-  const asset = body.match(BANKR_OWNER_ASSET_READ_BODY)?.[1];
+  return isBoundedAccountAsset(body.match(BANKR_OWNER_ASSET_READ_BODY)?.[1]);
+}
+
+function isBoundedAccountAsset(asset) {
   return /^(?:btc|eth|sol|usdc)$/i.test(asset ?? '')
     || /^[A-Z][A-Z0-9]{1,9}$/.test(asset ?? '');
 }
