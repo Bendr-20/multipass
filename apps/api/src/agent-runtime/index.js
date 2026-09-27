@@ -14,7 +14,7 @@ const DEFAULT_AGENT_ID = 'agent-manager';
 const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 const MAX_THREAD_HISTORY = 24;
 const CONSOLE_EXECUTION_MODE = 'review_only';
-const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 25_000;
+const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 55_000;
 const MAX_SKILL_RESULT_TEXT_BYTES = 2_048;
 const MAX_MARKET_RESULT_TEXT_BYTES = 4_096;
 const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
@@ -449,8 +449,8 @@ function truncateMarketResearchText(value) {
 
 function normalizeSkillProviderTimeout(value) {
   if (value === undefined || value === null) return DEFAULT_SKILL_PROVIDER_TIMEOUT_MS;
-  if (!Number.isInteger(value) || value < 10 || value > 30_000) {
-    throw new TypeError('skillProviderTimeoutMs must be between 10 and 30000.');
+  if (!Number.isInteger(value) || value < 10 || value > 60_000) {
+    throw new TypeError('skillProviderTimeoutMs must be between 10 and 60000.');
   }
   return value;
 }

@@ -766,22 +766,9 @@ test('Console message route ignores client persona and uses the authorizer canon
   assert.equal(received.canonicalIdentity.persona.voice, 'trusted token voice');
 });
 
-test('Console message route validates and passes only owner-scoped read-only wallet context', async () => {
+test('Console message route uses only server-derived owner-scoped read-only wallet context', async () => {
   const consoleRuntimeRegistry = createLooperRuntimeRegistry();
   consoleRuntimeRegistry.activate({ identity: CONSOLE_IDENTITY, runtimeName: 'Looper #1234' });
-  let received = null;
-  const api = createMultipassApi({
-    store: createMemoryStore(),
-    consoleAuthStore: { validateSession: () => ({ wallet: WALLET }) },
-    consoleRuntimeRegistry,
-    loopersAuthorizer: async () => CONSOLE_IDENTITY,
-    consoleAgentRuntime: {
-      async handleMessage(input) {
-        received = input;
-        return { schema_version: '0.1.0', thread: { messages: [] }, proposals: [], missions: [] };
-      },
-    },
-  });
   const walletContext = {
     schema_version: '0.1.0',
     kind: 'looper_wallet_read_context',
@@ -799,7 +786,24 @@ test('Console message route validates and passes only owner-scoped read-only wal
     health: 'verified',
     capabilities: { read: true, sign: false, submit: false, approve: false },
   };
-  let response = await api.handleRequest(secureConsoleRequest({ message: 'Wallet status?', walletContext }));
+  let received = null;
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    consoleAuthStore: { validateSession: () => ({ wallet: WALLET }) },
+    consoleRuntimeRegistry,
+    loopersAuthorizer: async () => CONSOLE_IDENTITY,
+    consoleWalletContextLoader: async () => walletContext,
+    consoleAgentRuntime: {
+      async handleMessage(input) {
+        received = input;
+        return { schema_version: '0.1.0', thread: { messages: [] }, proposals: [], missions: [] };
+      },
+    },
+  });
+  let response = await api.handleRequest(secureConsoleRequest({
+    message: 'Wallet status?',
+    walletContext,
+  }));
   assert.equal(response.status, 200);
   assert.deepEqual(received.walletContext, walletContext);
 

@@ -5,8 +5,8 @@ const BANKR_JOB_BASE_URL = 'https://api.bankr.bot/agent/job/';
 const HELIXA_AGENT_BASE_URL = 'https://api.helixa.xyz/api/v2/agent/';
 const BANKR_PRICE_SYMBOLS = new Set(['BTC', 'ETH', 'SOL', 'USDC']);
 const BANKR_JOB_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
-const MAX_POLL_LIMIT = 10;
-const DEFAULT_MAX_POLLS = 10;
+const MAX_POLL_LIMIT = 30;
+const DEFAULT_MAX_POLLS = 25;
 const POLL_INTERVAL_MS = 2_000;
 const MAX_RESULT_TEXT_BYTES = 2_048;
 const MAX_MARKET_RESULT_TEXT_BYTES = 4_096;
@@ -14,7 +14,7 @@ const MAX_PROFILE_FIELD_BYTES = 160;
 const MAX_RESEARCH_QUERY_BYTES = 320;
 const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
 const MARKET_KINDS = new Set(['market', 'news', 'comparison']);
-const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|which|how|current|latest|price|status|history)\s+(.+?)[?.!]*$/i;
+const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|where|which|how|current|latest|price|status|history)\s+(.+?)[?.!]*$/i;
 const BANKR_OWNER_ACCOUNT_READ_BODIES = [
   /^(?:(?:my|the|all|current|wallet|token|base)\s+)*(?:portfolio|balances?|holdings?|(?:open\s+)?positions?)(?:\s+(?:and|plus|&)\s+(?:portfolio|balances?|holdings?|(?:open\s+)?positions?))?(?:\s+(?:on|for|across)\s+(?:base|ethereum))?$/i,
   /^(?:(?:current|latest|all)\s+)?(?:my|our|wallet(?:'s|’s)?)\s+(?:(?:current|latest)\s+)?(?:nfts?|non-fungible tokens?)(?:\s+(?:portfolio|holdings?|floor price|(?:market\s+)?trends?|news|prices?|volume|sentiment))?$/i,
@@ -39,6 +39,11 @@ const BANKR_PUBLIC_NFT_READ_BODIES = [
 ];
 const BANKR_PUBLIC_MARKET_READ_BODIES = [
   /^(?:(?:the|all|current|open)\s+)*(?:polymarket\s+)?(?:markets?|odds)(?:\s+on\s+(?:btc|eth|sol|usdc|bitcoin|ethereum)\s+reaching\s+\$?\d+(?:\.\d+)?[km]?)?$/i,
+  /^(?:do you see\s+)?(?:the\s+)?price of (?:btc|eth|sol|usdc|bitcoin|ethereum)(?:\s+(?:or|and|plus|&)\s+(?:btc|eth|sol|usdc|bitcoin|ethereum))?\s+(?:going|heading)$/i,
+  /^do you think (?:btc|eth|sol|usdc|bitcoin|ethereum)(?:\s+(?:or|and|plus|&)\s+(?:btc|eth|sol|usdc|bitcoin|ethereum))?\s+will be worth$/i,
+  /^(?:me\s+)?(?:an?\s+)?(?:live\s+|current\s+)?market outlook for (?:btc|eth|sol|usdc|bitcoin|ethereum)(?:\s+(?:or|and|plus|&)\s+(?:btc|eth|sol|usdc|bitcoin|ethereum))?$/i,
+  /^(?:me\s+)?(?:the\s+)?current (?:btc|eth|sol|usdc|bitcoin|ethereum) price outlook$/i,
+  /^(?:me\s+)?(?:the\s+)?(?:price\s+)?(?:outlook|forecast|prediction) for (?:btc|eth|sol|usdc|bitcoin|ethereum)(?:\s+(?:or|and|plus|&)\s+(?:btc|eth|sol|usdc|bitcoin|ethereum))?$/i,
 ];
 const MARKET_READ_WORDS = new Set([
   'a', 'an', 'the', 'my', 'current', 'latest', 'today', 'now', 'this', 'last', 'over', 'in', 'on', 'for', 'of', 'by', 'to', 'from',
@@ -765,8 +770,7 @@ function freezeResult(result) {
 
 function containsUnsafeArtifact(value) {
   if (typeof value !== 'string') return false;
-  return /\b0x[0-9a-f]{40}\b/i.test(value)
-    || /\b(?:api[-_ ]?key|private[-_ ]?key|bearer\s+[A-Za-z0-9._~-]+|password|signature|calldata|submit(?:ted|ting)?|submission)\b/i.test(value);
+  return /\b(?:api[-_ ]?key|private[-_ ]?key|bearer\s+[A-Za-z0-9._~-]+|password|seed phrase|recovery phrase|signature|calldata|submit(?:ted|ting)?|submission)\b/i.test(value);
 }
 
 function isPlainObject(value) {
