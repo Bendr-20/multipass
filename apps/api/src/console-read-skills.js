@@ -61,6 +61,20 @@ const PUBLIC_PRICE_QUERY_WORDS = new Set([
   'how', 'much', 'do', 'have', 'has', 'and', 'or', 'plus', 'vs', 'versus',
 ]);
 const PUBLIC_PRICE_ASSETS = new Set(['btc', 'bitcoin', 'eth', 'ethereum', 'sol', 'solana', 'usdc']);
+const PUBLIC_MARKET_QUERY_WORDS = new Set([
+  'a', 'an', 'the', 'my', 'live', 'current', 'latest', 'real', 'time', 'realtime', 'today', 'now', 'right',
+  'this', 'last', 'over', 'in', 'on', 'for', 'of', 'by', 'to', 'from', 'with', 'about', 'around', 'at',
+  'can', 'could', 'would', 'do', 'does', 'have', 'has', 'is', 'are', 'was', 'were', 'you', 'tell', 'show',
+  'give', 'get', 'check', 'find', 'pull', 'fetch', 'search', 'track', 'analyze', 'analyse', 'compare',
+  'summarize', 'report', 'me', 'please', 'what', 'whats', 'how', 'hows', 'where', 'which',
+  'and', 'or', 'plus', 'vs', 'versus', 'crypto', 'market', 'markets', 'base', 'ecosystem', 'defi',
+  'nft', 'nfts', 'polymarket', 'token', 'tokens', 'coin', 'coins',
+  'news', 'headline', 'headlines', 'sentiment', 'social', 'buzz', 'attention', 'narrative', 'narratives',
+  'development', 'developments', 'update', 'updates', 'happening', 'happened', 'mood',
+  'trend', 'trends', 'trending', 'outlook', 'forecast', 'prediction', 'analysis', 'performance', 'volume',
+  'volatility', 'momentum', 'technical', 'technicals', 'moving', 'direction', 'activity', 'gaining',
+  'comparison', 'hour', 'hours', 'day', 'days', 'week', 'weeks',
+]);
 const HARD_CLAUSE_SEPARATOR = /[;,\r\n]|\b(?:then|while|after|before|but|also)\b|\b(?:along with|as well as|followed by)\b/i;
 const SAFE_COMPOUND_PATTERNS = [
   /\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b\s+(?:and|plus|&)\s+\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b/i,
@@ -158,7 +172,7 @@ function parseCommand(command) {
     }
   }
 
-  const legacyResearch = command.match(/^\/bankr research (.+)$/s);
+  const legacyResearch = command.match(/^\/bankr research (?!(?:market|news|comparison)\s)(.+)$/s);
   if (legacyResearch) {
     const query = normalizeBankrReadQuery(legacyResearch[1]);
     const classification = query ? classifyClosedBankrRead(query) : null;
@@ -209,7 +223,7 @@ export function resolveConsoleReadSkillIntent(message, { priorMessage } = {}) {
       : null;
   }
 
-  const legacyResearch = normalized.match(/^\/bankr research (.+)$/s);
+  const legacyResearch = normalized.match(/^\/bankr research (?!(?:market|news|comparison)\s)(.+)$/s);
   if (legacyResearch) {
     const query = normalizeBankrReadQuery(legacyResearch[1]);
     const classification = query ? classifyClosedBankrRead(query) : null;
@@ -272,23 +286,26 @@ function classifyClosedBankrRead(query) {
   if (publicPriceKind) return { operation: 'market_research', kind: publicPriceKind };
 
   const lead = query.match(READ_LEAD_PATTERN);
+  const body = lead?.[1]?.trim() ?? null;
+  if (body && (isReorderedOwnerReadQuery(query)
+    || isOwnerAssetReadBody(body)
+    || BANKR_OWNER_ACCOUNT_READ_BODIES.some((pattern) => pattern.test(body)))) {
+    return { operation: 'owner_account_read' };
+  }
+  if (body && BANKR_PUBLIC_NFT_READ_BODIES.some((pattern) => pattern.test(body))) {
+    return { operation: 'market_research', kind: classifyMarketResearchIntent(query) ?? 'market' };
+  }
+  if (body && /\b(?:nfts?|non-fungible tokens?)\b/i.test(body)) return null;
+
+  const publicMarketKind = classifyBoundedPublicMarketQuery(query);
+  if (publicMarketKind) return { operation: 'market_research', kind: publicMarketKind };
   if (!lead) return null;
+
   const connectors = query.match(/\b(?:and|plus)\b|&/gi) ?? [];
   if (connectors.length > 1
     || (connectors.length === 1 && !SAFE_COMPOUND_PATTERNS.some((pattern) => pattern.test(query)))) {
     return null;
   }
-
-  const body = lead[1].trim();
-  if (isReorderedOwnerReadQuery(query)
-    || isOwnerAssetReadBody(body)
-    || BANKR_OWNER_ACCOUNT_READ_BODIES.some((pattern) => pattern.test(body))) {
-    return { operation: 'owner_account_read' };
-  }
-  if (BANKR_PUBLIC_NFT_READ_BODIES.some((pattern) => pattern.test(body))) {
-    return { operation: 'market_research', kind: classifyMarketResearchIntent(query) ?? 'market' };
-  }
-  if (/\b(?:nfts?|non-fungible tokens?)\b/i.test(body)) return null;
   if (BANKR_PUBLIC_MARKET_READ_BODIES.some((pattern) => pattern.test(body))) {
     return { operation: 'market_research', kind: 'market' };
   }
@@ -314,6 +331,41 @@ function classifyBoundedPublicPriceQuery(query) {
   if (!hasPriceMetric) return null;
   if (!words.every((word) => PUBLIC_PRICE_QUERY_WORDS.has(word) || PUBLIC_PRICE_ASSETS.has(word))) return null;
   return new Set(assets).size > 1 ? 'comparison' : 'market';
+}
+
+function classifyBoundedPublicMarketQuery(query) {
+  if (/[^A-Za-z0-9$/'’?.!\-\s]/.test(query)) return null;
+  const normalized = query
+    .replace(/([A-Za-z0-9])['’]s\b/g, '$1')
+    .replace(/-/g, ' ');
+  const words = normalized.match(/[A-Za-z0-9$]+/g)?.map((word) => word.toLowerCase()) ?? [];
+  if (words.length < 2 || words.length > 28) return null;
+  if (!words.every((word) => PUBLIC_MARKET_QUERY_WORDS.has(word) || PUBLIC_PRICE_ASSETS.has(word) || /^\d+(?:h|d|w)$/.test(word))) return null;
+
+  if (words.some((word) => word === 'nft' || word === 'nfts')) return null;
+  const assetCount = words.filter((word) => PUBLIC_PRICE_ASSETS.has(word)).length;
+  const hasMarketContext = assetCount > 0
+    || words.some((word) => ['crypto', 'market', 'markets', 'base', 'defi', 'nft', 'nfts', 'polymarket', 'token', 'tokens', 'coin', 'coins'].includes(word));
+  if (!hasMarketContext) return null;
+
+  const newsWords = new Set([
+    'news', 'headline', 'headlines', 'narrative', 'narratives', 'development', 'developments',
+    'update', 'updates', 'happening', 'happened',
+  ]);
+  const marketWords = new Set([
+    'sentiment', 'social', 'buzz', 'attention', 'mood', 'trend', 'trends', 'trending', 'outlook',
+    'forecast', 'prediction', 'analysis', 'performance', 'volume', 'volatility', 'momentum',
+    'technical', 'technicals', 'moving', 'direction', 'activity',
+  ]);
+  const hasNewsIntent = words.some((word) => newsWords.has(word));
+  const hasMarketIntent = words.some((word) => marketWords.has(word));
+  if (!hasNewsIntent && !hasMarketIntent) return null;
+  if (hasNewsIntent) return 'news';
+  if (new Set(words.filter((word) => PUBLIC_PRICE_ASSETS.has(word))).size > 1
+    && words.some((word) => ['compare', 'comparison', 'vs', 'versus', 'performance', 'trend', 'trends', 'trending', 'technical', 'technicals'].includes(word))) {
+    return 'comparison';
+  }
+  return 'market';
 }
 
 function isReorderedOwnerReadQuery(query) {
