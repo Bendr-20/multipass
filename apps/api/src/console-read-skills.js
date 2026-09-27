@@ -15,16 +15,20 @@ const BANKR_READ_INTENTS = [
   /\b(?:portfolio|balances?|holdings?)\b/i,
   /\b(?:nfts?|non-fungible|floor price)\b/i,
   /\b(?:polymarket|odds)\b/i,
-  /\b(?:leverage positions?|long\/short positions?|long positions?|short positions?)\b/i,
+  /\b(?:positions?|leverage (?:positions?|status|history)|long\/short positions?|long positions?|short positions?)\b/i,
   /\b(?:(?:token|deployment|fee) status|deployment status|fee status)\b/i,
-  /\b(?:automation status|active orders?|open orders?|pending orders?|order status|order history|active limit orders?)\b/i,
+  /\b(?:automation (?:status|history)|(?:dca|twap) (?:status|history)|active orders?|open orders?|pending orders?|order status|order history|active limit orders?)\b/i,
 ];
 const BANKR_WRITE_INTENTS = [
-  /\b(?:buy|sell|swap|trade|send|transfer|bridge|place|cancel|bet|stake|unstake|mint|purchase|claim|deploy|launch|sign|submit|approve|withdraw|deposit|borrow|lend|execute)\b/i,
-  /\b(?:open|close)\s+(?:an?\s+)?(?:\d+(?:\.\d+)?x\s+)?(?:long|short|position|trade|order)\b/i,
+  /\b(?:buy(?:s|ing)?|sell(?:s|ing)?|trad(?:e|es|ed|ing)|swap(?:s|ped|ping)|send(?:s|ing)?|sent|transfer(?:s|red|ring)?|bridg(?:e|es|ed|ing)|wager(?:s|ed|ing)?|bet(?:s|ting)?|stak(?:e|es|ed|ing)|unstak(?:e|es|ed|ing)|mint(?:s|ed|ing)?|purchas(?:e|es|ed|ing)|claim(?:s|ed|ing)?|deploy(?:s|ed|ing)?|launch(?:es|ed|ing)?|sign(?:s|ed|ing)?|submit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|deposit(?:s|ed|ing)?|borrow(?:s|ed|ing)?|lend(?:s|ing)?|execut(?:e|es|ed|ing)|plac(?:e|es|ed|ing)|cancel(?:s|ed|ing|led|ling)?)\b/i,
+  /\b(?:open|close|opening|closing)\s+(?:(?:an?|my|the|new|more)\s+)?(?:\d+(?:\.\d+)?x\s+)?(?:long|short|leverage|positions?|trade|orders?)\b/i,
+  /\b(?:open|close|opening|closing)\s+(?:one|them|it|all)\b/i,
+  /\b(?:close|closing)\s+out\s+(?:(?:my|the|all)\s+)?(?:positions?|longs?|shorts?|leverage)\b/i,
+  /\b(?:exit|exiting)\s+(?:(?:my|the|all)\s+)?(?:positions?|longs?|shorts?|leverage)\b/i,
   /\b(?:long|short)\s+(?!positions?\b)[A-Za-z0-9$]/i,
-  /\b(?:dca|twap)\b/i,
-  /\b(?:set|create)\s+(?:an?\s+)?(?:stop(?:[- ]loss)?|limit order|automation|schedule)\b/i,
+  /\b(?:set|setting|set(?:ting)?\s*up|setup|enable|enabling|create|creating|start|starting|schedule|scheduling)\b.{0,40}\b(?:automation|dca|twap)\b/i,
+  /\b(?:dca|twap)\s+(?:setup|set(?:ting)?\s*up)\b/i,
+  /\b(?:set|create|enable|start|schedule)\s+(?:an?\s+)?(?:stop(?:[- ]loss)?|limit order|automation|schedule)\b/i,
   /\b(?:raw transaction|raw tx|calldata|broadcast)\b/i,
   /\b(?:schedule|automate)\s+(?:an?\s+)?(?:daily|weekly|monthly|recurring|purchase|buy|sell|trade|swap|transfer)/i,
 ];
@@ -124,8 +128,18 @@ function normalizeBankrReadQuery(value) {
   const query = String(value ?? '').trim().replace(/\s+/g, ' ');
   if (!query || Buffer.byteLength(query, 'utf8') > MAX_RESEARCH_QUERY_BYTES) return null;
   if (/[\u0000-\u001f\u007f]/.test(query)) return null;
-  if (BANKR_WRITE_INTENTS.some((pattern) => pattern.test(query)) || PROMPT_INJECTION_INTENT.test(query)) return null;
+  const actionScan = maskReadOnlyNounPhrases(query);
+  if (BANKR_WRITE_INTENTS.some((pattern) => pattern.test(actionScan)) || PROMPT_INJECTION_INTENT.test(query)) return null;
   return query;
+}
+
+function maskReadOnlyNounPhrases(query) {
+  return query
+    .replace(/\b(?:show|list|display|view|check)(?:\s+me)?\s+(?:my\s+)?open positions?\b/gi, 'read positions')
+    .replace(/\bwhat(?:'s| is| are)\s+(?:my\s+)?open positions?\b/gi, 'read positions')
+    .replace(/\b(?:status|history)\s+(?:of|for)\s+(?:my\s+)?open positions?\b/gi, 'position status')
+    .replace(/\b(?:show|list|display|view|check)(?:\s+me)?\s+(?:my\s+)?open (?:limit )?orders?\b/gi, 'read orders')
+    .replace(/\bwhat(?:'s| is| are)\s+(?:my\s+)?open (?:limit )?orders?\b/gi, 'read orders');
 }
 
 async function executeBankrRead({ operation, query, apiKey, fetchImpl, sleep, maxPolls, now }) {
