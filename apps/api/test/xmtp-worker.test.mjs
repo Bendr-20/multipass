@@ -357,11 +357,13 @@ test('worker env builder accepts only strict skill and market-read booleans inde
     MULTIPASS_AGENT_BANKR_LLM_ENABLED: '0',
     MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'yes',
     MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'true',
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'true',
     BANKR_READONLY_API_KEY: 'readonly-secret',
   });
   assert.equal(options.consoleAgentBankrLlmEnabled, false);
   assert.equal(options.consoleSkillProposalsEnabled, true);
   assert.equal(options.consoleMarketReadEnabled, true);
+  assert.equal(options.consoleAccountReadEnabled, true);
   assert.equal(options.bankrReadonlyApiKey, 'readonly-secret');
   assert.throws(
     () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'on' }),
@@ -370,6 +372,10 @@ test('worker env builder accepts only strict skill and market-read booleans inde
   assert.throws(
     () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'on' }),
     /Invalid boolean for MULTIPASS_CONSOLE_MARKET_READ_ENABLED/,
+  );
+  assert.throws(
+    () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'on' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED/,
   );
 });
 

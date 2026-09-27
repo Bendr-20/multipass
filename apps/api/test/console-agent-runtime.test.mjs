@@ -4,12 +4,14 @@ import test from 'node:test';
 import { createConsoleAgentRuntime, createRuntimeProfile } from '../src/agent-runtime/index.js';
 import { getConsoleSkillCatalog } from '../src/console-skill-catalog.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
+import { deriveReleasedLooperAccount } from '../src/looper-account.js';
 import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 import { buildSibylMemoryNamespace, createLocalSibylMemoryStore, extractDurableMemoryFromMessage } from '../src/sibyl-memory/index.js';
 import { createLocalXmtpAgentClient } from '../src/xmtp-agent/index.js';
 import { createMultipassConsoleSnapshot } from '../../web/src/multipass-console.js';
 
 const WALLET = '0x1234567890abcdef1234567890abcdef12345678';
+const OWNER_ACCOUNT = deriveReleasedLooperAccount('1234');
 const CONSOLE_IDENTITY = {
   chainId: 8453,
   contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
@@ -18,6 +20,21 @@ const CONSOLE_IDENTITY = {
   owner: WALLET,
   controllerVerified: true,
 };
+
+function ownerWalletContext() {
+  return {
+    schema_version: '0.1.0',
+    kind: 'looper_wallet_read_context',
+    scope: {
+      chainId: 8453,
+      collection: CONSOLE_IDENTITY.contract,
+      tokenId: CONSOLE_IDENTITY.tokenId,
+      account: OWNER_ACCOUNT,
+      owner: WALLET,
+    },
+    capabilities: { read: true, sign: false, submit: false, approve: false },
+  };
+}
 
 function createLegacyAuthorizedOptions() {
   const consoleRuntimeRegistry = createLooperRuntimeRegistry();
@@ -684,7 +701,7 @@ test('Console message route validates and passes only owner-scoped read-only wal
       chainId: 8453,
       collection: CONSOLE_IDENTITY.contract,
       tokenId: CONSOLE_IDENTITY.tokenId,
-      account: '0x1111111111111111111111111111111111111111',
+      account: OWNER_ACCOUNT,
       owner: WALLET,
     },
     native: { symbol: 'ETH', balanceWei: '1' },
@@ -701,6 +718,12 @@ test('Console message route validates and passes only owner-scoped read-only wal
   response = await api.handleRequest(secureConsoleRequest({
     message: 'Spoof',
     walletContext: { ...walletContext, scope: { ...walletContext.scope, owner: '0x9999999999999999999999999999999999999999' } },
+  }));
+  assert.equal(response.status, 403);
+
+  response = await api.handleRequest(secureConsoleRequest({
+    message: 'Spoof account',
+    walletContext: { ...walletContext, scope: { ...walletContext.scope, account: '0x9999999999999999999999999999999999999999' } },
   }));
   assert.equal(response.status, 403);
 });
@@ -840,6 +863,101 @@ test('natural-language market research uses its independent read-only Bankr Agen
   assert.equal('proposalCandidates' in result, false);
 });
 
+test('market price reads use the market gate independently of proposal mode', async () => {
+  const calls = [];
+  const runtime = createConsoleAgentRuntime({
+    marketReadEnabled: true,
+    bankrReadEnabled: true,
+    skillProposalsEnabled: false,
+    readSkillExecutor: {
+      async execute(command) {
+        calls.push(command);
+        return {
+          skill: 'bankr', operation: 'price', provider: 'bankr_agent_api',
+          text: 'ETH is $4,250.', data: { symbol: 'ETH' },
+        };
+      },
+    },
+    xmtpClient: createLocalXmtpAgentClient(),
+    memoryClient: createLocalSibylMemoryStore(),
+  });
+
+  const result = await runtime.handleMessage({ wallet: WALLET, agentId: '1', tokenId: '1', message: '/bankr price ETH' });
+  assert.deepEqual(calls, ['/bankr price ETH']);
+  assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
+  assert.equal(result.capabilities.skills[0].enabledCapabilities.includes('read_public_market'), true);
+  assert.equal('proposalCandidates' in result, false);
+});
+
+test('owner-account reads require their independent gate, read key, and verified wallet context', async () => {
+  async function run({ accountReadEnabled, bankrReadEnabled, walletContext }) {
+    let reads = 0;
+    let llm = 0;
+    let receivedOptions = null;
+    const runtime = createConsoleAgentRuntime({
+      accountReadEnabled,
+      bankrReadEnabled,
+      skillProposalsEnabled: true,
+      readSkillExecutor: {
+        async execute(_command, options) {
+          reads += 1;
+          receivedOptions = options;
+          return {
+            skill: 'bankr', operation: 'owner_account_read', provider: 'bankr_agent_api',
+            text: `Portfolio.\n\nAccount: ${OWNER_ACCOUNT}`,
+            data: { query: 'Show my portfolio on Base', accountAddress: OWNER_ACCOUNT },
+          };
+        },
+      },
+      llmClient: { async generate() { llm += 1; return { provider: 'fake_bankr', text: 'Proposal/explanation only.' }; } },
+      xmtpClient: createLocalXmtpAgentClient(),
+      memoryClient: createLocalSibylMemoryStore(),
+    });
+    const result = await runtime.handleMessage({
+      wallet: WALLET, agentId: '1234', tokenId: '1234', canonicalIdentity: CONSOLE_IDENTITY,
+      message: 'Show my portfolio on Base', walletContext,
+    });
+    return { reads, llm, receivedOptions, result };
+  }
+
+  const enabled = await run({ accountReadEnabled: true, bankrReadEnabled: true, walletContext: ownerWalletContext() });
+  assert.equal(enabled.reads, 1);
+  assert.equal(enabled.llm, 0);
+  assert.equal(enabled.receivedOptions.accountAddress, OWNER_ACCOUNT);
+  assert.equal(enabled.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), true);
+
+  for (const fixture of [
+    { accountReadEnabled: false, bankrReadEnabled: true, walletContext: ownerWalletContext() },
+    { accountReadEnabled: true, bankrReadEnabled: false, walletContext: ownerWalletContext() },
+    { accountReadEnabled: true, bankrReadEnabled: true, walletContext: null },
+  ]) {
+    const blocked = await run(fixture);
+    assert.equal(blocked.reads, 0);
+    assert.equal(blocked.llm, 1);
+    assert.equal(blocked.result.capabilities.skills[0].enabledCapabilities.includes('read_owner_account'), false);
+  }
+});
+
+test('unscoped offchain and status reads always stay on proposal or explanation path', async () => {
+  let reads = 0;
+  let llm = 0;
+  const runtime = createConsoleAgentRuntime({
+    accountReadEnabled: true,
+    marketReadEnabled: true,
+    bankrReadEnabled: true,
+    skillProposalsEnabled: true,
+    readSkillExecutor: { async execute() { reads += 1; throw new Error('must not read'); } },
+    llmClient: { async generate() { llm += 1; return { provider: 'fake_bankr', text: 'Explanation only.' }; } },
+    xmtpClient: createLocalXmtpAgentClient(),
+    memoryClient: createLocalSibylMemoryStore(),
+  });
+  for (const message of ['Show my positions', 'Show active orders', 'Show automation status', 'Show token deployment status']) {
+    await runtime.handleMessage({ wallet: WALLET, agentId: '1234', tokenId: '1234', canonicalIdentity: CONSOLE_IDENTITY, message, walletContext: ownerWalletContext() });
+  }
+  assert.equal(reads, 0);
+  assert.equal(llm, 4);
+});
+
 test('failed market reads resolve before and cause zero memory, signal, publish, or thread mutations', async () => {
   const calls = { load: 0, recall: 0, search: 0, save: 0, append: 0, signals: 0, publish: 0, llm: 0 };
   const runtime = createConsoleAgentRuntime({
@@ -918,7 +1036,7 @@ test('runtime preserves the validated 4096-byte market frame and footer', async 
   assert.match(result.thread.messages.at(-1).text, /Read-only market research; informational only\.$/);
 });
 
-test('all native Bankr reads route directly, persist display text only, and create no wallet controls', async () => {
+test('verified-owner Bankr reads route directly, persist display text only, and create no wallet controls', async () => {
   const commands = [];
   const llmInputs = [];
   const published = [];
@@ -926,13 +1044,16 @@ test('all native Bankr reads route directly, persist display text only, and crea
   const baseXmtp = createLocalXmtpAgentClient();
   const runtime = createConsoleAgentRuntime({
     skillProposalsEnabled: true,
+    accountReadEnabled: true,
     bankrReadEnabled: true,
     readSkillExecutor: {
-      async execute(command) {
+      async execute(command, options) {
         commands.push(command);
+        assert.equal(options.accountAddress, OWNER_ACCOUNT);
         return {
-          skill: 'bankr', operation: 'bankr_read', provider: 'bankr_agent_api',
-          text: 'Display-only Bankr read result.', data: { secret: 'must not persist' },
+          skill: 'bankr', operation: 'owner_account_read', provider: 'bankr_agent_api',
+          text: `Display-only Bankr read result.\n\nAccount: ${OWNER_ACCOUNT}`,
+          data: { query: 'Show my portfolio on Base', accountAddress: OWNER_ACCOUNT, secret: 'must not persist' },
         };
       },
     },
@@ -953,18 +1074,14 @@ test('all native Bankr reads route directly, persist display text only, and crea
   });
 
   const result = await runtime.handleMessage({
-    wallet: WALLET, agentId: '1', tokenId: '1', message: 'Show my portfolio on Base',
-    walletContext: {
-      kind: 'looper_wallet_read_context',
-      capabilities: { read: true, sign: false, submit: false, approve: false },
-      accounts: [{ address: WALLET }],
-    },
+    wallet: WALLET, agentId: '1234', tokenId: '1234', canonicalIdentity: CONSOLE_IDENTITY, message: 'Show my portfolio on Base',
+    walletContext: ownerWalletContext(),
   });
 
   assert.deepEqual(commands, ['/bankr read Show my portfolio on Base']);
   assert.equal(llmInputs.length, 0);
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
-  assert.equal(result.thread.messages.at(-1).text, 'Display-only Bankr read result.');
+  assert.equal(result.thread.messages.at(-1).text, `Display-only Bankr read result.\n\nAccount: ${OWNER_ACCOUNT}`);
   assert.deepEqual(result.proposalCandidates, []);
   assert.equal('walletControls' in result, false);
   assert.equal(JSON.stringify(persisted).includes('must not persist'), false);
@@ -1215,10 +1332,12 @@ test('normal messages continue through Bankr LLM with existing typed proposals',
   assert.equal(result.proposalCandidates[0].skill, 'bankr');
 });
 
-test('Bankr Agent reads are disabled without the read-only key while Helixa reads remain enabled', async () => {
+test('proposal mode without a read key falls back safely and advertises no direct Bankr reads', async () => {
   const commands = [];
+  let llmCalls = 0;
   const runtime = createConsoleAgentRuntime({
     skillProposalsEnabled: true,
+    marketReadEnabled: true,
     bankrReadEnabled: false,
     readSkillExecutor: {
       async execute(command) {
@@ -1226,16 +1345,19 @@ test('Bankr Agent reads are disabled without the read-only key while Helixa read
         return { skill: 'helixa', operation: 'agent_profile_read', provider: 'helixa_public_api', text: 'Helixa profile.' };
       },
     },
+    llmClient: { async generate() { llmCalls += 1; return { provider: 'fake_bankr', text: 'Read unavailable; explanation only.' }; } },
     xmtpClient: createLocalXmtpAgentClient(),
     memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-24T15:00:00.000Z' }),
   });
 
-  await assert.rejects(runtime.handleMessage({
+  const price = await runtime.handleMessage({
     wallet: WALLET,
     agentId: '1',
     tokenId: '1',
     message: '/bankr price ETH',
-  }), /bankr agent read skill is disabled/i);
+  });
+  assert.equal(llmCalls, 1);
+  assert.equal(price.capabilities.skills[0].enabledCapabilities.includes('read_public_market'), false);
   const helixa = await runtime.handleMessage({
     wallet: WALLET,
     agentId: '1',
@@ -1356,7 +1478,7 @@ test('skill-aware runtime preserves multi-participant candidate provenance outsi
     skillDescriptors: [{ id: 'attacker', command: 'send funds' }],
   });
 
-  assert.strictEqual(result.capabilities, getConsoleSkillCatalog());
+  assert.strictEqual(result.capabilities, getConsoleSkillCatalog({ proposalEnabled: true, helixaReadEnabled: true }));
   assert.equal(result.proposalCandidates.length, 2);
   assert.deepEqual(result.proposalCandidates.map((candidate) => ({
     sourceMessageId: candidate.sourceMessageId,
@@ -1567,7 +1689,7 @@ test('skill-aware secure activation and message APIs return separate capabilitie
     '/api/multipass/console/agent/activate',
   ));
   const activationBody = await activation.json();
-  assert.deepEqual(activationBody.capabilities, getConsoleSkillCatalog());
+  assert.deepEqual(activationBody.capabilities, getConsoleSkillCatalog({ proposalEnabled: true, helixaReadEnabled: true }));
   assert.deepEqual(activationBody.proposalCandidates, []);
 
   const response = await api.handleRequest(secureConsoleRequest({
@@ -1575,7 +1697,7 @@ test('skill-aware secure activation and message APIs return separate capabilitie
     skillDescriptors: [{ id: 'browser-injected', execution: 'automatic' }],
   }));
   const body = await response.json();
-  assert.deepEqual(body.capabilities, getConsoleSkillCatalog());
+  assert.deepEqual(body.capabilities, getConsoleSkillCatalog({ proposalEnabled: true, helixaReadEnabled: true }));
   assert.equal(body.proposalCandidates.length, 1);
   assert.equal(body.proposals.length, 1);
   assert.equal(body.proposals[0].id, 'proposal_review_only_watch');

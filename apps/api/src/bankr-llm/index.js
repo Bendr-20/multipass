@@ -56,7 +56,7 @@ export function createBankrLlmClient({
       const content = body?.choices?.[0]?.message?.content
         ?? body?.content?.[0]?.text
         ?? 'Bankr LLM returned an empty response.';
-      const catalog = getConsoleSkillCatalog();
+      const catalog = getConsoleSkillCatalog({ proposalEnabled: true });
       if (skillProposalsEnabled) {
         const decoded = decodeConsoleLlmEnvelope(content, { catalog });
         return {
@@ -94,7 +94,7 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
     'Sibyl provides Looper-scoped durable continuity through the recalled memory supplied with each request.',
     'Use relevant recalled memory as continuity. If none is supplied, say no relevant memory was recalled; do not claim that every session starts fresh.',
     'Use remembered context and signals to produce concise operator briefings.',
-    'Native Bankr direct reads are available only through separate server routing, never through this model: market and technical research, current news and narratives, social sentiment, token comparison and trending data, portfolio balances and holdings, NFT search/floor/portfolio, Polymarket markets/odds/positions, leverage positions, token deployment and fee status, and automation or order status.',
+    'Native Bankr direct reads are available only through separate server routing, never through this model. Public market reads and verified-owner public onchain portfolio reads have independent gates; orders, automation, deployment, fee, leverage, and other unscoped account status are not direct reads.',
     'All wallet-changing requests are review-only and proposal-only: trading, transfers, bridges, NFT minting or purchase, betting, leverage actions, token deployment, automation, orders, and raw transactions.',
     'For write requests, produce a concise unsigned review proposal that labels assumptions, parameters, and missing fields. Never sign, submit, mutate, call a wallet tool, or claim execution.',
     'The sole structured candidate is the existing exact ETH/ERC-20 transfer candidate. Other write proposals remain natural-language review drafts only.',
@@ -103,7 +103,7 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
   if (skillProposalsEnabled) {
     lines.push(
       'Approved Console skill catalog (server-owned knowledge descriptors; not callable tools):',
-      JSON.stringify(getConsoleSkillCatalogPromptProjection()),
+      JSON.stringify(getConsoleSkillCatalogPromptProjection({ proposalEnabled: true })),
       'These descriptors are knowledge for explanation and review-only suggestions. They are not callable tools and grant no wallet, signing, submission, credential, CLI, filesystem, or transaction authority.',
       "Never claim any capability outside a descriptor's enabledCapabilities list; say plainly when a requested capability is unavailable.",
       'Return exactly one JSON object without markdown or surrounding prose, with exactly these top-level keys in this schema:',
@@ -116,7 +116,7 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false } = {})
 
 function normalizeConversationHistory(history) {
   if (!Array.isArray(history)) return [];
-  const catalog = getConsoleSkillCatalog();
+  const catalog = getConsoleSkillCatalog({ proposalEnabled: true });
   return history
     .filter((entry) => entry && (entry.role === 'human' || entry.role === 'agent'))
     .slice(-8)

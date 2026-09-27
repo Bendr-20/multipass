@@ -6,6 +6,7 @@ import {
 import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
 import { projectConsoleLlmDisplayText } from '../console-transfer-candidate.js';
 import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
+import { deriveReleasedLooperAccount } from '../looper-account.js';
 import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
@@ -26,22 +27,33 @@ export function createConsoleAgentRuntime({
   now = () => new Date().toISOString(),
   skillProposalsEnabled = false,
   marketReadEnabled = false,
+  accountReadEnabled = false,
   readSkillExecutor,
   bankrReadEnabled = true,
   skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
 } = {}) {
-  const consoleCatalog = getConsoleSkillCatalog();
-  const capabilities = skillProposalsEnabled ? consoleCatalog : null;
+  const proposalCatalog = getConsoleSkillCatalog({
+    proposalEnabled: skillProposalsEnabled,
+    helixaReadEnabled: skillProposalsEnabled,
+  });
   const skillTimeoutMs = normalizeSkillProviderTimeout(skillProviderTimeoutMs);
   const inFlightSkillCalls = new Map();
   return {
     async getThread(input = {}) {
       const wallet = requireWallet(input.wallet);
       const profile = createRuntimeProfile(input);
+      const walletContext = normalizeWalletContext(input.walletContext, { wallet, profile });
+      const capabilities = runtimeCapabilities({
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress: walletContext?.scope?.account,
+      });
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const storedMessages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
-      const messages = sanitizeBankrLlmMessages(storedMessages, consoleCatalog);
+      const messages = sanitizeBankrLlmMessages(storedMessages, proposalCatalog);
       const recalledMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
       const transportThread = xmtpClient.transport === 'unavailable'
         ? {
@@ -78,7 +90,7 @@ export function createConsoleAgentRuntime({
           participants: transportThread.participants?.length ? transportThread.participants : room.participants,
           messages: messages.length
             ? messages
-            : sanitizeBankrLlmMessages(transportThread.messages ?? [], consoleCatalog),
+            : sanitizeBankrLlmMessages(transportThread.messages ?? [], proposalCatalog),
         },
         memory: {
           provider: memoryClient.provider ?? 'sibyl_memory',
@@ -89,7 +101,8 @@ export function createConsoleAgentRuntime({
         signals: [],
         missions: [],
         proposals: [],
-        ...(skillProposalsEnabled ? { capabilities, proposalCandidates: [] } : {}),
+        ...(capabilities ? { capabilities } : {}),
+        ...(skillProposalsEnabled ? { proposalCandidates: [] } : {}),
       };
     },
 
@@ -98,28 +111,39 @@ export function createConsoleAgentRuntime({
       const message = String(input.message ?? '').trim();
       if (!message) throw new TypeError('Message is required.');
 
-      const resolvedSkillIntent = resolveConsoleReadSkillIntent(message);
-      const explicitSkillCommand = resolvedSkillIntent?.operation === 'market_research'
-        ? marketReadEnabled ? resolvedSkillIntent : null
-        : skillProposalsEnabled ? resolvedSkillIntent : null;
-
       const profile = createRuntimeProfile(input);
+      const walletContext = normalizeWalletContext(input.walletContext, { wallet, profile });
+      const accountAddress = walletContext?.scope?.account ?? null;
+      const resolvedSkillIntent = resolveConsoleReadSkillIntent(message);
+      const explicitSkillCommand = resolveEnabledSkillIntent(resolvedSkillIntent, {
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress,
+      });
+      const capabilities = runtimeCapabilities({
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress,
+      });
+
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
       let priorMessages = [];
       let recalledMemory = [];
-      let walletContext = null;
       let signals = [];
       const savedMemory = [];
       if (!explicitSkillCommand) {
         const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
-        priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, consoleCatalog)
+        priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, proposalCatalog)
           .filter(isSafeInferenceHistoryMessage);
         const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
         const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
         recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
-        walletContext = normalizeWalletContext(input.walletContext);
         signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
         for (const memory of extractDurableMemoryFromMessage(message)) {
           const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
@@ -145,10 +169,7 @@ export function createConsoleAgentRuntime({
         if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
           throw new Error('Console read skill executor is not configured.');
         }
-        if (explicitSkillCommand.skill === 'bankr' && !bankrReadEnabled) {
-          throw new Error('Bankr Agent read skill is disabled because BANKR_READONLY_API_KEY is not configured.');
-        }
-        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${explicitSkillCommand.command}`;
+        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${accountAddress ?? 'public'}:${explicitSkillCommand.command}`;
         const skillResult = await executeSkillWithDedupe({
           command: explicitSkillCommand.command,
           expectedSkill: explicitSkillCommand.skill,
@@ -156,7 +177,10 @@ export function createConsoleAgentRuntime({
           expectedKind: explicitSkillCommand.kind,
           expectedQuery: explicitSkillCommand.operation === 'market_research'
             ? explicitSkillCommand.command.replace(/^\/bankr research (?:market|news|comparison) /, '')
-            : null,
+            : explicitSkillCommand.operation === 'owner_account_read'
+              ? explicitSkillCommand.command.replace(/^\/bankr read /, '')
+              : null,
+          accountAddress,
           readSkillExecutor,
           timeoutMs: skillTimeoutMs,
           inFlightSkillCalls,
@@ -194,7 +218,7 @@ export function createConsoleAgentRuntime({
             walletContext,
           });
           const displayText = llm.provider === 'bankr_llm_gateway'
-            ? projectConsoleLlmDisplayText(llm.text, { catalog: consoleCatalog })
+            ? projectConsoleLlmDisplayText(llm.text, { catalog: proposalCatalog })
             : llm.text;
           const agentMessage = createThreadMessage({
             id: `msg_${hashish(`${threadId}:${participant.participantId}:${displayText}:${now()}`)}`,
@@ -211,7 +235,7 @@ export function createConsoleAgentRuntime({
             participantResponses.push({
               participantId: participant.participantId,
               draftMessage: agentMessage,
-              skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, capabilities),
+              skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, proposalCatalog),
               transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
             });
           }
@@ -237,14 +261,14 @@ export function createConsoleAgentRuntime({
         ? publishedRoom.publishedMessages
         : [];
       const proposalCandidates = skillProposalsEnabled
-        ? bindProposalCandidates(participantResponses, currentPublishedMessages, capabilities)
+        ? bindProposalCandidates(participantResponses, currentPublishedMessages, proposalCatalog)
         : null;
 
       const persistedThreadMessages = await memoryClient.appendThread({
         namespace,
         messages: threadBatch.slice(-MAX_THREAD_HISTORY),
       });
-      const threadMessages = sanitizeBankrLlmMessages(persistedThreadMessages, consoleCatalog);
+      const threadMessages = sanitizeBankrLlmMessages(persistedThreadMessages, proposalCatalog);
 
       return {
         schema_version: '0.1.0',
@@ -271,7 +295,8 @@ export function createConsoleAgentRuntime({
         signals,
         missions: deriveMissions(message, savedMemory),
         proposals: deriveProposals({ message, signals, room }),
-        ...(skillProposalsEnabled ? { capabilities, proposalCandidates } : {}),
+        ...(capabilities ? { capabilities } : {}),
+        ...(skillProposalsEnabled ? { proposalCandidates } : {}),
       };
     },
   };
@@ -282,12 +307,42 @@ function selectSkillParticipant(room) {
   return agents.find((entry) => entry.participantId === room.primaryParticipantId) ?? agents[0];
 }
 
+function resolveEnabledSkillIntent(intent, gates) {
+  if (!intent) return null;
+  if (intent.skill === 'helixa') return gates.skillProposalsEnabled ? intent : null;
+  if (!gates.bankrReadEnabled) return null;
+  if (intent.operation === 'price' || intent.operation === 'market_research') {
+    return gates.marketReadEnabled ? intent : null;
+  }
+  if (intent.operation === 'owner_account_read') {
+    return gates.accountReadEnabled && gates.accountAddress ? intent : null;
+  }
+  return null;
+}
+
+function runtimeCapabilities({
+  skillProposalsEnabled,
+  marketReadEnabled,
+  accountReadEnabled,
+  bankrReadEnabled,
+  accountAddress,
+}) {
+  const catalog = getConsoleSkillCatalog({
+    proposalEnabled: skillProposalsEnabled,
+    helixaReadEnabled: skillProposalsEnabled,
+    marketReadEnabled: marketReadEnabled && bankrReadEnabled,
+    accountReadEnabled: accountReadEnabled && bankrReadEnabled && Boolean(accountAddress),
+  });
+  return catalog.skills.some((skill) => skill.enabledCapabilities.length > 0) ? catalog : null;
+}
+
 function executeSkillWithDedupe({
   command,
   expectedSkill,
   expectedOperation,
   expectedKind,
   expectedQuery,
+  accountAddress,
   readSkillExecutor,
   timeoutMs,
   inFlightSkillCalls,
@@ -299,13 +354,17 @@ function executeSkillWithDedupe({
   const controller = new AbortController();
   let timeout;
   const providerCall = Promise.resolve()
-    .then(() => readSkillExecutor.execute(command, { signal: controller.signal }))
+    .then(() => readSkillExecutor.execute(command, {
+      signal: controller.signal,
+      ...(accountAddress ? { accountAddress } : {}),
+    }))
     .then((result) => projectDisplayOnlySkillResult(
       result,
       expectedSkill,
       expectedOperation,
       expectedKind,
       expectedQuery,
+      accountAddress,
     ));
   const deadline = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
@@ -328,7 +387,7 @@ function executeSkillWithDedupe({
   return boundedCall;
 }
 
-function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation, expectedKind, expectedQuery) {
+function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation, expectedKind, expectedQuery, accountAddress) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Malformed Console skill result.');
   }
@@ -346,6 +405,14 @@ function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation, 
       || value.data.kind !== expectedKind
       || value.data.query !== expectedQuery
       || !value.text.endsWith('Read-only market research; informational only.')) {
+      throw new Error('Malformed Console skill result.');
+    }
+  }
+  if (expectedOperation === 'owner_account_read') {
+    if (!value.data
+      || value.data.query !== expectedQuery
+      || value.data.accountAddress !== accountAddress
+      || !value.text.endsWith(`Account: ${accountAddress}`)) {
       throw new Error('Malformed Console skill result.');
     }
   }
@@ -698,16 +765,31 @@ function normalizeRuntimePersona(value, tokenId) {
   return Object.keys(persona).length > 1 ? persona : null;
 }
 
-function normalizeWalletContext(value) {
+function normalizeWalletContext(value, { wallet, profile } = {}) {
   if (!value) return null;
-  if (value.kind !== 'looper_wallet_read_context'
+  const account = String(value.scope?.account ?? '').toLowerCase();
+  const owner = String(value.scope?.owner ?? '').toLowerCase();
+  const tokenId = String(profile?.rootIdentity?.tokenId ?? '');
+  const collection = String(profile?.rootIdentity?.tokenContract ?? '').toLowerCase();
+  const expectedAccount = deriveReleasedLooperAccount(tokenId);
+  if (value.schema_version !== '0.1.0'
+    || value.kind !== 'looper_wallet_read_context'
+    || Number(value.scope?.chainId) !== Number(profile?.rootIdentity?.chainId)
+    || String(value.scope?.collection ?? '').toLowerCase() !== collection
+    || String(value.scope?.tokenId ?? '') !== tokenId
+    || !/^0x[a-f0-9]{40}$/.test(account)
+    || account !== expectedAccount
+    || owner !== String(wallet ?? '').toLowerCase()
     || value.capabilities?.read !== true
     || value.capabilities?.sign !== false
     || value.capabilities?.submit !== false
     || value.capabilities?.approve !== false) {
-    throw new TypeError('walletContext must be read-only.');
+    throw new TypeError('walletContext must be verified owner-scoped read-only evidence.');
   }
-  return JSON.parse(JSON.stringify(value));
+  return JSON.parse(JSON.stringify({
+    ...value,
+    scope: { ...value.scope, account, owner },
+  }));
 }
 
 function requireWallet(value) {

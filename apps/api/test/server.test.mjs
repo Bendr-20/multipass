@@ -34,6 +34,7 @@ test('parseServerOptions returns safe defaults', () => {
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
     consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -77,6 +78,7 @@ test('CLI flags override environment values', () => {
       consoleAgentBankrLlmEnabled: false,
       consoleSkillProposalsEnabled: false,
       consoleMarketReadEnabled: false,
+      consoleAccountReadEnabled: false,
       consoleXmtpEnabled: false,
       consoleXmtpEnv: 'production',
       consoleXmtpWalletKey: null,
@@ -120,6 +122,7 @@ test('parseServerOptions accepts claim management security env', () => {
     consoleAgentBankrLlmEnabled: false,
     consoleSkillProposalsEnabled: false,
     consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -242,6 +245,20 @@ test('parseServerOptions keeps market reads independently default-off and reject
   assert.throws(
     () => parseServerOptions([], { MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'enabled' }),
     /Invalid boolean for MULTIPASS_CONSOLE_MARKET_READ_ENABLED/,
+  );
+});
+
+test('parseServerOptions keeps owner-account reads independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {}).consoleAccountReadEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'true',
+  }).consoleAccountReadEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: '0',
+  }).consoleAccountReadEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED/,
   );
 });
 
