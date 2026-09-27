@@ -28,6 +28,7 @@ import {
   normalizeConsoleImageAttachment,
 } from './console-image-attachment.js';
 import { createConsoleReadSkillExecutor } from './console-read-skills.js';
+import { deriveReleasedLooperAccount } from './looper-account.js';
 import {
   createLooperCredClient,
   enrichOwnedLoopersWithCred,
@@ -219,6 +220,7 @@ export function createMultipassApi({
   consoleAgentBankrLlmEnabled = false,
   consoleSkillProposalsEnabled = false,
   consoleMarketReadEnabled = false,
+  consoleAccountReadEnabled = false,
   consoleXmtpEnabled = false,
   consoleXmtpEnv = 'production',
   consoleXmtpWalletKey = null,
@@ -252,7 +254,8 @@ export function createMultipassApi({
       : undefined,
     skillProposalsEnabled: consoleSkillProposalsEnabled,
     marketReadEnabled: consoleMarketReadEnabled,
-    ...(consoleSkillProposalsEnabled || consoleMarketReadEnabled ? {
+    accountReadEnabled: consoleAccountReadEnabled,
+    ...(consoleSkillProposalsEnabled || consoleMarketReadEnabled || consoleAccountReadEnabled ? {
       readSkillExecutor: createConsoleReadSkillExecutor({
         bankrApiKey: bankrReadonlyApiKey,
         fetchImpl,
@@ -1270,6 +1273,7 @@ function normalizeConsoleWalletContext(value, { identity, wallet }) {
   rejectExecutableWalletContext(value);
   const capabilities = value?.capabilities;
   const scope = value?.scope;
+  const expectedAccount = deriveReleasedLooperAccount(identity.tokenId);
   const matchesIdentity = value?.schema_version === '0.1.0'
     && value?.kind === 'looper_wallet_read_context'
     && scope?.chainId === LOOPERS_MAINNET_CHAIN_ID
@@ -1277,6 +1281,7 @@ function normalizeConsoleWalletContext(value, { identity, wallet }) {
     && String(scope?.tokenId ?? '') === String(identity.tokenId)
     && String(scope?.owner ?? '').toLowerCase() === String(wallet).toLowerCase()
     && /^0x[a-fA-F0-9]{40}$/.test(String(scope?.account ?? ''))
+    && String(scope.account).toLowerCase() === expectedAccount
     && capabilities?.read === true
     && capabilities?.sign === false
     && capabilities?.submit === false

@@ -21,31 +21,20 @@ const EXPECTED_DESCRIPTOR_KEYS = [
 const BANKR_DESCRIPTOR = {
   id: 'bankr',
   name: 'Bankr',
-  summary: 'Native Bankr reads for market, news, sentiment, portfolios, NFTs, Polymarket, positions, token/fee/deployment, and order status. Wallet-changing trading, transfer, bridge, NFT, betting, leverage, deployment, automation, and raw-transaction requests are unsigned review proposals only.',
+  summary: 'Public market research and verified-owner public onchain portfolio reads are independently gated. Wallet-changing and unscoped account requests remain unsigned review proposals or explanations only.',
   capabilities: [
-    'market_news_sentiment',
-    'portfolio_balances',
-    'nfts',
-    'polymarket',
-    'positions_orders_automation',
-    'token_fee_deployment_status',
+    'public_market_reads',
+    'owner_account_reads',
     'transfer_proposals',
     'other_wallet_action_proposals',
   ],
-  enabledCapabilities: [
-    'read_market_news_sentiment',
-    'read_portfolio_balances',
-    'read_nfts',
-    'read_polymarket',
-    'read_positions_orders_automation',
-    'read_token_fee_deployment_status',
-    'propose_transfer',
-    'propose_other_wallet_actions',
-  ],
+  enabledCapabilities: [],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
-    'Direct execution is limited to reads through the server-only read-only Bankr key.',
+    'Public market reads require the independent market gate and server-only read key.',
+    'Owner reads require the independent account gate and a server-verified ERC-6551 public address.',
+    'Orders, automation, deployment, fee, leverage, and other unscoped account status are never read directly.',
     'No Bankr wallet or credential reaches the model or browser.',
     'No write, wallet action, order, signature, submission, mutation, or raw transaction is executed.',
     'Write requests produce concise unsigned review proposals only.',
@@ -58,7 +47,7 @@ const HELIXA_DESCRIPTOR = {
   name: 'Helixa',
   summary: 'Public Helixa AgentDNA identity and Cred profile reader.',
   capabilities: ['agent_profile_read'],
-  enabledCapabilities: ['agent_profile_read'],
+  enabledCapabilities: [],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
@@ -116,15 +105,35 @@ test('returns exact frozen Bankr and Helixa descriptors with a canonical catalog
     assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
   }
   assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]);
-  assert.ok(catalog.skills[0].enabledCapabilities.slice(0, 6).every((entry) => entry.startsWith('read_')));
-  assert.ok(catalog.skills[0].enabledCapabilities.slice(6).every((entry) => entry.startsWith('propose_')));
-  assert.deepEqual(catalog.skills[1].enabledCapabilities, ['agent_profile_read']);
+  assert.deepEqual(catalog.skills[0].enabledCapabilities, []);
+  assert.deepEqual(catalog.skills[1].enabledCapabilities, []);
   assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
   assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));
   assert.match(catalog.version, /^sha256:[a-f0-9]{64}$/);
   assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]));
   assertRecursivelyFrozen(catalog);
   assertPlainJson(catalog);
+});
+
+test('projects market, verified-owner account, proposal, and Helixa capabilities independently', () => {
+  const bankrEnabled = (options) => getConsoleSkillCatalog(options).skills[0].enabledCapabilities;
+  assert.deepEqual(bankrEnabled({ marketReadEnabled: true }), ['read_public_market']);
+  assert.deepEqual(bankrEnabled({ accountReadEnabled: true }), ['read_owner_account']);
+  assert.deepEqual(bankrEnabled({ proposalEnabled: true }), ['propose_transfer', 'propose_other_wallet_actions']);
+  assert.deepEqual(bankrEnabled({
+    marketReadEnabled: true,
+    accountReadEnabled: true,
+    proposalEnabled: true,
+  }), [
+    'read_public_market',
+    'read_owner_account',
+    'propose_transfer',
+    'propose_other_wallet_actions',
+  ]);
+  assert.deepEqual(
+    getConsoleSkillCatalog({ helixaReadEnabled: true }).skills[1].enabledCapabilities,
+    ['agent_profile_read'],
+  );
 });
 
 test('pins descriptor collection and UTF-8 byte limits', () => {

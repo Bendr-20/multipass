@@ -145,6 +145,7 @@ export async function startConsoleXmtpWorker(options = {}) {
     consoleAgentBankrLlmEnabled = false,
     consoleSkillProposalsEnabled = false,
     consoleMarketReadEnabled = false,
+    consoleAccountReadEnabled = false,
     readSkillExecutor = null,
     retryAttempts = 10,
     retryDelay = 60_000,
@@ -168,7 +169,8 @@ export async function startConsoleXmtpWorker(options = {}) {
     xmtpClient: publishingClient,
     skillProposalsEnabled: consoleSkillProposalsEnabled,
     marketReadEnabled: consoleMarketReadEnabled,
-    ...((consoleSkillProposalsEnabled || consoleMarketReadEnabled) ? {
+    accountReadEnabled: consoleAccountReadEnabled,
+    ...((consoleSkillProposalsEnabled || consoleMarketReadEnabled || consoleAccountReadEnabled) ? {
       readSkillExecutor: readSkillExecutor ?? createConsoleReadSkillExecutor({
         bankrApiKey: bankrReadonlyApiKey,
         fetchImpl,
@@ -251,6 +253,10 @@ export function buildConsoleXmtpWorkerOptionsFromEnv(env = process.env) {
     consoleMarketReadEnabled: parseStrictOptionalBoolean(
       env.MULTIPASS_CONSOLE_MARKET_READ_ENABLED,
       'MULTIPASS_CONSOLE_MARKET_READ_ENABLED',
+    ) ?? false,
+    consoleAccountReadEnabled: parseStrictOptionalBoolean(
+      env.MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED,
+      'MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED',
     ) ?? false,
     defaults: {
       agentId: env.MULTIPASS_XMTP_AGENT_ID || 'agent-manager',

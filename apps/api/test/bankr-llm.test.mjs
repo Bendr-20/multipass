@@ -295,7 +295,7 @@ test('skill-aware Bankr prompt uses only the exact server projection and request
   });
 
   const systemPrompt = requestBody.messages[0].content;
-  const projection = JSON.stringify(getConsoleSkillCatalogPromptProjection());
+  const projection = JSON.stringify(getConsoleSkillCatalogPromptProjection({ proposalEnabled: true }));
   const sectionPrefix = 'Approved Console skill catalog (server-owned knowledge descriptors; not callable tools):\n';
   const sectionStart = systemPrompt.indexOf(sectionPrefix);
   assert.notEqual(sectionStart, -1);
@@ -306,17 +306,14 @@ test('skill-aware Bankr prompt uses only the exact server projection and request
   assert.match(systemPrompt, /schema_version.*assistant_text.*skill_refs.*transfer_candidates/is);
   assert.match(systemPrompt, /no markdown|without markdown/i);
   assert.match(systemPrompt, /never claim.*outside.*enabledCapabilities/i);
-  assert.match(projection, /read_market_news_sentiment/);
-  assert.match(projection, /read_portfolio_balances/);
-  assert.match(projection, /read_nfts/);
-  assert.match(projection, /read_polymarket/);
-  assert.match(projection, /read_positions_orders_automation/);
-  assert.match(projection, /read_token_fee_deployment_status/);
   assert.match(projection, /propose_transfer/);
   assert.match(projection, /propose_other_wallet_actions/);
+  assert.doesNotMatch(projection, /read_public_market/);
+  assert.doesNotMatch(projection, /read_owner_account/);
   assert.match(systemPrompt, /direct reads.*server routing/i);
-  assert.match(systemPrompt, /market.*technical.*news.*sentiment/is);
-  assert.match(systemPrompt, /portfolio.*balances.*NFT.*Polymarket/is);
+  assert.match(systemPrompt, /public market reads.*independent gates/i);
+  assert.match(systemPrompt, /verified-owner public onchain portfolio reads/i);
+  assert.match(systemPrompt, /orders.*automation.*not direct reads/i);
   assert.match(systemPrompt, /write requests.*unsigned review proposals/i);
   assert.match(systemPrompt, /assumptions.*parameters.*missing fields/i);
   assert.match(systemPrompt, /never claim.*execut/i);

@@ -25,31 +25,20 @@ const SERVER_SKILL_DESCRIPTORS = [
   {
     id: 'bankr',
     name: 'Bankr',
-    summary: 'Native Bankr reads for market, news, sentiment, portfolios, NFTs, Polymarket, positions, token/fee/deployment, and order status. Wallet-changing trading, transfer, bridge, NFT, betting, leverage, deployment, automation, and raw-transaction requests are unsigned review proposals only.',
+    summary: 'Public market research and verified-owner public onchain portfolio reads are independently gated. Wallet-changing and unscoped account requests remain unsigned review proposals or explanations only.',
     capabilities: [
-      'market_news_sentiment',
-      'portfolio_balances',
-      'nfts',
-      'polymarket',
-      'positions_orders_automation',
-      'token_fee_deployment_status',
+      'public_market_reads',
+      'owner_account_reads',
       'transfer_proposals',
       'other_wallet_action_proposals',
     ],
-    enabledCapabilities: [
-      'read_market_news_sentiment',
-      'read_portfolio_balances',
-      'read_nfts',
-      'read_polymarket',
-      'read_positions_orders_automation',
-      'read_token_fee_deployment_status',
-      'propose_transfer',
-      'propose_other_wallet_actions',
-    ],
+    enabledCapabilities: [],
     execution: 'human_review',
     credentialAccess: false,
     constraints: [
-      'Direct execution is limited to reads through the server-only read-only Bankr key.',
+      'Public market reads require the independent market gate and server-only read key.',
+      'Owner reads require the independent account gate and a server-verified ERC-6551 public address.',
+      'Orders, automation, deployment, fee, leverage, and other unscoped account status are never read directly.',
       'No Bankr wallet or credential reaches the model or browser.',
       'No write, wallet action, order, signature, submission, mutation, or raw transaction is executed.',
       'Write requests produce concise unsigned review proposals only.',
@@ -61,7 +50,7 @@ const SERVER_SKILL_DESCRIPTORS = [
     name: 'Helixa',
     summary: 'Public Helixa AgentDNA identity and Cred profile reader.',
     capabilities: ['agent_profile_read'],
-    enabledCapabilities: ['agent_profile_read'],
+    enabledCapabilities: [],
     execution: 'human_review',
     credentialAccess: false,
     constraints: [
@@ -73,22 +62,42 @@ const SERVER_SKILL_DESCRIPTORS = [
 
 for (const descriptor of SERVER_SKILL_DESCRIPTORS) assertDescriptor(descriptor);
 
-const CATALOG_SKILLS = deepFreezeJson(SERVER_SKILL_DESCRIPTORS);
-const CATALOG_VERSION = `sha256:${createHash('sha256')
-  .update(canonicalJson({ skills: CATALOG_SKILLS }), 'utf8')
-  .digest('hex')}`;
-const CONSOLE_SKILL_CATALOG = deepFreezeJson({
-  version: CATALOG_VERSION,
-  skills: CATALOG_SKILLS,
-});
-const CONSOLE_SKILL_CATALOG_PROMPT_PROJECTION = deepFreezeJson(cloneJson(CONSOLE_SKILL_CATALOG));
+const CATALOG_CACHE = new Map();
 
-export function getConsoleSkillCatalog() {
-  return CONSOLE_SKILL_CATALOG;
+export function getConsoleSkillCatalog(options = {}) {
+  const gates = normalizeCatalogGates(options);
+  const cacheKey = JSON.stringify(gates);
+  if (CATALOG_CACHE.has(cacheKey)) return CATALOG_CACHE.get(cacheKey);
+  const skills = cloneJson(SERVER_SKILL_DESCRIPTORS);
+  skills[0].enabledCapabilities = [
+    ...(gates.marketReadEnabled ? ['read_public_market'] : []),
+    ...(gates.accountReadEnabled ? ['read_owner_account'] : []),
+    ...(gates.proposalEnabled ? ['propose_transfer', 'propose_other_wallet_actions'] : []),
+  ];
+  skills[1].enabledCapabilities = gates.helixaReadEnabled ? ['agent_profile_read'] : [];
+  for (const descriptor of skills) assertDescriptor(descriptor);
+  const frozenSkills = deepFreezeJson(skills);
+  const catalog = deepFreezeJson({
+    version: `sha256:${createHash('sha256')
+      .update(canonicalJson({ skills: frozenSkills }), 'utf8')
+      .digest('hex')}`,
+    skills: frozenSkills,
+  });
+  CATALOG_CACHE.set(cacheKey, catalog);
+  return catalog;
 }
 
-export function getConsoleSkillCatalogPromptProjection() {
-  return CONSOLE_SKILL_CATALOG_PROMPT_PROJECTION;
+export function getConsoleSkillCatalogPromptProjection(options = {}) {
+  return deepFreezeJson(cloneJson(getConsoleSkillCatalog(options)));
+}
+
+function normalizeCatalogGates(options) {
+  return {
+    marketReadEnabled: options?.marketReadEnabled === true,
+    accountReadEnabled: options?.accountReadEnabled === true,
+    proposalEnabled: options?.proposalEnabled === true,
+    helixaReadEnabled: options?.helixaReadEnabled === true,
+  };
 }
 
 function assertDescriptor(descriptor) {

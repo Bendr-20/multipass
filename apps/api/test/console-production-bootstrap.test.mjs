@@ -310,6 +310,28 @@ test('production bootstrap composes the independent market-read gate and read-on
   assert.equal(disabled.calls.runtime.marketReadEnabled, false);
 });
 
+test('production bootstrap composes the owner-account read gate independently of market and proposal modes', async () => {
+  const enabled = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: true,
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, enabled.factories);
+  assert.equal(countOf(enabled, 'readSkillExecutor'), 1);
+  assert.equal(enabled.calls.runtime.accountReadEnabled, true);
+  assert.equal(enabled.calls.runtime.marketReadEnabled, false);
+  assert.equal(enabled.calls.runtime.skillProposalsEnabled, false);
+  assert.equal(enabled.calls.runtime.bankrReadEnabled, true);
+
+  const noKey = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleAccountReadEnabled: true,
+  }, noKey.factories);
+  assert.equal(noKey.calls.runtime.accountReadEnabled, true);
+  assert.equal(noKey.calls.runtime.bankrReadEnabled, false);
+});
+
 test('enabled XMTP production bootstrap passes the skill flag to its shared worker graph', async () => {
   const harness = createFactoryHarness();
   await createConsoleProductionBootstrap({

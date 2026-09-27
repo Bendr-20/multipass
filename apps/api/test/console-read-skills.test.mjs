@@ -9,6 +9,7 @@ import {
 const BANKR_PROMPT_URL = 'https://api.bankr.bot/agent/prompt';
 const BANKR_JOB_URL = 'https://api.bankr.bot/agent/job/job_abc-123';
 const HELIXA_AGENT_URL = 'https://api.helixa.xyz/api/v2/agent/1';
+const OWNER_ACCOUNT = '0x1111111111111111111111111111111111111111';
 
 function jsonResponse(body, { status = 200 } = {}) {
   return new Response(JSON.stringify(body), {
@@ -423,55 +424,13 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['Compare ETH and SOL technicals', 'market_research', 'comparison'],
     ['Show trending Base tokens by volume', 'market_research', 'market'],
     ['What is social sentiment for BTC?', 'market_research', 'market'],
-    ['Show my portfolio on Base', 'bankr_read'],
-    ['List my token balances and holdings', 'bankr_read'],
-    ['Find NFTs in the Based collection', 'bankr_read'],
-    ['What is the floor price for Loopers?', 'bankr_read'],
-    ['Show my NFT portfolio', 'bankr_read'],
-    ['What are the odds on ETH reaching $10k?', 'bankr_read'],
-    ['Show open Polymarket markets', 'bankr_read'],
-    ['Show my Polymarket positions', 'bankr_read'],
-    ['Show my positions', 'bankr_read'],
-    ['Show open positions', 'bankr_read'],
-    ['Show my open positions', 'bankr_read'],
-    ['What are my open positions?', 'bankr_read'],
-    ['Show status of my open positions', 'bankr_read'],
-    ['Show my long/short positions', 'bankr_read'],
-    ['Show my short positions', 'bankr_read'],
-    ['Show my leverage positions', 'bankr_read'],
-    ['Show leverage status', 'bankr_read'],
-    ['What is my position status?', 'bankr_read'],
-    ['Show my position history', 'bankr_read'],
-    ['Show my leverage history', 'bankr_read'],
-    ['What is the deployment status of my token?', 'bankr_read'],
-    ['Show token fee status', 'bankr_read'],
-    ['Show my active orders', 'bankr_read'],
-    ['Show my open orders', 'bankr_read'],
-    ['List active limit orders', 'bankr_read'],
-    ['Show automation status', 'bankr_read'],
-    ['Show automation history', 'bankr_read'],
-    ['Show DCA status', 'bankr_read'],
-    ['Show my DCA orders', 'bankr_read'],
-    ['Show my TWAP history', 'bankr_read'],
-    ['Show my TWAP orders', 'bankr_read'],
-    ['Show TWAP execution history', 'bankr_read'],
-    ['List my TWAP execution history', 'bankr_read'],
-    ['Show automation execution history', 'bankr_read'],
-    ['View automation execution history', 'bankr_read'],
-    ['Show my token issuance status', 'bankr_read'],
-    ['View token issuance status', 'bankr_read'],
-    ['Show token issuance history', 'bankr_read'],
-    ['List token issuance history', 'bankr_read'],
-    ['Show order amendment status', 'bankr_read'],
-    ['View automation amendment history', 'bankr_read'],
-    ['Show amendment status', 'bankr_read'],
-    ['Show my NFT bid status', 'bankr_read'],
-    ['List my market bid history', 'bankr_read'],
-    ['Show bid status', 'bankr_read'],
-    ['View bidding history', 'bankr_read'],
-    ['Show restake status', 'bankr_read'],
-    ['Show restaking status', 'bankr_read'],
-    ['View my restaking history', 'bankr_read'],
+    ['Show my portfolio on Base', 'owner_account_read'],
+    ['List my token balances and holdings', 'owner_account_read'],
+    ['Show my NFT portfolio', 'owner_account_read'],
+    ['Find NFTs in the Based collection', 'market_research', 'market'],
+    ['What is the floor price for Loopers?', 'market_research', 'market'],
+    ['What are the odds on ETH reaching $10k?', 'market_research', 'market'],
+    ['Show open Polymarket markets', 'market_research', 'market'],
     ['Compare BTC vs ETH technicals', 'market_research', 'comparison'],
     ['Compare BTC and ETH performance', 'market_research', 'comparison'],
     ['Show crypto news and sentiment', 'market_research', 'news'],
@@ -480,9 +439,7 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['Show PEPE price', 'market_research', 'market'],
     ['Price of AERO', 'market_research', 'market'],
     ['Compare AERO vs DEGEN performance', 'market_research', 'comparison'],
-    ['Show my portfolio and balances', 'bankr_read'],
-    ['Show Polymarket odds and positions', 'bankr_read'],
-    ['Show DCA and TWAP status', 'bankr_read'],
+    ['Show my portfolio and balances', 'owner_account_read'],
     ['/bankr research Give me the latest Base ecosystem news', 'market_research', 'news'],
     ['/bankr price ETH', 'price'],
   ];
@@ -494,6 +451,110 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     if (kind) assert.equal(intent?.kind, kind, message);
     assert.match(intent?.command ?? '', /^\/bankr (?:read|price|research (?:market|news|comparison)) /, message);
   }
+});
+
+test('splits public market reads from verified-owner account reads and disables unscoped account categories', () => {
+  for (const query of ['Show my portfolio on Base', 'List my token balances and holdings', 'Show my NFT portfolio']) {
+    assert.equal(resolveConsoleReadSkillIntent(query)?.operation, 'owner_account_read', query);
+  }
+  for (const query of ['Find NFTs in the Based collection', 'What is the floor price for Loopers?', 'What are the odds on ETH reaching $10k?']) {
+    assert.equal(resolveConsoleReadSkillIntent(query)?.operation, 'market_research', query);
+  }
+  for (const query of [
+    'Show my positions',
+    'Show leverage status',
+    'Show my active orders',
+    'Show automation status',
+    'Show DCA status',
+    'Show token deployment status',
+    'Show token fee status',
+  ]) assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+});
+
+test('owner-account reads require an out-of-band verified account and bind the prompt and result to it', async () => {
+  let fetches = 0;
+  const missingContextExecutor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+  });
+  await assert.rejects(
+    missingContextExecutor.execute('/bankr read Show my portfolio on Base'),
+    /verified owner account is required/i,
+  );
+  assert.equal(fetches, 0);
+
+  const calls = [];
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    sleep: async () => {},
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      return String(url) === BANKR_PROMPT_URL
+        ? jsonResponse({ success: true, status: 'pending', jobId: 'job_owner_1' })
+        : jsonResponse({
+          success: true,
+          status: 'completed',
+          jobId: 'job_owner_1',
+          response: `Portfolio balance is 1 ETH.\nAccount: ${OWNER_ACCOUNT}`,
+        });
+    },
+  });
+  const result = await executor.execute('/bankr read Show my portfolio on Base', { accountAddress: OWNER_ACCOUNT });
+  const prompt = JSON.parse(calls[0].init.body).prompt;
+  assert.equal(result.operation, 'owner_account_read');
+  assert.deepEqual(result.data, { query: 'Show my portfolio on Base', accountAddress: OWNER_ACCOUNT });
+  assert.match(prompt, new RegExp(`server-verified.*${OWNER_ACCOUNT}`, 'i'));
+  assert.match(prompt, /exact public address only/i);
+  assert.match(result.text, new RegExp(`^Account: ${OWNER_ACCOUNT}$`, 'm'));
+  assert.ok(Buffer.byteLength(result.text, 'utf8') <= 2_048);
+
+  const foreignAccountExecutor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    sleep: async () => {},
+    fetchImpl: async (url) => String(url) === BANKR_PROMPT_URL
+      ? jsonResponse({ success: true, status: 'pending', jobId: 'job_foreign_owner' })
+      : jsonResponse({
+        success: true,
+        status: 'completed',
+        jobId: 'job_foreign_owner',
+        response: 'Foreign portfolio.\nAccount: 0x2222222222222222222222222222222222222222',
+      }),
+  });
+  await assert.rejects(
+    foreignAccountExecutor.execute('/bankr read Show my portfolio on Base', { accountAddress: OWNER_ACCOUNT }),
+    /invalid bankr owner-account response/i,
+  );
+});
+
+test('typed market-research kind cannot bypass server-derived news validation', async () => {
+  let fetches = 0;
+  const executor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+  });
+  await assert.rejects(
+    executor.execute('/bankr research market Give me the latest Base ecosystem news'),
+    /Unsupported Console read skill command/,
+  );
+  assert.equal(fetches, 0);
+
+  const newsExecutor = createConsoleReadSkillExecutor({
+    bankrApiKey: 'read-only-test-key',
+    now: () => '2026-09-27T15:24:00.000Z',
+    sleep: async () => {},
+    fetchImpl: async (url) => String(url) === BANKR_PROMPT_URL
+      ? jsonResponse({ success: true, status: 'pending', jobId: 'job_news_kind' })
+      : jsonResponse({
+        success: true,
+        status: 'completed',
+        jobId: 'job_news_kind',
+        response: 'Base activity rose.\nData timestamp: 2026-09-27 15:20:00 UTC\nSource: Example News',
+      }),
+  });
+  await assert.rejects(
+    newsExecutor.execute('/bankr research news Give me the latest Base ecosystem news'),
+    /invalid bankr market research response/i,
+  );
 });
 
 test('closed Bankr read grammar rejects unseen actions and mixed clauses before intent or fetch', async () => {
@@ -609,8 +670,6 @@ test('closed Bankr read grammar rejects every clause separator unless the full c
     'Show crypto narratives and news',
     'Show ETH price and volume',
     'Show my portfolio and balances',
-    'Show Polymarket odds and positions',
-    'Show DCA and TWAP status',
   ]) assert.ok(resolveConsoleReadSkillIntent(query), query);
 });
 
@@ -757,7 +816,7 @@ test('fails closed for Bankr actions, mixed read/write requests, injection, call
   for (const message of writes) assert.equal(resolveConsoleReadSkillIntent(message), null, message);
 });
 
-test('/bankr read submits the original query as untrusted read-only data with timestamp and source requirements', async () => {
+test('/bankr research submits the original query as untrusted read-only data with timestamp and source requirements', async () => {
   const calls = [];
   const executor = createConsoleReadSkillExecutor({
     bankrApiKey: 'read-only-test-key',
@@ -767,22 +826,22 @@ test('/bankr read submits the original query as untrusted read-only data with ti
       calls.push({ url: String(url), init });
       return String(url) === BANKR_PROMPT_URL
         ? jsonResponse({ success: true, status: 'pending', jobId: 'job_read_1' })
-        : jsonResponse({ success: true, status: 'completed', jobId: 'job_read_1', response: 'Base activity is rising. Source: public market data.' });
+        : jsonResponse({ success: true, status: 'completed', jobId: 'job_read_1', response: 'ETH price is stable.\nData timestamp: 2026-09-27 14:30:00 UTC\nSource: public market data' });
     },
   });
 
-  const query = 'Give me the latest Base ecosystem news';
-  const result = await executor.execute(`/bankr read ${query}`);
+  const query = 'Show ETH price';
+  const result = await executor.execute(`/bankr research market ${query}`);
   const submitted = JSON.parse(calls[0].init.body);
 
-  assert.equal(result.operation, 'bankr_read');
+  assert.equal(result.operation, 'market_research');
   assert.equal(result.data.query, query);
-  assert.match(submitted.prompt, /untrusted user query/i);
+  assert.match(submitted.prompt, /untrusted data/i);
   assert.match(submitted.prompt, new RegExp(query));
   assert.match(submitted.prompt, /2026-09-27T14:31:00\.000Z/);
-  assert.match(submitted.prompt, /read-only tools and data/i);
-  assert.match(submitted.prompt, /source names.*public links/i);
-  assert.match(submitted.prompt, /never.*wallet action|forbid.*wallet action/i);
+  assert.match(submitted.prompt, /read-only tools and current public data/i);
+  assert.match(submitted.prompt, /source names/i);
+  assert.match(submitted.prompt, /never use wallet context/i);
   assert.match(submitted.prompt, /orders|signing|submission/i);
   assert.deepEqual(Object.keys(JSON.parse(calls[0].init.body)), ['prompt']);
 });
@@ -851,26 +910,23 @@ test('executor performs zero Bankr fetches for every action-bearing direct comma
   assert.equal(fetches, 0);
 });
 
-test('allows benign portfolio and deployment status prose while still stripping upstream metadata', async () => {
+test('executor rejects unscoped status reads before Bankr access', async () => {
+  let fetches = 0;
   const executor = createConsoleReadSkillExecutor({
     bankrApiKey: 'read-only-test-key',
-    sleep: async () => {},
-    fetchImpl: async (url) => String(url) === BANKR_PROMPT_URL
-      ? jsonResponse({ success: true, status: 'pending', jobId: 'job_status_1' })
-      : jsonResponse({
-        success: true,
-        status: 'completed',
-        jobId: 'job_status_1',
-        response: 'Your wallet portfolio is unchanged. The token deployment transaction status is pending.',
-        threadId: 'must-not-escape',
-      }),
+    fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
   });
-
-  const result = await executor.execute('/bankr read Show my token deployment status');
-
-  assert.match(result.text, /wallet portfolio/i);
-  assert.match(result.text, /transaction status is pending/i);
-  assert.doesNotMatch(JSON.stringify(result), /threadId|must-not-escape/i);
+  for (const query of [
+    'Show my positions',
+    'Show leverage status',
+    'Show my active orders',
+    'Show automation status',
+    'Show token deployment status',
+    'Show token fee status',
+  ]) {
+    await assert.rejects(executor.execute(`/bankr read ${query}`), /Unsupported Console read skill command/);
+  }
+  assert.equal(fetches, 0);
 });
 
 test('classifies only bounded crypto market intelligence into typed market_research intents', () => {
@@ -989,8 +1045,11 @@ test('rejects malformed, stale, or unsafe typed market results before display', 
         ? jsonResponse({ success: true, status: 'pending', jobId: 'job_invalid' })
         : jsonResponse({ success: true, status: 'completed', jobId: 'job_invalid', response }),
     });
+    const query = kind === 'news'
+      ? 'Give me the latest Base ecosystem news'
+      : 'Give me current crypto data';
     await assert.rejects(
-      executor.execute(`/bankr research ${kind} Give me current crypto data`),
+      executor.execute(`/bankr research ${kind} ${query}`),
       /invalid bankr market research response/i,
     );
   }
