@@ -33,6 +33,7 @@ import {
   createLoopersPublicClients,
 } from './loopers-owned-agents.js';
 import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
+import { createLooperWalletReadContextLoader } from './looper-wallet-read-context.js';
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
@@ -219,6 +220,7 @@ export function createMultipassApi({
   consoleXmtpAppVersion = 'multipass-console',
   consoleXmtpClient,
   consoleAgentRuntime,
+  consoleWalletContextLoader,
   consoleMessageShortRateLimit,
   consoleMessageDailyRateLimit,
   consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
@@ -273,6 +275,9 @@ export function createMultipassApi({
     ...(loopersOwnedMetadataBaseUrl ? { metadataBaseUrl: loopersOwnedMetadataBaseUrl } : {}),
   });
   const authorizeLooper = loopersAuthorizer ?? ((input) => authorizeLooperControl({ ...input, publicClients: looperClients }));
+  const walletContextLoader = consoleWalletContextLoader ?? (looperClients
+    ? createLooperWalletReadContextLoader({ publicClients: looperClients })
+    : null);
   const context = {
     store,
     savedRecords,
@@ -299,6 +304,7 @@ export function createMultipassApi({
     loopersAuthorizer: authorizeLooper,
     consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
+    consoleWalletContextLoader: walletContextLoader,
     consoleMessageShortRateLimiter: createFixedWindowRateLimiter(
       consoleMessageShortRateLimit ?? CONSOLE_MESSAGE_SHORT_RATE_LIMIT,
     ),
@@ -587,7 +593,10 @@ async function handleConsoleAgentMessage(request, context) {
     return consoleThrottleResponse('console_message_busy', 'Console providers are busy.', 1);
   }
   try {
-    const walletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
+    const suppliedWalletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
+    const walletContext = context.consoleWalletContextLoader
+      ? await context.consoleWalletContextLoader({ identity, wallet: session.wallet })
+      : suppliedWalletContext;
     const activation = context.consoleRuntimeRegistry.get(identity);
     if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
     const result = await context.consoleAgentRuntime.handleMessage({
