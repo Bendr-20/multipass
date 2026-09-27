@@ -427,8 +427,14 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
     ['Show my portfolio on Base', 'owner_account_read'],
     ['List my token balances and holdings', 'owner_account_read'],
     ['Show my NFT portfolio', 'owner_account_read'],
+    ['Show my NFTs', 'owner_account_read'],
+    ['/bankr read Show my NFTs', 'owner_account_read'],
+    ['Show my positions', 'owner_account_read'],
+    ['Show my open positions', 'owner_account_read'],
     ['Find NFTs in the Based collection', 'market_research', 'market'],
     ['What is the floor price for Loopers?', 'market_research', 'market'],
+    ['Show NFT market trends', 'market_research', 'market'],
+    ['Latest NFT news', 'market_research', 'news'],
     ['What are the odds on ETH reaching $10k?', 'market_research', 'market'],
     ['Show open Polymarket markets', 'market_research', 'market'],
     ['Compare BTC vs ETH technicals', 'market_research', 'comparison'],
@@ -453,15 +459,31 @@ test('routes the complete bounded native Bankr read surface and preserves slash 
   }
 });
 
-test('splits public market reads from verified-owner account reads and disables unscoped account categories', () => {
-  for (const query of ['Show my portfolio on Base', 'List my token balances and holdings', 'Show my NFT portfolio']) {
+test('splits explicit NFT market semantics from verified-owner account reads and disables ambiguous or unscoped categories', () => {
+  for (const query of [
+    'Show my portfolio on Base',
+    'List my token balances and holdings',
+    'Show my NFT portfolio',
+    'Show my NFTs',
+    '/bankr read Show my NFTs',
+    'List my NFT holdings',
+    'Show my positions',
+    'Show my open positions',
+  ]) {
     assert.equal(resolveConsoleReadSkillIntent(query)?.operation, 'owner_account_read', query);
   }
-  for (const query of ['Find NFTs in the Based collection', 'What is the floor price for Loopers?', 'What are the odds on ETH reaching $10k?']) {
+  for (const query of [
+    'Find NFTs in the Based collection',
+    'What is the floor price for Loopers?',
+    'Show NFT market trends',
+    'Latest NFT news',
+    'What are the odds on ETH reaching $10k?',
+  ]) {
     assert.equal(resolveConsoleReadSkillIntent(query)?.operation, 'market_research', query);
   }
   for (const query of [
-    'Show my positions',
+    'Show NFTs',
+    '/bankr research Show my NFTs',
     'Show leverage status',
     'Show my active orders',
     'Show automation status',
@@ -469,6 +491,18 @@ test('splits public market reads from verified-owner account reads and disables 
     'Show token deployment status',
     'Show token fee status',
   ]) assert.equal(resolveConsoleReadSkillIntent(query), null, query);
+});
+
+test('possessive account reads require verified context before any provider fetch', async () => {
+  for (const command of ['/bankr read Show my NFTs', '/bankr read List my NFT holdings', '/bankr read Show my positions', '/bankr read Show my open positions']) {
+    let fetches = 0;
+    const executor = createConsoleReadSkillExecutor({
+      bankrApiKey: 'read-only-test-key',
+      fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
+    });
+    await assert.rejects(executor.execute(command), /verified owner account is required/i, command);
+    assert.equal(fetches, 0, command);
+  }
 });
 
 test('owner-account reads require an out-of-band verified account and bind the prompt and result to it', async () => {
@@ -626,6 +660,7 @@ test('unknown uppercase symbols are accepted only in explicit asset slots and ne
   const reviewerProbes = [
     'Show ETH price DONATE',
     'Show ETH price REMIT',
+    'Show ETH price TOKEN',
     'Show ETH price and volume DONATE',
     'Compare BTC and ETH performance DONATE',
     'Give me crypto market data DONATE ETH',
@@ -910,14 +945,13 @@ test('executor performs zero Bankr fetches for every action-bearing direct comma
   assert.equal(fetches, 0);
 });
 
-test('executor rejects unscoped status reads before Bankr access', async () => {
+test('executor rejects unsupported account status reads before Bankr access', async () => {
   let fetches = 0;
   const executor = createConsoleReadSkillExecutor({
     bankrApiKey: 'read-only-test-key',
     fetchImpl: async () => { fetches += 1; throw new Error('must not fetch'); },
   });
   for (const query of [
-    'Show my positions',
     'Show leverage status',
     'Show my active orders',
     'Show automation status',
