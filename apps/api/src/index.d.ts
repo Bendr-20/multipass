@@ -68,6 +68,7 @@ export interface MultipassApiOptions {
   consoleAgentBankrLlmEnabled?: boolean;
   consoleSkillProposalsEnabled?: boolean;
   consoleMarketReadEnabled?: boolean;
+  consoleAccountReadEnabled?: boolean;
   consoleXmtpEnabled?: boolean;
   consoleXmtpEnv?: string;
   consoleXmtpWalletKey?: string | null;
