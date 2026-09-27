@@ -199,6 +199,33 @@ test('Bankr projects valid, mixed, malformed, and plain replies with proposals e
   }
 });
 
+test('skill-aware Bankr preserves validated envelope data inside the production loose-fence wrapper', async () => {
+  const content = `^^\`\`\`json\n${validEnvelope()}\n\`\`\` `;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    skillProposalsEnabled: true,
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [{ message: { content } }],
+    }), { status: 200 }),
+  });
+
+  const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Suggest a transfer.' });
+
+  assert.deepEqual(result, {
+    provider: 'bankr_llm_gateway',
+    text: 'Review this transfer suggestion.',
+    skillRefs: ['bankr'],
+    transferCandidates: [{
+      skill: 'bankr',
+      assetType: 'native',
+      assetContract: null,
+      recipient: RECIPIENT,
+      amountBaseUnits: '1',
+      rationale: 'Requested by the operator for review.',
+    }],
+  });
+});
+
 test('skill-aware Bankr prompt uses only the exact server projection and requests the strict review-only envelope', async () => {
   let requestBody;
   const sentinels = {
