@@ -225,10 +225,11 @@ export function createConsoleAgentRuntime({
         ? bindProposalCandidates(participantResponses, currentPublishedMessages, capabilities)
         : null;
 
-      const threadMessages = await memoryClient.appendThread({
+      const persistedThreadMessages = await memoryClient.appendThread({
         namespace,
         messages: threadBatch.slice(-MAX_THREAD_HISTORY),
       });
+      const threadMessages = sanitizeBankrLlmMessages(persistedThreadMessages, consoleCatalog);
 
       return {
         schema_version: '0.1.0',

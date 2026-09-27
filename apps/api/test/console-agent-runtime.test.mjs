@@ -273,6 +273,80 @@ test('runtime sanitizes stored Bankr replies before passing inference history wi
   assert.equal(human.text, consoleEnvelope('Human text must remain raw.'));
 });
 
+test('handleMessage sanitizes persisted Bankr thread results while preserving metadata and other messages', async () => {
+  const persistedBankr = {
+    id: 'persisted-bankr-valid',
+    role: 'agent',
+    text: consoleEnvelope('Persisted Bankr answer.'),
+    sentAt: '2026-09-27T01:30:00.000Z',
+    transport: 'xmtp_group',
+    inferenceProvider: 'bankr_llm_gateway',
+    senderLabel: 'Looper #1234',
+    participantId: '1234',
+    conversationId: 'conversation-persisted',
+    xmtpMessageId: 'xmtp-persisted-1',
+    metadata: { retained: true },
+  };
+  const malformedBankr = {
+    ...persistedBankr,
+    id: 'persisted-bankr-malformed',
+    text: '{"\\u0061ssistant_text":"never leak"',
+    xmtpMessageId: 'xmtp-persisted-2',
+  };
+  const human = {
+    ...persistedBankr,
+    id: 'persisted-human',
+    role: 'human',
+    text: consoleEnvelope('Human text remains raw.'),
+    xmtpMessageId: 'xmtp-persisted-3',
+  };
+  const readSkill = {
+    ...persistedBankr,
+    id: 'persisted-read-skill',
+    text: consoleEnvelope('Read skill text remains raw.'),
+    inferenceProvider: 'bankr_agent_api',
+    xmtpMessageId: 'xmtp-persisted-4',
+  };
+  const persisted = [persistedBankr, malformedBankr, human, readSkill];
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: {
+      provider: 'test_memory',
+      async loadThread() { return []; },
+      async recallMemory() { return []; },
+      async searchMemory() { return []; },
+      async saveMemory() { return null; },
+      async appendThread() { return persisted; },
+    },
+    xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-27T01:31:00.000Z' }),
+    now: () => '2026-09-27T01:31:00.000Z',
+    llmClient: {
+      async generate() {
+        return { provider: 'bankr_llm_gateway', text: 'Current safe answer.' };
+      },
+    },
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+    message: 'Continue.',
+  });
+
+  assert.deepEqual(result.thread.messages[0], { ...persistedBankr, text: 'Persisted Bankr answer.' });
+  assert.deepEqual(
+    { ...result.thread.messages[1], text: undefined },
+    { ...malformedBankr, text: undefined },
+  );
+  assert.notEqual(result.thread.messages[1].text, malformedBankr.text);
+  assert.doesNotMatch(result.thread.messages[1].text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+  assert.deepEqual(result.thread.messages[2], human);
+  assert.deepEqual(result.thread.messages[3], readSkill);
+  assert.equal(persistedBankr.text, consoleEnvelope('Persisted Bankr answer.'));
+  assert.equal(human.text, consoleEnvelope('Human text remains raw.'));
+  assert.equal(readSkill.text, consoleEnvelope('Read skill text remains raw.'));
+});
+
 test('local Sibyl adapter saves and recalls durable watchlist memory', async () => {
   const memory = createLocalSibylMemoryStore({ now: () => '2026-08-30T01:30:00.000Z' });
   const namespace = buildSibylMemoryNamespace({

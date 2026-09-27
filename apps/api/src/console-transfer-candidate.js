@@ -18,6 +18,7 @@ const MAX_SKILL_REFS = 4;
 const MAX_UINT256 = (1n << 256n) - 1n;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const SAFE_RETRY_TEXT = 'I could not safely read that response. Please try again.';
+const ENVELOPE_KEY_SET = new Set(ENVELOPE_KEYS);
 
 export function decodeConsoleLlmEnvelope(content, { catalog } = {}) {
   const skills = indexFrozenCatalog(catalog);
@@ -125,12 +126,43 @@ function findCompleteJsonObjectCandidates(content) {
 }
 
 function containsEnvelopeMarkers(content) {
-  const normalized = String(content).toLowerCase();
-  return normalized.includes('schema_version')
-    || normalized.includes('assistant_text')
-    || normalized.includes('skill_refs')
-    || normalized.includes('transfer_candidates')
-    || normalized.includes('```');
+  const source = String(content);
+  const normalized = source.toLowerCase();
+  return ENVELOPE_KEYS.some((key) => normalized.includes(key))
+    || normalized.includes('```')
+    || containsEscapedEnvelopeKey(source);
+}
+
+function containsEscapedEnvelopeKey(content) {
+  for (let start = 0; start < content.length; start += 1) {
+    if (content[start] !== '"') continue;
+    const end = findJsonStringEnd(content, start);
+    if (end === -1) return false;
+
+    let cursor = end + 1;
+    while (/\s/u.test(content[cursor] ?? '')) cursor += 1;
+    if (content[cursor] === ':') {
+      try {
+        const key = JSON.parse(content.slice(start, end + 1));
+        if (typeof key === 'string' && ENVELOPE_KEY_SET.has(key.toLowerCase())) return true;
+      } catch {
+        // Invalid JSON string tokens are handled by the surrounding fail-closed checks.
+      }
+    }
+    start = end;
+  }
+  return false;
+}
+
+function findJsonStringEnd(content, start) {
+  let escaped = false;
+  for (let index = start + 1; index < content.length; index += 1) {
+    const character = content[index];
+    if (escaped) escaped = false;
+    else if (character === '\\') escaped = true;
+    else if (character === '"') return index;
+  }
+  return -1;
 }
 
 function normalizeSkillRefs(value, skills) {

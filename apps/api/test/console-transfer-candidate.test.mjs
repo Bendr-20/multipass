@@ -150,6 +150,24 @@ test('projects malformed or truncated envelope markers to one bounded server-own
   for (const content of malformed) assert.notEqual(outputs[0], content);
 });
 
+test('fails closed on malformed envelopes with JSON-escaped field-name markers', () => {
+  const escaped = [
+    '{"\\u0073chema_version":"0.1.0",',
+    '{"\\u0061ssistant_text":"never render me"',
+    '{"skill_\\u0072efs":["bankr"]',
+    '{"transfer_\\u0063andidates":[]',
+    'prefix {"\\u0073chema_version":"0.1.0","assistant_\\u0074ext":"never"',
+    `${JSON.stringify(envelope({ assistant_text: 'A complete envelope must not mask escaped truncation.' }))}\n{"transfer_\\u0063andidates":[]`,
+  ];
+  const outputs = escaped.map((content) => projectConsoleLlmDisplayText(content, { catalog }));
+
+  assert.equal(new Set(outputs).size, 1);
+  assert.ok(outputs[0].length > 0);
+  assert.ok(Buffer.byteLength(outputs[0], 'utf8') <= 4_096);
+  assertNoEnvelopeLeak(outputs[0]);
+  for (const content of escaped) assert.notEqual(outputs[0], content);
+});
+
 test('leaves plain prose unchanged and truncates it on a valid UTF-8 boundary', () => {
   const plain = 'Plain Console prose remains exactly readable.';
   assert.equal(projectConsoleLlmDisplayText(plain, { catalog }), plain);
