@@ -74,7 +74,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
     }) ?? undefined
     : undefined;
   const bankrReadonlyApiKey = String(options.bankrReadonlyApiKey ?? '').trim() || null;
-  const readSkillExecutor = options.consoleSkillProposalsEnabled === true
+  const readSkillExecutor = options.consoleSkillProposalsEnabled === true || options.consoleMarketReadEnabled === true
     ? factories.createConsoleReadSkillExecutor({
       bankrApiKey: bankrReadonlyApiKey,
       fetchImpl: options.fetchImpl ?? fetch,
@@ -111,6 +111,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       ...(readSkillExecutor ? { readSkillExecutor } : {}),
       xmtpClient: publishingClient,
       skillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
+      marketReadEnabled: options.consoleMarketReadEnabled === true,
       bankrReadEnabled: Boolean(bankrReadonlyApiKey),
       skillProviderTimeoutMs: options.consoleSkillProviderTimeoutMs,
     });
@@ -126,6 +127,7 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
         retryAttempts: options.consoleXmtpRetryAttempts,
         retryDelay: options.consoleXmtpRetryDelay,
         consoleSkillProposalsEnabled: options.consoleSkillProposalsEnabled === true,
+        consoleMarketReadEnabled: options.consoleMarketReadEnabled === true,
       });
     }
   } catch (error) {

@@ -428,21 +428,30 @@ test('worker env builder maps XMTP runtime defaults without enabling Bankr by ac
   assert.equal(options.consoleAgentBankrLlmEnabled, false);
   assert.equal(options.bankrLlmVisionModel, 'vision-model');
   assert.equal(options.consoleSkillProposalsEnabled, false);
+  assert.equal(options.consoleMarketReadEnabled, false);
   assert.equal(options.defaults.agentId, '81');
   assert.equal(options.defaults.tokenId, '81');
   assert.equal(options.defaults.agentName, 'Quigbot');
 });
 
-test('worker env builder accepts only strict skill proposal booleans independently of Bankr chat', () => {
+test('worker env builder accepts only strict skill and market-read booleans independently of Bankr chat', () => {
   const options = buildConsoleXmtpWorkerOptionsFromEnv({
     MULTIPASS_AGENT_BANKR_LLM_ENABLED: '0',
     MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'yes',
+    MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'true',
+    BANKR_READONLY_API_KEY: 'readonly-secret',
   });
   assert.equal(options.consoleAgentBankrLlmEnabled, false);
   assert.equal(options.consoleSkillProposalsEnabled, true);
+  assert.equal(options.consoleMarketReadEnabled, true);
+  assert.equal(options.bankrReadonlyApiKey, 'readonly-secret');
   assert.throws(
     () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'on' }),
     /Invalid boolean for MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED/,
+  );
+  assert.throws(
+    () => buildConsoleXmtpWorkerOptionsFromEnv({ MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'on' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_MARKET_READ_ENABLED/,
   );
 });
 
@@ -499,6 +508,50 @@ test('standalone XMTP worker runtime exposes skill metadata only when explicitly
   assert.equal(enabledResult.capabilities.skills[0].id, 'bankr');
   assert.deepEqual(enabledResult.proposalCandidates, []);
   await enabled.stop();
+});
+
+test('standalone XMTP worker composes market reads independently of proposal mode', async () => {
+  const stream = { async *[Symbol.asyncIterator]() {}, async end() {} };
+  const nodeClient = {
+    inboxId: 'agent-inbox',
+    conversations: {
+      async syncAll() {}, async sync() {}, async streamAllMessages() { return stream; },
+      async getConversationById() { return null; },
+    },
+  };
+  let command = null;
+  const worker = await startConsoleXmtpWorker({
+    client: nodeClient,
+    xmtpClient: {
+      provider: 'test_xmtp', transport: 'xmtp_group',
+      async publishRoomMessages(input) {
+        return { ...input, transport: 'xmtp_group', adapter: 'test_xmtp', messages: input.messages };
+      },
+    },
+    runtimeRegistry: createLooperRuntimeRegistry(),
+    authorizeLooper: async () => IDENTITY,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: true,
+    bankrReadonlyApiKey: 'readonly-secret',
+    readSkillExecutor: {
+      async execute(value) {
+        command = value;
+        return {
+          skill: 'bankr', operation: 'market_research', provider: 'bankr_agent_api',
+          text: 'Market result.\n\nRead-only market research; informational only.',
+          data: { kind: 'market', query: 'What is moving crypto today?' },
+        };
+      },
+    },
+    logger: { warn() {}, info() {}, error() {} },
+  });
+  const result = await worker.runtime.handleMessage({
+    wallet: WALLET, agentId: '617', tokenId: '617', message: 'What is moving crypto today?',
+  });
+  assert.equal(command, '/bankr research market What is moving crypto today?');
+  assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
+  assert.equal('proposalCandidates' in result, false);
+  await worker.stop();
 });
 
 test('worker consumes supplied Node, publisher, runtime, registry, and authorizer without owning a second client', async () => {

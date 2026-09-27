@@ -218,6 +218,7 @@ export function createMultipassApi({
   bankrLlmVisionModel,
   consoleAgentBankrLlmEnabled = false,
   consoleSkillProposalsEnabled = false,
+  consoleMarketReadEnabled = false,
   consoleXmtpEnabled = false,
   consoleXmtpEnv = 'production',
   consoleXmtpWalletKey = null,
@@ -250,7 +251,8 @@ export function createMultipassApi({
       }) ?? undefined
       : undefined,
     skillProposalsEnabled: consoleSkillProposalsEnabled,
-    ...(consoleSkillProposalsEnabled ? {
+    marketReadEnabled: consoleMarketReadEnabled,
+    ...(consoleSkillProposalsEnabled || consoleMarketReadEnabled ? {
       readSkillExecutor: createConsoleReadSkillExecutor({
         bankrApiKey: bankrReadonlyApiKey,
         fetchImpl,
