@@ -21,16 +21,35 @@ const EXPECTED_DESCRIPTOR_KEYS = [
 const BANKR_DESCRIPTOR = {
   id: 'bankr',
   name: 'Bankr',
-  summary: 'Read-only crypto price specialist with review-only ETH and ERC-20 transfer suggestions.',
-  capabilities: ['price_read', 'transfer'],
-  enabledCapabilities: ['explain', 'price_read', 'propose_transfer'],
+  summary: 'Native Bankr reads for market, news, sentiment, portfolios, NFTs, Polymarket, positions, token/fee/deployment, and order status. Wallet-changing trading, transfer, bridge, NFT, betting, leverage, deployment, automation, and raw-transaction requests are unsigned review proposals only.',
+  capabilities: [
+    'market_news_sentiment',
+    'portfolio_balances',
+    'nfts',
+    'polymarket',
+    'positions_orders_automation',
+    'token_fee_deployment_status',
+    'transfer_proposals',
+    'other_wallet_action_proposals',
+  ],
+  enabledCapabilities: [
+    'read_market_news_sentiment',
+    'read_portfolio_balances',
+    'read_nfts',
+    'read_polymarket',
+    'read_positions_orders_automation',
+    'read_token_fee_deployment_status',
+    'propose_transfer',
+    'propose_other_wallet_actions',
+  ],
   execution: 'human_review',
   credentialAccess: false,
   constraints: [
-    'No Bankr wallet is used for Looper funds.',
-    'No Bankr API credential is exposed to the model or browser.',
-    'Only BTC, ETH, SOL, and USDC current USD price reads are enabled.',
-    'Transfer suggestions are unverified and require human review.',
+    'Direct execution is limited to reads through the server-only read-only Bankr key.',
+    'No Bankr wallet or credential reaches the model or browser.',
+    'No write, wallet action, order, signature, submission, mutation, or raw transaction is executed.',
+    'Write requests produce concise unsigned review proposals only.',
+    'No arbitrary third-party marketplace skill is installed or executed.',
   ],
 };
 
@@ -97,7 +116,8 @@ test('returns exact frozen Bankr and Helixa descriptors with a canonical catalog
     assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
   }
   assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]);
-  assert.deepEqual(catalog.skills[0].enabledCapabilities, ['explain', 'price_read', 'propose_transfer']);
+  assert.ok(catalog.skills[0].enabledCapabilities.slice(0, 6).every((entry) => entry.startsWith('read_')));
+  assert.ok(catalog.skills[0].enabledCapabilities.slice(6).every((entry) => entry.startsWith('propose_')));
   assert.deepEqual(catalog.skills[1].enabledCapabilities, ['agent_profile_read']);
   assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
   assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));

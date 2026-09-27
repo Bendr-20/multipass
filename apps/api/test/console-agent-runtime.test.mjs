@@ -900,7 +900,7 @@ test('natural-language market research uses the read-only Bankr Agent path', asy
         executedCommand = command;
         return {
           skill: 'bankr',
-          operation: 'market_research',
+          operation: 'bankr_read',
           provider: 'bankr_agent_api',
           text: 'Bankr read-only market overview with timestamped market data.',
         };
@@ -920,9 +920,94 @@ test('natural-language market research uses the read-only Bankr Agent path', asy
     message: 'Give me a concise crypto market analysis.',
   });
 
-  assert.equal(executedCommand, '/bankr research Give me a concise crypto market analysis.');
+  assert.equal(executedCommand, '/bankr read Give me a concise crypto market analysis.');
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
   assert.match(result.thread.messages.at(-1).text, /market overview/i);
+});
+
+test('all native Bankr reads route directly, persist display text only, and create no wallet controls', async () => {
+  const commands = [];
+  const llmInputs = [];
+  const published = [];
+  const persisted = [];
+  const baseXmtp = createLocalXmtpAgentClient();
+  const runtime = createConsoleAgentRuntime({
+    skillProposalsEnabled: true,
+    bankrReadEnabled: true,
+    readSkillExecutor: {
+      async execute(command) {
+        commands.push(command);
+        return {
+          skill: 'bankr', operation: 'bankr_read', provider: 'bankr_agent_api',
+          text: 'Display-only Bankr read result.', data: { secret: 'must not persist' },
+        };
+      },
+    },
+    llmClient: { async generate(input) { llmInputs.push(input); throw new Error('LLM must not run'); } },
+    xmtpClient: {
+      ...baseXmtp,
+      async publishRoomMessages(input) {
+        published.push(...input.messages);
+        return baseXmtp.publishRoomMessages(input);
+      },
+    },
+    memoryClient: {
+      provider: 'test_memory',
+      async loadThread() { return []; }, async recallMemory() { return []; }, async searchMemory() { return []; },
+      async saveMemory() { return null; },
+      async appendThread({ messages }) { persisted.push(...messages); return messages; },
+    },
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET, agentId: '1', tokenId: '1', message: 'Show my portfolio on Base',
+    walletContext: {
+      kind: 'looper_wallet_read_context',
+      capabilities: { read: true, sign: false, submit: false, approve: false },
+      accounts: [{ address: WALLET }],
+    },
+  });
+
+  assert.deepEqual(commands, ['/bankr read Show my portfolio on Base']);
+  assert.equal(llmInputs.length, 0);
+  assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
+  assert.equal(result.thread.messages.at(-1).text, 'Display-only Bankr read result.');
+  assert.deepEqual(result.proposalCandidates, []);
+  assert.equal('walletControls' in result, false);
+  assert.equal(JSON.stringify(persisted).includes('must not persist'), false);
+  assert.equal(JSON.stringify(published).includes('/bankr read'), false);
+  assert.equal(JSON.stringify(published).includes('must not persist'), false);
+});
+
+test('wallet-changing Bankr requests bypass read executor and receive proposal-only LLM handling', async () => {
+  const actionMessages = [
+    'Buy ETH',
+    'Show active orders and cancel one',
+    'Give me Base news then bridge ETH',
+    'Submit raw transaction 0xdeadbeef',
+    'Schedule a weekly DCA for BTC',
+  ];
+  for (const message of actionMessages) {
+    let readCalls = 0;
+    const llmInputs = [];
+    const runtime = createConsoleAgentRuntime({
+      skillProposalsEnabled: true,
+      readSkillExecutor: { async execute() { readCalls += 1; throw new Error('must not run'); } },
+      xmtpClient: createLocalXmtpAgentClient(),
+      memoryClient: createLocalSibylMemoryStore(),
+      llmClient: {
+        async generate(input) {
+          llmInputs.push(input);
+          return { provider: 'bankr_llm_gateway', text: 'Unsigned review proposal only.', skillRefs: ['bankr'], transferCandidates: [] };
+        },
+      },
+    });
+    const result = await runtime.handleMessage({ wallet: WALLET, agentId: '1', tokenId: '1', message });
+    assert.equal(readCalls, 0, message);
+    assert.equal(llmInputs.length, 1, message);
+    assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_llm_gateway', message);
+    assert.deepEqual(result.proposalCandidates, [], message);
+  }
 });
 
 test('malicious upstream skill text is byte-projected display-only and cannot create proposals or wallet authority', async () => {
