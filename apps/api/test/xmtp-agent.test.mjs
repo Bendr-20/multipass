@@ -2,10 +2,44 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createDeferredXmtpAgentClient,
   createLocalXmtpAgentClient,
   createNodeXmtpAgentClient,
   normalizeDbEncryptionKey,
 } from '../src/xmtp-agent/index.js';
+
+test('XMTP transport is disabled by default and never silently falls back to local output', async () => {
+  const xmtp = createDeferredXmtpAgentClient();
+
+  assert.equal(xmtp.provider, 'xmtp_disabled');
+  assert.equal(xmtp.transport, 'unavailable');
+  await assert.rejects(
+    () => xmtp.publishRoomMessages({ threadId: 'canonical-thread', messages: [{ role: 'human', text: 'hello' }] }),
+    /XMTP transport is disabled/i,
+  );
+});
+
+test('local XMTP adapter is available only through explicit test fallback and stays labeled local', async () => {
+  const xmtp = createDeferredXmtpAgentClient({ localFallbackEnabled: true });
+  const result = await xmtp.publishRoomMessages({
+    threadId: 'canonical-thread',
+    messages: [{ role: 'human', text: 'test only' }],
+  });
+
+  assert.equal(xmtp.provider, 'local_xmtp_adapter');
+  assert.equal(result.transport, 'xmtp_local');
+  assert.equal(result.adapter, 'local_xmtp_adapter');
+});
+
+test('explicit live XMTP enablement fails closed when wallet configuration is absent', async () => {
+  const xmtp = createDeferredXmtpAgentClient({ enabled: true });
+
+  assert.equal(xmtp.provider, 'xmtp_unconfigured');
+  await assert.rejects(
+    () => xmtp.getThread({ threadId: 'canonical-thread' }),
+    /wallet configuration is unavailable/i,
+  );
+});
 
 test('local XMTP adapter opens a room and appends ordered messages', async () => {
   const xmtp = createLocalXmtpAgentClient({ now: () => '2026-08-30T01:45:00.000Z' });
@@ -92,6 +126,71 @@ test('node XMTP adapter can publish into an existing conversation', async () => 
     text: '[Quigbot] Saved. Review-only.',
     options: { idempotencyKey: 'xmtp_0' },
   }]);
+});
+
+test('node XMTP adapter fails closed when the authenticated holder cannot be added to a new group', async () => {
+  let optimisticGroups = 0;
+  const xmtp = await createNodeXmtpAgentClient({
+    client: {
+      conversations: {
+        async createGroupWithIdentifiers() {
+          throw new Error('holder is not reachable on XMTP');
+        },
+        createGroupOptimistic() {
+          optimisticGroups += 1;
+          return {
+            id: 'self-only-group',
+            async sendText() { return 'must-not-send'; },
+          };
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => xmtp.publishRoomMessages({
+      threadId: 'xmtp:eip155:8453:loopers:617:erc8004:87069',
+      topicId: 'eip155:8453:loopers:617:erc8004:87069',
+      wallet: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea',
+      roomName: 'Bendr Looper ops',
+      participants: [{ participantId: 'erc8004:87069', agentId: '87069', tokenId: '617', displayName: 'Bendr Looper' }],
+      messages: [{ role: 'human', text: 'Watch Loopers.' }],
+    }),
+    /holder is not reachable on XMTP/,
+  );
+  assert.equal(optimisticGroups, 0);
+});
+
+test('node XMTP adapter reopens a bound conversation from canonical thread state', async () => {
+  const conversation = {
+    id: 'conversation-617',
+    async sendText() { return 'unused'; },
+  };
+  let reads = 0;
+  const xmtp = await createNodeXmtpAgentClient({
+    client: {
+      conversations: {
+        async sync() {},
+        async getConversationById(conversationId) {
+          reads += 1;
+          return conversationId === conversation.id ? conversation : null;
+        },
+      },
+    },
+  });
+
+  const thread = await xmtp.getThread({
+    threadId: 'xmtp:eip155:8453:loopers:617:erc8004:87069',
+    conversationId: 'conversation-617',
+    roomName: 'Bendr Looper ops',
+    participants: [{ participantId: 'erc8004:87069', agentId: '87069', tokenId: '617', displayName: 'Bendr Looper' }],
+  });
+
+  assert.equal(reads, 1);
+  assert.equal(thread.conversationId, 'conversation-617');
+  assert.equal(thread.transport, 'xmtp_group');
+  assert.equal(thread.adapter, 'xmtp_node_sdk');
+  assert.equal(thread.participants[0].agentId, '87069');
 });
 
 test('normalizeDbEncryptionKey accepts hex with or without 0x and plain text', () => {

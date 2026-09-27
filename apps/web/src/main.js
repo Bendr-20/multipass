@@ -31,7 +31,7 @@ if (walletRoot && PRIVY_APP_ID) {
           appearance: {
             theme: 'dark',
             accentColor: '#6eecd8',
-            logo: 'https://helixa.xyz/helixa-logo.jpg',
+            logo: 'https://helixa.xyz/multipass/helixa-logo.png',
             walletList: PRIVY_CONNECT_WALLET_LIST,
             walletChainType: 'ethereum-only',
           },

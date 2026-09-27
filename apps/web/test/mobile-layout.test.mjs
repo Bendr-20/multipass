@@ -129,7 +129,31 @@ test('profile-first layout and drawers have dedicated responsive selectors', asy
 test('console portrait keeps the full Looper image visible in the sidebar card', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
-  assert.match(css, /\.console-agent-portrait\s*\{[^}]*aspect-ratio:\s*1;/s);
+  assert.match(css, /\.console-agent-portrait\s*\{[^}]*width:\s*min\(100%, 252px\);[^}]*aspect-ratio:\s*1;/s);
   assert.match(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center bottom;[^}]*transform:\s*none;/s);
   assert.doesNotMatch(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*cover;[^}]*transform:\s*scale/s);
+  assert.match(css, /\.console-agent-portrait \.console-thread-avatar-fallback\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*color:\s*rgba\(248, 243, 236, 0\.78\);[^}]*font-size:\s*12px;[^}]*font-weight:\s*900;[^}]*text-align:\s*center;[^}]*text-transform:\s*uppercase;/s);
+  assert.doesNotMatch(css, /\.console-identity-card-compact\s*\{/s);
+  assert.match(css, /\.console-workspace-sidebar \.console-agent-selector select,\s*\.console-workspace-sidebar \.console-agent-selector option\s*\{[^}]*background:\s*#17131f;[^}]*color:\s*#f8f3ec;/s);
+  assert.match(css, /\.console-thread-chat-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
+});
+
+test('mobile Console messages wrap inside the chat card without horizontal clipping', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-thread-messages\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*hidden;/s);
+  assert.match(css, /\.console-thread-message\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry p\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+});
+
+test('skill proposal surfaces wrap full addresses without leaking controls on narrow viewports', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(css, /\.console-unverified-transfer\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.console-unverified-transfer code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+  assert.match(css, /\.console-skill-capabilities\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(mobileBlock, /\.console-unverified-transfer-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.doesNotMatch(css, /\.console-unverified-transfer[^}]*cursor:\s*pointer/s);
 });

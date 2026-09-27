@@ -8,7 +8,9 @@ const distRoot = join(webRoot, 'dist');
 const sourcePath = join(distRoot, 'index.html');
 const outputPath = join(distRoot, 'allowlist', 'index.html');
 const mintOutputPath = join(distRoot, 'mint', 'index.html');
+const pauseOutputPath = join(distRoot, 'pause-mint', 'index.html');
 const consoleOutputPath = join(distRoot, 'console', 'index.html');
+const runtimeOutputPath = join(distRoot, 'runtime', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
 const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
@@ -43,6 +45,15 @@ await writeFile(mintOutputPath, allowlistHtml
   .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/mint')
   .replaceAll(LOOPERS_PREVIEW_IMAGE, LOOPERS_MINT_PREVIEW_IMAGE));
 
+await mkdir(dirname(pauseOutputPath), { recursive: true });
+await writeFile(pauseOutputPath, allowlistHtml
+  .replace(/<title>[\s\S]*?<\/title>/u, '<title>Pause Loopers Mint</title>')
+  .replaceAll(LOOPERS_DESCRIPTION, 'Emergency owner-only Loopers mint pause.')
+  .replace(LOOPERS_SOCIAL_URL, 'https://helixa.xyz/pause-mint')
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, '<meta property="og:title" content="Pause Loopers Mint" />')
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Pause Loopers Mint" />')
+  .replaceAll(LOOPERS_PREVIEW_IMAGE, LOOPERS_MINT_PREVIEW_IMAGE));
+
 await mkdir(dirname(consoleOutputPath), { recursive: true });
 await writeFile(consoleOutputPath, html
   .replace(/<title>[\s\S]*?<\/title>/u, '<title>Multipass Console</title>')
@@ -52,3 +63,15 @@ await writeFile(consoleOutputPath, html
   .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/console" />')
   .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, '<meta name="twitter:title" content="Multipass Console" />')
   .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, '<meta name="twitter:description" content="Persistent operating console for onchain agents." />'));
+
+const runtimeTitle = 'Loopers Runtime Console | Bankr RUNTIME';
+const runtimeDescription = 'A wallet-owned Looper becomes a memory-bearing Bankr agent with XMTP messaging, Sibyl recall, and holder-reviewed actions.';
+await mkdir(dirname(runtimeOutputPath), { recursive: true });
+await writeFile(runtimeOutputPath, html
+  .replace(/<title>[\s\S]*?<\/title>/u, `<title>${runtimeTitle}</title>`)
+  .replace(/<meta name="description" content="[^"]*" \/>/u, `<meta name="description" content="${runtimeDescription}" />`)
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, `<meta property="og:title" content="${runtimeTitle}" />`)
+  .replace(/<meta property="og:description" content="[^"]*" \/>/u, `<meta property="og:description" content="${runtimeDescription}" />`)
+  .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/runtime" />')
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, `<meta name="twitter:title" content="${runtimeTitle}" />`)
+  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, `<meta name="twitter:description" content="${runtimeDescription}" />`));

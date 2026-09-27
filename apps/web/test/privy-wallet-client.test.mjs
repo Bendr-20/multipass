@@ -6,11 +6,13 @@ import {
   createPrivyConnectAction,
   createPrivyConnectionError,
   createPrivyWalletClient,
+  classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
   PRIVY_CONNECT_WALLET_LIST,
   PRIVY_EXTERNAL_WALLET_CONFIG,
   selectConnectedWalletAddress,
   selectEvmWallet,
+  submitPrivyLooperTransaction,
 } from '../src/privy-wallet-client.js';
 
 function wallet({ address, connectedAt, provider = { request: async () => '0xsig' } } = {}) {
@@ -20,6 +22,52 @@ function wallet({ address, connectedAt, provider = { request: async () => '0xsig
     getEthereumProvider: provider === null ? undefined : async () => provider,
   };
 }
+
+test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
+  assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {
+    kind: 'smart_or_delegated',
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+  });
+  assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: 'metamask' }), {
+    kind: 'eoa_candidate',
+    walletClientType: 'metamask',
+  });
+  assert.deepEqual(classifyPrivyWalletProfile(null), { kind: 'unknown', walletClientType: null });
+});
+
+test('canonical Base Account signer reaches the exact Looper transaction submission boundary', async () => {
+  const calls = [];
+  const address = '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea';
+  const hash = `0x${'aa'.repeat(32)}`;
+  const baseAccount = {
+    address,
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    async getEthereumProvider() {
+      return { async request(payload) { calls.push(payload); return hash; } };
+    },
+  };
+  const transaction = {
+    chainId: '0x2105',
+    from: address,
+    to: '0x9999999999999999999999999999999999999999',
+    value: '0x0',
+    data: '0x1234',
+  };
+  assert.equal(await submitPrivyLooperTransaction(baseAccount, transaction), hash);
+  assert.deepEqual(calls, [{ method: 'eth_sendTransaction', params: [transaction] }]);
+});
+
+test('named Looper transaction action forwards only eth_sendTransaction payloads', async () => {
+  const client = createPrivyWalletClient();
+  const calls = [];
+  client.setActions({ sendTransaction: async (transaction) => {
+    calls.push(transaction);
+    return '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  } });
+  const transaction = { chainId: '0x2105', from: '0x1', to: '0x2', value: '0x0', data: '0x1234' };
+  assert.match(await client.sendTransaction(transaction), /^0x[a-f0-9]{64}$/);
+  assert.deepEqual(calls, [transaction]);
+});
 
 test('selectEvmWallet prefers wallets with EVM provider and address', () => {
   const evmWallet = wallet({ address: '0xevm', connectedAt: 1 });
@@ -116,11 +164,12 @@ test('createPrivyWalletClient starts configured while Privy is still loading', (
   });
 });
 
-test('createPrivyWalletClient delegates connect and signMessage actions', async () => {
+test('createPrivyWalletClient delegates connect disconnect and signMessage actions', async () => {
   const calls = [];
   const client = createPrivyWalletClient();
   client.setActions({
     connect: async () => calls.push(['connect']),
+    disconnect: async () => calls.push(['disconnect']),
     signMessage: async (message) => {
       calls.push(['signMessage', message]);
       return { wallet: '0xwallet', signature: '0xsig' };
@@ -128,40 +177,41 @@ test('createPrivyWalletClient delegates connect and signMessage actions', async 
   });
 
   await client.connect();
+  await client.disconnect();
   assert.deepEqual(await client.signMessage('hello'), { wallet: '0xwallet', signature: '0xsig' });
-  assert.deepEqual(calls, [['connect'], ['signMessage', 'hello']]);
+  assert.deepEqual(calls, [['connect'], ['disconnect'], ['signMessage', 'hello']]);
 });
 
-test('Privy connect wallet list includes Base, Coinbase, and fallback wallet options', () => {
+test('Privy connect wallet list puts the Coinbase app connector before popup-based Base Account', () => {
   assert.deepEqual(PRIVY_CONNECT_WALLET_LIST, [
-    PRIVY_BASE_ACCOUNT_WALLET_ID,
     'coinbase_wallet',
+    PRIVY_BASE_ACCOUNT_WALLET_ID,
     'metamask',
     'detected_ethereum_wallets',
     'rainbow',
     'wallet_connect',
     'wallet_connect_qr',
   ]);
-  assert.equal(PRIVY_CONNECT_WALLET_LIST[0], PRIVY_BASE_ACCOUNT_WALLET_ID);
+  assert.equal(PRIVY_CONNECT_WALLET_LIST[0], 'coinbase_wallet');
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('base_account'), true);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('coinbase_wallet'), true);
   assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('detected_ethereum_wallets'), true);
 });
 
-test('Privy external wallet config keeps Coinbase smart wallets enabled', () => {
+test('Privy keeps Coinbase Wallet app-only while Base Account owns the smart-wallet popup path', () => {
   assert.deepEqual(PRIVY_EXTERNAL_WALLET_CONFIG, {
     coinbaseWallet: {
       config: {
         appName: 'Helixa',
-        appLogoUrl: 'https://helixa.xyz/helixa-logo.jpg',
+        appLogoUrl: 'https://helixa.xyz/multipass/helixa-logo.png',
         appChainIds: [8453, 84532],
-        preference: { options: 'all' },
+        preference: { options: 'eoaOnly' },
       },
     },
     baseAccount: {
       config: {
         appName: 'Helixa',
-        appLogoUrl: 'https://helixa.xyz/helixa-logo.jpg',
+        appLogoUrl: 'https://helixa.xyz/multipass/helixa-logo.png',
         appChainIds: [8453, 84532],
       },
     },

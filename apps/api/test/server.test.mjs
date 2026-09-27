@@ -29,8 +29,12 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -69,8 +73,12 @@ test('CLI flags override environment values', () => {
       loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
       bankrLlmKey: null,
+      bankrReadonlyApiKey: null,
       bankrLlmModel: null,
       consoleAgentBankrLlmEnabled: false,
+      consoleSkillProposalsEnabled: false,
+      consoleMarketReadEnabled: false,
+      consoleAccountReadEnabled: false,
       consoleXmtpEnabled: false,
       consoleXmtpEnv: 'production',
       consoleXmtpWalletKey: null,
@@ -109,8 +117,12 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -187,6 +199,126 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
 
   assert.equal(enabledOptions.bankrLlmKey, 'fallback-key');
   assert.equal(enabledOptions.consoleAgentBankrLlmEnabled, true);
+});
+
+test('parseServerOptions never falls back to LLM or general Bankr keys for read skills', () => {
+  const absent = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+  });
+  assert.equal(absent.bankrLlmKey, 'llm-secret');
+  assert.equal(absent.bankrReadonlyApiKey, null);
+
+  const separated = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+    BANKR_READONLY_API_KEY: 'readonly-secret',
+  });
+  assert.equal(separated.bankrLlmKey, 'llm-secret');
+  assert.equal(separated.bankrReadonlyApiKey, 'readonly-secret');
+});
+
+test('parseServerOptions keeps skill proposals independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_AGENT_BANKR_LLM_ENABLED: '1',
+  }).consoleSkillProposalsEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'true',
+  }).consoleSkillProposalsEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: '0',
+  }).consoleSkillProposalsEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED/,
+  );
+});
+
+test('parseServerOptions keeps market reads independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {}).consoleMarketReadEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'true',
+  }).consoleMarketReadEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_MARKET_READ_ENABLED: '0',
+  }).consoleMarketReadEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_MARKET_READ_ENABLED/,
+  );
+});
+
+test('parseServerOptions keeps owner-account reads independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {}).consoleAccountReadEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'true',
+  }).consoleAccountReadEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: '0',
+  }).consoleAccountReadEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED/,
+  );
+});
+
+test('startServer composes the skill proposal flag into production bootstrap independently of Bankr chat', async () => {
+  let bootstrapOptions;
+  const runtime = { async handleMessage() {}, async getThread() { return null; } };
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: true,
+    consoleBootstrapFactory: async (options) => {
+      bootstrapOptions = options;
+      return {
+        ownedAgentLoader: async () => [],
+        publicClients: [],
+        authorizeLooper: async () => ({}),
+        runtimeRegistry: {},
+        publishingClient: {},
+        runtime,
+        async stopWorker() {},
+        async closeClient() {},
+      };
+    },
+    apiFactory: () => ({
+      async handleRequest() { return new Response('{}', { status: 200 }); },
+    }),
+  });
+  try {
+    assert.equal(bootstrapOptions.consoleAgentBankrLlmEnabled, false);
+    assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, true);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer composes the market-read flag independently of proposal mode', async () => {
+  let bootstrapOptions;
+  const runtime = { async handleMessage() {}, async getThread() { return null; } };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: true,
+    consoleBootstrapFactory: async (options) => {
+      bootstrapOptions = options;
+      return {
+        ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+        runtimeRegistry: {}, publishingClient: {}, runtime,
+        async stopWorker() {}, async closeClient() {},
+      };
+    },
+    apiFactory: () => ({ async handleRequest() { return new Response('{}', { status: 200 }); } }),
+  });
+  try {
+    assert.equal(bootstrapOptions.consoleMarketReadEnabled, true);
+    assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, false);
+  } finally {
+    await server.close();
+  }
 });
 
 test('startServer can advertise a public base URL while listening locally', async () => {

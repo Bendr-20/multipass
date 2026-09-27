@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { useConnectWallet, usePrivy, useWallets } from '@privy-io/react-auth';
+import { useConnectWallet, useLogout, usePrivy, useWallets } from '@privy-io/react-auth';
 import { getAddress, isAddress } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 
@@ -11,12 +11,12 @@ const CONNECT_EVM_WALLET_MESSAGE = 'Connect an Ethereum wallet to sign the owner
 const WALLET_CANNOT_SIGN_MESSAGE = 'Connected wallet cannot sign messages.';
 const PRIVY_CONNECT_DESCRIPTION = 'Connect your wallet to Multipass.';
 const PRIVY_APP_NAME = 'Helixa';
-const PRIVY_APP_LOGO_URL = 'https://helixa.xyz/helixa-logo.jpg';
+const PRIVY_APP_LOGO_URL = 'https://helixa.xyz/multipass/helixa-logo.png';
 const PRIVY_SMART_WALLET_CHAIN_IDS = [base.id, baseSepolia.id];
 export const PRIVY_BASE_ACCOUNT_WALLET_ID = 'base_account';
 export const PRIVY_CONNECT_WALLET_LIST = [
-  PRIVY_BASE_ACCOUNT_WALLET_ID,
   'coinbase_wallet',
+  PRIVY_BASE_ACCOUNT_WALLET_ID,
   'metamask',
   'detected_ethereum_wallets',
   'rainbow',
@@ -29,7 +29,7 @@ export const PRIVY_EXTERNAL_WALLET_CONFIG = {
       appName: PRIVY_APP_NAME,
       appLogoUrl: PRIVY_APP_LOGO_URL,
       appChainIds: PRIVY_SMART_WALLET_CHAIN_IDS,
-      preference: { options: 'all' },
+      preference: { options: 'eoaOnly' },
     },
   },
   baseAccount: {
@@ -117,6 +117,33 @@ export function createPrivyConnectionError(error) {
   return new Error(message || 'Wallet connection failed. Nothing was changed.');
 }
 
+export function classifyPrivyWalletProfile(wallet) {
+  if (!wallet) return { kind: 'unknown', walletClientType: null };
+  const walletClientType = String(wallet.walletClientType ?? wallet.type ?? wallet.id ?? '').trim().toLowerCase() || null;
+  const smart = walletClientType === PRIVY_BASE_ACCOUNT_WALLET_ID
+    || walletClientType === 'smart_wallet'
+    || walletClientType === 'smart-wallet'
+    || Boolean(wallet.smartWallet);
+  return {
+    kind: smart ? 'smart_or_delegated' : 'eoa_candidate',
+    walletClientType,
+  };
+}
+
+export async function submitPrivyLooperTransaction(wallet, transaction) {
+  if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
+  const provider = await wallet.getEthereumProvider?.();
+  if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
+  const exactKeys = Object.keys(transaction ?? {}).sort().join(',');
+  if (exactKeys !== 'chainId,data,from,to,value' || transaction.chainId !== '0x2105' || transaction.value !== '0x0') {
+    throw new Error('Looper wallet transaction payload is invalid.');
+  }
+  if (normalizeAddressOrNull(transaction.from) !== getWalletAddress(wallet)) {
+    throw new Error('Looper wallet transaction sender changed.');
+  }
+  return provider.request({ method: 'eth_sendTransaction', params: [transaction] });
+}
+
 export function selectEvmWallet(wallets = []) {
   let selected = null;
   for (const wallet of wallets) {
@@ -180,7 +207,9 @@ export function createPrivyWalletClient() {
   });
   let actions = {
     connect: loadingAction,
+    disconnect: async () => setSnapshot({ connected: false, address: null }),
     signMessage: loadingAction,
+    sendTransaction: loadingAction,
     request: loadingAction,
   };
   const subscribers = new Set();
@@ -272,7 +301,9 @@ export function createPrivyWalletClient() {
     getSnapshot,
     subscribe,
     connect: (...args) => actions.connect(...args),
+    disconnect: (...args) => actions.disconnect(...args),
     signMessage: (...args) => actions.signMessage(...args),
+    sendTransaction: (...args) => actions.sendTransaction(...args),
     request: (...args) => actions.request(...args),
     setSnapshot,
     setActions,
@@ -291,6 +322,7 @@ export function PrivyWalletBridge({ client, configured }) {
   const handleConnectError = useCallback((error) => {
     client.failConnection(createPrivyConnectionError(error));
   }, [client]);
+  const { logout } = useLogout();
   const { connectWallet: connectWalletFromHook } = useConnectWallet({
     onSuccess: handleConnectSuccess,
     onError: handleConnectError,
@@ -305,12 +337,23 @@ export function PrivyWalletBridge({ client, configured }) {
       configured: Boolean(configured),
       connected: Boolean(connectedAddress),
       address: connectedAddress,
+      walletProfile: classifyPrivyWalletProfile(activeWallet),
     });
   }, [client, configured, privy?.ready, walletsReady, connectedAddress]);
 
   useEffect(() => {
     client.setActions({
       connect: createPrivyConnectAction({ client, configured, connectWallet }),
+      disconnect: async () => {
+        if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
+        if (typeof logout === 'function') await logout();
+        client.setSnapshot({
+          ready: true,
+          configured: true,
+          connected: false,
+          address: null,
+        });
+      },
       signMessage: async (message) => {
         const wallet = selectEvmWallet(wallets);
         if (!wallet) throw new Error(CONNECT_EVM_WALLET_MESSAGE);
@@ -319,6 +362,7 @@ export function PrivyWalletBridge({ client, configured }) {
         const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
       },
+      sendTransaction: async (transaction) => submitPrivyLooperTransaction(selectEvmWallet(wallets), transaction),
       request: async (payload) => {
         const wallet = selectEvmWallet(wallets);
         if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
@@ -327,7 +371,7 @@ export function PrivyWalletBridge({ client, configured }) {
         return provider.request(payload);
       },
     });
-  }, [client, configured, connectWallet, wallets]);
+  }, [client, configured, connectWallet, logout, wallets]);
 
   return React.createElement(React.Fragment, null);
 }

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { activateHelixaRecord } from './activation-records.js';
 import { readAllowlistFile } from './allowlist-snapshot.js';
 import { createJsonAllowlistStore, createMemoryAllowlistStore } from './allowlist-store.js';
+import { createConsoleProductionBootstrap } from './console-production-bootstrap.js';
 import { loadFixtureStore } from './fixtures.js';
 import { createMultipassApi } from './index.js';
 import { createSqliteSavedRecords } from './saved-records.js';
@@ -41,8 +42,12 @@ export function parseServerOptions(argv = [], env = process.env) {
     }, 'MULTIPASS_LOOPERS_ALLOWLIST_GLOBAL_RATE'),
     loopersTurnstileSecretKey: env.MULTIPASS_LOOPERS_TURNSTILE_SECRET_KEY || null,
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
+    bankrReadonlyApiKey: env.BANKR_READONLY_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
     consoleAgentBankrLlmEnabled: parseOptionalBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED, 'MULTIPASS_AGENT_BANKR_LLM_ENABLED') ?? false,
+    consoleSkillProposalsEnabled: parseOptionalBoolean(env.MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED, 'MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED') ?? false,
+    consoleMarketReadEnabled: parseOptionalBoolean(env.MULTIPASS_CONSOLE_MARKET_READ_ENABLED, 'MULTIPASS_CONSOLE_MARKET_READ_ENABLED') ?? false,
+    consoleAccountReadEnabled: parseOptionalBoolean(env.MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED, 'MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED') ?? false,
     consoleXmtpEnabled: parseOptionalBoolean(env.MULTIPASS_XMTP_ENABLED, 'MULTIPASS_XMTP_ENABLED') ?? false,
     consoleXmtpEnv: env.MULTIPASS_XMTP_ENV || 'production',
     consoleXmtpWalletKey: env.MULTIPASS_XMTP_WALLET_KEY || null,
@@ -96,8 +101,12 @@ export async function startServer(options = {}) {
     loopersAllowlistGlobalRateLimit: options.loopersAllowlistGlobalRateLimit,
     loopersTurnstileSecretKey: options.loopersTurnstileSecretKey ?? null,
     bankrLlmKey: options.bankrLlmKey ?? null,
+    bankrReadonlyApiKey: options.bankrReadonlyApiKey ?? null,
     bankrLlmModel: options.bankrLlmModel ?? null,
     consoleAgentBankrLlmEnabled: Boolean(options.consoleAgentBankrLlmEnabled),
+    consoleSkillProposalsEnabled: Boolean(options.consoleSkillProposalsEnabled),
+    consoleMarketReadEnabled: Boolean(options.consoleMarketReadEnabled),
+    consoleAccountReadEnabled: Boolean(options.consoleAccountReadEnabled),
     consoleXmtpEnabled: Boolean(options.consoleXmtpEnabled),
     consoleXmtpEnv: options.consoleXmtpEnv ?? 'production',
     consoleXmtpWalletKey: options.consoleXmtpWalletKey ?? null,
@@ -107,6 +116,9 @@ export async function startServer(options = {}) {
     consoleXmtpApiUrl: options.consoleXmtpApiUrl ?? null,
     consoleXmtpGatewayHost: options.consoleXmtpGatewayHost ?? null,
     consoleXmtpAppVersion: options.consoleXmtpAppVersion ?? 'multipass-console',
+    loopersOwnedRpcUrl: options.loopersOwnedRpcUrl,
+    loopersOwnedMetadataBaseUrl: options.loopersOwnedMetadataBaseUrl,
+    loopersPublicClients: options.loopersPublicClients,
     fetchImpl: options.fetchImpl,
   };
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
@@ -121,9 +133,13 @@ export async function startServer(options = {}) {
     ?? (parsed.loopersAllowlistSnapshotPath
       ? await readAllowlistFile(parsed.loopersAllowlistSnapshotPath)
       : null);
+  const consoleBootstrapFactory = options.consoleBootstrapFactory ?? createConsoleProductionBootstrap;
+  const apiFactory = options.apiFactory ?? createMultipassApi;
   let api;
   let listeningUrl;
   let apiBaseUrl;
+  let consoleBootstrap;
+  let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
     try {
@@ -155,46 +171,58 @@ export async function startServer(options = {}) {
     }
   });
 
-  await new Promise((resolve, reject) => {
-    nodeServer.once('error', reject);
-    nodeServer.listen(parsed.port, parsed.host, resolve);
-  });
+  try {
+    consoleBootstrap = await consoleBootstrapFactory({
+      ...parsed,
+      logger: options.logger ?? console,
+    });
+
+    await new Promise((resolve, reject) => {
+      nodeServer.once('error', reject);
+      nodeServer.listen(parsed.port, parsed.host, resolve);
+    });
+
+    const address = nodeServer.address();
+    const port = typeof address === 'object' && address ? address.port : parsed.port;
+    listeningUrl = `http://${parsed.host}:${port}`;
+    apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
+    api = apiFactory({
+      store,
+      baseUrl: apiBaseUrl,
+      savedRecords,
+      activationService,
+      allowedOrigins: parsed.allowedOrigins,
+      adminSecret: parsed.adminSecret,
+      cookieSecure: parsed.cookieSecure,
+      loopersAllowlist,
+      loopersAllowlistSnapshot,
+      loopersAllowlistRegistrationPaused: parsed.loopersAllowlistRegistrationPaused,
+      loopersAllowlistRequireBrowserOrigin: parsed.loopersAllowlistRequireBrowserOrigin,
+      loopersAllowlistBlockedSources: parsed.loopersAllowlistBlockedSources,
+      loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
+      loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
+      loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
+      loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
+      loopersOwnedAgentLoader: consoleBootstrap.ownedAgentLoader,
+      loopersPublicClients: consoleBootstrap.publicClients,
+      loopersAuthorizer: consoleBootstrap.authorizeLooper,
+      consoleRuntimeRegistry: consoleBootstrap.runtimeRegistry,
+      consoleXmtpClient: consoleBootstrap.publishingClient,
+      consoleAgentRuntime: consoleBootstrap.runtime,
+      fetchImpl: parsed.fetchImpl,
+    });
+  } catch (error) {
+    await closeServerResources({
+      consoleBootstrap,
+      nodeServer,
+      savedRecords,
+      ownsSavedRecords,
+    }).catch(() => {});
+    throw error;
+  }
 
   const address = nodeServer.address();
   const port = typeof address === 'object' && address ? address.port : parsed.port;
-  listeningUrl = `http://${parsed.host}:${port}`;
-  apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
-  api = createMultipassApi({
-    store,
-    baseUrl: apiBaseUrl,
-    savedRecords,
-    activationService,
-    allowedOrigins: parsed.allowedOrigins,
-    adminSecret: parsed.adminSecret,
-    cookieSecure: parsed.cookieSecure,
-    loopersAllowlist,
-    loopersAllowlistSnapshot,
-    loopersAllowlistRegistrationPaused: parsed.loopersAllowlistRegistrationPaused,
-    loopersAllowlistRequireBrowserOrigin: parsed.loopersAllowlistRequireBrowserOrigin,
-    loopersAllowlistBlockedSources: parsed.loopersAllowlistBlockedSources,
-    loopersAllowlistRateLimit: parsed.loopersAllowlistRateLimit,
-    loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
-    loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
-    loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
-    bankrLlmKey: parsed.bankrLlmKey,
-    bankrLlmModel: parsed.bankrLlmModel,
-    consoleAgentBankrLlmEnabled: parsed.consoleAgentBankrLlmEnabled,
-    consoleXmtpEnabled: parsed.consoleXmtpEnabled,
-    consoleXmtpEnv: parsed.consoleXmtpEnv,
-    consoleXmtpWalletKey: parsed.consoleXmtpWalletKey,
-    consoleXmtpDbPath: parsed.consoleXmtpDbPath,
-    consoleXmtpDbEncryptionKey: parsed.consoleXmtpDbEncryptionKey,
-    consoleXmtpHistorySyncUrl: parsed.consoleXmtpHistorySyncUrl,
-    consoleXmtpApiUrl: parsed.consoleXmtpApiUrl,
-    consoleXmtpGatewayHost: parsed.consoleXmtpGatewayHost,
-    consoleXmtpAppVersion: parsed.consoleXmtpAppVersion,
-    fetchImpl: parsed.fetchImpl,
-  });
 
   return {
     fixtureName,
@@ -205,14 +233,44 @@ export async function startServer(options = {}) {
     databasePath: parsed.databasePath,
     loopersAllowlistPath: parsed.loopersAllowlistPath,
     loopersAllowlistSnapshotPath: parsed.loopersAllowlistSnapshotPath,
+    console: consoleBootstrap,
     server: nodeServer,
-    close: () => new Promise((resolve, reject) => {
-      nodeServer.close((error) => {
-        if (ownsSavedRecords) savedRecords.close();
-        error ? reject(error) : resolve();
-      });
-    }),
+    close() {
+      if (!closePromise) {
+        closePromise = closeServerResources({
+          consoleBootstrap,
+          nodeServer,
+          savedRecords,
+          ownsSavedRecords,
+        });
+      }
+      return closePromise;
+    },
   };
+}
+
+async function closeServerResources({ consoleBootstrap, nodeServer, savedRecords, ownsSavedRecords }) {
+  const errors = [];
+  for (const close of [
+    () => consoleBootstrap?.stopWorker?.(),
+    () => closeHttpServer(nodeServer),
+    () => consoleBootstrap?.closeClient?.(),
+    () => ownsSavedRecords ? savedRecords?.close?.() : undefined,
+  ]) {
+    try {
+      await close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, 'Multipass server shutdown failed.');
+}
+
+function closeHttpServer(server) {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }
 
 function normalizeHeaders(headers) {
@@ -288,6 +346,21 @@ async function main() {
   if (server.publicBaseUrl !== server.url) console.log(`Public base URL: ${server.publicBaseUrl}`);
   console.log(`Fixture: ${server.fixtureName}`);
   if (server.databasePath) console.log(`Database: ${server.databasePath}`);
+
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Multipass API server received ${signal}; stopping.`);
+    try {
+      await server.close();
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+  };
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -25,6 +25,9 @@ importers:
       '@privy-io/react-auth':
         specifier: ^3.32.2
         version: 3.32.2(@solana-program/system@0.10.0(@solana/kit@5.5.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(@solana-program/token@0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(@solana/kit@5.5.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(@solana/sysvars@5.5.1)(@tanstack/query-core@5.101.1)(@tanstack/react-query@5.101.1(react@19.2.7))(@types/react@19.2.17)(bufferutil@4.1.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.4.0(react@19.2.7))(utf-8-validate@5.0.10)(zod@4.4.3)
+      '@xmtp/browser-sdk':
+        specifier: 6.1.0
+        version: 6.1.0
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -1483,6 +1486,10 @@ packages:
   '@walletconnect/window-metadata@1.0.1':
     resolution: {integrity: sha512-9koTqyGrM2cqFRW517BPY/iEtUDx2r1+Pwwu5m7sJ7ka79wi3EyqhqcICk/yDmv6jAS1rjKgTKXlEhanYjijcA==}
 
+  '@xmtp/browser-sdk@6.1.0':
+    resolution: {integrity: sha512-FxSSmEkdqqWcYXXje2Wf1rKlLv68MmH/Ouu73nyUBrmpgDiUm7bICOsWoqIinKz9vDJAq0HifzskNrK8gh76vw==}
+    engines: {node: '>=22'}
+
   '@xmtp/content-type-primitives@3.0.0':
     resolution: {integrity: sha512-gxK6+k0ywOz39LFJjrUF3fOXWXR3aAmIkF7e0rFz7c27izDimZC5E2oja9iz/CYyzDS6lf9Pm31qRcGTMSYaHg==}
 
@@ -1496,6 +1503,10 @@ packages:
 
   '@xmtp/node-sdk@6.1.0':
     resolution: {integrity: sha512-HjuoK5+Cxo3F16CGmEQt+2oW6e2aPcapOaYyzjwHjdFqG/NYFDpxyfUCyiV6fW8XJ13L+UjasVEuLQiuGTmEGg==}
+    engines: {node: '>=22'}
+
+  '@xmtp/wasm-bindings@1.8.1':
+    resolution: {integrity: sha512-EH6oMtXAn/Rl8pg/e+dtj2uGDHl6Z35G+yzTNm/EMa1R3e9iNVKQWMFemz9L70lPhAKKkmYMyZRCCCLxgvTnxw==}
     engines: {node: '>=22'}
 
   abitype@1.0.6:
@@ -6127,6 +6138,11 @@ snapshots:
       '@walletconnect/window-getters': 1.0.1
       tslib: 1.14.1
 
+  '@xmtp/browser-sdk@6.1.0':
+    dependencies:
+      '@xmtp/content-type-primitives': 3.0.0
+      '@xmtp/wasm-bindings': 1.8.1
+
   '@xmtp/content-type-primitives@3.0.0':
     dependencies:
       '@xmtp/node-bindings': 1.8.0
@@ -6139,6 +6155,8 @@ snapshots:
     dependencies:
       '@xmtp/content-type-primitives': 3.0.0
       '@xmtp/node-bindings': 1.11.0
+
+  '@xmtp/wasm-bindings@1.8.1': {}
 
   abitype@1.0.6(zod@3.25.76):
     optionalDependencies:

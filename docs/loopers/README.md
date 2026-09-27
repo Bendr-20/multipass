@@ -10,6 +10,8 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - [Metadata And Reveal Checklist](./metadata-reveal-checklist.md)
 - [Launch Day Runbook](./launch-day-runbook.md)
 - [Sibyl Activation Demo](./sibyl-activation-demo.md)
+- [Secure Looper Activation Sprint 1](./secure-activation-sprint-1.md)
+- [Live XMTP Console Sprint 2](./live-xmtp-console-sprint-2.md)
 - [Build Task Index](./build-task-index.md)
 
 ## Current Implementation Surface
@@ -23,6 +25,7 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - Metadata compiler/validator: `packages/loopers-metadata/`
 - Sibyl activation demo proof: `apps/api/src/sibyl-memory/`, `apps/api/scripts/prove-sibyl-cold-start.js`, `apps/api/test/sibyl-memory.test.mjs`, `apps/api/test/console-agent-runtime.test.mjs`
 - Multipass Console implementation: `apps/web/src/multipass-console.js`, `apps/web/src/console-agent-thread.js`, `apps/web/src/console-agent-api.js`
+- Canonical XMTP transport and inbound worker: `apps/api/src/xmtp-agent/`, `apps/api/src/xmtp-worker/`, `apps/api/src/looper-runtime-registry.js`
 
 ## Naming Rules
 
