@@ -14,19 +14,44 @@ const MAX_PROFILE_FIELD_BYTES = 160;
 const MAX_RESEARCH_QUERY_BYTES = 320;
 const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
 const MARKET_KINDS = new Set(['market', 'news', 'comparison']);
-const BANKR_READ_INTENTS = [
-  /\b(?:portfolio|balances?|holdings?)\b/i,
-  /\b(?:nfts?|non-fungible|floor price)\b/i,
-  /\b(?:polymarket|odds)\b/i,
-  /\b(?:positions?|leverage (?:positions?|status|history)|long\/short positions?|long positions?|short positions?)\b/i,
-  /\b(?:(?:token|deployment|fee) status|(?:token|coin) (?:issuance|deployment|fee) (?:status|history)|deployment status|fee status)\b/i,
-  /\b(?:automation (?:execution )?(?:status|history)|(?:dca|twap) (?:execution )?(?:status|history|orders?)|active orders?|open orders?|pending orders?|order status|order history|active limit orders?)\b/i,
-  /\b(?:(?:orders?|automation) amendment|(?:nft|market|order) bids?|amendment|bid(?:s|ding)?|restak(?:e|ing)) (?:status|history)\b/i,
+const READ_LEAD_PATTERN = /^(?:show|list|display|view|check|get|find|search|track|analy[sz]e|compare|summarize|report|give me|tell me|can you tell me|what(?:['’]s| is| are)?|which|how|current|latest|status|history)\s+(.+?)[?.!]*$/i;
+const BANKR_NATIVE_READ_BODIES = [
+  /^(?:(?:my|the|all|current|wallet|token|base)\s+)*(?:portfolio|balances?|holdings?)(?:\s+(?:and|plus|&)\s+(?:portfolio|balances?|holdings?))?(?:\s+(?:on|for|across)\s+(?:base|ethereum))?$/i,
+  /^(?:(?:my|the|all|current)\s+)*(?:nfts?|non-fungible tokens?)(?:\s+portfolio)?(?:\s+in\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2}\s+collection)?$/i,
+  /^(?:the\s+)?floor price(?:\s+(?:of|for)\s+[A-Za-z0-9$._-]+(?:\s+[A-Za-z0-9$._-]+){0,2})?$/i,
+  /^(?:(?:my|the|all|current|open)\s+)*(?:polymarket\s+)?(?:markets?|odds|positions?)(?:\s+(?:and|plus|&)\s+(?:odds|positions?))?(?:\s+on\s+(?:btc|eth|sol|usdc|bitcoin|ethereum)\s+reaching\s+\$?\d+(?:\.\d+)?[km]?)?$/i,
+  /^(?:(?:status|history)\s+(?:of|for)\s+)?(?:(?:my|the|all|current|open)\s+)*(?:(?:long\/short|long|short|leverage)\s+)?positions?$/i,
+  /^(?:(?:my|the|all|current)\s+)?(?:leverage|position)\s+(?:positions?|status|history)$/i,
+  /^(?:(?:my|the|all|current)\s+)?(?:(?:token|coin)\s+)?(?:issuance|deployment|fee)\s+(?:status|history)$/i,
+  /^(?:the\s+)?(?:deployment|fee)\s+status\s+of\s+(?:my|the)\s+(?:token|coin)$/i,
+  /^(?:(?:my|the|all|current|active|open|pending)\s+)*(?:(?:dca|twap)\s+)?(?:orders?|limit orders?)(?:\s+(?:status|history))?$/i,
+  /^(?:(?:my|the|all|current)\s+)?(?:automation|dca|twap)(?:\s+execution)?\s+(?:status|history|orders?)$/i,
+  /^(?:dca|twap)\s+(?:and|plus|&)\s+(?:dca|twap)\s+(?:status|history|orders?)$/i,
+  /^(?:(?:my|the|all|current)\s+)?(?:(?:orders?|automation)\s+)?amendment\s+(?:status|history)$/i,
+  /^(?:(?:my|the|all|current)\s+)?(?:(?:nft|market|order)\s+)?bid(?:s|ding)?\s+(?:status|history)$/i,
+  /^(?:(?:my|the|all|current)\s+)?restak(?:e|ing)\s+(?:status|history)$/i,
+];
+const MARKET_READ_WORDS = new Set([
+  'a', 'an', 'the', 'my', 'current', 'latest', 'today', 'now', 'this', 'last', 'over', 'in', 'on', 'for', 'of', 'by', 'to', 'from',
+  'what', 'are', 'is', 'was', 'were', 'has', 'happened', 'market', 'markets', 'crypto', 'bitcoin', 'ethereum', 'btc', 'eth', 'sol', 'usdc',
+  'base', 'ecosystem', 'token', 'tokens', 'coin', 'coins', 'defi', 'nft', 'nfts', 'polymarket',
+  'news', 'headline', 'headlines', 'narrative', 'narratives', 'moving', 'trend', 'trends', 'trending', 'comparison', 'versus', 'vs',
+  'performance', 'technical', 'technicals', 'analysis', 'social', 'sentiment', 'price', 'prices', 'volume', 'volatility', 'hour', 'hours',
+  'day', 'days', 'week', 'weeks', 'and', 'plus', 'with', 'activity', 'gaining', 'attention', 'concise', 'maximal', 'data',
+]);
+const HARD_CLAUSE_SEPARATOR = /[;,\r\n]|\b(?:then|while|after|before|but|also)\b|\b(?:along with|as well as|followed by)\b/i;
+const SAFE_COMPOUND_PATTERNS = [
+  /\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b\s+(?:and|plus|&)\s+\b(?:btc|eth|sol|usdc|bitcoin|ethereum)\b/i,
+  /\b(?:news|headlines?|narratives?|sentiment|market trends?)\b\s+(?:and|plus|&)\s+\b(?:news|headlines?|narratives?|sentiment|market trends?)\b/i,
+  /\bprices?\b\s+(?:and|plus|&)\s+\bvolume\b|\bvolume\b\s+(?:and|plus|&)\s+\bprices?\b/i,
+  /\b(?:portfolio|balances?|holdings?)\b\s+(?:and|plus|&)\s+\b(?:portfolio|balances?|holdings?)\b/i,
+  /\b(?:polymarket\s+)?odds\b\s+(?:and|plus|&)\s+\bpositions?\b|\bpositions?\b\s+(?:and|plus|&)\s+\b(?:polymarket\s+)?odds\b/i,
+  /\b(?:dca|twap)\b\s+(?:and|plus|&)\s+\b(?:dca|twap)\b\s+(?:status|history|orders?)\b/i,
 ];
 const BANKR_WRITE_INTENTS = [
   /\b(?:buy(?:s|ing)?|sell(?:s|ing)?|trad(?:e|es|ed|ing)|swap(?:s|ped|ping)|send(?:s|ing)?|sent|transfer(?:s|red|ring)?|bridg(?:e|es|ed|ing)|wager(?:s|ed|ing)?|bet(?:s|ting)?|stak(?:e|es|ed|ing)|unstak(?:e|es|ed|ing)|mint(?:s|ed|ing)?|purchas(?:e|es|ed|ing)|claim(?:s|ed|ing)?|deploy(?:s|ed|ing)?|launch(?:es|ed|ing)?|sign(?:s|ed|ing)?|submit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|deposit(?:s|ed|ing)?|borrow(?:s|ed|ing)?|lend(?:s|ing)?|execut(?:e|es|ed|ing)|plac(?:e|es|ed|ing)|cancel(?:s|ed|ing|led|ling)?)\b/i,
   /\b(?:convert(?:s|ed|ing)?|redeem(?:s|ed|ing)?|exchang(?:e|es|ed|ing)|liquidat(?:e|es|ed|ing)|longing|shorting)\b/i,
-  /\b(?:amend(?:s|ed|ing)?|bid(?:s|ded|ding)?|restak(?:e|es|ed|ing))\b/i,
+  /\b(?:amend(?:s|ed|ing)?|amendments?|(?:re|out)?bid(?:s|ded|ding)?|restak(?:e|es|ed|ing))\b/i,
   /\b(?:tak(?:e|es|en|ing)|enter(?:s|ed|ing)?)\b.{0,48}\b(?:long|short|positions?)\b/i,
   /\b(?:open|close|opening|closing)\s+(?:(?:an?|my|the|new|more)\s+)?(?:\d+(?:\.\d+)?x\s+)?(?:long|short|leverage|positions?|trade|orders?)\b/i,
   /\b(?:open|close|opening|closing)\b.{0,48}\bpositions?\b/i,
@@ -99,7 +124,9 @@ function parseCommand(command) {
   const typedResearch = command.match(/^\/bankr research (market|news|comparison) (.+)$/s);
   if (typedResearch) {
     const query = normalizeBankrReadQuery(typedResearch[2]);
-    if (query) return { skill: 'bankr', operation: 'market_research', kind: typedResearch[1], query };
+    if (query && classifyMarketResearchIntent(query)) {
+      return { skill: 'bankr', operation: 'market_research', kind: typedResearch[1], query };
+    }
   }
 
   const legacyResearch = command.match(/^\/bankr research (.+)$/s);
@@ -125,12 +152,14 @@ function unsupportedCommand() {
   return new TypeError('Unsupported Console read skill command.');
 }
 
-export function resolveConsoleReadSkillIntent(message) {
+export function resolveConsoleReadSkillIntent(message, { priorMessage } = {}) {
   if (typeof message !== 'string') return null;
-  const raw = message.trim();
-  if (!raw
-    || Buffer.byteLength(raw, 'utf8') > MAX_RESEARCH_QUERY_BYTES
-    || /[\u0000-\u001f\u007f]/.test(raw)) return null;
+  const current = message.trim();
+  if (!current
+    || Buffer.byteLength(current, 'utf8') > MAX_RESEARCH_QUERY_BYTES
+    || /[\u0000-\u001f\u007f]/.test(current)) return null;
+  const raw = combineContextualReadFollowUp(current, priorMessage);
+  if (!raw || Buffer.byteLength(raw, 'utf8') > MAX_RESEARCH_QUERY_BYTES) return null;
   const normalized = raw.replace(/\s+/g, ' ');
 
   const explicitPrice = normalized.match(/^\/bankr price ([A-Z][A-Z0-9]{1,9})$/);
@@ -144,7 +173,9 @@ export function resolveConsoleReadSkillIntent(message) {
   const typedResearch = normalized.match(/^\/bankr research (market|news|comparison) (.+)$/s);
   if (typedResearch) {
     const query = normalizeBankrReadQuery(typedResearch[2]);
-    return query ? marketResearchIntent(typedResearch[1], query) : null;
+    return query && classifyMarketResearchIntent(query)
+      ? marketResearchIntent(typedResearch[1], query)
+      : null;
   }
 
   const legacyResearch = normalized.match(/^\/bankr research (.+)$/s);
@@ -166,7 +197,7 @@ export function resolveConsoleReadSkillIntent(message) {
   const query = normalizeBankrReadQuery(normalized);
   const kind = query ? classifyMarketResearchIntent(query) : null;
   if (kind) return marketResearchIntent(kind, query);
-  if (!query || !BANKR_READ_INTENTS.some((pattern) => pattern.test(query))) return null;
+  if (!query) return null;
   return {
     skill: 'bankr',
     operation: 'bankr_read',
@@ -174,22 +205,63 @@ export function resolveConsoleReadSkillIntent(message) {
   };
 }
 
+function combineContextualReadFollowUp(current, priorMessage) {
+  if (!/^(?:and|plus)\b/i.test(current)) return current;
+  if (typeof priorMessage !== 'string') return current;
+  const prior = priorMessage.trim();
+  if (!prior
+    || Buffer.byteLength(prior, 'utf8') > MAX_RESEARCH_QUERY_BYTES
+    || /[\u0000-\u001f\u007f]/.test(prior)
+    || /^\//.test(prior)) return null;
+  const tail = current.replace(/^(?:and|plus)\s+/i, '');
+  if (!tail) return null;
+  return `${prior.replace(/[?.!]+$/, '')} and ${tail}`;
+}
+
 function normalizeBankrReadQuery(value) {
   const raw = String(value ?? '').trim();
   if (!raw || Buffer.byteLength(raw, 'utf8') > MAX_RESEARCH_QUERY_BYTES) return null;
   if (/[\u0000-\u001f\u007f]/.test(raw)) return null;
   const query = raw.replace(/\s+/g, ' ');
+  if (!matchesClosedBankrReadGrammar(query)) return null;
   const actionScan = maskReadOnlyNounPhrases(query);
   if (BANKR_WRITE_INTENTS.some((pattern) => pattern.test(actionScan)) || PROMPT_INJECTION_INTENT.test(query)) return null;
   return query;
 }
 
+function matchesClosedBankrReadGrammar(query) {
+  const lead = query.match(READ_LEAD_PATTERN);
+  if (!lead || HARD_CLAUSE_SEPARATOR.test(query)) return false;
+  const connectors = query.match(/\b(?:and|plus)\b|&/gi) ?? [];
+  if (connectors.length > 1
+    || (connectors.length === 1 && !SAFE_COMPOUND_PATTERNS.some((pattern) => pattern.test(query)))) {
+    return false;
+  }
+
+  const body = lead[1].trim();
+  if (BANKR_NATIVE_READ_BODIES.some((pattern) => pattern.test(body))) return true;
+  return classifyMarketResearchIntent(query) !== null && hasClosedMarketVocabulary(body);
+}
+
+function hasClosedMarketVocabulary(body) {
+  if (/[^A-Za-z0-9$/'’?.!\-\s]/.test(body)) return false;
+  const words = body.match(/[A-Za-z0-9$]+/g) ?? [];
+  return words.length > 0 && words.every((word) => {
+    if (MARKET_READ_WORDS.has(word.toLowerCase())) return true;
+    if (/^\d+(?:\.\d+)?(?:h|d|w|m)?$/i.test(word)) return true;
+    if (/^\$?\d+(?:\.\d+)?[km]?$/i.test(word)) return true;
+    return /^[A-Z][A-Z0-9]{1,9}$/.test(word);
+  });
+}
+
 function maskReadOnlyNounPhrases(query) {
   return query
+    .replace(/\b(?:dca\s+(?:and|plus|&)\s+twap|twap\s+(?:and|plus|&)\s+dca)\s+(?:status|history|orders?)\b/gi, 'automation status')
     .replace(/\b(?:dca|twap)\s+(?:execution\s+)?(?:status|history)\b/gi, 'automation status')
     .replace(/\bautomation\s+(?:execution\s+)?(?:status|history)\b/gi, 'automation status')
     .replace(/\b(?:token|coin)\s+issuance\s+(?:status|history)\b/gi, 'token status')
     .replace(/\b(?:orders?|automation)\s+amendment\s+(?:status|history)\b/gi, 'order status')
+    .replace(/\bamendments?\s+(?:status|history)\b/gi, 'order status')
     .replace(/\b(?:nft|market|order)\s+bids?\s+(?:status|history)\b/gi, 'order status')
     .replace(/\bbid(?:s|ding)?\s+(?:status|history)\b/gi, 'order status')
     .replace(/\brestak(?:e|ing)\s+(?:status|history)\b/gi, 'yield status')
@@ -221,12 +293,12 @@ function classifyMarketResearchIntent(query) {
 }
 
 function hasCryptoContext(query) {
-  return /\b(?:crypto|bitcoin|ethereum|btc|eth|sol|usdc|base ecosystem|tokens?|coins?|defi|nfts?|polymarket)\b/i.test(query)
+  return /\b(?:crypto|bitcoin|ethereum|btc|eth|sol|usdc|base(?: ecosystem)?|tokens?|coins?|defi|nfts?|polymarket)\b/i.test(query)
     || /\b(?:crypto market|market trends?|market analysis|market performance|technical analysis|technicals?|moving crypto)\b/i.test(query);
 }
 
 function hasResearchIntent(query) {
-  return /\b(?:market|news|headlines?|narratives?|moving|trends?|trending|compare|comparison|performance|technicals?|technical analysis|sentiment|prices?|volume|volatility|happened)\b/i.test(query);
+  return /\b(?:market|news|headlines?|narratives?|moving|trends?|trending|compare|comparison|performance|technicals?|technical analysis|sentiment|prices?|volume|volatility|happened|data)\b/i.test(query);
 }
 
 function buildMarketResearchPrompt({ kind, query, now }) {
