@@ -1,5 +1,6 @@
 import { createConsoleAgentRuntime } from '../agent-runtime/index.js';
 import { createBankrLlmClient } from '../bankr-llm/index.js';
+import { createConsoleReadSkillExecutor } from '../console-read-skills.js';
 import { createNodeXmtpAgentClient, createXmtpNodeClient } from '../xmtp-agent/index.js';
 
 const ETHEREUM_IDENTIFIER_KIND = 0;
@@ -97,9 +98,12 @@ export async function startConsoleXmtpWorker(options = {}) {
     defaults = {},
     fetchImpl = fetch,
     bankrLlmKey = null,
+    bankrReadonlyApiKey = null,
     bankrLlmModel = null,
     consoleAgentBankrLlmEnabled = false,
     consoleSkillProposalsEnabled = false,
+    consoleMarketReadEnabled = false,
+    readSkillExecutor = null,
     retryAttempts = 10,
     retryDelay = 60_000,
   } = options;
@@ -120,6 +124,14 @@ export async function startConsoleXmtpWorker(options = {}) {
       : undefined,
     xmtpClient: publishingClient,
     skillProposalsEnabled: consoleSkillProposalsEnabled,
+    marketReadEnabled: consoleMarketReadEnabled,
+    ...((consoleSkillProposalsEnabled || consoleMarketReadEnabled) ? {
+      readSkillExecutor: readSkillExecutor ?? createConsoleReadSkillExecutor({
+        bankrApiKey: bankrReadonlyApiKey,
+        fetchImpl,
+      }),
+      bankrReadEnabled: Boolean(String(bankrReadonlyApiKey ?? '').trim()),
+    } : {}),
   });
   const handler = createConsoleXmtpMessageHandler({
     runtime: consoleRuntime,
@@ -184,11 +196,16 @@ export function buildConsoleXmtpWorkerOptionsFromEnv(env = process.env) {
     gatewayHost: env.MULTIPASS_XMTP_GATEWAY_HOST || null,
     appVersion: env.MULTIPASS_XMTP_APP_VERSION || 'multipass-console-worker',
     bankrLlmKey: env.BANKR_LLM_KEY || env.BANKR_API_KEY || null,
+    bankrReadonlyApiKey: env.BANKR_READONLY_API_KEY || null,
     bankrLlmModel: env.MULTIPASS_AGENT_LLM_MODEL || null,
     consoleAgentBankrLlmEnabled: parseBoolean(env.MULTIPASS_AGENT_BANKR_LLM_ENABLED),
     consoleSkillProposalsEnabled: parseStrictOptionalBoolean(
       env.MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED,
       'MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED',
+    ) ?? false,
+    consoleMarketReadEnabled: parseStrictOptionalBoolean(
+      env.MULTIPASS_CONSOLE_MARKET_READ_ENABLED,
+      'MULTIPASS_CONSOLE_MARKET_READ_ENABLED',
     ) ?? false,
     defaults: {
       agentId: env.MULTIPASS_XMTP_AGENT_ID || 'agent-manager',

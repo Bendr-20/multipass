@@ -800,21 +800,23 @@ test('one explicit Helixa command executes once and is attributed only to the se
   assert.deepEqual(result.proposalCandidates, []);
 });
 
-test('natural-language market research uses the read-only Bankr Agent path', async () => {
+test('natural-language market research uses its independent read-only Bankr Agent gate', async () => {
   let executedCommand = null;
   const runtime = createConsoleAgentRuntime({
     xmtpClient: createLocalXmtpAgentClient(),
     memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-24T19:20:00.000Z' }),
-    skillProposalsEnabled: true,
+    skillProposalsEnabled: false,
+    marketReadEnabled: true,
     bankrReadEnabled: true,
     readSkillExecutor: {
       async execute(command) {
         executedCommand = command;
         return {
           skill: 'bankr',
-          operation: 'bankr_read',
+          operation: 'market_research',
           provider: 'bankr_agent_api',
-          text: 'Bankr read-only market overview with timestamped market data.',
+          text: 'Bankr read-only market overview.\n\nRead-only market research; informational only.',
+          data: { kind: 'market', query: 'Give me a concise crypto market analysis.' },
         };
       },
     },
@@ -832,9 +834,88 @@ test('natural-language market research uses the read-only Bankr Agent path', asy
     message: 'Give me a concise crypto market analysis.',
   });
 
-  assert.equal(executedCommand, '/bankr read Give me a concise crypto market analysis.');
+  assert.equal(executedCommand, '/bankr research market Give me a concise crypto market analysis.');
   assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_agent_api');
   assert.match(result.thread.messages.at(-1).text, /market overview/i);
+  assert.equal('proposalCandidates' in result, false);
+});
+
+test('failed market reads resolve before and cause zero memory, signal, publish, or thread mutations', async () => {
+  const calls = { load: 0, recall: 0, search: 0, save: 0, append: 0, signals: 0, publish: 0, llm: 0 };
+  const runtime = createConsoleAgentRuntime({
+    marketReadEnabled: true,
+    bankrReadEnabled: true,
+    readSkillExecutor: {
+      async execute(command, { signal } = {}) {
+        assert.equal(command, '/bankr research market Track what is moving in crypto today.');
+        assert.equal(signal instanceof AbortSignal, true);
+        throw new Error('Bankr provider unavailable.');
+      },
+    },
+    memoryClient: {
+      provider: 'test_memory',
+      async loadThread() { calls.load += 1; return []; },
+      async recallMemory() { calls.recall += 1; return []; },
+      async searchMemory() { calls.search += 1; return []; },
+      async saveMemory() { calls.save += 1; return null; },
+      async appendThread() { calls.append += 1; return []; },
+    },
+    signalProvider: { async getSignals() { calls.signals += 1; return []; } },
+    xmtpClient: {
+      provider: 'test_xmtp', transport: 'xmtp_group',
+      async publishRoomMessages() { calls.publish += 1; throw new Error('must not publish'); },
+    },
+    llmClient: { async generate() { calls.llm += 1; throw new Error('must not run'); } },
+  });
+
+  await assert.rejects(runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '1',
+    tokenId: '1',
+    message: 'Track what is moving in crypto today.',
+  }), /provider unavailable/i);
+  assert.deepEqual(calls, { load: 0, recall: 0, search: 0, save: 0, append: 0, signals: 0, publish: 0, llm: 0 });
+});
+
+test('disabled market gate leaves market questions on the ordinary LLM path', async () => {
+  let readCalls = 0;
+  let llmCalls = 0;
+  const runtime = createConsoleAgentRuntime({
+    marketReadEnabled: false,
+    bankrReadEnabled: true,
+    readSkillExecutor: { async execute() { readCalls += 1; throw new Error('must not run'); } },
+    xmtpClient: createLocalXmtpAgentClient(),
+    memoryClient: createLocalSibylMemoryStore(),
+    llmClient: {
+      async generate() { llmCalls += 1; return { provider: 'bankr_llm_gateway', text: 'Ordinary LLM response.' }; },
+    },
+  });
+  const result = await runtime.handleMessage({ wallet: WALLET, agentId: '1', tokenId: '1', message: 'What is moving crypto today?' });
+  assert.equal(readCalls, 0);
+  assert.equal(llmCalls, 1);
+  assert.equal(result.thread.messages.at(-1).inferenceProvider, 'bankr_llm_gateway');
+});
+
+test('runtime preserves the validated 4096-byte market frame and footer', async () => {
+  const footer = 'Read-only market research; informational only.';
+  const text = `${'x'.repeat(5_000)}\n\n${footer}`;
+  const runtime = createConsoleAgentRuntime({
+    marketReadEnabled: true,
+    bankrReadEnabled: true,
+    readSkillExecutor: {
+      async execute() {
+        return {
+          skill: 'bankr', operation: 'market_research', provider: 'bankr_agent_api', text,
+          data: { kind: 'market', query: 'What is moving crypto today?' },
+        };
+      },
+    },
+    xmtpClient: createLocalXmtpAgentClient(),
+    memoryClient: createLocalSibylMemoryStore(),
+  });
+  const result = await runtime.handleMessage({ wallet: WALLET, agentId: '1', tokenId: '1', message: 'What is moving crypto today?' });
+  assert.ok(Buffer.byteLength(result.thread.messages.at(-1).text, 'utf8') <= 4_096);
+  assert.match(result.thread.messages.at(-1).text, /Read-only market research; informational only\.$/);
 });
 
 test('all native Bankr reads route directly, persist display text only, and create no wallet controls', async () => {
@@ -956,6 +1037,29 @@ test('wallet-changing Bankr requests bypass read executor and receive proposal-o
     'Show my TWAP orders then change one',
     'Show my DCA orders then modify them',
     'Update my TWAP orders',
+    'Show DCA status then pause it',
+    'Show TWAP orders then resume it',
+    'Show DCA history then stop it',
+    'Show TWAP status then edit it',
+    'Show DCA status then increase it',
+    'Show TWAP history then decrease it',
+    'Show DCA orders then change it',
+    'Take a long position in ETH',
+    'Enter a short position in BTC',
+    'Open an ETH position with 3x leverage and a stop at $2,000',
+    'Close 50% of my ETH position after the next hourly candle',
+    'Reduce my ETH position by half',
+    'Cash out my ETH position',
+    'Exit my SOL position',
+    'Convert USDC to ETH',
+    'Redeem my staked ETH',
+    'Exchange USDC for ETH',
+    'Make an ERC-20 token',
+    'Create an ERC20',
+    'Issue a new token',
+    'Deploy an ERC-20',
+    'Launch a coin',
+    'Show my portfolio then create an ERC-20',
   ];
   for (const message of actionMessages) {
     let readCalls = 0;
@@ -1033,17 +1137,20 @@ test('malicious upstream skill text is byte-projected display-only and cannot cr
   assert.equal(llmInputs[0].history.some((entry) => entry.text.includes('transfer_candidates')), false);
 });
 
-test('duplicate in-flight explicit commands share one bounded provider call and time out', async () => {
+test('timed-out duplicate commands stay deduplicated until the aborted provider settles', async () => {
   let calls = 0;
   let resolveProvider;
+  const signals = [];
   const provider = new Promise((resolve) => { resolveProvider = resolve; });
   const runtime = createConsoleAgentRuntime({
     skillProposalsEnabled: true,
     skillProviderTimeoutMs: 25,
     readSkillExecutor: {
-      async execute() {
+      async execute(_command, { signal } = {}) {
         calls += 1;
-        return provider;
+        signals.push(signal);
+        if (calls === 1) return provider;
+        return { skill: 'helixa', operation: 'agent_profile_read', provider: 'helixa_public_api', text: 'after settlement' };
       },
     },
     xmtpClient: createLocalXmtpAgentClient(),
@@ -1056,7 +1163,15 @@ test('duplicate in-flight explicit commands share one bounded provider call and 
   await assert.rejects(first, /skill provider deadline exceeded/i);
   await assert.rejects(second, /skill provider deadline exceeded/i);
   assert.equal(calls, 1);
+  assert.equal(signals[0].aborted, true);
+  await assert.rejects(runtime.handleMessage(input), /skill provider deadline exceeded/i);
+  assert.equal(calls, 1);
+
   resolveProvider({ skill: 'helixa', operation: 'agent_profile_read', provider: 'helixa_public_api', text: 'late' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const afterSettlement = await runtime.handleMessage(input);
+  assert.equal(calls, 2);
+  assert.equal(afterSettlement.thread.messages.at(-1).text, 'after settlement');
 });
 
 test('normal messages continue through Bankr LLM with existing typed proposals', async () => {

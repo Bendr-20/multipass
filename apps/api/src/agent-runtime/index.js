@@ -15,6 +15,8 @@ const MAX_THREAD_HISTORY = 24;
 const CONSOLE_EXECUTION_MODE = 'review_only';
 const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 25_000;
 const MAX_SKILL_RESULT_TEXT_BYTES = 2_048;
+const MAX_MARKET_RESULT_TEXT_BYTES = 4_096;
+const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
 
 export function createConsoleAgentRuntime({
   memoryClient = createSibylMemoryStore(),
@@ -23,6 +25,7 @@ export function createConsoleAgentRuntime({
   xmtpClient = createDeferredXmtpAgentClient(),
   now = () => new Date().toISOString(),
   skillProposalsEnabled = false,
+  marketReadEnabled = false,
   readSkillExecutor,
   bankrReadEnabled = true,
   skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
@@ -95,18 +98,34 @@ export function createConsoleAgentRuntime({
       const message = String(input.message ?? '').trim();
       if (!message) throw new TypeError('Message is required.');
 
+      const resolvedSkillIntent = resolveConsoleReadSkillIntent(message);
+      const explicitSkillCommand = resolvedSkillIntent?.operation === 'market_research'
+        ? marketReadEnabled ? resolvedSkillIntent : null
+        : skillProposalsEnabled ? resolvedSkillIntent : null;
+
       const profile = createRuntimeProfile(input);
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
-      const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
-      const priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, consoleCatalog)
-        .filter(isSafeInferenceHistoryMessage);
-      const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
-      const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
-      const recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
-      const walletContext = normalizeWalletContext(input.walletContext);
-      const signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
+      let priorMessages = [];
+      let recalledMemory = [];
+      let walletContext = null;
+      let signals = [];
+      const savedMemory = [];
+      if (!explicitSkillCommand) {
+        const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
+        priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, consoleCatalog)
+          .filter(isSafeInferenceHistoryMessage);
+        const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
+        const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
+        recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
+        walletContext = normalizeWalletContext(input.walletContext);
+        signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
+        for (const memory of extractDurableMemoryFromMessage(message)) {
+          const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
+          if (saved) savedMemory.push(saved);
+        }
+      }
 
       const userMessage = createThreadMessage({
         id: `msg_${hashish(`${threadId}:human:${message}:${now()}`)}`,
@@ -120,16 +139,8 @@ export function createConsoleAgentRuntime({
         xmtpMessageId: input.inboundMessageId,
       });
 
-      const extractedMemories = extractDurableMemoryFromMessage(message);
-      const savedMemory = [];
-      for (const memory of extractedMemories) {
-        const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
-        if (saved) savedMemory.push(saved);
-      }
-
       const agentMessages = [];
       const participantResponses = [];
-      const explicitSkillCommand = skillProposalsEnabled ? resolveConsoleReadSkillIntent(message) : null;
       if (explicitSkillCommand) {
         if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
           throw new Error('Console read skill executor is not configured.');
@@ -142,6 +153,10 @@ export function createConsoleAgentRuntime({
           command: explicitSkillCommand.command,
           expectedSkill: explicitSkillCommand.skill,
           expectedOperation: explicitSkillCommand.operation,
+          expectedKind: explicitSkillCommand.kind,
+          expectedQuery: explicitSkillCommand.operation === 'market_research'
+            ? explicitSkillCommand.command.replace(/^\/bankr research (?:market|news|comparison) /, '')
+            : null,
           readSkillExecutor,
           timeoutMs: skillTimeoutMs,
           inFlightSkillCalls,
@@ -271,6 +286,8 @@ function executeSkillWithDedupe({
   command,
   expectedSkill,
   expectedOperation,
+  expectedKind,
+  expectedQuery,
   readSkillExecutor,
   timeoutMs,
   inFlightSkillCalls,
@@ -283,7 +300,13 @@ function executeSkillWithDedupe({
   let timeout;
   const providerCall = Promise.resolve()
     .then(() => readSkillExecutor.execute(command, { signal: controller.signal }))
-    .then((result) => projectDisplayOnlySkillResult(result, expectedSkill, expectedOperation));
+    .then((result) => projectDisplayOnlySkillResult(
+      result,
+      expectedSkill,
+      expectedOperation,
+      expectedKind,
+      expectedQuery,
+    ));
   const deadline = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
@@ -292,13 +315,20 @@ function executeSkillWithDedupe({
   });
   const boundedCall = Promise.race([providerCall, deadline]).finally(() => {
     clearTimeout(timeout);
-    if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
   });
   inFlightSkillCalls.set(dedupeKey, boundedCall);
+  providerCall.then(
+    () => {
+      if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
+    },
+    () => {
+      if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
+    },
+  );
   return boundedCall;
 }
 
-function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation) {
+function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation, expectedKind, expectedQuery) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Malformed Console skill result.');
   }
@@ -311,12 +341,31 @@ function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation) 
   if (value.operation !== expected.operation || value.provider !== expected.provider) {
     throw new Error('Malformed Console skill result.');
   }
+  if (expectedOperation === 'market_research') {
+    if (!value.data
+      || value.data.kind !== expectedKind
+      || value.data.query !== expectedQuery
+      || !value.text.endsWith('Read-only market research; informational only.')) {
+      throw new Error('Malformed Console skill result.');
+    }
+  }
+  const text = expectedOperation === 'market_research'
+    ? truncateMarketResearchText(value.text.trim())
+    : truncateUtf8(value.text.trim(), MAX_SKILL_RESULT_TEXT_BYTES);
   return Object.freeze({
     skill: expectedSkill,
     operation: expected.operation,
     provider: expected.provider,
-    text: truncateUtf8(value.text.trim(), MAX_SKILL_RESULT_TEXT_BYTES),
+    text,
+    ...(expectedOperation === 'market_research' ? { kind: expectedKind } : {}),
   });
+}
+
+function truncateMarketResearchText(value) {
+  if (Buffer.byteLength(value, 'utf8') <= MAX_MARKET_RESULT_TEXT_BYTES) return value;
+  const suffix = `\n\n${MARKET_RESULT_FOOTER}`;
+  const body = value.slice(0, -MARKET_RESULT_FOOTER.length).trimEnd();
+  return `${truncateUtf8(body, MAX_MARKET_RESULT_TEXT_BYTES - Buffer.byteLength(suffix, 'utf8'))}${suffix}`;
 }
 
 function normalizeSkillProviderTimeout(value) {

@@ -284,6 +284,30 @@ test('production bootstrap injects no read-skill executor while the skill featur
   assert.equal(harness.calls.runtime.readSkillExecutor, undefined);
 });
 
+test('production bootstrap composes the independent market-read gate and read-only credential', async () => {
+  const enabled = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: true,
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, enabled.factories);
+  assert.equal(countOf(enabled, 'readSkillExecutor'), 1);
+  assert.equal(enabled.calls.readSkillExecutor.bankrApiKey, 'readonly-secret');
+  assert.strictEqual(enabled.calls.runtime.readSkillExecutor, enabled.objects.readSkillExecutor);
+  assert.equal(enabled.calls.runtime.marketReadEnabled, true);
+  assert.equal(enabled.calls.runtime.skillProposalsEnabled, false);
+  assert.equal(enabled.calls.runtime.bankrReadEnabled, true);
+
+  const disabled = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, disabled.factories);
+  assert.equal(countOf(disabled, 'readSkillExecutor'), 0);
+  assert.equal(disabled.calls.runtime.marketReadEnabled, false);
+});
+
 test('enabled XMTP production bootstrap passes the skill flag to its shared worker graph', async () => {
   const harness = createFactoryHarness();
   await createConsoleProductionBootstrap({
@@ -291,6 +315,16 @@ test('enabled XMTP production bootstrap passes the skill flag to its shared work
     consoleSkillProposalsEnabled: true,
   }, harness.factories);
   assert.equal(harness.calls.worker.consoleSkillProposalsEnabled, true);
+});
+
+test('enabled XMTP production bootstrap passes the independent market-read flag', async () => {
+  const harness = createFactoryHarness();
+  await createConsoleProductionBootstrap({
+    ...ENABLED_OPTIONS,
+    consoleMarketReadEnabled: true,
+    bankrReadonlyApiKey: 'readonly-secret',
+  }, harness.factories);
+  assert.equal(harness.calls.worker.consoleMarketReadEnabled, true);
 });
 
 test('XMTP worker and client cleanup are idempotent and remain separately ordered by the server', async () => {
