@@ -28,6 +28,7 @@ const CAPABILITY_LABELS = Object.freeze({
   price_read: 'BTC, ETH, SOL, USDC current USD prices',
   market_research: 'Market research',
   portfolio_read: 'Portfolio read',
+  marketplace_skill_discovery: '151 official Bankr native and third-party skills',
   transfer: 'Review-only ETH/ERC-20 transfer suggestions',
   swap: 'Swap',
   token_launch: 'Token launch',

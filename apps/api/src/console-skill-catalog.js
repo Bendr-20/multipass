@@ -25,10 +25,11 @@ const SERVER_SKILL_DESCRIPTORS = [
   {
     id: 'bankr',
     name: 'Bankr',
-    summary: 'Public market research and verified-owner public onchain portfolio reads are independently gated. Wallet-changing and unscoped account requests remain unsigned review proposals or explanations only.',
+    summary: 'Public market and verified-owner onchain reads are independently gated. The pinned official Bankr marketplace catalog adds 151 native and third-party skills as searchable review-only knowledge.',
     capabilities: [
       'public_market_reads',
       'owner_account_reads',
+      'marketplace_skill_discovery',
       'transfer_proposals',
       'other_wallet_action_proposals',
     ],
@@ -42,7 +43,7 @@ const SERVER_SKILL_DESCRIPTORS = [
       'No Bankr wallet or credential reaches the model or browser.',
       'No write, wallet action, order, signature, submission, mutation, or raw transaction is executed.',
       'Write requests produce concise unsigned review proposals only.',
-      'No arbitrary third-party marketplace skill is installed or executed.',
+      'All 151 pinned marketplace skills are searchable; installs, payments, credentials, and side effects remain review-only.',
     ],
   },
   {
@@ -72,7 +73,7 @@ export function getConsoleSkillCatalog(options = {}) {
   skills[0].enabledCapabilities = [
     ...(gates.marketReadEnabled ? ['read_public_market'] : []),
     ...(gates.accountReadEnabled ? ['read_owner_account'] : []),
-    ...(gates.proposalEnabled ? ['propose_transfer', 'propose_other_wallet_actions'] : []),
+    ...(gates.proposalEnabled ? ['discover_marketplace_skills', 'propose_transfer', 'propose_other_wallet_actions'] : []),
   ];
   skills[1].enabledCapabilities = gates.helixaReadEnabled ? ['agent_profile_read'] : [];
   for (const descriptor of skills) assertDescriptor(descriptor);

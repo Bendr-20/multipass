@@ -21,10 +21,11 @@ const EXPECTED_DESCRIPTOR_KEYS = [
 const BANKR_DESCRIPTOR = {
   id: 'bankr',
   name: 'Bankr',
-  summary: 'Public market research and verified-owner public onchain portfolio reads are independently gated. Wallet-changing and unscoped account requests remain unsigned review proposals or explanations only.',
+  summary: 'Public market and verified-owner onchain reads are independently gated. The pinned official Bankr marketplace catalog adds 151 native and third-party skills as searchable review-only knowledge.',
   capabilities: [
     'public_market_reads',
     'owner_account_reads',
+    'marketplace_skill_discovery',
     'transfer_proposals',
     'other_wallet_action_proposals',
   ],
@@ -38,7 +39,7 @@ const BANKR_DESCRIPTOR = {
     'No Bankr wallet or credential reaches the model or browser.',
     'No write, wallet action, order, signature, submission, mutation, or raw transaction is executed.',
     'Write requests produce concise unsigned review proposals only.',
-    'No arbitrary third-party marketplace skill is installed or executed.',
+    'All 151 pinned marketplace skills are searchable; installs, payments, credentials, and side effects remain review-only.',
   ],
 };
 
@@ -119,7 +120,7 @@ test('projects market, verified-owner account, proposal, and Helixa capabilities
   const bankrEnabled = (options) => getConsoleSkillCatalog(options).skills[0].enabledCapabilities;
   assert.deepEqual(bankrEnabled({ marketReadEnabled: true }), ['read_public_market']);
   assert.deepEqual(bankrEnabled({ accountReadEnabled: true }), ['read_owner_account']);
-  assert.deepEqual(bankrEnabled({ proposalEnabled: true }), ['propose_transfer', 'propose_other_wallet_actions']);
+  assert.deepEqual(bankrEnabled({ proposalEnabled: true }), ['discover_marketplace_skills', 'propose_transfer', 'propose_other_wallet_actions']);
   assert.deepEqual(bankrEnabled({
     marketReadEnabled: true,
     accountReadEnabled: true,
@@ -127,6 +128,7 @@ test('projects market, verified-owner account, proposal, and Helixa capabilities
   }), [
     'read_public_market',
     'read_owner_account',
+    'discover_marketplace_skills',
     'propose_transfer',
     'propose_other_wallet_actions',
   ]);
