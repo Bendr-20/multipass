@@ -2246,6 +2246,73 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
 });
 
+test('dedicated Console reconciles successful smart-wallet activation in place after wrapped receipt mismatch', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const account = '0x9999999999999999999999999999999999999999';
+  const baseWallet = {
+    tokenId: '617', owner, account, legacyAccount: null, nativeWei: '0', tokens: [],
+    operatorProfile: 'eip7702', policyStatus: 'owner-only', policyRecoveryAllowed: false,
+    activation: { state: 'idle', txHash: null }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  let walletState = { ...baseWallet, mode: 'read_only', reason: 'not_selected', canTransact: false };
+  const calls = [];
+  const looperWalletController = {
+    getSnapshot: () => walletState,
+    async select(selection) {
+      calls.push(['select', selection]);
+      walletState = { ...baseWallet, mode: 'inactive', reason: null, canTransact: true };
+      return walletState;
+    },
+    async prepareActivation() {
+      calls.push(['prepareActivation']);
+      walletState = { ...walletState, activation: { state: 'prepared', preparedId: 'activation:smart-wallet' } };
+      return { id: 'activation:smart-wallet', requiresExplicitConfirmation: true };
+    },
+    async submitPrepared(id, options) {
+      calls.push(['submitPrepared', id, options]);
+      walletState = {
+        ...walletState,
+        activation: { state: 'uncertain_hashed', txHash: `0x${'cc'.repeat(32)}`, preparedId: null },
+      };
+      throw new Error('Receipt transaction binding has a from, to, input mismatch.');
+    },
+    async refresh() {
+      calls.push(['refresh']);
+      walletState = {
+        ...baseWallet,
+        mode: 'active', reason: null, canTransact: true,
+        activation: { state: 'observed_unattributed', txHash: `0x${'cc'.repeat(32)}`, attributable: false },
+      };
+      return walletState;
+    },
+  };
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+  }).start();
+  await flushAsyncEvents(20);
+
+  openConsoleWallet(root);
+  const form = root.querySelector('[data-action="activate-looper-agent-wallet"]');
+  assert.ok(form);
+  form.querySelector('[name="confirmed"]').checked = true;
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  assert.deepEqual(calls.map(([name]) => name), ['select', 'prepareActivation', 'submitPrepared', 'refresh']);
+  assert.equal(root.querySelector('[data-action="set-console-workspace-view"][data-console-view="multipass"]')?.getAttribute('aria-current'), 'page');
+  openConsoleWallet(root);
+  assert.equal(root.querySelector('.console-looper-wallet-status')?.dataset.walletMode, 'active');
+  assert.equal(root.querySelector('.console-looper-wallet-outcome'), null);
+  assert.equal(root.querySelector('.console-looper-wallet-error'), null);
+  assert.doesNotMatch(root.querySelector('.console-looper-wallet')?.textContent ?? '', /Activation required|Transaction outcome unknown|Console request failed safely/i);
+});
+
 test('dedicated Console blocks agent switching while a Looper wallet submission is nonterminal', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

@@ -20,10 +20,12 @@ import { classifyOwnerCode } from './looper-agent-wallet-rpc.js';
 
 const EMPTY_CODE = '0x';
 const ATTEMPT_STATES = new Set([
-  'prepared', 'submitted', 'confirmed_attributed', 'reverted', 'invalidated',
+  'prepared', 'submitted', 'confirmed_attributed', 'observed_unattributed', 'reverted', 'invalidated',
   'acknowledged_unknown', 'uncertain_hashless', 'uncertain_hashed',
 ]);
-const TERMINAL_STATES = new Set(['confirmed_attributed', 'reverted', 'invalidated', 'acknowledged_unknown']);
+const TERMINAL_STATES = new Set([
+  'confirmed_attributed', 'observed_unattributed', 'reverted', 'invalidated', 'acknowledged_unknown',
+]);
 
 export function createLooperAgentWalletController({
   releaseConfig,
@@ -733,6 +735,19 @@ export function createLooperAgentWalletController({
         invalidateAttempt(restored);
         continue;
       }
+      if (kind === 'activation'
+        && current.mode === 'active'
+        && sameAddress(current.account, restored.account)
+        && ['submitted', 'uncertain_hashed'].includes(restored.state)) {
+        attempts[kind] = restored;
+        updateAttempt(kind, {
+          ...restored,
+          state: 'observed_unattributed',
+          attributable: false,
+          history: appendHistory(restored, 'observed_unattributed'),
+        });
+        continue;
+      }
       if (restored.state === 'submitted') {
         attempts[kind] = restored;
         updateAttempt(kind, {
@@ -808,7 +823,7 @@ export function createLooperAgentWalletController({
       || !validateAttemptHistory(record.history)
       || record.history.at(-1).state !== record.state) return null;
     const hashPresent = Object.hasOwn(record, 'txHash');
-    const hashRequired = ['submitted', 'confirmed_attributed', 'uncertain_hashed'].includes(record.state);
+    const hashRequired = ['submitted', 'confirmed_attributed', 'observed_unattributed', 'uncertain_hashed'].includes(record.state);
     const hashOptional = ['reverted', 'acknowledged_unknown'].includes(record.state);
     if ((hashRequired && !hashPresent) || (!hashRequired && !hashOptional && hashPresent)) return null;
     if (hashPresent && normalizeHash(record.txHash) !== record.txHash) return null;
@@ -1059,9 +1074,9 @@ function validateAttemptHistory(history) {
   if (!Array.isArray(history) || history.length === 0 || history[0]?.state !== 'prepared') return false;
   const transitions = {
     prepared: new Set(['submitted', 'reverted', 'invalidated', 'uncertain_hashless']),
-    submitted: new Set(['confirmed_attributed', 'reverted', 'uncertain_hashed']),
+    submitted: new Set(['confirmed_attributed', 'observed_unattributed', 'reverted', 'uncertain_hashed']),
     uncertain_hashless: new Set(['acknowledged_unknown']),
-    uncertain_hashed: new Set(['acknowledged_unknown']),
+    uncertain_hashed: new Set(['acknowledged_unknown', 'observed_unattributed']),
   };
   for (let index = 0; index < history.length; index += 1) {
     const entry = history[index];

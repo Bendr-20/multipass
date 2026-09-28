@@ -1413,7 +1413,26 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         consoleWorkspaceView: walletState.mode === 'active' ? 'multipass' : state.consoleWorkspaceView,
       };
     } catch (error) {
-      state = { ...state, looperAgentWallet: { ...activeLooperWalletController.getSnapshot(), error: getSafeConsoleError(error, { phase: 'wallet' }) } };
+      const failedWalletState = activeLooperWalletController.getSnapshot();
+      const mayHaveLanded = ['submitted', 'uncertain_hashed'].includes(failedWalletState.activation?.state);
+      if (mayHaveLanded) {
+        try {
+          const reconciled = await activeLooperWalletController.refresh();
+          if (reconciled.mode === 'active'
+            && !['submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(reconciled.activation?.state)) {
+            state = {
+              ...state,
+              looperAgentWallet: { ...reconciled, error: null },
+              consoleWorkspaceView: 'multipass',
+            };
+            render(root, state, handlers);
+            return;
+          }
+        } catch {
+          // Preserve the original fail-closed transaction outcome below.
+        }
+      }
+      state = { ...state, looperAgentWallet: { ...failedWalletState, error: getSafeConsoleError(error, { phase: 'wallet' }) } };
     }
     render(root, state, handlers);
   }

@@ -182,6 +182,39 @@ test('inactive activation passes EOA gates at readiness, pre-sign and receipt be
   assert.deepEqual(f.phases, ['readiness', 'pre_sign', 'pre_sign', 'receipt']);
 });
 
+test('successful smart-wallet activation reconciles from canonical deployed state after wrapped receipt mismatch', async () => {
+  const inactive = snapshot({ operatorCode: DELEGATED_OWNER_CODE });
+  const active = deployedSnapshot({ operatorCode: DELEGATED_OWNER_CODE });
+  const f = controllerFixture({
+    snapshots: [inactive, inactive, inactive, active],
+    receipt: async () => ({
+      status: 'success',
+      transactionHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      transaction: {
+        chainId: '0x2105',
+        from: '0x8888888888888888888888888888888888888888',
+        to: '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789',
+        data: '0x1fad948c',
+        value: '0x0',
+      },
+      logs: [{ eventName: 'AccountCreated', account: active.collectionAccount }],
+    }),
+  });
+
+  assert.equal((await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER })).mode, 'inactive');
+  const prepared = await f.controller.prepareActivation();
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /binding.*mismatch/i);
+  assert.equal(f.controller.getSnapshot().activation.state, 'uncertain_hashed');
+
+  const reconciled = await f.controller.refresh();
+  assert.equal(reconciled.mode, 'active');
+  assert.equal(reconciled.canTransact, true);
+  assert.equal(reconciled.activation.state, 'observed_unattributed');
+  assert.equal(reconciled.activation.txHash, '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
+  assert.equal(reconciled.activation.attributable, false);
+  assert.deepEqual(f.phases, ['readiness', 'pre_sign', 'pre_sign', 'readiness']);
+});
+
 test('inactive activation requires exact reviewed module registry address, code and runtime hash', async () => {
   assert.equal((await controllerFixture({ snapshots: [snapshot()] }).controller.select({ tokenId: TOKEN_ID, owner: OWNER })).canTransact, true);
   for (const evidence of [
