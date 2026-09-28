@@ -10656,11 +10656,13 @@ h1 {
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
+  color: rgba(244, 239, 231, 0.68);
 }
 
 .console-thread-attachment-actions small,
 .console-composer-image-preview small,
 .console-message-image figcaption {
+  color: rgba(244, 239, 231, 0.68);
   overflow-wrap: anywhere;
 }
 
@@ -10672,6 +10674,8 @@ h1 {
   padding: 0.5rem 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 0.65rem;
+  background: rgba(248, 243, 236, 0.06);
+  color: #f8f3ec;
   cursor: pointer;
   font-weight: 700;
 }

@@ -87,6 +87,14 @@ test('production-like Chromium image upload renders preview and mocked Looper vi
       const pageErrors = [];
       page.on('pageerror', (error) => pageErrors.push(error.message));
       await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+      const attachmentStyles = await page.locator('.console-attachment-button').evaluate((element) => ({
+        color: getComputedStyle(element).color,
+        backgroundColor: getComputedStyle(element).backgroundColor,
+        helpColor: getComputedStyle(document.querySelector('#console-image-help')).color,
+      }));
+      assert.equal(attachmentStyles.color, 'rgb(248, 243, 236)', `${viewport.name} attachment label contrast`);
+      assert.equal(attachmentStyles.backgroundColor, 'rgba(248, 243, 236, 0.06)', `${viewport.name} attachment background`);
+      assert.equal(attachmentStyles.helpColor, 'rgba(244, 239, 231, 0.68)', `${viewport.name} attachment help contrast`);
       await page.locator('[data-console-image-input]').setInputFiles({ name: 'proof.png', mimeType: 'image/png', buffer: png });
       try {
         await page.locator('[data-console-image-preview]').waitFor({ timeout: 8_000 });
