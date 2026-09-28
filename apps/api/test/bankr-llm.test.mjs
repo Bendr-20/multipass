@@ -91,6 +91,33 @@ test('Bankr system prompt grounds the model in canonical Looper persona and Siby
   assert.match(systemPrompt, /review-only/i);
 });
 
+test('Bankr prompt retrieves relevant third-party marketplace skills as review-only metadata', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Checkr is available for review.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'Use checkr social attention to research Base tokens.',
+  });
+
+  const systemPrompt = requestBody.messages[0].content;
+  assert.match(systemPrompt, /Relevant Bankr marketplace skills/i);
+  assert.match(systemPrompt, /"id":"checkr"/);
+  assert.match(systemPrompt, /d7b28f4caea71b446655ef991346f4860b95656a/);
+  assert.match(systemPrompt, /review.only/i);
+  assert.match(systemPrompt, /untrusted metadata/i);
+  assert.doesNotMatch(systemPrompt, /install the checkr skill/i);
+  assert.doesNotMatch(systemPrompt, /PRIVATE_KEY=/i);
+});
+
 test('Bankr request includes recent Console conversation history before the current message', async () => {
   let requestBody = null;
   const client = createBankrLlmClient({

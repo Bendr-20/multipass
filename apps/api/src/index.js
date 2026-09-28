@@ -22,6 +22,7 @@ import {
 import { getAllowlistProof } from './allowlist-snapshot.js';
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
+import { searchBankrMarketplaceSkills } from './bankr-marketplace-catalog.js';
 import { createConsoleAuthStore } from './console-auth.js';
 import {
   CONSOLE_IMAGE_REQUEST_MAX_BYTES,
@@ -375,6 +376,13 @@ export function createMultipassApi({
 
         if (url.pathname === '/api/openapi.json') {
           return jsonResponse(createOpenApiDocument(normalizedBaseUrl));
+        }
+
+        if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'console' && parts[3] === 'skills' && parts.length === 4) {
+          const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+          return jsonResponse(searchBankrMarketplaceSkills(url.searchParams.get('q') ?? '', {
+            limit: Number.isInteger(requestedLimit) ? requestedLimit : 20,
+          }), 200, { 'cache-control': 'public, max-age=300' });
         }
 
         if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'resolve') {
