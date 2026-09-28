@@ -1,7 +1,7 @@
 # Looper Market Intelligence — Design
 
-**Date:** 2026-09-27  
-**Status:** Proposed for first production trial  
+**Date:** 2026-09-27
+**Status:** Proposed for first production trial
 **Scope:** Read-only crypto markets and crypto news in the Multipass Console
 
 ## Goal
@@ -54,21 +54,21 @@ The first trial does not:
 
 Extend the existing bounded integration to recognize crypto-news questions and require a compact source-aware response contract.
 
-**Advantages:** already integrated, already credential-isolated, already exercised against live data, smallest safe release.  
+**Advantages:** already integrated, already credential-isolated, already exercised against live data, smallest safe release.
 **Trade-off:** Bankr remains the synthesis provider, so source quality is only as good as the links and timestamps returned by that provider.
 
 ### 2. Build a deterministic multi-provider pipeline
 
 Fetch market data, news feeds, and social signals from separate fixed hosts, normalize them, then synthesize locally.
 
-**Advantages:** strongest provenance and independent cross-checking.  
+**Advantages:** strongest provenance and independent cross-checking.
 **Trade-off:** materially larger provider, caching, quota, schema, and operational surface. This is a possible second release after usage proves demand.
 
 ### 3. Give the runtime unrestricted web search
 
 Allow the Looper to browse and synthesize any current page.
 
-**Advantages:** broad coverage.  
+**Advantages:** broad coverage.
 **Trade-off:** weakest boundaries, inconsistent citations, larger prompt-injection surface, and no deterministic egress policy. Rejected.
 
 ## User experience
