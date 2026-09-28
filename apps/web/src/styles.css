@@ -10798,6 +10798,10 @@ h1 {
     min-width: 0;
   }
 
+  .console-thread-attachment-actions {
+    flex: 0 1 auto;
+  }
+
   .console-message-image img {
     max-height: 20rem;
   }

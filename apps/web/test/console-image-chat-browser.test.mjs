@@ -95,6 +95,20 @@ test('production-like Chromium image upload renders preview and mocked Looper vi
       assert.equal(attachmentStyles.color, 'rgb(248, 243, 236)', `${viewport.name} attachment label contrast`);
       assert.equal(attachmentStyles.backgroundColor, 'rgba(248, 243, 236, 0.06)', `${viewport.name} attachment background`);
       assert.equal(attachmentStyles.helpColor, 'rgba(244, 239, 231, 0.68)', `${viewport.name} attachment help contrast`);
+      if (viewport.name === 'mobile') {
+        const composerSpacing = await page.evaluate(() => {
+          const actions = document.querySelector('.console-thread-actions');
+          const attachments = document.querySelector('.console-thread-attachment-actions');
+          return {
+            actionsDirection: getComputedStyle(actions).flexDirection,
+            attachmentFlexBasis: getComputedStyle(attachments).flexBasis,
+            attachmentHeight: attachments.getBoundingClientRect().height,
+          };
+        });
+        assert.equal(composerSpacing.actionsDirection, 'column');
+        assert.equal(composerSpacing.attachmentFlexBasis, 'auto', 'mobile attachment controls must size to their content instead of reserving desktop width vertically');
+        assert.ok(composerSpacing.attachmentHeight < 140, `mobile attachment controls must stay compact, got ${composerSpacing.attachmentHeight}px`);
+      }
       await page.locator('[data-console-image-input]').setInputFiles({ name: 'proof.png', mimeType: 'image/png', buffer: png });
       try {
         await page.locator('[data-console-image-preview]').waitFor({ timeout: 8_000 });
