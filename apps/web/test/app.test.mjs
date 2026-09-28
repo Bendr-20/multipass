@@ -2066,6 +2066,36 @@ test('dedicated Console gallery searches, sorts, clears, and opens agents beyond
   assert.ok(root.querySelector('.console-agent-thread-panel'));
 });
 
+test('dedicated Console preserves a focused mobile Looper selector across unrelated rerenders', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } });
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
+  }).start();
+  await flushAsyncEvents(30);
+
+  const switcher = root.querySelector('details[data-console-roster-drawer="switcher"]');
+  switcher.open = true;
+  switcher.dispatchEvent(new window.Event('toggle'));
+  const selector = switcher.querySelector('[data-action="select-console-agent"]');
+  selector.focus();
+  assert.equal(document.activeElement, selector);
+
+  walletClient.setSnapshot({ ready: true }, { notify: true });
+
+  assert.equal(root.querySelector('[data-action="select-console-agent"]'), selector);
+  assert.equal(selector.isConnected, true);
+  assert.equal(switcher.open, true);
+
+  selector.blur();
+  assert.notEqual(root.querySelector('[data-action="select-console-agent"]'), selector);
+  assert.equal(root.querySelector('details[data-console-roster-drawer="switcher"]')?.open, true);
+});
+
 test('dedicated Console preserves the full-width roster drawer across rerenders and closes it after selection', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

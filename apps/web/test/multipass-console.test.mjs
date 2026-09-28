@@ -575,6 +575,28 @@ test('read-only wallet state uses one neutral explanation instead of a success c
   assert.equal(panel.querySelector('.console-looper-wallet-reason'), null);
 });
 
+test('wrong-chain wallet state tells mobile users to switch to Base', () => {
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'wallet',
+      looperAgentWallet: {
+        mode: 'read_only', reason: 'wrong_chain', tokenId: '1',
+        account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [],
+        policyStatus: 'read-only', canTransact: false,
+        activation: { state: 'invalidated' }, send: { state: 'idle' }, policy: { state: 'idle' },
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  const note = root.querySelector('.console-looper-wallet-control-note');
+
+  assert.match(note?.textContent ?? '', /switch your wallet network to Base/i);
+});
+
 test('Multipass Console snapshot frames onchain agent operations without collection-specific copy', () => {
   const snapshot = createMultipassConsoleSnapshot({
     agents: sampleAgents(),

@@ -957,6 +957,7 @@ function formatWalletReason(reason) {
     binding_mismatch: 'The reviewed account is not bound to this Base Looper token.',
     permission_hook_paused: 'Permission hooks are paused. Owner recovery remains available.',
     policy_drift: 'Policy evidence changed. Preview the recovery again.',
+    wrong_chain: 'Switch your wallet network to Base and try again.',
     unsupported_wallet: 'The owner signer has arbitrary or malformed Base code and cannot submit Looper wallet writes.',
     owner_changed: 'Ownership changed. Reconnect as the current Looper owner.',
     wrong_runtime: 'The deployed account runtime does not match the reviewed release.',

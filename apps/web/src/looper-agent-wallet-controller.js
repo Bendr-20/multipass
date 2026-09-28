@@ -32,6 +32,7 @@ export function createLooperAgentWalletController({
   readSnapshot,
   submitTransaction,
   getWalletChainId,
+  switchWalletChain,
   readReceipt,
   storage = globalThis.localStorage,
   locks = globalThis.navigator?.locks,
@@ -214,8 +215,18 @@ export function createLooperAgentWalletController({
           || stableJson(persisted.transaction) !== stableJson(expectedTransaction)) {
           throw new Error('Prepared Looper wallet transaction is not exact. Preview again.');
         }
-        const walletChainId = await getWalletChainId();
+        let walletChainId = await getWalletChainId();
+        if (walletChainId !== '0x2105' && typeof switchWalletChain === 'function') {
+          try {
+            await switchWalletChain('0x2105');
+          } catch (error) {
+            if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
+            throw error;
+          }
+          walletChainId = await getWalletChainId();
+        }
         if (walletChainId !== '0x2105') {
+          if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
           throw new Error('Connected wallet changed away from Base before submission.');
         }
         const finalPersisted = loadAttempt(scope, record.kind);

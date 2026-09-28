@@ -125,6 +125,7 @@ function controllerFixture({
   storage = memoryStorage(),
   locks = immediateLocks(),
   getWalletChainId = async () => '0x2105',
+  switchWalletChain,
   generateAttemptId,
 } = {}) {
   const phases = [];
@@ -141,6 +142,7 @@ function controllerFixture({
     storage,
     locks,
     getWalletChainId,
+    switchWalletChain,
     generateAttemptId,
     async readSnapshot(request) {
       phases.push(request.phase);
@@ -159,6 +161,57 @@ function controllerFixture({
   });
   return { controller, phases, requests, storage };
 }
+
+test('activation switches a connected mobile wallet to Base before submission', async () => {
+  const active = deployedSnapshot();
+  let chainId = '0x1';
+  const switches = [];
+  const submissions = [];
+  const f = controllerFixture({
+    snapshots: [snapshot(), snapshot(), snapshot(), active],
+    getWalletChainId: async () => chainId,
+    switchWalletChain: async (nextChainId) => {
+      switches.push(nextChainId);
+      chainId = nextChainId;
+    },
+    submit: async (transaction) => {
+      submissions.push(transaction);
+      return '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    },
+    receipt: async ({ transaction }) => ({
+      status: 'success',
+      transactionHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      transaction,
+      logs: [{ eventName: 'AccountCreated', account: snapshot().collectionAccount }],
+    }),
+  });
+
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareActivation();
+  const confirmed = await f.controller.submitPrepared(prepared.id, { confirmed: true });
+
+  assert.deepEqual(switches, ['0x2105']);
+  assert.equal(submissions.length, 1);
+  assert.equal(confirmed.mode, 'active');
+});
+
+test('activation exposes a recoverable wrong-chain state when the mobile wallet cannot switch to Base', async () => {
+  let submitted = false;
+  const f = controllerFixture({
+    snapshots: [snapshot(), snapshot()],
+    getWalletChainId: async () => '0x1',
+    switchWalletChain: async () => { throw new Error('wallet switch unavailable'); },
+    submit: async () => { submitted = true; },
+  });
+
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareActivation();
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /switch unavailable/i);
+
+  assert.equal(submitted, false);
+  assert.equal(f.controller.getSnapshot().mode, 'read_only');
+  assert.equal(f.controller.getSnapshot().reason, 'wrong_chain');
+});
 
 test('inactive activation passes EOA gates at readiness, pre-sign and receipt before attribution', async () => {
   const active = deployedSnapshot();

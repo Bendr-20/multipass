@@ -59,6 +59,7 @@ const MULTIPASS_CONSOLE_PATH = '/multipass/console';
 const MULTIPASS_RUNTIME_PATH = '/multipass/runtime';
 const CONSOLE_AGENT_NAME_OVERRIDES_STORAGE_KEY = `multipass.console.${'agentNameOverrides'}`;
 const CONSOLE_HIDDEN_MESSAGES_STORAGE_KEY = 'multipass.console.hiddenMessages.v1';
+const deferredConsoleRenders = new WeakMap();
 const LOOPER_ALLOWLIST_PATHS = new Set(['/allowlist', '/allowlist/', '/multipass/allowlist', '/multipass/allowlist/']);
 const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multipass/mint/']);
 
@@ -94,6 +95,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     readSnapshot: looperWalletRpc.readSnapshot,
     readReceipt: looperWalletRpc.readReceipt,
     getWalletChainId: () => activeWalletClient.request({ method: 'eth_chainId' }),
+    switchWalletChain: (chainId) => activeWalletClient.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId }],
+    }),
     submitTransaction: async (transaction) => {
       if (typeof activeWalletClient.sendTransaction !== 'function') {
         throw new Error('Connected wallet does not expose the guarded Looper transaction action.');
@@ -1517,13 +1522,19 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function selectConsoleAgent(event) {
+    const selector = event?.currentTarget;
     if (state.consoleAgentNameMutation?.status === 'pending') return;
     if (hasSelectedLooperWalletWork(state)) {
       render(root, state, handlers);
       return;
     }
-    const tokenId = String(event?.currentTarget?.value ?? '').trim() || null;
-    if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
+    const tokenId = String(selector?.value ?? '').trim() || null;
+    if (!tokenId || tokenId === state.consoleSelectedAgentId) {
+      selector?.blur?.();
+      return;
+    }
+    deferredConsoleRenders.delete(root);
+    selector?.blur?.();
     return selectAndActivateConsoleAgent(tokenId);
   }
 
@@ -3307,6 +3318,7 @@ function render(root, state, handlers = {}) {
   }
 
   if (state.pageKind === 'console') {
+    if (deferConsoleRenderForFocusedSelector(root, state, handlers)) return;
     renderMultipassConsolePage(root, state, handlers);
     return;
   }
@@ -4092,6 +4104,22 @@ export function restoreConsoleInteractionState(root, previous = {}) {
     );
   }
   if (priorComposer.focused) composer.focus({ preventScroll: true });
+}
+
+function deferConsoleRenderForFocusedSelector(root, state, handlers) {
+  const documentRef = root?.ownerDocument ?? (typeof document === 'undefined' ? null : document);
+  const selector = documentRef?.activeElement;
+  if (!selector?.matches?.('[data-action="select-console-agent"]') || !root?.contains?.(selector)) return false;
+
+  deferredConsoleRenders.set(root, { state, handlers });
+  if (selector.dataset.consoleRenderDeferred === 'true') return true;
+  selector.dataset.consoleRenderDeferred = 'true';
+  selector.addEventListener('blur', () => {
+    const pending = deferredConsoleRenders.get(root);
+    deferredConsoleRenders.delete(root);
+    if (pending) render(root, pending.state, pending.handlers);
+  }, { once: true });
+  return true;
 }
 
 export function bindConsoleAvatarFallbacks(root) {
