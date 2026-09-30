@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -22,6 +23,16 @@ function wallet({ address, connectedAt, provider = { request: async () => '0xsig
     getEthereumProvider: provider === null ? undefined : async () => provider,
   };
 }
+
+test('mobile OKX uses the dedicated connector and a Privy release with the universal-link fix', async () => {
+  const okxIndex = PRIVY_CONNECT_WALLET_LIST.indexOf('okx_wallet');
+  const genericWalletConnectIndex = PRIVY_CONNECT_WALLET_LIST.indexOf('wallet_connect');
+  assert.notEqual(okxIndex, -1);
+  assert.ok(okxIndex < genericWalletConnectIndex);
+
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(packageJson.dependencies['@privy-io/react-auth'], '3.37.0');
+});
 
 test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
   assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {
@@ -189,6 +200,7 @@ test('Privy connect wallet list puts the Coinbase app connector before popup-bas
     'metamask',
     'detected_ethereum_wallets',
     'rainbow',
+    'okx_wallet',
     'wallet_connect',
     'wallet_connect_qr',
   ]);

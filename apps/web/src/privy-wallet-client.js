@@ -20,6 +20,7 @@ export const PRIVY_CONNECT_WALLET_LIST = [
   'metamask',
   'detected_ethereum_wallets',
   'rainbow',
+  'okx_wallet',
   'wallet_connect',
   'wallet_connect_qr',
 ];
