@@ -6,7 +6,7 @@ import {
   PRIVY_BASE_ACCOUNT_WALLET_ID,
   createPrivyConnectAction,
   createPrivyConnectionError,
-  createBaseAccountSigningWallet,
+  selectBaseAccountIdentityAddress,
   createPrivyWalletClient,
   createPrivySignMessageAction,
   classifyPrivyWalletProfile,
@@ -192,15 +192,21 @@ test('selectConnectedWalletAddress rejects address-only and linked identity reco
   assert.equal(selectConnectedWalletAddress([smartWallet], user), null);
 });
 
-test('Base Account SDK creates a live signing wallet from a linked Base identity', () => {
-  const provider = { request: async () => '0xsigned' };
-  const sdk = { getProvider: () => provider };
-  const liveWallet = createBaseAccountSigningWallet('0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', sdk);
-
-  assert.equal(liveWallet.address, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
-  assert.equal(liveWallet.walletClientType, PRIVY_BASE_ACCOUNT_WALLET_ID);
-  assert.equal(liveWallet.getEthereumProvider(), provider);
-  assert.equal(createBaseAccountSigningWallet(liveWallet.address, undefined), null);
+test('Base Account identity selects the dedicated connector without pretending it is connected', () => {
+  assert.equal(selectBaseAccountIdentityAddress([], {
+    linkedAccounts: [{
+      type: 'wallet',
+      walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+      address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    }],
+  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.equal(selectConnectedWalletAddress([], {
+    linkedAccounts: [{
+      type: 'wallet',
+      walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+      address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    }],
+  }), null);
 });
 
 test('getAddressFromPrivyConnectResult extracts smart wallet addresses from modal results', () => {
@@ -318,6 +324,26 @@ test('Privy keeps Coinbase Wallet app-only while Base Account owns the smart-wal
       },
     },
   });
+});
+
+test('createPrivyConnectAction authorizes Base Account before waiting for its live wallet', async () => {
+  const calls = [];
+  const action = createPrivyConnectAction({
+    configured: true,
+    preferBaseAccount: true,
+    connectWallet: () => calls.push(['modal']),
+    connectBaseAccount: () => calls.push(['base']),
+    client: {
+      clearConnectionError() {},
+      waitForConnection: async (options) => {
+        calls.push(['wait', options]);
+        return '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+      },
+    },
+  });
+
+  assert.equal(await action(), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.deepEqual(calls, [['base'], ['wait', { timeoutMs: 45000 }]]);
 });
 
 test('createPrivyConnectAction opens Privy with Multipass prompt and explicit timeout', async () => {

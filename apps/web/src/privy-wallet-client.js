@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { useBaseAccountSdk, useConnectWallet, useLogout, usePrivy, useWallets } from '@privy-io/react-auth';
+import { useBaseAccountSdk, useConnectBaseAccount, useConnectWallet, useLogout, usePrivy, useWallets } from '@privy-io/react-auth';
 import { getAddress, isAddress } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 
@@ -170,12 +170,13 @@ export function selectConnectedWalletAddress(wallets = [], user = null, environm
   return getWalletAddress(signableWallet);
 }
 
-export function createPrivyConnectAction({ client, configured, connectWallet }) {
+export function createPrivyConnectAction({ client, configured, connectWallet, connectBaseAccount, preferBaseAccount = false }) {
   return async () => {
     if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
-    if (typeof connectWallet !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
+    const connect = preferBaseAccount ? connectBaseAccount : connectWallet;
+    if (typeof connect !== 'function') throw new Error(LOADING_WALLET_MESSAGE);
     client.clearConnectionError?.();
-    const modalResult = connectWallet({
+    const modalResult = preferBaseAccount ? connect() : connect({
       walletChainType: 'ethereum-only',
       walletList: PRIVY_CONNECT_WALLET_LIST,
       description: PRIVY_CONNECT_DESCRIPTION,
@@ -216,17 +217,7 @@ export function prepareWalletSigningProvider(wallet, { baseAccountSdk } = {}) {
   return wallet?.getEthereumProvider?.();
 }
 
-export function createBaseAccountSigningWallet(address, baseAccountSdk) {
-  const normalizedAddress = normalizeAddressOrNull(address);
-  if (!normalizedAddress || typeof baseAccountSdk?.getProvider !== 'function') return null;
-  return {
-    address: normalizedAddress,
-    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
-    getEthereumProvider: () => baseAccountSdk.getProvider(),
-  };
-}
-
-function selectBaseAccountIdentityAddress(wallets = [], user = null) {
+export function selectBaseAccountIdentityAddress(wallets = [], user = null) {
   const candidates = [
     ...wallets,
     user?.wallet,
@@ -439,6 +430,7 @@ export function PrivyWalletBridge({ client, configured }) {
   const privy = usePrivy();
   const { wallets = [], ready: walletsReady = false } = useWallets();
   const { baseAccountSdk } = useBaseAccountSdk();
+  const { connectBaseAccount } = useConnectBaseAccount();
   const handleConnectSuccess = useCallback(() => {
     client.clearConnectionError();
   }, [client]);
@@ -454,12 +446,9 @@ export function PrivyWalletBridge({ client, configured }) {
     userAgent: globalThis.navigator?.userAgent ?? '',
     okxInjected: Boolean(globalThis.window?.okxwallet),
   };
-  const activeWallet = selectEvmWallet(wallets, browserEnvironment)
-    ?? createBaseAccountSigningWallet(
-      selectBaseAccountIdentityAddress(wallets, privy?.user),
-      baseAccountSdk,
-    );
+  const activeWallet = selectEvmWallet(wallets, browserEnvironment);
   const connectedAddress = getWalletAddress(activeWallet);
+  const preferBaseAccount = Boolean(selectBaseAccountIdentityAddress(wallets, privy?.user));
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {
@@ -488,7 +477,7 @@ export function PrivyWalletBridge({ client, configured }) {
 
   useEffect(() => {
     client.setActions({
-      connect: createPrivyConnectAction({ client, configured, connectWallet }),
+      connect: createPrivyConnectAction({ client, configured, connectWallet, connectBaseAccount, preferBaseAccount }),
       disconnect: async () => {
         if (!configured) throw new Error(WALLET_NOT_CONFIGURED_MESSAGE);
         if (typeof logout === 'function') await logout();
@@ -508,7 +497,7 @@ export function PrivyWalletBridge({ client, configured }) {
         return provider.request(payload);
       },
     });
-  }, [client, configured, connectWallet, logout, wallets]);
+  }, [client, configured, connectWallet, connectBaseAccount, preferBaseAccount, logout, wallets]);
 
   return React.createElement(React.Fragment, null);
 }
