@@ -13,6 +13,7 @@
     }
   },
   "dependencies": {
+    "@helixa/loopers-codex": "workspace:*",
     "@helixa/multipass-sdk": "workspace:*",
     "@xmtp/node-sdk": "6.1.0",
     "viem": "^2.53.1"

@@ -10,6 +10,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@helixa/loopers-codex':
+        specifier: workspace:*
+        version: link:../../packages/loopers-codex
       '@helixa/multipass-sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
