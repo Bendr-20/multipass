@@ -12,6 +12,7 @@ import { getCommunicationChannels, getCommunicationContactPolicy } from './commu
 import {
   activateConsoleAgent as defaultActivateConsoleAgent,
   authenticateConsoleSession as defaultAuthenticateConsoleSession,
+  requestConsoleSessionChallenge as defaultRequestConsoleSessionChallenge,
   sendConsoleAgentMessage as defaultSendConsoleAgentMessage,
   updateConsoleAgentName as defaultUpdateConsoleAgentName,
 } from './console-agent-api.js';
@@ -111,6 +112,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   let consoleReleasedLooperAbortController = null;
+  let preparedConsoleChallenge = null;
+  let consoleChallengeRequestId = 0;
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
   const consoleMockState = getInitialConsoleMockState();
   const consoleAgentNameOverrides = consoleMockState?.consoleAgentNameOverrides ?? loadConsoleAgentNameOverrides();
@@ -190,6 +193,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function start() {
     activeWalletClient.subscribe?.(() => {
       const walletSnapshot = activeWalletClient.getSnapshot();
+      if (preparedConsoleChallenge && (
+        !walletSnapshot.connected
+        || normalizeConsoleWalletKey(walletSnapshot.address) !== preparedConsoleChallenge.wallet
+      )) {
+        preparedConsoleChallenge = null;
+        consoleChallengeRequestId += 1;
+      }
       if (state.pageKind === 'console' && state.consoleMockMode) return;
       if (state.pageKind === 'console' && !state.consoleMockMode && consoleWalletBoundaryChanged(state, walletSnapshot)) {
         abortConsoleReleasedLooperDiscovery();
@@ -227,7 +237,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       } else if (state.pageKind === 'product_home') {
         scheduleHomepageProfilePrefetch(data);
       } else if (state.pageKind === 'console' && !state.consoleMockMode && state.walletSnapshot.connected && state.walletSnapshot.address) {
-        await connectConsoleWallet();
+        if (requiresPreparedConsoleChallenge(state.walletSnapshot)) {
+          await prepareConsoleSessionChallenge(state.walletSnapshot);
+        } else {
+          await connectConsoleWallet();
+        }
       } else if (state.pageKind === 'looper_mint' && state.looperMint.enabled && state.looperMint.config?.contractAddress) {
         refreshLooperMint({ silent: true });
       }
@@ -655,6 +669,54 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  async function prepareConsoleSessionChallenge(walletSnapshot, { sessionGeneration = state.consoleSessionGeneration } = {}) {
+    const wallet = normalizeConsoleWalletKey(walletSnapshot?.address);
+    if (!wallet || !requiresPreparedConsoleChallenge(walletSnapshot)) return null;
+    const requestId = ++consoleChallengeRequestId;
+    preparedConsoleChallenge = null;
+    state = {
+      ...state,
+      walletSnapshot,
+      consoleWalletStatus: 'preparing_signature',
+      consoleWalletError: null,
+    };
+    render(root, state, handlers);
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const challenge = await (claimApi.requestConsoleSessionChallenge ?? defaultRequestConsoleSessionChallenge)({
+        apiBase,
+        wallet: walletSnapshot.address,
+        fetchImpl,
+      });
+      const currentWallet = activeWalletClient.getSnapshot();
+      if (
+        requestId !== consoleChallengeRequestId
+        || state.consoleSessionGeneration !== sessionGeneration
+        || !currentWallet.connected
+        || normalizeConsoleWalletKey(currentWallet.address) !== wallet
+      ) return null;
+      preparedConsoleChallenge = { wallet, challenge };
+      state = {
+        ...state,
+        walletSnapshot: currentWallet,
+        consoleWalletStatus: 'signature_ready',
+        consoleWalletError: null,
+      };
+      render(root, state, handlers);
+      return challenge;
+    } catch (error) {
+      if (requestId !== consoleChallengeRequestId || state.consoleSessionGeneration !== sessionGeneration) return null;
+      state = {
+        ...state,
+        walletSnapshot: activeWalletClient.getSnapshot(),
+        consoleWalletStatus: 'transport_failed',
+        consoleWalletError: getSafeConsoleError(error, { phase: 'nonce' }),
+      };
+      render(root, state, handlers);
+      return null;
+    }
+  }
+
   async function connectConsoleWallet() {
     abortConsoleReleasedLooperDiscovery();
     clearConsoleImagePreview();
@@ -695,6 +757,19 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       if (!walletSnapshot.connected || !walletSnapshot.address) throw new Error('Connect an Ethereum wallet to use Console wallet identity.');
       const authenticatingWallet = normalizeConsoleWalletKey(walletSnapshot.address);
       if (!authenticatingWallet) throw new Error('Connected wallet returned an invalid address.');
+      let challenge;
+      if (!requiresPreparedConsoleChallenge(walletSnapshot)) {
+        preparedConsoleChallenge = null;
+        consoleChallengeRequestId += 1;
+      }
+      if (requiresPreparedConsoleChallenge(walletSnapshot)) {
+        if (preparedConsoleChallenge?.wallet !== authenticatingWallet) {
+          await prepareConsoleSessionChallenge(walletSnapshot, { sessionGeneration });
+          return;
+        }
+        challenge = preparedConsoleChallenge.challenge;
+        preparedConsoleChallenge = null;
+      }
       state = {
         ...state,
         walletSnapshot,
@@ -703,10 +778,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
       render(root, state, handlers);
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      authenticationStage = 'nonce';
+      authenticationStage = challenge ? 'signature' : 'nonce';
       const authenticated = await (claimApi.authenticateConsoleSession ?? defaultAuthenticateConsoleSession)({
         apiBase,
         wallet: walletSnapshot.address,
+        challenge,
         signMessage: (message) => activeWalletClient.signMessage(message),
         fetchImpl,
         onStage: (stage) => { authenticationStage = stage; },
@@ -2506,6 +2582,7 @@ const defaultClaimApi = {
   refreshMultipassTool,
   logoutMultipassSession,
   authenticateConsoleSession: defaultAuthenticateConsoleSession,
+  requestConsoleSessionChallenge: defaultRequestConsoleSessionChallenge,
   activateConsoleAgent: defaultActivateConsoleAgent,
   updateConsoleAgentName: defaultUpdateConsoleAgentName,
   sendConsoleAgentMessage: defaultSendConsoleAgentMessage,
@@ -2567,6 +2644,15 @@ function getConsoleSkillProposalResponseFields(response = {}) {
     capabilities: response.capabilities,
     proposalCandidates: response.proposalCandidates,
   };
+}
+
+function requiresPreparedConsoleChallenge(walletSnapshot = {}) {
+  const walletClientType = String(
+    walletSnapshot.walletProfile?.walletClientType
+      ?? walletSnapshot.walletClientType
+      ?? '',
+  ).trim().toLowerCase();
+  return walletClientType === 'base_account';
 }
 
 function consoleWalletBoundaryChanged(state = {}, walletSnapshot = {}) {
@@ -4208,7 +4294,7 @@ function renderLooperAllowlistPage(root, state, handlers = {}) {
 function createConsoleHeaderWalletAction(state = {}) {
   const wallet = state.walletSnapshot ?? {};
   const consoleStatus = state.consoleWalletStatus;
-  const busy = consoleStatus === 'connecting' || consoleStatus === 'signing' || consoleStatus === 'loading_roster';
+  const busy = consoleStatus === 'connecting' || consoleStatus === 'preparing_signature' || consoleStatus === 'signing' || consoleStatus === 'loading_roster';
   const connected = Boolean(wallet.connected && wallet.address);
   const authenticated = connected
     && normalizeConsoleWalletKey(state.consoleAuthenticatedWallet) === normalizeConsoleWalletKey(wallet.address);
@@ -4220,7 +4306,9 @@ function createConsoleHeaderWalletAction(state = {}) {
     disabled: busy || unavailable || !ready,
     label: consoleStatus === 'connecting'
       ? 'Connecting...'
-      : consoleStatus === 'signing'
+      : consoleStatus === 'preparing_signature'
+        ? 'Preparing sign-in...'
+        : consoleStatus === 'signing'
         ? 'Sign in wallet...'
         : consoleStatus === 'loading_roster'
           ? 'Loading agents...'

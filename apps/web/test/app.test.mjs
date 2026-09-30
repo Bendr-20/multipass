@@ -3478,11 +3478,66 @@ test('dedicated Console route accepts Base smart wallet identity snapshots', asy
   root.querySelector('[data-action="connect-console-wallet"]').click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   await flushAsyncEvents(20);
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, 'Sign in');
+
+  root.querySelector('.header-actions [data-action="connect-console-wallet"]').click();
+  await flushAsyncEvents(20);
 
   assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, '0x709D...44aE');
   assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /0x709D\.\.\.44aE/);
   assert.match(root.querySelector('.console-main-roster-drawer')?.textContent ?? '', /Looper #617/);
   assert.equal(root.querySelector('[data-action="connect-looper-mint-wallet"]'), null);
+});
+
+test('dedicated Console prefetches Base Account challenge and signs only from the explicit user click', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE';
+  const sequence = [];
+  const walletClient = createWalletClientFixture({
+    snapshot: {
+      connected: true,
+      address: owner,
+      label: '0x709D...44aE',
+      walletProfile: { walletClientType: 'base_account', kind: 'smart_or_delegated' },
+    },
+    signMessage: async (message) => {
+      sequence.push(['sign', message]);
+      return { wallet: owner, signature: '0xbase' };
+    },
+  });
+
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ wallet: owner, tokenIds: [617] }),
+    claimApi: {
+      requestConsoleSessionChallenge: async ({ wallet }) => {
+        sequence.push(['nonce', wallet]);
+        return { nonce: 'base-nonce', message: 'Prepared Base Account challenge' };
+      },
+      authenticateConsoleSession: async ({ challenge, signMessage, onStage }) => {
+        sequence.push(['authenticate', challenge?.nonce]);
+        onStage('signature');
+        await signMessage(challenge.message);
+        onStage('session');
+        return { csrfToken: 'csrf-base' };
+      },
+      activateConsoleAgent: async () => ({ thread: { messages: [] }, memory: {}, proposals: [] }),
+    },
+  }).start();
+  await flushAsyncEvents(20);
+
+  assert.deepEqual(sequence, [['nonce', owner]]);
+  assert.equal(root.querySelector('.header-actions [data-action="connect-console-wallet"]')?.textContent, 'Sign in');
+  assert.equal(root.querySelector('.console-auth-gate [data-action="connect-console-wallet"]')?.textContent, 'Sign in with wallet');
+
+  root.querySelector('.console-auth-gate [data-action="connect-console-wallet"]').click();
+  await flushAsyncEvents(30);
+
+  assert.deepEqual(sequence.slice(0, 3).map(([kind]) => kind), ['nonce', 'authenticate', 'sign']);
+  assert.equal(sequence[1][1], 'base-nonce');
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #617/);
 });
 
 test('dedicated Console route can render a looper mock room without live ownership fetches', async () => {

@@ -35,6 +35,29 @@ test('Console client signs a server challenge and stores only returned CSRF sess
   assert.deepEqual(stages, ['nonce', 'signature', 'session']);
 });
 
+test('Console client signs a prepared challenge before making any request so popup wallets retain user activation', async () => {
+  const sequence = [];
+  const preparedChallenge = { nonce: 'nonce-prepared', message: 'Prepared Base Account challenge' };
+  const result = await authenticateConsoleSession({
+    apiBase: 'https://helixa.test',
+    wallet: WALLET,
+    challenge: preparedChallenge,
+    signMessage: async (message) => {
+      sequence.push(['sign', message]);
+      return { wallet: WALLET, signature: '0xprepared' };
+    },
+    fetchImpl: async (url, init) => {
+      sequence.push(['fetch', url, JSON.parse(init.body)]);
+      return new Response(JSON.stringify({ wallet: WALLET.toLowerCase(), csrfToken: 'csrf-prepared' }));
+    },
+  });
+
+  assert.equal(result.csrfToken, 'csrf-prepared');
+  assert.deepEqual(sequence.map(([kind]) => kind), ['sign', 'fetch']);
+  assert.equal(sequence[1][1], 'https://helixa.test/api/multipass/console/session/verify');
+  assert.equal(sequence[1][2].nonce, 'nonce-prepared');
+});
+
 test('owned loading and agent writes rely on cookie session instead of a wallet parameter', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

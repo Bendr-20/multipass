@@ -344,14 +344,14 @@ function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
 }
 
 function renderConsoleAuthGate(wallet = {}) {
-  const busy = ['connecting', 'signing', 'loading_roster'].includes(wallet.status);
+  const busy = ['connecting', 'preparing_signature', 'signing', 'loading_roster'].includes(wallet.status);
   return `
     <section class="console-auth-gate" aria-labelledby="console-auth-gate-title">
       <span class="console-gate-eyebrow">One signature left</span>
       <h2 id="console-auth-gate-title">Sign in to Console</h2>
       <p>Your wallet is connected, but the private Console is still locked. Sign once to prove ownership and load your Loopers.</p>
       <div class="console-auth-gate-wallet"><span>Connected wallet</span><strong>${escapeHtml(wallet.label ?? 'Wallet connected')}</strong></div>
-      <button type="button" data-action="connect-console-wallet" ${busy || wallet.unavailable || !wallet.ready ? 'disabled' : ''}>${busy ? 'Signing in…' : 'Sign in with wallet'}</button>
+      <button type="button" data-action="connect-console-wallet" ${busy || wallet.unavailable || !wallet.ready ? 'disabled' : ''}>${wallet.status === 'preparing_signature' ? 'Preparing sign-in…' : busy ? 'Signing in…' : 'Sign in with wallet'}</button>
       ${wallet.error ? `<p class="console-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
       <small>This does not create a transaction or give the agent spending access.</small>
     </section>
@@ -590,6 +590,7 @@ function renderSessionPanel(session = {}) {
 
 function createWalletOperation(walletStatus, rosterStatus) {
   if (walletStatus === 'connecting') return 'Connecting wallet…';
+  if (walletStatus === 'preparing_signature') return 'Preparing wallet challenge…';
   if (walletStatus === 'signing') return 'Signing Console authentication…';
   if (walletStatus === 'loading_roster' || rosterStatus === 'loading') return 'Loading wallet-owned Loopers…';
   if (walletStatus === 'cancelled') return 'Wallet operation cancelled.';

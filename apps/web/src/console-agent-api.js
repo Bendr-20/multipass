@@ -1,18 +1,28 @@
 import { SavedMultipassError, joinApiPath } from './saved-multipass-api.js';
 
-export async function authenticateConsoleSession({ apiBase, wallet, signMessage, fetchImpl = fetch, onStage = () => {} } = {}) {
-  const normalizedWallet = String(wallet ?? '').trim();
-  onStage('nonce');
-  const challenge = await requestConsoleJson({
+export async function requestConsoleSessionChallenge({ apiBase, wallet, fetchImpl = fetch } = {}) {
+  return requestConsoleJson({
     apiBase,
     path: '/api/multipass/console/session/nonce',
     method: 'POST',
-    body: { wallet: normalizedWallet },
+    body: { wallet: String(wallet ?? '').trim() },
     fetchImpl,
   });
+}
+
+export async function authenticateConsoleSession({ apiBase, wallet, challenge, signMessage, fetchImpl = fetch, onStage = () => {} } = {}) {
+  const normalizedWallet = String(wallet ?? '').trim();
+  let activeChallenge = challenge;
+  if (!activeChallenge) {
+    onStage('nonce');
+    activeChallenge = await requestConsoleSessionChallenge({ apiBase, wallet: normalizedWallet, fetchImpl });
+  }
+  if (typeof activeChallenge?.message !== 'string' || typeof activeChallenge?.nonce !== 'string') {
+    throw new SavedMultipassError('Console authentication challenge is invalid.');
+  }
   if (typeof signMessage !== 'function') throw new SavedMultipassError('Connected wallet cannot sign the Console challenge.');
   onStage('signature');
-  const signed = await signMessage(challenge.message);
+  const signed = await signMessage(activeChallenge.message);
   onStage('session');
   return requestConsoleJson({
     apiBase,
@@ -20,7 +30,7 @@ export async function authenticateConsoleSession({ apiBase, wallet, signMessage,
     method: 'POST',
     body: {
       wallet: String(signed?.wallet ?? normalizedWallet).trim(),
-      nonce: challenge.nonce,
+      nonce: activeChallenge.nonce,
       signature: String(signed?.signature ?? '').trim(),
     },
     fetchImpl,
