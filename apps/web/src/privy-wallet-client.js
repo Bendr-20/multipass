@@ -20,7 +20,6 @@ export const PRIVY_CONNECT_WALLET_LIST = [
   'metamask',
   'detected_ethereum_wallets',
   'rainbow',
-  'okx_wallet',
   'wallet_connect',
   'wallet_connect_qr',
 ];
@@ -145,27 +144,42 @@ export async function submitPrivyLooperTransaction(wallet, transaction) {
   return provider.request({ method: 'eth_sendTransaction', params: [transaction] });
 }
 
-export function selectEvmWallet(wallets = []) {
+export function isPrivyWalletUsableInBrowser(wallet, { userAgent = '', okxInjected = false } = {}) {
+  const walletClientType = String(wallet?.walletClientType ?? wallet?.type ?? wallet?.id ?? '').trim().toLowerCase();
+  const connectorType = String(wallet?.connectorType ?? '').trim().toLowerCase();
+  const isAppleMobileBrowser = /(?:iPhone|iPad|iPod)/i.test(String(userAgent));
+  if (walletClientType === 'okx_wallet' && connectorType === 'injected' && isAppleMobileBrowser && !okxInjected) {
+    return false;
+  }
+  return true;
+}
+
+export function selectEvmWallet(wallets = [], environment = {}) {
   let selected = null;
   for (const wallet of wallets) {
+    if (!isPrivyWalletUsableInBrowser(wallet, environment)) continue;
     if (!wallet?.address || typeof wallet.getEthereumProvider !== 'function') continue;
     if (!selected || connectedAtValue(wallet) > connectedAtValue(selected)) selected = wallet;
   }
   return selected;
 }
 
-export function selectConnectedWalletAddress(wallets = [], user = null) {
-  const signableWallet = selectEvmWallet(wallets);
+export function selectConnectedWalletAddress(wallets = [], user = null, environment = {}) {
+  const blockedMobileWallet = wallets.some((wallet) => !isPrivyWalletUsableInBrowser(wallet, environment));
+  const usableWallets = wallets.filter((wallet) => isPrivyWalletUsableInBrowser(wallet, environment));
+  const signableWallet = selectEvmWallet(usableWallets, environment);
   const signableAddress = getWalletAddress(signableWallet);
   if (signableAddress) return signableAddress;
 
   let selectedWallet = null;
-  for (const wallet of wallets) {
+  for (const wallet of usableWallets) {
     if (!getWalletAddress(wallet)) continue;
     if (!selectedWallet || connectedAtValue(wallet) > connectedAtValue(selectedWallet)) selectedWallet = wallet;
   }
   const selectedAddress = getWalletAddress(selectedWallet);
   if (selectedAddress) return selectedAddress;
+
+  if (blockedMobileWallet) return null;
 
   const linkedAccounts = [user?.wallet, ...(Array.isArray(user?.linkedAccounts) ? user.linkedAccounts : [])];
   for (const account of linkedAccounts) {
@@ -366,8 +380,12 @@ export function PrivyWalletBridge({ client, configured }) {
     onSuccess: handleConnectSuccess,
     onError: handleConnectError,
   });
-  const activeWallet = selectEvmWallet(wallets);
-  const connectedAddress = selectConnectedWalletAddress(wallets, privy?.user);
+  const browserEnvironment = {
+    userAgent: globalThis.navigator?.userAgent ?? '',
+    okxInjected: Boolean(globalThis.window?.okxwallet),
+  };
+  const activeWallet = selectEvmWallet(wallets, browserEnvironment);
+  const connectedAddress = selectConnectedWalletAddress(wallets, privy?.user, browserEnvironment);
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {

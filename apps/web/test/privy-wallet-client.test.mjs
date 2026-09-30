@@ -9,6 +9,7 @@ import {
   createPrivyWalletClient,
   classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
+  isPrivyWalletUsableInBrowser,
   PRIVY_CONNECT_WALLET_LIST,
   PRIVY_EXTERNAL_WALLET_CONFIG,
   selectConnectedWalletAddress,
@@ -24,14 +25,25 @@ function wallet({ address, connectedAt, provider = { request: async () => '0xsig
   };
 }
 
-test('mobile OKX uses the dedicated connector and a Privy release with the universal-link fix', async () => {
-  const okxIndex = PRIVY_CONNECT_WALLET_LIST.indexOf('okx_wallet');
-  const genericWalletConnectIndex = PRIVY_CONNECT_WALLET_LIST.indexOf('wallet_connect');
-  assert.notEqual(okxIndex, -1);
-  assert.ok(okxIndex < genericWalletConnectIndex);
+test('mobile OKX stays on WalletConnect so Safari retains the signing provider', async () => {
+  assert.equal(PRIVY_CONNECT_WALLET_LIST.includes('okx_wallet'), false);
+  assert.notEqual(PRIVY_CONNECT_WALLET_LIST.indexOf('wallet_connect'), -1);
 
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(packageJson.dependencies['@privy-io/react-auth'], '3.37.0');
+});
+
+test('mobile Safari rejects stale injected OKX state but accepts OKX WalletConnect and the OKX in-app browser', () => {
+  const safariEnvironment = {
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Version/26.6.1 Mobile/15E148 Safari/604.1',
+    okxInjected: false,
+  };
+  assert.equal(isPrivyWalletUsableInBrowser({ walletClientType: 'okx_wallet', connectorType: 'injected' }, safariEnvironment), false);
+  assert.equal(isPrivyWalletUsableInBrowser({ walletClientType: 'okx_wallet', connectorType: 'wallet_connect' }, safariEnvironment), true);
+  assert.equal(isPrivyWalletUsableInBrowser({ walletClientType: 'okx_wallet', connectorType: 'injected' }, {
+    userAgent: 'Mozilla/5.0 (iPhone) Mobile/15E148 OKEx/6.191.0',
+    okxInjected: true,
+  }), true);
 });
 
 test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
@@ -87,6 +99,20 @@ test('selectEvmWallet prefers wallets with EVM provider and address', () => {
     wallet({ address: null, connectedAt: 3 }),
     evmWallet,
   ]), evmWallet);
+});
+
+test('selectEvmWallet skips stale injected OKX state in mobile Safari', () => {
+  const staleInjected = wallet({ address: '0xstale', connectedAt: 300 });
+  staleInjected.walletClientType = 'okx_wallet';
+  staleInjected.connectorType = 'injected';
+  const walletConnect = wallet({ address: '0xwalletconnect', connectedAt: 100 });
+  walletConnect.walletClientType = 'okx_wallet';
+  walletConnect.connectorType = 'wallet_connect';
+
+  assert.equal(selectEvmWallet([staleInjected, walletConnect], {
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) Version/26.6.1 Mobile/15E148 Safari/604.1',
+    okxInjected: false,
+  }), walletConnect);
 });
 
 test('selectEvmWallet prefers the most recently connected EVM wallet', () => {
@@ -200,7 +226,6 @@ test('Privy connect wallet list puts the Coinbase app connector before popup-bas
     'metamask',
     'detected_ethereum_wallets',
     'rainbow',
-    'okx_wallet',
     'wallet_connect',
     'wallet_connect_qr',
   ]);
