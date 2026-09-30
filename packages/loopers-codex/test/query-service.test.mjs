@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   LOOPER_CODEX_LIMITS,
   canonicalJsonHash,
+  createLooperCodexQueryService,
   loadLooperCodexArtifact,
 } from '../src/index.js';
 import { createTestArtifact } from './fixtures.js';
@@ -108,4 +109,85 @@ test('loader rejects malformed source hashes and versions with a recomputed arti
       await assert.rejects(loadLooperCodexArtifact({ path, expectedCount: 3 }));
     }
   });
+});
+
+function createService() {
+  return createLooperCodexQueryService(createTestArtifact(), { expectedCount: 3 });
+}
+
+test('profile returns the exact closed envelope with facts and interpretations', () => {
+  const response = createService().getTokenProfile(1);
+  assert.deepEqual(Object.keys(response), ['schemaVersion', 'artifactHash', 'codexVersion', 'operation', 'subjectIds', 'evidence', 'result']);
+  assert.equal(response.schemaVersion, '1.0.0');
+  assert.equal(response.operation, 'getTokenProfile');
+  assert.deepEqual(response.subjectIds, [1]);
+  assert.deepEqual(Object.keys(response.result), ['identity', 'visualTraits', 'interpretation', 'versions']);
+  assert.deepEqual(Object.keys(response.result.identity), ['tokenId', 'canonicalName', 'description', 'image', 'externalUrl']);
+  assert.deepEqual(Object.keys(response.result.interpretation), ['primaryClass', 'secondaryClass', 'specialization', 'risk', 'autonomy', 'voice', 'quirks', 'communicationStyle', 'values', 'humor', 'origin', 'missionBias', 'shortLore', 'longLore', 'activationSeed', 'firstMission', 'firstMissions', 'recommendedSkills']);
+  assert.equal(response.result.interpretation.recommendedSkills.every((item) => item.status === 'recommended' && !Object.hasOwn(item, 'enabled')), true);
+  assert.ok(Object.isFrozen(response));
+  assert.throws(() => response.evidence.push({}), TypeError);
+});
+
+test('trait explanation returns exact rational frequency and interpretation evidence', () => {
+  const response = createService().explainTraits(1);
+  assert.equal(response.operation, 'explainTraits');
+  assert.deepEqual(Object.keys(response.result), ['tokenId', 'traits']);
+  assert.deepEqual(response.result.traits[0].frequency, { numerator: 2, denominator: 3, ppm: 666667 });
+  assert.deepEqual(Object.keys(response.result.traits[0]), ['type', 'value', 'frequency', 'evidenceId', 'interpretation']);
+  assert.equal(response.result.traits[0].interpretation.label, 'codex_interpretation');
+});
+
+test('compare returns canonically sorted set differences and rejects identical IDs', () => {
+  const response = createService().compareTokens(1, 2);
+  assert.equal(response.operation, 'compareTokens');
+  assert.deepEqual(response.subjectIds, [1, 2]);
+  assert.deepEqual(response.result.sharedTraits, [{ type: 'Background', value: 'Alpha' }]);
+  assert.deepEqual(response.result.onlyLeft, [{ type: 'Patch Artifact', value: 'Nyan Cat' }]);
+  assert.deepEqual(response.result.onlyRight, [{ type: 'Patch Artifact', value: 'None' }]);
+  assert.equal(response.result.sharedTraitCount, 1);
+  assert.equal(response.result.unionTraitCount, 3);
+  assert.throws(() => createService().compareTokens(1, 1), /differ/i);
+});
+
+test('trait search is exact, bounded, cursor-bound, and terminal with null', () => {
+  const service = createService();
+  const first = service.findByTraits([{ type: 'Background', value: 'Alpha' }], null, 1);
+  assert.equal(first.operation, 'findByTraits');
+  assert.deepEqual(first.subjectIds, []);
+  assert.deepEqual(first.result.items.map(({ tokenId }) => tokenId), [1]);
+  assert.equal(typeof first.result.nextCursor, 'string');
+  const second = service.findByTraits([{ value: 'Alpha', type: 'Background' }], first.result.nextCursor, 1);
+  assert.deepEqual(second.result.items.map(({ tokenId }) => tokenId), [2]);
+  assert.equal(second.result.nextCursor, null);
+  assert.throws(() => service.findByTraits([{ type: 'Background', value: 'Beta' }], first.result.nextCursor, 1), /cursor/i);
+  assert.throws(() => service.findByTraits([{ type: 'Background', value: 'Alpha', extra: true }]), /unknown/i);
+  assert.throws(() => service.findByTraits([{ type: 'Unknown', value: 'Alpha' }]), /unknown trait/i);
+  assert.throws(() => service.findByTraits([{ type: 'Background', value: 'Alpha' }], null, 101), /limit/i);
+});
+
+test('trait stats and collection summary use exact closed schemas and ordering', () => {
+  const service = createService();
+  const stats = service.getTraitStats('Background', 'Alpha');
+  assert.deepEqual(stats.result, {
+    trait: { type: 'Background', value: 'Alpha' },
+    frequency: { numerator: 2, denominator: 3, ppm: 666667 },
+    tokenIds: [1, 2],
+  });
+  assert.throws(() => service.getTraitStats('Background', 'Unknown'), /unknown trait/i);
+  const summary = service.getCollectionSummary();
+  assert.equal(summary.operation, 'getCollectionSummary');
+  assert.deepEqual(summary.subjectIds, []);
+  assert.deepEqual(summary.result.collection, {
+    name: 'Loopers', chainId: 8453, contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', count: 3,
+  });
+  assert.deepEqual(summary.result.traitTypes.map(({ type }) => type), ['Background', 'Patch Artifact']);
+  assert.deepEqual(summary.result.traitTypes[0].values.map(({ value }) => value), ['Alpha', 'Beta']);
+});
+
+test('query service rejects invalid IDs and exposes only implemented methods', () => {
+  const service = createService();
+  assert.deepEqual(Object.keys(service), ['getTokenProfile', 'explainTraits', 'compareTokens', 'findByTraits', 'getTraitStats', 'getCollectionSummary']);
+  for (const tokenId of [0, 4, 1.5, '1']) assert.throws(() => service.getTokenProfile(tokenId), /token ID/i);
+  assert.throws(() => service.getCollectionSummary('extra'), /arguments/i);
 });

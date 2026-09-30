@@ -34,6 +34,8 @@ export {
 } from './release-manifest.js';
 
 export { loadLooperCodexArtifact } from './loader.js';
+export { createCursor, parseCursor } from './cursor.js';
+export { createLooperCodexQueryService } from './query-service.js';
 
 export {
   LOOPER_SOURCE_CODEX_SCHEMA_VERSION,
