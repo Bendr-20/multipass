@@ -33,6 +33,8 @@ export {
   verifyLooperCodexRelease,
 } from './release-manifest.js';
 
+export { loadLooperCodexArtifact } from './loader.js';
+
 export {
   LOOPER_SOURCE_CODEX_SCHEMA_VERSION,
   normalizeImageIdentity,

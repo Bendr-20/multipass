@@ -1,3 +1,12 @@
+import {
+  LOOPER_CODEX_COMPILER_VERSION,
+  LOOPER_CODEX_SCHEMA_VERSION,
+  LOOPER_SKILL_RECOMMENDATION_MAP_VERSION,
+  buildDerivedIndexes,
+  canonicalJsonHash,
+  normalizeLooperRecord,
+} from '../src/index.js';
+
 export function createLooperRecordFixture(tokenId = 1) {
   const canonicalName = `Looper #${tokenId}`;
   const imageId = '7lVgX4TEaRLBUSOe2uPNCmrMn-VROeHW9CeS2porrzM';
@@ -116,4 +125,69 @@ export function createLooperRecordFixture(tokenId = 1) {
 
 export function cloneFixture(value) {
   return structuredClone(value);
+}
+
+export function createTestArtifact() {
+  const traits = [
+    [['Background', 'Alpha'], ['Patch Artifact', 'Nyan Cat']],
+    [['Background', 'Alpha'], ['Patch Artifact', 'None']],
+    [['Background', 'Beta'], ['Patch Artifact', 'None']],
+  ];
+  const tokens = traits.map((tokenTraits, tokenIndex) => {
+    const tokenId = tokenIndex + 1;
+    const fixture = createLooperRecordFixture(tokenId);
+    tokenTraits.forEach(([type, value], index) => {
+      fixture.metadata.attributes[index] = {
+        trait_type: type === 'Patch Artifact' ? 'Artifact' : type,
+        value,
+      };
+      fixture.codex.selected_visual_traits[index] = {
+        layer: type,
+        trait: value,
+        key: `${type}::${value}`,
+        applied_weight: null,
+      };
+      Object.assign(fixture.codex.trait_atoms[index], {
+        id: `${tokenId.toString(16).padStart(8, '0')}${index.toString(16).padStart(8, '0')}`,
+        key: `${type}::${value}`,
+        layer: type,
+        trait: value,
+      });
+    });
+    return normalizeLooperRecord({ tokenId, ...fixture });
+  });
+  const semantic = {
+    schemaVersion: LOOPER_CODEX_SCHEMA_VERSION,
+    collection: {
+      name: 'Loopers',
+      chainId: 8453,
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      count: 3,
+    },
+    compilerVersion: LOOPER_CODEX_COMPILER_VERSION,
+    sourceHashes: {
+      traitPersonalityMatrix: '1'.repeat(64),
+      agentClassModel: '2'.repeat(64),
+      hashlipsExportManifest: '3'.repeat(64),
+      collectionProvenance: '4'.repeat(64),
+    },
+    versions: {
+      traitCodexVersion: 'looper-trait-personality-matrix-v02',
+      classModelVersion: 'looper-agent-class-model-v01',
+      recommendationMapVersion: LOOPER_SKILL_RECOMMENDATION_MAP_VERSION,
+      hashlipsExportVersion: 'hashlips-engine-export-v01',
+      collectionProvenanceVersion: 'loopers-provenance-v01',
+    },
+    count: 3,
+    tokens,
+    ...buildDerivedIndexes(tokens, 3),
+  };
+  return structuredClone({
+    semantic,
+    audit: {
+      auditedAt: '2026-09-30T00:00:00.000Z',
+      releaseManifestHash: 'a'.repeat(64),
+    },
+    artifactHash: canonicalJsonHash(semantic),
+  });
 }
