@@ -1,7 +1,8 @@
 import { SavedMultipassError, joinApiPath } from './saved-multipass-api.js';
 
-export async function authenticateConsoleSession({ apiBase, wallet, signMessage, fetchImpl = fetch } = {}) {
+export async function authenticateConsoleSession({ apiBase, wallet, signMessage, fetchImpl = fetch, onStage = () => {} } = {}) {
   const normalizedWallet = String(wallet ?? '').trim();
+  onStage('nonce');
   const challenge = await requestConsoleJson({
     apiBase,
     path: '/api/multipass/console/session/nonce',
@@ -10,7 +11,9 @@ export async function authenticateConsoleSession({ apiBase, wallet, signMessage,
     fetchImpl,
   });
   if (typeof signMessage !== 'function') throw new SavedMultipassError('Connected wallet cannot sign the Console challenge.');
+  onStage('signature');
   const signed = await signMessage(challenge.message);
+  onStage('session');
   return requestConsoleJson({
     apiBase,
     path: '/api/multipass/console/session/verify',
@@ -33,6 +36,20 @@ export async function activateConsoleAgent({ apiBase, tokenId, runtimeName, csrf
     body: {
       tokenId: String(tokenId ?? '').trim(),
       runtimeName: String(runtimeName ?? '').trim(),
+    },
+    fetchImpl,
+  });
+}
+
+export async function updateConsoleAgentName({ apiBase, tokenId, name, csrfToken, fetchImpl = fetch } = {}) {
+  return requestConsoleJson({
+    apiBase,
+    path: '/api/multipass/console/agent/name',
+    method: 'POST',
+    csrfToken,
+    body: {
+      tokenId: String(tokenId ?? '').trim(),
+      name: name === null ? null : String(name ?? '').trim(),
     },
     fetchImpl,
   });

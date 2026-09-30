@@ -2027,6 +2027,32 @@ test('dedicated Console route connects wallet and auto-loads the first owned Loo
   assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #812/);
 });
 
+test('dedicated Console reports a mobile signing-provider handoff failure precisely', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const walletClient = createWalletClientFixture({ snapshot: {
+    connected: true,
+    address: '0x27E3286c2c1783f67d06f2ff4e3ab41f8e1C91Ea',
+    label: '0x27E3...91Ea',
+  } });
+  await createApp({
+    root,
+    loadDemo: async () => sampleData(),
+    walletClient,
+    claimApi: {
+      authenticateConsoleSession: async ({ onStage }) => {
+        onStage('signature');
+        throw new Error('Wallet connected, but its signing provider did not become ready.');
+      },
+    },
+  }).start();
+
+  root.querySelector('[data-action="connect-console-wallet"]')?.click();
+  await flushAsyncEvents(30);
+
+  assert.match(root.querySelector('.console-wallet-panel')?.textContent ?? '', /signing provider was not ready/i);
+  assert.doesNotMatch(root.querySelector('.console-wallet-panel')?.textContent ?? '', /Could not connect and authenticate/i);
+});
+
 test('dedicated Console gallery searches, sorts, clears, and opens agents beyond the old cap', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';

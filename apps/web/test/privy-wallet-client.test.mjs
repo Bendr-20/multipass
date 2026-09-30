@@ -242,6 +242,17 @@ test('createPrivyConnectAction opens Privy with Multipass prompt and explicit ti
   ]);
 });
 
+test('wallet client waits for Privy to publish a signable provider after mobile handoff', async () => {
+  const client = createPrivyWalletClient();
+  const wallet = {
+    address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    getEthereumProvider: async () => ({ request: async () => '0xsigned' }),
+  };
+  const pending = client.waitForSignableWallet({ timeoutMs: 100 });
+  queueMicrotask(() => client.setSignableWallet(wallet));
+  assert.equal(await pending, wallet);
+});
+
 test('createPrivyConnectAction accepts address returned directly from smart wallet modal', async () => {
   const client = createPrivyWalletClient();
   const action = createPrivyConnectAction({

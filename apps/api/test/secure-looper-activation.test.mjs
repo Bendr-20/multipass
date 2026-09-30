@@ -8,6 +8,7 @@ import { createConsoleAuthStore } from '../src/console-auth.js';
 import { CONSOLE_IMAGE_REQUEST_MAX_BYTES } from '../src/console-image-attachment.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
 import { LOOPERS_MAINNET_CONTRACT } from '../src/loopers-owned-agents.js';
+import { createSqliteLooperNameStore } from '../src/looper-name-store.js';
 import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 import { createLocalSibylMemoryStore } from '../src/sibyl-memory/index.js';
 import { createEthereumPersonalSignatureVerifier } from '../src/signature-verifier.js';
@@ -59,6 +60,56 @@ function secureRequest(url, session, { method = 'GET', body } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 }
+
+test('wallet-authenticated Looper names persist by token and overlay owned-agent reads', async () => {
+  const looperNameStore = createSqliteLooperNameStore({ now: () => '2026-09-30T00:30:00.000Z' });
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    baseUrl: 'https://helixa.test',
+    allowedOrigins: ['https://helixa.test'],
+    signatureVerifier: verifier,
+    consoleAuthStore: createConsoleAuthStore(),
+    looperNameStore,
+    loopersOwnedAgentLoader: async () => [{ ...identity, name: 'Looper #617', canonicalName: 'Looper #617' }],
+    loopersAuthorizer: async ({ tokenId, wallet }) => {
+      if (tokenId !== '617' || wallet !== holder.address.toLowerCase()) {
+        const error = new Error('Authenticated wallet does not own this Looper.');
+        error.code = 'forbidden';
+        throw error;
+      }
+      return { ...identity, owner: holder.address.toLowerCase() };
+    },
+  });
+  const session = await authenticate(api, holder);
+
+  const noCsrf = await api.handleRequest(new Request('https://helixa.test/api/multipass/console/agent/name', {
+    method: 'POST',
+    headers: { origin: 'https://helixa.test', cookie: session.cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ tokenId: '617', name: 'Signal Loop' }),
+  }));
+  assert.equal(noCsrf.status, 403);
+
+  const rename = await api.handleRequest(secureRequest('https://helixa.test/api/multipass/console/agent/name', session, {
+    method: 'POST',
+    body: { tokenId: '617', name: 'Signal Loop' },
+  }));
+  assert.equal(rename.status, 200);
+  assert.equal((await rename.json()).name, 'Signal Loop');
+
+  const owned = await api.handleRequest(secureRequest('https://helixa.test/api/loopers/owned', session));
+  const ownedBody = await owned.json();
+  assert.equal(ownedBody.agents[0].name, 'Signal Loop');
+  assert.equal(ownedBody.agents[0].canonicalName, 'Looper #617');
+  assert.equal(ownedBody.agents[0].customName, 'Signal Loop');
+
+  const reset = await api.handleRequest(secureRequest('https://helixa.test/api/multipass/console/agent/name', session, {
+    method: 'POST',
+    body: { tokenId: '617', name: null },
+  }));
+  assert.equal(reset.status, 200);
+  assert.equal((await reset.json()).name, 'Looper #617');
+  looperNameStore.close();
+});
 
 test('authenticated holder owns, activates, names, chats through Bankr, and recalls Sibyl memory in a fresh session', async () => {
   const authorizerCalls = [];

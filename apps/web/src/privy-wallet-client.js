@@ -214,6 +214,7 @@ export function createPrivyWalletClient() {
   };
   const subscribers = new Set();
   let connectionError = null;
+  let signableWallet = null;
 
   function notify() {
     for (const listener of subscribers) listener(snapshot);
@@ -254,6 +255,41 @@ export function createPrivyWalletClient() {
 
   function clearConnectionError() {
     connectionError = null;
+  }
+
+  function setSignableWallet(wallet) {
+    signableWallet = wallet && typeof wallet.getEthereumProvider === 'function' ? wallet : null;
+    notify();
+  }
+
+  function waitForSignableWallet({ timeoutMs = 120000 } = {}) {
+    return new Promise((resolve, reject) => {
+      if (signableWallet) {
+        resolve(signableWallet);
+        return;
+      }
+      if (connectionError) {
+        reject(connectionError);
+        return;
+      }
+      let settled = false;
+      let unsubscribe = () => {};
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        unsubscribe();
+        callback(value);
+      };
+      const timeoutId = setTimeout(() => finish(reject, new Error('Wallet connected, but its signing provider did not become ready. Return to the browser and try again.')), timeoutMs);
+      unsubscribe = subscribe(() => {
+        if (connectionError) {
+          finish(reject, connectionError);
+          return;
+        }
+        if (signableWallet) finish(resolve, signableWallet);
+      });
+    });
   }
 
   function failConnection(error) {
@@ -309,7 +345,9 @@ export function createPrivyWalletClient() {
     setActions,
     clearConnectionError,
     failConnection,
+    setSignableWallet,
     waitForConnection,
+    waitForSignableWallet,
   };
 }
 
@@ -332,6 +370,7 @@ export function PrivyWalletBridge({ client, configured }) {
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {
+    client.setSignableWallet(activeWallet);
     client.setSnapshot({
       ready: Boolean(configured && privy?.ready && (walletsReady || connectedAddress)),
       configured: Boolean(configured),
@@ -355,17 +394,15 @@ export function PrivyWalletBridge({ client, configured }) {
         });
       },
       signMessage: async (message) => {
-        const wallet = selectEvmWallet(wallets);
-        if (!wallet) throw new Error(CONNECT_EVM_WALLET_MESSAGE);
+        const wallet = await client.waitForSignableWallet();
         const provider = await wallet.getEthereumProvider();
         if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
         const signature = await requestPersonalSign(provider, wallet.address, message);
         return { wallet: wallet.address, signature };
       },
-      sendTransaction: async (transaction) => submitPrivyLooperTransaction(selectEvmWallet(wallets), transaction),
+      sendTransaction: async (transaction) => submitPrivyLooperTransaction(await client.waitForSignableWallet(), transaction),
       request: async (payload) => {
-        const wallet = selectEvmWallet(wallets);
-        if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
+        const wallet = await client.waitForSignableWallet();
         const provider = await wallet.getEthereumProvider();
         if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
         return provider.request(payload);

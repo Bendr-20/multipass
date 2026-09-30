@@ -5,6 +5,7 @@ import {
   activateConsoleAgent,
   authenticateConsoleSession,
   sendConsoleAgentMessage,
+  updateConsoleAgentName,
 } from '../src/console-agent-api.js';
 import { fetchOwnedLooperAgents } from '../src/loopers-console-agents.js';
 
@@ -12,9 +13,11 @@ const WALLET = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 
 test('Console client signs a server challenge and stores only returned CSRF session metadata', async () => {
   const calls = [];
+  const stages = [];
   const result = await authenticateConsoleSession({
     apiBase: 'https://helixa.test',
     wallet: WALLET,
+    onStage: (stage) => stages.push(stage),
     signMessage: async (message) => {
       assert.match(message, /Authenticate this wallet/);
       return { wallet: WALLET, signature: '0xsigned' };
@@ -29,6 +32,7 @@ test('Console client signs a server challenge and stores only returned CSRF sess
   assert.equal(result.csrfToken, 'csrf-1');
   assert.equal(calls.length, 2);
   assert.equal(calls.every((call) => call.init.credentials === 'include'), true);
+  assert.deepEqual(stages, ['nonce', 'signature', 'session']);
 });
 
 test('owned loading and agent writes rely on cookie session instead of a wallet parameter', async () => {
@@ -36,14 +40,17 @@ test('owned loading and agent writes rely on cookie session instead of a wallet 
   const fetchImpl = async (url, init) => {
     calls.push({ url, init });
     if (url.endsWith('/owned')) return new Response(JSON.stringify({ agents: [{ tokenId: '617', name: 'Looper #617' }] }));
-    return new Response(JSON.stringify(url.endsWith('/activate')
-      ? { runtime: { runtimeName: 'Bendr Looper' } }
-      : { thread: { messages: [] }, memory: {}, proposals: [] }));
+    if (url.endsWith('/activate')) return new Response(JSON.stringify({ runtime: { runtimeName: 'Bendr Looper' } }));
+    if (url.endsWith('/name')) return new Response(JSON.stringify({ tokenId: '617', name: 'Signal Loop', customName: 'Signal Loop' }));
+    return new Response(JSON.stringify({ thread: { messages: [] }, memory: {}, proposals: [] }));
   };
 
   const owned = await fetchOwnedLooperAgents({ apiBase: 'https://helixa.test', fetchImpl });
   const activated = await activateConsoleAgent({
     apiBase: 'https://helixa.test', tokenId: '617', runtimeName: 'Bendr Looper', csrfToken: 'csrf-1', fetchImpl,
+  });
+  const renamed = await updateConsoleAgentName({
+    apiBase: 'https://helixa.test', tokenId: '617', name: 'Signal Loop', csrfToken: 'csrf-1', fetchImpl,
   });
   await sendConsoleAgentMessage({
     apiBase: 'https://helixa.test', tokenId: '617', message: 'Remember this.', csrfToken: 'csrf-1', fetchImpl,
@@ -51,11 +58,15 @@ test('owned loading and agent writes rely on cookie session instead of a wallet 
 
   assert.equal(owned[0].tokenId, '617');
   assert.equal(activated.runtime.runtimeName, 'Bendr Looper');
+  assert.equal(renamed.name, 'Signal Loop');
   assert.equal(calls[0].url, 'https://helixa.test/api/loopers/owned');
   assert.equal(JSON.parse(calls[1].init.body).wallet, undefined);
-  assert.equal(JSON.parse(calls[2].init.body).wallet, undefined);
+  assert.deepEqual(JSON.parse(calls[2].init.body), { tokenId: '617', name: 'Signal Loop' });
+  assert.equal(calls[2].url, 'https://helixa.test/api/multipass/console/agent/name');
+  assert.equal(JSON.parse(calls[3].init.body).wallet, undefined);
   assert.equal(calls[1].init.headers['x-csrf-token'], 'csrf-1');
   assert.equal(calls[2].init.headers['x-csrf-token'], 'csrf-1');
+  assert.equal(calls[3].init.headers['x-csrf-token'], 'csrf-1');
 });
 
 test('owned Looper browser model keeps canonical stale CRED and ignores ambiguous legacy scores', async () => {

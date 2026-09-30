@@ -41,6 +41,7 @@ import {
   createLoopersOwnedAgentLoader,
   createLoopersPublicClients,
 } from './loopers-owned-agents.js';
+import { createSqliteLooperNameStore } from './looper-name-store.js';
 import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
 import { createLooperWalletReadContextLoader } from './looper-wallet-read-context.js';
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
@@ -209,6 +210,7 @@ export function createMultipassApi({
   loopersOwnedMetadataBaseUrl,
   loopersPublicClients,
   loopersAuthorizer,
+  looperNameStore,
   looperCredClient,
   loopersCredApiBaseUrl,
   loopersCredTimeoutMs,
@@ -333,6 +335,7 @@ export function createMultipassApi({
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
     loopersOwnedAgentLoader: ownedLoopersLoader,
     loopersAuthorizer: authorizeLooper,
+    looperNameStore: looperNameStore ?? createSqliteLooperNameStore(),
     consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
     consoleWalletContextLoader: walletContextLoader,
@@ -467,6 +470,10 @@ async function handlePostRequest(request, parts, context) {
     return handleConsoleAgentActivate(request, context);
   }
 
+  if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'name' && parts.length === 5) {
+    return handleConsoleAgentName(request, context);
+  }
+
   if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'message' && parts.length === 5) {
     return handleConsoleAgentMessage(request, context);
   }
@@ -570,7 +577,8 @@ async function handleConsoleAgentActivate(request, context) {
   const body = await readJsonBody(request);
   const tokenId = normalizeLooperTokenId(body.tokenId);
   const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
-  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: body.runtimeName });
+  const persistedName = context.looperNameStore.get(identity)?.name;
+  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: persistedName ?? body.runtimeName });
   const recovered = typeof context.consoleAgentRuntime.getThread === 'function'
     ? await context.consoleAgentRuntime.getThread({
       tokenId: identity.tokenId,
@@ -595,6 +603,27 @@ async function handleConsoleAgentActivate(request, context) {
       ...('capabilities' in recovered ? { capabilities: recovered.capabilities } : {}),
       ...('proposalCandidates' in recovered ? { proposalCandidates: recovered.proposalCandidates } : {}),
     } : {}),
+  });
+}
+
+async function handleConsoleAgentName(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readJsonBody(request);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const canonicalName = String(identity.persona?.canonicalName ?? `Looper #${tokenId}`).trim();
+  const saved = body.name === null
+    ? context.looperNameStore.reset({ identity, wallet: session.wallet })
+    : context.looperNameStore.set({ identity, name: body.name, wallet: session.wallet });
+  const name = saved?.name ?? canonicalName;
+  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: name });
+  return jsonResponse({
+    schema_version: '0.1.0',
+    tokenId,
+    name,
+    canonicalName,
+    customName: saved?.name ?? null,
+    runtime,
   });
 }
 
@@ -771,7 +800,17 @@ async function handleLooperPost(request, parts, context) {
 async function handleLooperRead(request, url, parts, context) {
   if (parts[2] === 'owned' && parts.length === 3) {
     const session = requireConsoleSession(request, context);
-    const agents = await context.loopersOwnedAgentLoader({ address: session.wallet });
+    const loadedAgents = await context.loopersOwnedAgentLoader({ address: session.wallet });
+    const agents = loadedAgents.map((agent) => {
+      const persisted = context.looperNameStore.get({
+        chainId: agent.chainId ?? LOOPERS_MAINNET_CHAIN_ID,
+        contract: agent.contract ?? LOOPERS_MAINNET_CONTRACT,
+        tokenId: agent.tokenId,
+      });
+      if (!persisted) return agent;
+      const canonicalName = String(agent.canonicalName ?? agent.name ?? `Looper #${agent.tokenId}`).trim();
+      return { ...agent, name: persisted.name, canonicalName, customName: persisted.name };
+    });
     return jsonResponse({
       schema_version: '0.1.0',
       collection: 'loopers',

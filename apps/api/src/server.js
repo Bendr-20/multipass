@@ -12,6 +12,7 @@ import {
   DEFAULT_LOOPER_CRED_CONCURRENCY,
   DEFAULT_LOOPER_CRED_TIMEOUT_MS,
 } from './looper-cred-client.js';
+import { createSqliteLooperNameStore } from './looper-name-store.js';
 import { createSqliteSavedRecords } from './saved-records.js';
 
 const DEFAULT_FIXTURE = 'generic';
@@ -137,6 +138,8 @@ export async function startServer(options = {}) {
   const { store, fixtureName } = await loadFixtureStore({ fixture: parsed.fixture });
   const ownsSavedRecords = Boolean(parsed.databasePath && !options.savedRecords);
   const savedRecords = options.savedRecords ?? (parsed.databasePath ? createSqliteSavedRecords({ databasePath: parsed.databasePath }) : null);
+  const ownsLooperNameStore = !options.looperNameStore;
+  const looperNameStore = options.looperNameStore ?? createSqliteLooperNameStore({ databasePath: parsed.databasePath ?? ':memory:' });
   const activationService = options.activationService ?? activateHelixaRecord;
   const loopersAllowlist = options.loopersAllowlist
     ?? (parsed.loopersAllowlistPath
@@ -203,6 +206,7 @@ export async function startServer(options = {}) {
       store,
       baseUrl: apiBaseUrl,
       savedRecords,
+      looperNameStore,
       activationService,
       allowedOrigins: parsed.allowedOrigins,
       adminSecret: parsed.adminSecret,
@@ -233,6 +237,8 @@ export async function startServer(options = {}) {
       nodeServer,
       savedRecords,
       ownsSavedRecords,
+      looperNameStore,
+      ownsLooperNameStore,
     }).catch(() => {});
     throw error;
   }
@@ -258,6 +264,8 @@ export async function startServer(options = {}) {
           nodeServer,
           savedRecords,
           ownsSavedRecords,
+          looperNameStore,
+          ownsLooperNameStore,
         });
       }
       return closePromise;
@@ -265,13 +273,14 @@ export async function startServer(options = {}) {
   };
 }
 
-async function closeServerResources({ consoleBootstrap, nodeServer, savedRecords, ownsSavedRecords }) {
+async function closeServerResources({ consoleBootstrap, nodeServer, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
   const errors = [];
   for (const close of [
     () => consoleBootstrap?.stopWorker?.(),
     () => closeHttpServer(nodeServer),
     () => consoleBootstrap?.closeClient?.(),
     () => ownsSavedRecords ? savedRecords?.close?.() : undefined,
+    () => ownsLooperNameStore ? looperNameStore?.close?.() : undefined,
   ]) {
     try {
       await close();

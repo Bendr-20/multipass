@@ -13,6 +13,7 @@ import {
   activateConsoleAgent as defaultActivateConsoleAgent,
   authenticateConsoleSession as defaultAuthenticateConsoleSession,
   sendConsoleAgentMessage as defaultSendConsoleAgentMessage,
+  updateConsoleAgentName as defaultUpdateConsoleAgentName,
 } from './console-agent-api.js';
 import {
   ensureXmtpWalletRegistration as defaultEnsureXmtpWalletRegistration,
@@ -684,6 +685,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     };
     render(root, state, handlers);
 
+    let authenticationStage = 'connect';
     try {
       let walletSnapshot = activeWalletClient.getSnapshot();
       if (walletSnapshot.configured === false) throw new Error('Wallet login is not configured for this build.');
@@ -701,11 +703,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
       render(root, state, handlers);
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      authenticationStage = 'nonce';
       const authenticated = await (claimApi.authenticateConsoleSession ?? defaultAuthenticateConsoleSession)({
         apiBase,
         wallet: walletSnapshot.address,
         signMessage: (message) => activeWalletClient.signMessage(message),
         fetchImpl,
+        onStage: (stage) => { authenticationStage = stage; },
       });
       const currentWallet = activeWalletClient.getSnapshot();
       if (
@@ -748,7 +752,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         ...state,
         walletSnapshot: activeWalletClient.getSnapshot(),
         consoleWalletStatus: isConsoleCancellation(error) ? 'cancelled' : 'transport_failed',
-        consoleWalletError: getSafeConsoleError(error, { phase: 'connect' }),
+        consoleWalletError: getSafeConsoleError(error, { phase: authenticationStage }),
       };
       render(root, state, handlers);
     }
@@ -1024,22 +1028,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     if (!activeAgent?.tokenId) return;
     const formData = createFormData(event?.currentTarget);
     const requestedName = normalizeConsoleAgentName(formData.get('console_agent_name'));
-    return mutateConsoleAgentName(activeAgent, {
-      runtimeName: requestedName || getCanonicalConsoleAgentName(activeAgent),
-      overrideName: requestedName,
-    });
+    return mutateConsoleAgentName(activeAgent, { overrideName: requestedName });
   }
 
   async function resetConsoleAgentName() {
     const activeAgent = getActiveConsoleAgent(state);
     if (!activeAgent?.tokenId) return;
-    return mutateConsoleAgentName(activeAgent, {
-      runtimeName: getCanonicalConsoleAgentName(activeAgent),
-      overrideName: null,
-    });
+    return mutateConsoleAgentName(activeAgent, { overrideName: null });
   }
 
-  async function mutateConsoleAgentName(activeAgent, { runtimeName, overrideName } = {}) {
+  async function mutateConsoleAgentName(activeAgent, { overrideName } = {}) {
     if (state.consoleAgentNameMutation?.status === 'pending') return;
     const tokenId = String(activeAgent?.tokenId ?? '').trim();
     if (!tokenId) return;
@@ -1054,13 +1052,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       agentNameRequestId: requestId,
     };
     try {
-      await activateConsoleAgentRuntime(tokenId, runtimeName);
+      const persisted = await persistConsoleAgentName(tokenId, overrideName);
       if (!isCurrentConsoleAgentNameMutation(state, mutationContext)) return;
       state = {
         ...state,
         consoleAgentNameMutation: { status: 'idle', requestId, tokenId: null },
       };
-      applyConsoleAgentNameOverride(activeAgent, overrideName);
+      applyConsoleAgentNameOverride(activeAgent, overrideName, persisted);
     } catch (error) {
       if (!isCurrentConsoleAgentNameMutation(state, mutationContext)) return;
       state = {
@@ -1093,6 +1091,24 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
+  function persistConsoleAgentName(tokenId, name) {
+    if (state.consoleMockMode) {
+      const activeAgent = getActiveConsoleAgent(state);
+      return activateConsoleAgentRuntime(tokenId, name || getCanonicalConsoleAgentName(activeAgent) || `Looper #${tokenId}`);
+    }
+    const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+    if (!claimApi.updateConsoleAgentName && claimApi.activateConsoleAgent) {
+      return activateConsoleAgentRuntime(tokenId, name || `Looper #${tokenId}`);
+    }
+    return (claimApi.updateConsoleAgentName ?? defaultUpdateConsoleAgentName)({
+      apiBase,
+      tokenId,
+      name: name ?? null,
+      csrfToken: state.consoleCsrfToken,
+      fetchImpl,
+    });
+  }
+
   function activateConsoleAgentRuntime(tokenId, runtimeName) {
     if (state.consoleMockMode) return Promise.resolve({ runtime: { tokenId, runtimeName, status: 'active' } });
     const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
@@ -1105,7 +1121,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     });
   }
 
-  function applyConsoleAgentNameOverride(activeAgent, requestedName) {
+  function applyConsoleAgentNameOverride(activeAgent, requestedName, persisted = null) {
     const tokenId = String(activeAgent?.tokenId ?? '').trim();
     if (!tokenId) return;
     const canonicalName = getCanonicalConsoleAgentName(activeAgent) ?? `Agent #${tokenId}`;
@@ -1113,11 +1129,22 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const nextOverrides = {
       ...sanitizeConsoleAgentNameOverrides(state.consoleAgentNameOverrides),
     };
-    if (nextName) nextOverrides[tokenId] = nextName;
+    if (persisted && Object.prototype.hasOwnProperty.call(persisted, 'customName')) delete nextOverrides[tokenId];
+    else if (nextName) nextOverrides[tokenId] = nextName;
     else delete nextOverrides[tokenId];
     persistConsoleAgentNameOverrides(nextOverrides);
 
-    const nextAgents = applyConsoleAgentNameOverrides(getConsoleDisplayAgents(state), nextOverrides);
+    const baseAgents = getConsoleDisplayAgents(state).map((agent) => (
+      persisted && String(agent?.tokenId ?? '') === tokenId
+        ? {
+          ...agent,
+          name: persisted.name ?? canonicalName,
+          canonicalName: persisted.canonicalName ?? canonicalName,
+          customName: persisted.customName ?? null,
+        }
+        : agent
+    ));
+    const nextAgents = applyConsoleAgentNameOverrides(baseAgents, nextOverrides);
     const nextState = {
       ...state,
       consoleAgentNameOverrides: nextOverrides,
@@ -2480,6 +2507,7 @@ const defaultClaimApi = {
   logoutMultipassSession,
   authenticateConsoleSession: defaultAuthenticateConsoleSession,
   activateConsoleAgent: defaultActivateConsoleAgent,
+  updateConsoleAgentName: defaultUpdateConsoleAgentName,
   sendConsoleAgentMessage: defaultSendConsoleAgentMessage,
 };
 
@@ -2682,7 +2710,11 @@ function getSafeConsoleError(error, { phase = 'transport' } = {}) {
   if (isConsoleCancellation(error)) return 'Operation cancelled. Nothing was changed.';
   if (isConsoleUnauthorized(error)) return 'Console session expired. Connect again to continue.';
   if (isConsoleAuthorizationError(error)) return 'This wallet is not authorized for that Console operation.';
-  if (phase === 'connect') return 'Could not connect and authenticate the wallet. Try again.';
+  if (phase === 'connect') return 'Could not open or connect the wallet. Try again.';
+  if (phase === 'nonce') return 'Wallet connected, but Console could not start authentication. Try again.';
+  if (phase === 'signature' && String(error?.message ?? '').toLowerCase().includes('signing provider')) return 'Wallet connected, but its signing provider was not ready. Return to the browser and try again.';
+  if (phase === 'signature') return 'Wallet connected, but the login signature was not completed. Try again.';
+  if (phase === 'session') return 'Wallet signature completed, but Console could not create the session. Try again.';
   if (phase === 'roster') return 'Could not load wallet-owned Loopers. Try again.';
   if (phase === 'activate') return 'Could not set up XMTP or open the room. Try again.';
   if (phase === 'send') return 'Console transport failed. Your draft is preserved; try again.';
@@ -2928,7 +2960,8 @@ function applyConsoleAgentNameOverrides(agents = [], overrides = {}) {
     .map((entity) => {
       const tokenId = String(entity?.tokenId ?? '').trim();
       const canonicalName = getCanonicalConsoleAgentName(entity) ?? (tokenId ? `Agent #${tokenId}` : 'Onchain agent');
-      const overrideName = tokenId ? normalizedOverrides[tokenId] : null;
+      const serverName = normalizeConsoleAgentName(entity?.customName);
+      const overrideName = serverName ?? (tokenId ? normalizedOverrides[tokenId] : null);
       return {
         ...entity,
         canonicalName,
