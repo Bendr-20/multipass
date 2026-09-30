@@ -165,29 +165,9 @@ export function selectEvmWallet(wallets = [], environment = {}) {
 }
 
 export function selectConnectedWalletAddress(wallets = [], user = null, environment = {}) {
-  const blockedMobileWallet = wallets.some((wallet) => !isPrivyWalletUsableInBrowser(wallet, environment));
   const usableWallets = wallets.filter((wallet) => isPrivyWalletUsableInBrowser(wallet, environment));
   const signableWallet = selectEvmWallet(usableWallets, environment);
-  const signableAddress = getWalletAddress(signableWallet);
-  if (signableAddress) return signableAddress;
-
-  let selectedWallet = null;
-  for (const wallet of usableWallets) {
-    if (!getWalletAddress(wallet)) continue;
-    if (!selectedWallet || connectedAtValue(wallet) > connectedAtValue(selectedWallet)) selectedWallet = wallet;
-  }
-  const selectedAddress = getWalletAddress(selectedWallet);
-  if (selectedAddress) return selectedAddress;
-
-  if (blockedMobileWallet) return null;
-
-  const linkedAccounts = [user?.wallet, ...(Array.isArray(user?.linkedAccounts) ? user.linkedAccounts : [])];
-  for (const account of linkedAccounts) {
-    const address = getWalletAddress(account);
-    if (address) return address;
-  }
-
-  return null;
+  return getWalletAddress(signableWallet);
 }
 
 export function createPrivyConnectAction({ client, configured, connectWallet }) {
@@ -200,17 +180,7 @@ export function createPrivyConnectAction({ client, configured, connectWallet }) 
       walletList: PRIVY_CONNECT_WALLET_LIST,
       description: PRIVY_CONNECT_DESCRIPTION,
     });
-    const result = isPromiseLike(modalResult) ? await modalResult : modalResult;
-    const resultAddress = getAddressFromPrivyConnectResult(result);
-    if (resultAddress) {
-      client.setSnapshot?.({
-        ready: true,
-        configured: true,
-        connected: true,
-        address: resultAddress,
-      });
-      return resultAddress;
-    }
+    if (isPromiseLike(modalResult)) await modalResult;
     return client.waitForConnection({ timeoutMs: 45000 });
   };
 }
@@ -244,6 +214,32 @@ export function prepareWalletSigningProvider(wallet, { baseAccountSdk } = {}) {
     return baseAccountSdk.getProvider();
   }
   return wallet?.getEthereumProvider?.();
+}
+
+export function createBaseAccountSigningWallet(address, baseAccountSdk) {
+  const normalizedAddress = normalizeAddressOrNull(address);
+  if (!normalizedAddress || typeof baseAccountSdk?.getProvider !== 'function') return null;
+  return {
+    address: normalizedAddress,
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    getEthereumProvider: () => baseAccountSdk.getProvider(),
+  };
+}
+
+function selectBaseAccountIdentityAddress(wallets = [], user = null) {
+  const candidates = [
+    ...wallets,
+    user?.wallet,
+    ...(Array.isArray(user?.linkedAccounts) ? user.linkedAccounts : []),
+  ];
+  for (const candidate of candidates) {
+    if (classifyPrivyWalletProfile(candidate).walletClientType !== PRIVY_BASE_ACCOUNT_WALLET_ID) continue;
+    const address = getWalletAddress(candidate)
+      ?? getWalletAddress(candidate?.wallet)
+      ?? getWalletAddress(candidate?.smartWallet);
+    if (address) return address;
+  }
+  return null;
 }
 
 export function createPrivyWalletClient() {
@@ -458,8 +454,12 @@ export function PrivyWalletBridge({ client, configured }) {
     userAgent: globalThis.navigator?.userAgent ?? '',
     okxInjected: Boolean(globalThis.window?.okxwallet),
   };
-  const activeWallet = selectEvmWallet(wallets, browserEnvironment);
-  const connectedAddress = selectConnectedWalletAddress(wallets, privy?.user, browserEnvironment);
+  const activeWallet = selectEvmWallet(wallets, browserEnvironment)
+    ?? createBaseAccountSigningWallet(
+      selectBaseAccountIdentityAddress(wallets, privy?.user),
+      baseAccountSdk,
+    );
+  const connectedAddress = getWalletAddress(activeWallet);
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {

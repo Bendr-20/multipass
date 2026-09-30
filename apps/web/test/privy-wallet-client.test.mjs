@@ -6,6 +6,7 @@ import {
   PRIVY_BASE_ACCOUNT_WALLET_ID,
   createPrivyConnectAction,
   createPrivyConnectionError,
+  createBaseAccountSigningWallet,
   createPrivyWalletClient,
   createPrivySignMessageAction,
   classifyPrivyWalletProfile,
@@ -179,19 +180,27 @@ test('selectEvmWallet prefers the most recently connected EVM wallet', () => {
   assert.equal(selectEvmWallet([latest, missingTimestamp, earlier]), latest);
 });
 
-test('selectConnectedWalletAddress accepts address-only smart wallet accounts', () => {
+test('selectConnectedWalletAddress rejects address-only and linked identity records without a live provider', () => {
   const smartWallet = { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', connectedAt: 400 };
-
-  assert.equal(selectConnectedWalletAddress([smartWallet]), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
-});
-
-test('selectConnectedWalletAddress falls back to Privy linked wallet accounts', () => {
-  assert.equal(selectConnectedWalletAddress([], {
+  const user = {
     linkedAccounts: [
       { type: 'email', address: 'not-a-wallet' },
       { type: 'wallet', address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
     ],
-  }), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  };
+
+  assert.equal(selectConnectedWalletAddress([smartWallet], user), null);
+});
+
+test('Base Account SDK creates a live signing wallet from a linked Base identity', () => {
+  const provider = { request: async () => '0xsigned' };
+  const sdk = { getProvider: () => provider };
+  const liveWallet = createBaseAccountSigningWallet('0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea', sdk);
+
+  assert.equal(liveWallet.address, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.equal(liveWallet.walletClientType, PRIVY_BASE_ACCOUNT_WALLET_ID);
+  assert.equal(liveWallet.getEthereumProvider(), provider);
+  assert.equal(createBaseAccountSigningWallet(liveWallet.address, undefined), null);
 });
 
 test('getAddressFromPrivyConnectResult extracts smart wallet addresses from modal results', () => {
@@ -346,19 +355,24 @@ test('wallet client waits for Privy to publish a signable provider after mobile 
   assert.equal(await pending, wallet);
 });
 
-test('createPrivyConnectAction accepts address returned directly from smart wallet modal', async () => {
-  const client = createPrivyWalletClient();
+test('createPrivyConnectAction does not trust an address-only modal result as a live connection', async () => {
+  const calls = [];
   const action = createPrivyConnectAction({
     configured: true,
     connectWallet: () => ({
       wallet: { address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea' },
     }),
-    client,
+    client: {
+      clearConnectionError() {},
+      waitForConnection: async (options) => {
+        calls.push(options);
+        return '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+      },
+    },
   });
 
   assert.equal(await action(), '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
-  assert.equal(client.getSnapshot().connected, true);
-  assert.equal(client.getSnapshot().address, '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea');
+  assert.deepEqual(calls, [{ timeoutMs: 45000 }]);
 });
 
 test('createPrivyConnectAction propagates modal rejection without waiting for wallet state', async () => {
