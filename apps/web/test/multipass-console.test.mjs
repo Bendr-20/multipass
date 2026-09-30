@@ -146,7 +146,7 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
 });
 
-test('mobile Console exposes a portrait agent switcher and three mutually exclusive workspaces', () => {
+test('mobile Console exposes a portrait agent switcher and four mutually exclusive workspaces', () => {
   const agents = Array.from({ length: 45 }, (_, index) => ({
     ...sampleAgents()[index % 2],
     tokenId: String(index + 1),
@@ -183,7 +183,8 @@ test('mobile Console exposes a portrait agent switcher and three mutually exclus
   assert.equal(switcher.querySelector('img')?.src, 'https://example.test/fool-spec.png');
   assert.match(switcher.querySelector('summary')?.textContent ?? '', /Fool Spec/i);
   assert.match(switcher.querySelector('summary')?.textContent ?? '', /45 owned/i);
-  assert.equal(mobileNav?.querySelectorAll('button').length, 3);
+  assert.equal(mobileNav?.querySelectorAll('button').length, 4);
+  assert.ok(mobileNav?.querySelector('[data-console-view="codex"]'));
   assert.match(mobileNav?.querySelector('[data-console-view="multipass"]')?.textContent ?? '', /MultipassManage/i);
   assert.equal(mobileNav?.querySelectorAll('[aria-current="page"]').length, 1);
   assert.equal(mobileNav?.querySelector('[data-console-view="multipass"]')?.getAttribute('aria-current'), 'page');
@@ -213,6 +214,54 @@ test('mobile Console exposes a portrait agent switcher and three mutually exclus
   assert.equal(inactiveSnapshot.workspaceView, 'wallet');
   assert.equal(inactiveRoot.querySelector('.console-workspace-nav-mobile [data-console-view="wallet"]')?.getAttribute('aria-current'), 'page');
   assert.ok(inactiveRoot.querySelector('.console-basic-main > .console-wallet-workspace'));
+});
+
+test('selected Looper exposes Codex before activation and Chat shows an explicit activation gate', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const baseState = {
+    walletSnapshot: { connected: true, address },
+    consoleAuthenticatedWallet: address,
+    consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+    consoleSelectedAgentId: '1',
+    consoleAgentThread: { status: 'inactive', messages: [] },
+    consoleCodex: { status: 'loading', selectedTokenId: '1' },
+  };
+  const codexSnapshot = createMultipassConsoleSnapshot({ agents: sampleAgents(), state: { ...baseState, consoleWorkspaceView: 'codex' } });
+  const codexRoot = render(renderMultipassConsole(codexSnapshot));
+  for (const nav of codexRoot.querySelectorAll('.console-workspace-nav')) {
+    assert.equal(nav.querySelectorAll('button').length, 4);
+    assert.equal(nav.querySelectorAll('[aria-current="page"]').length, 1);
+    assert.equal(nav.querySelector('[data-console-view="codex"]')?.getAttribute('aria-current'), 'page');
+    assert.equal(nav.querySelector('[data-console-view="codex"]')?.disabled, false);
+  }
+  assert.ok(codexRoot.querySelector('.console-basic-main > .console-codex-workspace'));
+  assert.equal(codexRoot.querySelector('.console-activation-gate'), null);
+
+  const chatSnapshot = createMultipassConsoleSnapshot({ agents: sampleAgents(), state: { ...baseState, consoleWorkspaceView: 'chat' } });
+  const chatRoot = render(renderMultipassConsole(chatSnapshot));
+  assert.match(chatRoot.querySelector('.console-activation-gate')?.textContent ?? '', /Activate Looper #1 to start Chat/i);
+  assert.ok(chatRoot.querySelector('.console-activation-gate [data-action="activate-selected-console-agent"]'));
+  assert.equal(chatRoot.querySelector('.console-thread-shell'), null);
+});
+
+test('activation failure keeps Codex selected and offers Chat retry without hiding Codex', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'codex',
+      consoleCodex: { status: 'unavailable', selectedTokenId: '1', retryAvailable: true },
+      consoleAgentThread: { status: 'error', activationRetryAvailable: true, error: 'Room setup failed.' },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  assert.equal(snapshot.workspaceView, 'codex');
+  assert.ok(root.querySelector('.console-codex-workspace [data-action="retry-console-codex"]'));
+  assert.equal(root.querySelector('[data-console-view="codex"]')?.getAttribute('aria-current'), 'page');
 });
 
 test('authenticated Console keeps one complete full-width desktop roster drawer', () => {

@@ -1,4 +1,5 @@
 import { renderConsoleAgentThread } from './console-agent-thread.js';
+import { normalizeConsoleCodexState, renderConsoleCodexWorkspace } from './console-codex.js';
 import { createConsoleAgentGalleryModel } from './console-agent-gallery.js';
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
 
@@ -70,7 +71,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
   const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
   const activeAgentWallet = activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null;
-  const requestedWorkspaceView = ['chat', 'wallet', 'multipass'].includes(state.consoleWorkspaceView)
+  const requestedWorkspaceView = ['chat', 'wallet', 'multipass', 'codex'].includes(state.consoleWorkspaceView)
     ? state.consoleWorkspaceView
     : null;
   const workspaceView = activeAgent?.tokenId
@@ -135,6 +136,10 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       status,
     },
     workspaceView,
+    codex: normalizeConsoleCodexState(state.consoleCodex ?? {
+      status: 'unavailable',
+      selectedTokenId: activeAgent?.tokenId ?? null,
+    }),
     rosterDrawers: {
       mainOpen: Boolean(state.consoleMainRosterOpen),
       sidebarOpen: Boolean(state.consoleSidebarRosterOpen),
@@ -251,12 +256,16 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   });
   if (!session.activeAgentId) return thread;
   let workspace;
-  if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
+  if (snapshot.workspaceView === 'codex') {
+    workspace = renderConsoleCodexWorkspace(snapshot.codex);
+  } else if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
     workspace = renderConsoleWalletWorkspace(snapshot.identityCard);
   } else if (snapshot.workspaceView === 'multipass') {
     workspace = renderIdentityCard(snapshot.identityCard);
   } else {
-    workspace = thread;
+    workspace = shouldGateConsoleChat(snapshot.agentThread)
+      ? renderConsoleActivationGate(snapshot)
+      : thread;
   }
   const inactiveThread = snapshot.workspaceView === 'chat'
     ? ''
@@ -326,12 +335,15 @@ function renderConsoleMainRosterDrawer(snapshot = {}) {
 function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
   const agentAvailable = Boolean(snapshot.session?.activeAgentId);
   const walletAvailable = Boolean(agentAvailable && snapshot.identityCard?.agentWallet);
-  const view = ['wallet', 'multipass'].includes(snapshot.workspaceView) ? snapshot.workspaceView : 'chat';
+  const view = ['wallet', 'multipass', 'codex'].includes(snapshot.workspaceView) ? snapshot.workspaceView : 'chat';
   const placementClass = mobile ? 'console-workspace-nav-mobile' : 'console-workspace-nav-sidebar';
   return `
     <nav class="console-workspace-nav ${placementClass}" aria-label="Console workspace${mobile ? ' mobile' : ''}">
       <button type="button" data-action="set-console-workspace-view" data-console-view="chat" ${view === 'chat' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
-        <span>Room</span><small>${agentAvailable ? 'Agent chat' : 'Waiting'}</small>
+        <span>Chat</span><small>${agentAvailable ? 'Agent room' : 'Waiting'}</small>
+      </button>
+      <button type="button" data-action="set-console-workspace-view" data-console-view="codex" ${view === 'codex' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
+        <span>Codex</span><small>${agentAvailable ? 'Verified identity' : 'Select agent'}</small>
       </button>
       <button type="button" data-action="set-console-workspace-view" data-console-view="wallet" ${view === 'wallet' ? 'aria-current="page"' : ''} ${walletAvailable ? '' : 'disabled'}>
         <span>Wallet</span><small>${walletAvailable ? formatWalletWorkspaceStatus(snapshot.identityCard.agentWallet) : 'Select agent'}</small>
@@ -340,6 +352,28 @@ function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
         <span>Multipass</span><small>Manage</small>
       </button>
     </nav>
+  `;
+}
+
+function shouldGateConsoleChat(thread = {}) {
+  return thread.status === 'inactive'
+    || thread.status === 'activating'
+    || (thread.status === 'error' && thread.activationRetryAvailable);
+}
+
+function renderConsoleActivationGate(snapshot = {}) {
+  const thread = snapshot.agentThread ?? {};
+  const tokenId = snapshot.session?.activeAgentId ?? '';
+  const activating = thread.status === 'activating';
+  const retry = thread.status === 'error' && thread.activationRetryAvailable;
+  return `
+    <section class="console-activation-gate" aria-labelledby="console-activation-gate-title">
+      <span class="console-gate-eyebrow">Chat activation</span>
+      <h2 id="console-activation-gate-title">Activate Looper #${escapeHtml(tokenId)} to start Chat</h2>
+      <p>${retry ? 'Chat activation did not finish. Codex remains available while you retry.' : 'Codex is available now. Activate only when you are ready to open the agent room.'}</p>
+      <button type="button" data-action="activate-selected-console-agent" ${activating ? 'disabled' : ''}>${activating ? 'Activating Chat…' : retry ? 'Retry Chat activation' : 'Activate Chat'}</button>
+      ${retry && thread.error ? `<p class="console-thread-error" role="alert">${escapeHtml(thread.error)}</p>` : ''}
+    </section>
   `;
 }
 

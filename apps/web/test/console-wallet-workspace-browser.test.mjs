@@ -50,6 +50,49 @@ function walletMarkup(css) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div class="record-shell multipass-console-shell">${renderMultipassConsole(snapshot)}</div></body></html>`;
 }
 
+function codexMarkup(css) {
+  const agent = { tokenId: '617', name: 'Looper #617', role: 'Researcher', credLabel: 'Cred pending', verified: true };
+  const artifactHash = 'a'.repeat(64);
+  const envelope = (operation, result) => ({
+    schemaVersion: '1.0.0', artifactHash, codexVersion: 'traits-v1', operation, subjectIds: [617], evidence: [], result,
+  });
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: OWNER },
+      consoleAuthenticatedWallet: OWNER,
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '617',
+      consoleWorkspaceView: 'codex',
+      consoleAgentThread: { status: 'inactive', messages: [] },
+      consoleCodex: {
+        status: 'ready', selectedTokenId: '617', artifactHash, codexVersion: 'traits-v1',
+        profile: envelope('getTokenProfile', {
+          identity: { tokenId: 617, canonicalName: 'Looper #617', description: 'Verified Looper.' },
+          visualTraits: [{ type: 'Background', value: 'Nebula' }, { type: 'Artifact', value: 'Nyan Cat' }],
+          interpretation: {
+            primaryClass: 'Researcher', secondaryClass: 'Builder', specialization: 'signal cartographer',
+            risk: { value: 4, label: 'Balanced' }, autonomy: { value: 6, label: 'Guided' }, voice: 'Precise',
+            quirks: ['Maps every signal'], communicationStyle: ['Short and clear'], values: ['Evidence'], humor: ['Dry'],
+            origin: 'Forged in the archive', missionBias: 'Trace signal', shortLore: 'Keeps the receipts.',
+            longLore: 'A longer verified story.', firstMission: 'Map the signal',
+            recommendedSkills: [{ family: 'research', skill: 'x-research', status: 'recommended' }],
+          },
+        }),
+        explanation: envelope('explainTraits', {
+          tokenId: 617,
+          traits: [{ type: 'Background', value: 'Nebula', frequency: { numerator: 4, denominator: 7777, ppm: 514 } }],
+        }),
+        similarity: envelope('findSimilar', {
+          tokenId: 617,
+          items: [{ tokenId: 700, canonicalName: 'Looper #700', scorePpm: 600000, sharedTraits: [{ type: 'Background', value: 'Nebula' }] }],
+        }),
+      },
+    },
+  });
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div class="record-shell multipass-console-shell">${renderMultipassConsole(snapshot)}</div></body></html>`;
+}
+
 async function startFixtureServer(html) {
   const server = createServer((_request, response) => {
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -154,4 +197,38 @@ test('wallet workspace is balance-first and keeps send and advanced controls con
   });
   assert.equal(assetWidths.every(({ ledger, row }) => Math.abs(ledger - row) < 1), true);
   await page.screenshot({ path: '/home/ubuntu/.openclaw/workspace/multipass-wallet-redesign-desktop.png', fullPage: true });
+});
+
+test('Codex workspace has no horizontal overflow and every drawer summary stays reachable at 390px', { timeout: 90_000 }, async (t) => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const fixture = await startFixtureServer(codexMarkup(css));
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_PATH ?? '/snap/bin/chromium',
+    args: ['--no-sandbox'],
+  });
+  t.after(async () => {
+    await browser.close();
+    await fixture.close();
+  });
+
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(fixture.origin, { waitUntil: 'domcontentloaded' });
+  await page.locator('.console-codex-workspace').waitFor({ state: 'visible' });
+
+  const measurements = (await Promise.all([
+    'html', 'body', '.console-workspace-grid', '.console-workspace-main',
+    '.console-codex-workspace', '.console-codex-header', '.console-codex-facts', '.console-codex-drawers',
+  ].map((selector) => measureOverflow(page, selector)))).flat();
+  assert.deepEqual(measurements.filter((measurement) => !measurement.fits), []);
+
+  const summaries = page.locator('details.console-codex-drawer > summary');
+  assert.equal(await summaries.count(), 5);
+  for (let index = 0; index < 5; index += 1) {
+    const summary = summaries.nth(index);
+    await summary.scrollIntoViewIfNeeded();
+    assert.equal(await summary.isVisible(), true);
+    const box = await summary.boundingBox();
+    assert.ok(box && box.x >= 0 && box.x + box.width <= 390, `drawer summary ${index + 1} must remain inside the viewport`);
+  }
 });
