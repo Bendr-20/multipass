@@ -378,7 +378,7 @@ test('startServer creates one Looper Codex runtime before API construction and i
   }
 });
 
-test('missing or invalid Looper Codex artifacts leave discovery and owned-agent routes healthy', async () => {
+test('missing or invalid Looper Codex artifacts leave established liveness, discovery, and owned-agent routes healthy', async () => {
   const account = privateKeyToAccount('0x59c6995e998f97a5a0044966f094538a7bcd1f0b03f82107863cfb2f99adc62c');
   for (const looperCodexArtifactPath of [null, '/definitely/missing/loopers-codex.json']) {
     const server = await startServer({
@@ -391,6 +391,14 @@ test('missing or invalid Looper Codex artifacts leave discovery and owned-agent 
       }),
     });
     try {
+      const health = await fetch(server.url + '/health');
+      assert.equal(health.status, 404);
+      assert.equal((await health.json()).error.code, 'not_found');
+
+      const liveness = await fetch(server.url + '/api/openapi.json');
+      assert.equal(liveness.status, 200);
+      assert.equal((await liveness.json()).openapi, '3.1.0');
+
       const discovery = await fetch(server.url + '/.well-known/multipass.json');
       assert.equal(discovery.status, 200);
 

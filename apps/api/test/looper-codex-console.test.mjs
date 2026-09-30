@@ -173,10 +173,11 @@ test('Codex query enforces exact root schema, trusted origin, session, CSRF, bod
   assert.equal(queryCalls, 0);
 });
 
-test('Codex query maps only typed adapter errors to closed API errors', async () => {
+test('Codex query maps typed input and every runtime failure to closed API errors', async () => {
   for (const [error, status, code] of [
     [new LooperCodexUnavailableError('secret loader path /srv/private/codex.json'), 503, 'codex_unavailable'],
     [new LooperCodexInputError('private prompt must not be echoed'), 400, 'invalid_codex_query'],
+    [new Error('unexpected adapter failure at /srv/private/secret-codex.json'), 503, 'codex_unavailable'],
   ]) {
     const api = createApi({ runtime: availableRuntime(() => { throw error; }) });
     const response = await api.handleRequest(request({

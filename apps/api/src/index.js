@@ -679,7 +679,14 @@ async function handleConsoleCodexQuery(request, context) {
       });
       return errorResponse(400, 'invalid_codex_query', 'Looper Codex query is invalid.');
     }
-    throw error;
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 503,
+      startedAt,
+      errorClass: error?.constructor?.name ?? 'Error',
+    });
+    return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
   }
 }
 
