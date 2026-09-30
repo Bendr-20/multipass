@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createConsoleAgentRuntime, createRuntimeProfile } from '../src/agent-runtime/index.js';
+import { createBankrLlmClient } from '../src/bankr-llm/index.js';
 import { getConsoleSkillCatalog } from '../src/console-skill-catalog.js';
 import { createMemoryStore, createMultipassApi } from '../src/index.js';
 import { deriveReleasedLooperAccount } from '../src/looper-account.js';
@@ -137,6 +138,132 @@ test('runtime profile preserves the server-derived canonical Looper persona', ()
   });
   assert.notEqual(transferred.memoryNamespace, profile.memoryNamespace);
   assert.equal(profile.permissions.trading, 'review_only');
+});
+
+test('Codex context is revalidated, frozen, and grounded in the Bankr prompt without changing canonical identity', async () => {
+  let requestBody = null;
+  const codexContext = {
+    schemaVersion: '1.0.0',
+    artifactHash: 'a'.repeat(64),
+    codexVersion: 'looper-trait-personality-matrix-v03',
+    identity: { tokenId: '1234', canonicalName: 'Codex Looper #1234' },
+    interpretation: {
+      primaryClass: 'Researcher',
+      secondaryClass: 'Signal Analyst',
+      specialization: 'collection intelligence',
+      risk: { value: 5, label: 'Disciplined' },
+      autonomy: { value: 4, label: 'Extreme' },
+      voice: 'precise and evidence-led',
+      values: ['verification'],
+      communicationStyle: ['concise'],
+      humor: ['dry'],
+      origin: 'verified trait synthesis',
+      shortLore: 'A bounded verified profile.',
+      missionBias: 'Prefer evidence.',
+      firstMission: 'Verify the signal.',
+      recommendedSkills: [{
+        skillFamily: 'collection-analysis',
+        reason: 'Matches verified traits.',
+        status: 'recommended',
+      }],
+    },
+    traits: [{ type: 'Background', value: 'Signal Grid' }],
+    versions: {
+      traitCodexVersion: 'looper-trait-personality-matrix-v03',
+      classModelVersion: 'class-model-v2',
+    },
+    evidence: [{ id: 'trait:background', kind: 'metadata_trait', label: 'Background: Signal Grid' }],
+  };
+  const canonicalIdentity = {
+    ...CONSOLE_IDENTITY,
+    sourcePath: '/srv/private/codex.json',
+    postings: ['private posting list'],
+    fullArtifact: 'entire private artifact',
+    enabled: true,
+    persona: {
+      tokenId: '1234',
+      canonicalName: 'Canonical Looper #1234',
+      voice: 'canonical onchain voice',
+    },
+  };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-09-30T23:00:00.000Z' }),
+    xmtpClient: createLocalXmtpAgentClient({ now: () => '2026-09-30T23:00:00.000Z' }),
+    now: () => '2026-09-30T23:00:00.000Z',
+    llmClient: createBankrLlmClient({
+      apiKey: '***',
+      fetchImpl: async (_url, request) => {
+        requestBody = JSON.parse(request.body);
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'Grounded.' } }] }), { status: 200 });
+      },
+    }),
+  });
+
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    canonicalIdentity,
+    codexContext,
+    message: 'Who are you?',
+  });
+
+  assert.equal(result.profile.rootIdentity.ownerWallet, WALLET);
+  assert.equal(result.profile.persona.canonicalName, 'Canonical Looper #1234');
+  assert.deepEqual(result.profile.codexContext, codexContext);
+  assert.notEqual(result.profile.codexContext, codexContext);
+  assert.equal(Object.isFrozen(result.profile.codexContext), true);
+  assert.equal(Object.isFrozen(result.profile.codexContext.interpretation.recommendedSkills), true);
+  const prompt = requestBody.messages[0].content;
+  assert.match(prompt, /verified Looper Codex data/i);
+  assert.match(prompt, /Codex Looper #1234/);
+  assert.match(prompt, /Signal Grid/);
+  assert.match(prompt, /looper-trait-personality-matrix-v03/);
+  assert.match(prompt, /metadata_trait/);
+  assert.match(prompt, /collection-analysis/);
+  assert.match(prompt, /recommended.*not enabled|not enabled.*recommended/i);
+  assert.match(prompt, /do not invent.*collection facts/i);
+  assert.doesNotMatch(prompt, new RegExp(WALLET, 'i'));
+  assert.doesNotMatch(prompt, new RegExp('/srv/private/codex\.json|private posting list|entire private artifact|"enabled"', 'i'));
+});
+
+test('Codex runtime boundary rejects projections with operational or unbounded fields', async () => {
+  const runtime = createConsoleAgentRuntime({ memoryClient: createLocalSibylMemoryStore() });
+  await assert.rejects(runtime.handleMessage({
+    wallet: WALLET,
+    canonicalIdentity: CONSOLE_IDENTITY,
+    message: 'Who are you?',
+    codexContext: {
+      schemaVersion: '1.0.0',
+      artifactHash: 'a'.repeat(64),
+      codexVersion: 'traits-v1',
+      identity: { tokenId: '1234', canonicalName: 'Looper #1234', owner: WALLET },
+      interpretation: {},
+      traits: [],
+      versions: {},
+      evidence: [],
+    },
+  }), /codexContext/i);
+});
+
+test('Bankr prompt forbids collection claims when Codex context is unavailable', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: '***',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Canonical only.' } }] }), { status: 200 });
+    },
+  });
+  await client.generate({
+    profile: {
+      displayName: 'Canonical Looper #1234',
+      persona: { canonicalName: 'Canonical Looper #1234', voice: 'canonical onchain voice' },
+    },
+    message: 'Tell me about the collection.',
+  });
+  const prompt = requestBody.messages[0].content;
+  assert.match(prompt, /Canonical Looper #1234/);
+  assert.match(prompt, /Codex.*unavailable/i);
+  assert.match(prompt, /do not.*collection claims/i);
 });
 
 test('image-only runtime turn sends bytes to vision and XMTP while Sibyl stores metadata only', async () => {

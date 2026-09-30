@@ -569,6 +569,7 @@ export function createRuntimeProfile(input = {}) {
   const tokenContract = String(canonicalIdentity?.contract ?? input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim();
   const chainId = Number(canonicalIdentity?.chainId ?? 8453);
   const persona = normalizeRuntimePersona(canonicalIdentity?.persona, tokenId);
+  const codexContext = normalizeRuntimeCodexContext(input.codexContext, tokenId);
   return {
     activationId,
     agentId,
@@ -591,6 +592,7 @@ export function createRuntimeProfile(input = {}) {
       status: 'server_side_only',
     },
     ...(persona ? { persona } : {}),
+    ...(codexContext ? { codexContext } : {}),
     memoryNamespace: canonicalIdentity
       ? buildSibylMemoryNamespace({
         chainId,
@@ -776,6 +778,127 @@ function normalizeRuntimePersona(value, tokenId) {
     if (text) persona[field] = text;
   }
   return Object.keys(persona).length > 1 ? persona : null;
+}
+
+function normalizeRuntimeCodexContext(value, tokenId) {
+  if (value === null || value === undefined) return null;
+  assertCodexObject(value, [
+    'schemaVersion', 'artifactHash', 'codexVersion', 'identity', 'interpretation',
+    'traits', 'versions', 'evidence',
+  ]);
+  assertCodexObject(value.identity, ['tokenId', 'canonicalName']);
+  if (String(value.identity.tokenId) !== String(tokenId)) {
+    throw new TypeError('codexContext identity does not match the selected Looper.');
+  }
+  assertCodexObject(value.interpretation, [
+    'primaryClass', 'secondaryClass', 'specialization', 'risk', 'autonomy', 'voice',
+    'values', 'communicationStyle', 'humor', 'origin', 'shortLore', 'missionBias',
+    'firstMission', 'recommendedSkills',
+  ]);
+  assertCodexObject(value.interpretation.risk, ['value', 'label']);
+  assertCodexObject(value.interpretation.autonomy, ['value', 'label']);
+  assertCodexObject(value.versions, ['traitCodexVersion', 'classModelVersion']);
+  const normalized = {
+    schemaVersion: codexText(value.schemaVersion),
+    artifactHash: codexHash(value.artifactHash),
+    codexVersion: codexText(value.codexVersion),
+    identity: {
+      tokenId: String(value.identity.tokenId),
+      canonicalName: codexText(value.identity.canonicalName),
+    },
+    interpretation: {
+      primaryClass: codexText(value.interpretation.primaryClass),
+      secondaryClass: codexText(value.interpretation.secondaryClass),
+      specialization: codexText(value.interpretation.specialization),
+      risk: normalizeCodexLabel(value.interpretation.risk),
+      autonomy: normalizeCodexLabel(value.interpretation.autonomy),
+      voice: codexText(value.interpretation.voice),
+      values: normalizeCodexTextArray(value.interpretation.values),
+      communicationStyle: normalizeCodexTextArray(value.interpretation.communicationStyle),
+      humor: normalizeCodexTextArray(value.interpretation.humor),
+      origin: codexText(value.interpretation.origin),
+      shortLore: codexText(value.interpretation.shortLore),
+      missionBias: codexText(value.interpretation.missionBias),
+      firstMission: codexText(value.interpretation.firstMission),
+      recommendedSkills: normalizeCodexRecommendedSkills(value.interpretation.recommendedSkills),
+    },
+    traits: normalizeCodexRecords(value.traits, ['type', 'value']),
+    versions: {
+      traitCodexVersion: codexText(value.versions.traitCodexVersion),
+      classModelVersion: codexText(value.versions.classModelVersion),
+    },
+    evidence: normalizeCodexRecords(value.evidence, ['id', 'kind', 'label']),
+  };
+  return deepFreezeRuntimeValue(normalized);
+}
+
+function assertCodexObject(value, exactKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== exactKeys.length || keys.some((key) => !exactKeys.includes(key))) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+}
+
+function codexText(value) {
+  if (typeof value !== 'string' || value.length > 512 || Buffer.byteLength(value, 'utf8') > 2_048) {
+    throw new TypeError('codexContext text must be bounded.');
+  }
+  return value;
+}
+
+function codexHash(value) {
+  const hash = codexText(value);
+  if (!/^[a-f0-9]{64}$/u.test(hash)) throw new TypeError('codexContext artifact hash is invalid.');
+  return hash;
+}
+
+function normalizeCodexLabel(value) {
+  const score = typeof value.value === 'string'
+    ? codexText(value.value)
+    : Number.isSafeInteger(value.value) && Math.abs(value.value) <= 1_000_000
+      ? value.value
+      : null;
+  if (score === null) throw new TypeError('codexContext label values must be bounded.');
+  return { value: score, label: codexText(value.label) };
+}
+
+function normalizeCodexTextArray(value) {
+  if (!Array.isArray(value) || value.length > 16) throw new TypeError('codexContext arrays must be bounded.');
+  return value.map(codexText);
+}
+
+function normalizeCodexRecommendedSkills(value) {
+  if (!Array.isArray(value) || value.length > 8) throw new TypeError('codexContext skills must be bounded.');
+  return value.map((entry) => {
+    assertCodexObject(entry, ['skillFamily', 'reason', 'status']);
+    if (entry.status !== 'recommended') throw new TypeError('codexContext skills are recommendations only.');
+    return {
+      skillFamily: codexText(entry.skillFamily),
+      reason: codexText(entry.reason),
+      status: 'recommended',
+    };
+  });
+}
+
+function normalizeCodexRecords(value, exactKeys) {
+  if (!Array.isArray(value) || value.length > 16) throw new TypeError('codexContext arrays must be bounded.');
+  return value.map((entry) => {
+    assertCodexObject(entry, exactKeys);
+    return Object.fromEntries(exactKeys.map((key) => [key, codexText(entry[key])]));
+  });
+}
+
+function deepFreezeRuntimeValue(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreezeRuntimeValue(child);
+  return Object.freeze(value);
 }
 
 function normalizeWalletContext(value, { wallet, profile } = {}) {

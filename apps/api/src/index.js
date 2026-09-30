@@ -819,6 +819,12 @@ async function handleConsoleAgentMessage(request, context) {
       : suppliedWalletContext;
     const activation = context.consoleRuntimeRegistry.get(identity);
     if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
+    let codexContext = null;
+    try {
+      codexContext = context.looperCodexRuntime.getProfileContext(identity.tokenId);
+    } catch (error) {
+      if (!(error instanceof LooperCodexUnavailableError)) throw error;
+    }
     const result = await context.consoleAgentRuntime.handleMessage({
       tokenId: identity.tokenId,
       agentId: identity.erc8004AgentId,
@@ -831,6 +837,7 @@ async function handleConsoleAgentMessage(request, context) {
       attachment,
       clientMessageId,
       walletContext,
+      codexContext,
     });
     if (result?.thread?.conversationId) {
       context.consoleRuntimeRegistry.bindConversation({
@@ -1576,6 +1583,9 @@ function createUnavailableCodexRuntime() {
     available: false,
     status,
     query() {
+      throw new LooperCodexUnavailableError();
+    },
+    getProfileContext() {
       throw new LooperCodexUnavailableError();
     },
   });

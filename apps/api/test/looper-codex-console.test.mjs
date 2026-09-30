@@ -7,6 +7,7 @@ import {
   LooperCodexUnavailableError,
 } from '../src/looper-codex-runtime.js';
 import { LOOPERS_MAINNET_CONTRACT } from '../src/loopers-owned-agents.js';
+import { createLooperRuntimeRegistry } from '../src/looper-runtime-registry.js';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const OTHER_WALLET = '0x2222222222222222222222222222222222222222';
@@ -34,6 +35,8 @@ function createApi({
   consoleCodexGlobalRateLimit,
   consoleCodexRateLimitNow,
   consoleCodexWalletMaxBuckets,
+  consoleRuntimeRegistry,
+  consoleAgentRuntime,
 } = {}) {
   return createMultipassApi({
     store: createMemoryStore(),
@@ -53,6 +56,8 @@ function createApi({
     consoleCodexGlobalRateLimit,
     consoleCodexRateLimitNow,
     consoleCodexWalletMaxBuckets,
+    consoleRuntimeRegistry,
+    consoleAgentRuntime,
   });
 }
 
@@ -95,6 +100,19 @@ function request(body, {
   });
 }
 
+function messageRequest(body) {
+  return new Request('https://helixa.test/api/multipass/console/agent/message', {
+    method: 'POST',
+    headers: {
+      origin: 'https://helixa.test',
+      cookie: SESSION,
+      'x-csrf-token': CSRF,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 async function bodyOf(response) {
   return JSON.parse(await response.text());
 }
@@ -104,6 +122,113 @@ function assertError(response, body, status, code) {
   assert.equal(body.schema_version, '0.1.0');
   assert.equal(body.error.code, code);
 }
+
+test('Codex profile context is fetched only after owner authorization and runtime activation', async () => {
+  const events = [];
+  const profileContext = Object.freeze({
+    schemaVersion: '1.0.0',
+    artifactHash: 'a'.repeat(64),
+    codexVersion: 'traits-v1',
+    identity: Object.freeze({ tokenId: '617', canonicalName: 'Looper #617' }),
+    interpretation: Object.freeze({
+      primaryClass: 'Researcher', secondaryClass: '', specialization: '',
+      risk: Object.freeze({ value: 'balanced', label: 'Balanced' }),
+      autonomy: Object.freeze({ value: 'high', label: 'High' }),
+      voice: 'precise', values: Object.freeze([]), communicationStyle: Object.freeze([]),
+      humor: Object.freeze([]), origin: '', shortLore: '', missionBias: '', firstMission: '',
+      recommendedSkills: Object.freeze([]),
+    }),
+    traits: Object.freeze([]),
+    versions: Object.freeze({ traitCodexVersion: 'traits-v1', classModelVersion: 'classes-v1' }),
+    evidence: Object.freeze([]),
+  });
+  const runtime = {
+    ...availableRuntime(),
+    getProfileContext(tokenId) {
+      events.push('codex:' + tokenId);
+      return profileContext;
+    },
+  };
+  const consoleAgentRuntime = {
+    async handleMessage(input) {
+      events.push('message');
+      assert.deepEqual(input.codexContext, profileContext);
+      return { schema_version: '0.1.0', thread: { messages: [] }, proposals: [], missions: [] };
+    },
+  };
+
+  const deniedApi = createApi({
+    runtime,
+    authorizer: async () => {
+      events.push('authorize:denied');
+      const error = new Error('not owner');
+      error.code = 'forbidden';
+      throw error;
+    },
+    consoleAgentRuntime,
+  });
+  assert.equal((await deniedApi.handleRequest(messageRequest({ tokenId: '617', message: 'hello' }))).status, 403);
+  assert.deepEqual(events, ['authorize:denied']);
+
+  events.length = 0;
+  const inactiveApi = createApi({
+    runtime,
+    authorizer: async ({ tokenId, wallet }) => {
+      events.push('authorize:active-owner');
+      return identity(tokenId, wallet);
+    },
+    consoleAgentRuntime,
+  });
+  assert.equal((await inactiveApi.handleRequest(messageRequest({ tokenId: '617', message: 'hello' }))).status, 403);
+  assert.deepEqual(events, ['authorize:active-owner']);
+
+  events.length = 0;
+  const registry = createLooperRuntimeRegistry();
+  registry.activate({ identity: identity('617'), runtimeName: 'Looper #617' });
+  const activeApi = createApi({
+    runtime,
+    authorizer: async ({ tokenId, wallet }) => {
+      events.push('authorize:active-owner');
+      return identity(tokenId, wallet);
+    },
+    consoleRuntimeRegistry: registry,
+    consoleAgentRuntime,
+  });
+  assert.equal((await activeApi.handleRequest(messageRequest({ tokenId: '617', message: 'hello' }))).status, 200);
+  assert.deepEqual(events, ['authorize:active-owner', 'codex:617', 'message']);
+});
+
+test('unavailable Codex degrades activated chat to canonical identity without failing the turn', async () => {
+  const canonicalIdentity = {
+    ...identity('617'),
+    persona: { tokenId: '617', canonicalName: 'Canonical Looper #617', voice: 'canonical voice' },
+  };
+  const registry = createLooperRuntimeRegistry();
+  registry.activate({ identity: canonicalIdentity, runtimeName: 'Canonical Looper #617' });
+  let received = null;
+  const api = createApi({
+    runtime: {
+      available: false,
+      status: Object.freeze({ available: false, reason: 'not_configured' }),
+      query() { throw new LooperCodexUnavailableError(); },
+      getProfileContext() { throw new LooperCodexUnavailableError(); },
+    },
+    authorizer: async () => canonicalIdentity,
+    consoleRuntimeRegistry: registry,
+    consoleAgentRuntime: {
+      async handleMessage(input) {
+        received = input;
+        return { schema_version: '0.1.0', thread: { messages: [] }, proposals: [], missions: [] };
+      },
+    },
+  });
+
+  const response = await api.handleRequest(messageRequest({ tokenId: '617', message: 'Who are you?' }));
+
+  assert.equal(response.status, 200);
+  assert.equal(received.canonicalIdentity.persona.canonicalName, 'Canonical Looper #617');
+  assert.equal(received.codexContext, null);
+});
 
 test('POST Codex query returns the exact adapter envelope without runtime activation', async () => {
   const expected = Object.freeze({
