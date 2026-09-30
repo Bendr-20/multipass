@@ -620,22 +620,6 @@ async function handleConsoleCodexQuery(request, context) {
   assertExactCodexRequest(body);
   const selectedTokenId = normalizeLooperTokenId(body.selectedTokenId);
 
-  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
-  if (!globalLimit.allowed) {
-    logCodexQuery(context, {
-      operation: body.operation,
-      selectedTokenId,
-      status: 429,
-      startedAt,
-      errorClass: 'RateLimitError',
-    });
-    return consoleThrottleResponse(
-      'codex_global_rate_limited',
-      'Looper Codex service is busy.',
-      globalLimit.retryAfterSeconds,
-    );
-  }
-
   const walletLimit = context.consoleCodexWalletRateLimiter.check(
     createCodexQuotaKey(session.wallet, selectedTokenId),
   );
@@ -654,10 +638,29 @@ async function handleConsoleCodexQuery(request, context) {
     );
   }
 
+  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
+  if (!globalLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_global_rate_limited',
+      'Looper Codex service is busy.',
+      globalLimit.retryAfterSeconds,
+    );
+  }
+
   try {
     await authorizeConsoleLooper({ tokenId: selectedTokenId, wallet: session.wallet, context });
   } catch (error) {
-    if (error instanceof ApiForbiddenError || error instanceof ApiUnauthorizedError) throw error;
+    if (error instanceof ApiForbiddenError) {
+      throw new ApiForbiddenError('Authenticated wallet is not authorized for this Looper.');
+    }
+    if (error instanceof ApiUnauthorizedError) throw error;
     logCodexQuery(context, {
       operation: body.operation,
       selectedTokenId,

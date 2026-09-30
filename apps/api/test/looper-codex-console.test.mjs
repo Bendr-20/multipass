@@ -223,6 +223,26 @@ test('Codex authorization infrastructure failures are closed before the HTTP fal
   });
 });
 
+test('forbidden ownership errors keep the public 403 shape without leaking infrastructure details', async () => {
+  const secret = 'https://rpc.internal.example/private?key=*** at /srv/private/owner.json';
+  const error = new Error(secret);
+  error.code = 'forbidden';
+  const api = createApi({ authorizer: async () => { throw error; } });
+  const response = await api.handleRequest(request({
+    input: {}, operation: 'getCollectionSummary', selectedTokenId: '617',
+  }));
+  const text = await response.text();
+  assert.equal(response.status, 403);
+  assert.deepEqual(JSON.parse(text), {
+    schema_version: '0.1.0',
+    error: {
+      code: 'forbidden',
+      message: 'Authenticated wallet is not authorized for this Looper.',
+    },
+  });
+  assert.equal(text.includes(secret), false);
+});
+
 test('failed ownership checks cannot exceed the 120 wallet/token authorizer budget', async () => {
   let authorizerCalls = 0;
   let runtimeCalls = 0;
@@ -246,6 +266,38 @@ test('failed ownership checks cannot exceed the 120 wallet/token authorizer budg
   assert.equal((await bodyOf(limited)).error.code, 'codex_rate_limited');
   assert.equal(authorizerCalls, 120);
   assert.equal(runtimeCalls, 0);
+});
+
+test('wallet-throttled requests do not consume global ingress capacity', async () => {
+  let authorizerCalls = 0;
+  let queryCalls = 0;
+  const api = createApi({
+    authorizer: async ({ tokenId, wallet }) => {
+      authorizerCalls += 1;
+      return identity(tokenId, wallet);
+    },
+    runtime: availableRuntime(() => ({ call: ++queryCalls })),
+  });
+  const send = (selectedTokenId) => api.handleRequest(request({
+    input: {}, operation: 'getCollectionSummary', selectedTokenId,
+  }));
+
+  for (let index = 0; index < 120; index += 1) {
+    assert.equal((await send('1')).status, 200);
+  }
+  for (let index = 0; index < 5; index += 1) {
+    const limited = await send('1');
+    assert.equal(limited.status, 429);
+    assert.equal((await bodyOf(limited)).error.code, 'codex_rate_limited');
+  }
+  for (let tokenId = 2; tokenId <= 1_081; tokenId += 1) {
+    assert.equal((await send(String(tokenId))).status, 200, 'token ' + tokenId);
+  }
+  const globallyLimited = await send('1082');
+  assert.equal(globallyLimited.status, 429);
+  assert.equal((await bodyOf(globallyLimited)).error.code, 'codex_global_rate_limited');
+  assert.equal(authorizerCalls, 1_200);
+  assert.equal(queryCalls, 1_200);
 });
 
 test('Codex query applies exactly 120 wallet/token requests per minute', async () => {
