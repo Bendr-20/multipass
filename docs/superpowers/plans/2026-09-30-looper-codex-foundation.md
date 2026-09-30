@@ -129,55 +129,55 @@ Envelope evidence is operation-specific but exact: profile includes one token fa
 
 **Files:** create `package.json`, `src/constants.js`, `src/canonical-json.js`, `src/index.js`, and `test/compiler.test.mjs` under `packages/loopers-codex`.
 
-- [ ] Write failing tests for stable object-key serialization, preserved array order, rejection of unsupported/non-finite/cyclic values, and equivalent SHA-256 hashes.
-- [ ] Run RED: `node --test --test-name-pattern='canonical JSON' packages/loopers-codex/test/compiler.test.mjs`.
-- [ ] Implement the package/constants/canonical serializer with `LOOPER_CODEX_SCHEMA_VERSION='1.0.0'` and the locked bounds above.
-- [ ] Run the same focused command; require PASS.
-- [ ] Commit: `feat: add canonical Looper Codex package`.
+- [x] Write failing tests for stable object-key serialization, preserved array order, rejection of unsupported/non-finite/cyclic values, and equivalent SHA-256 hashes.
+- [x] Run RED: `node --test --test-name-pattern='canonical JSON' packages/loopers-codex/test/compiler.test.mjs`.
+- [x] Implement the package/constants/canonical serializer with `LOOPER_CODEX_SCHEMA_VERSION='1.0.0'` and the locked bounds above.
+- [x] Run the same focused command; require PASS.
+- [x] Commit: `feat: add canonical Looper Codex package`.
 
 ### Task 2: Safe portable release materialization
 
 **Files:** create `src/safe-files.js`, `src/release-manifest.js`, `scripts/materialize-looper-codex-release.js`; modify tests/exports/scripts.
 
-- [ ] Write failing tests for the exact portable layout, source/component hashes, numeric aggregate hashes, regular-file/no-symlink policy, per-file/aggregate limits, contiguous IDs, extra numbered files, HTTP path refusal, fixed audit time, and atomic output-directory promotion.
-- [ ] Run RED: `node --test --test-name-pattern='release manifest|materializer|input bounds' packages/loopers-codex/test/compiler.test.mjs`.
-- [ ] Implement materialization from explicit local inputs. Copy through a sibling temporary directory, verify after copy, write canonical `release-manifest.json`, then rename atomically. Never print source content or credential-bearing paths.
-- [ ] Add package script `materialize` and root `loopers:codex:materialize`; test the literal pnpm `--` separator via `execFile('pnpm', ['loopers:codex:materialize','--',...])`.
-- [ ] Run package tests; require PASS.
-- [ ] Commit: `feat: pin portable Looper Codex releases`.
+- [x] Write failing tests for the exact portable layout, source/component hashes, numeric aggregate hashes, regular-file/no-symlink policy, per-file/aggregate limits, contiguous IDs, extra numbered files, HTTP path refusal, fixed audit time, and atomic output-directory promotion.
+- [x] Run RED: `node --test --test-name-pattern='release manifest|materializer|input bounds' packages/loopers-codex/test/compiler.test.mjs`.
+- [x] Implement materialization from explicit local inputs. Copy through a sibling temporary directory, verify after copy, write canonical `release-manifest.json`, then rename atomically. Never print source content or credential-bearing paths.
+- [x] Add package script `materialize` and root `loopers:codex:materialize`; test the literal pnpm `--` separator via `execFile('pnpm', ['loopers:codex:materialize','--',...])`.
+- [x] Run package tests; require PASS.
+- [x] Commit: `feat: pin portable Looper Codex releases`.
 
 ### Task 3: Normalize and cross-check release records
 
 **Files:** create `src/normalize.js`, `src/skill-recommendations.js`, `test/fixtures.js`; modify exports/tests.
 
-- [ ] Write failing tests for every cross-document invariant in the locked contract, URI/Arweave equivalence, all mismatch classes, duplicate trait types/keys, maximum text lengths, closed copied fields, recommendation provenance, and absence of owner/private/source-path fields.
-- [ ] Run RED: `node --test --test-name-pattern='record|image identity|recommendation' packages/loopers-codex/test/compiler.test.mjs`.
-- [ ] Implement frozen normalized records: `{ tokenId, canonicalName, description, image, imageId, externalUrl, visualTraits, traitAtoms, classProfile, personality, lore, activation, recommendedSkills, versions }`.
-- [ ] Run the focused tests and complete compiler test file; require PASS.
-- [ ] Commit: `feat: validate Looper Codex release records`.
+- [x] Write failing tests for every cross-document invariant in the locked contract, URI/Arweave equivalence, all mismatch classes, duplicate trait types/keys, maximum text lengths, closed copied fields, recommendation provenance, and absence of owner/private/source-path fields.
+- [x] Run RED: `node --test --test-name-pattern='record|image identity|recommendation' packages/loopers-codex/test/compiler.test.mjs`.
+- [x] Implement frozen normalized records: `{ tokenId, canonicalName, description, image, imageId, externalUrl, visualTraits, traitAtoms, classProfile, personality, lore, activation, recommendedSkills, versions }`.
+- [x] Run the focused tests and complete compiler test file; require PASS.
+- [x] Commit: `feat: validate Looper Codex release records`.
 
 ### Task 4: Compile and independently verify deterministic indexes
 
 **Files:** create `src/compiler.js` and `scripts/build-looper-codex.js`; modify exports/tests/package/root scripts.
 
-- [ ] Write failing tests for contiguous coverage, exact frequencies, postings, exact stacks, locked integer weights, `None` policy, source hashes, collection contract/chain, version consistency, semantic hash stability, audit timestamp exclusion, and byte-identical output for identical release bytes.
-- [ ] Add corruption tests where postings/counts/stacks/weights/source hashes are altered and the embedded artifact hash is recomputed; independent semantic verification must still reject them.
-- [ ] Run RED: `node --test --test-name-pattern='compile|semantic verification|build CLI' packages/loopers-codex/test/compiler.test.mjs`.
-- [ ] Implement semantic payload `{ schemaVersion, collection, compilerVersion, sourceHashes, versions, count, tokens, traitStats, postings, exactStacks }`; wrap it as `{ semantic, audit:{ auditedAt, releaseManifestHash }, artifactHash }`. Hash only canonical `semantic`.
-- [ ] Implement `verifyLooperCodexArtifact` by rebuilding all derived structures from `semantic.tokens` and comparing canonical bytes, source/version contracts, count/coverage, and hash. Build CLI accepts only `--release-dir` and `--output`, writes atomically, re-reads under the 128 MiB cap, verifies semantically, and prints count/schema/hash.
-- [ ] Add root `loopers:codex` and test literal `pnpm loopers:codex -- --release-dir ... --output ...`.
-- [ ] Run `node --test packages/loopers-codex/test/compiler.test.mjs packages/loopers-metadata/test/loopers-metadata.test.mjs`; require PASS.
-- [ ] Commit: `feat: compile deterministic Looper Codex indexes`.
+- [x] Write failing tests for contiguous coverage, exact frequencies, postings, exact stacks, locked integer weights, `None` policy, source hashes, collection contract/chain, version consistency, semantic hash stability, audit timestamp exclusion, and byte-identical output for identical release bytes.
+- [x] Add corruption tests where postings/counts/stacks/weights/source hashes are altered and the embedded artifact hash is recomputed; independent semantic verification must still reject them.
+- [x] Run RED: `node --test --test-name-pattern='compile|semantic verification|build CLI' packages/loopers-codex/test/compiler.test.mjs`.
+- [x] Implement semantic payload `{ schemaVersion, collection, compilerVersion, sourceHashes, versions, count, tokens, traitStats, postings, exactStacks }`; wrap it as `{ semantic, audit:{ auditedAt, releaseManifestHash }, artifactHash }`. Hash only canonical `semantic`.
+- [x] Implement `verifyLooperCodexArtifact` by rebuilding all derived structures from `semantic.tokens` and comparing canonical bytes, source/version contracts, count/coverage, and hash. Build CLI accepts only `--release-dir` and `--output`, writes atomically, re-reads under the 128 MiB cap, verifies semantically, and prints count/schema/hash.
+- [x] Add root `loopers:codex` and test literal `pnpm loopers:codex -- --release-dir ... --output ...`.
+- [x] Run `node --test packages/loopers-codex/test/compiler.test.mjs packages/loopers-metadata/test/loopers-metadata.test.mjs`; require PASS.
+- [x] Commit: `feat: compile deterministic Looper Codex indexes`.
 
 ### Task 5: Materialize and prove the actual 7,777-token release
 
 **Files:** create `docs/loopers/looper-codex-release-v1.json` containing the resulting portable manifest and reviewed source hashes; do not commit the 123+ MiB source tree or generated artifact.
 
-- [ ] Materialize `/home/ubuntu/.openclaw/workspace/tmp/looper-codex-release-v1` with explicit current metadata/Codex/model/export paths, chain/contract, compiler version, provenance JSON, and fixed `--audited-at 2026-09-30T00:00:00.000Z`.
-- [ ] Build `/home/ubuntu/.openclaw/workspace/tmp/looper-codex-v1.json`, requiring 7,777 records and a lowercase 64-character artifact hash.
-- [ ] Repeat materialization/build to `*-repeat`; require `cmp` and `sha256sum` equality for both portable manifests and artifacts.
-- [ ] Copy only the portable release manifest to `docs/loopers/looper-codex-release-v1.json`; verify it contains no machine-specific paths.
-- [ ] Run `git diff --check` and commit: `feat: prove complete Looper Codex artifact build`.
+- [x] Materialize `/home/ubuntu/.openclaw/workspace/tmp/looper-codex-release-v1` with explicit current metadata/Codex/model/export paths, chain/contract, compiler version, provenance JSON, and fixed `--audited-at 2026-09-30T00:00:00.000Z`.
+- [x] Build `/home/ubuntu/.openclaw/workspace/tmp/looper-codex-v1.json`, requiring 7,777 records and a lowercase 64-character artifact hash.
+- [x] Repeat materialization/build to `*-repeat`; require `cmp` and `sha256sum` equality for both portable manifests and artifacts.
+- [x] Copy only the portable release manifest to `docs/loopers/looper-codex-release-v1.json`; verify it contains no machine-specific paths.
+- [x] Run `git diff --check` and commit: `feat: prove complete Looper Codex artifact build`.
 
 ---
 
@@ -193,27 +193,27 @@ Envelope evidence is operation-specific but exact: profile includes one token fa
 
 ### Task 6: Fail-closed artifact loader
 
-- [ ] Write failing tests for valid load, mandatory 128 MiB default cap, regular-file/no-symlink policy, unsupported schema, count/coverage drift, stale hash, hash-consistent semantic corruption of every derived index, malformed source hashes/versions, and deep immutability.
-- [ ] Run RED: `node --test --test-name-pattern='loader' packages/loopers-codex/test/query-service.test.mjs`.
-- [ ] Implement `loadLooperCodexArtifact({ path, expectedCount=7777 })` using the safe-file layer and `verifyLooperCodexArtifact`; build private maps only after complete verification.
-- [ ] Run `pnpm --filter @helixa/loopers-codex test`; require PASS.
-- [ ] Commit: `feat: load Looper Codex artifacts fail closed`.
+- [x] Write failing tests for valid load, mandatory 128 MiB default cap, regular-file/no-symlink policy, unsupported schema, count/coverage drift, stale hash, hash-consistent semantic corruption of every derived index, malformed source hashes/versions, and deep immutability.
+- [x] Run RED: `node --test --test-name-pattern='loader' packages/loopers-codex/test/query-service.test.mjs`.
+- [x] Implement `loadLooperCodexArtifact({ path, expectedCount=7777 })` using the safe-file layer and `verifyLooperCodexArtifact`; build private maps only after complete verification.
+- [x] Run `pnpm --filter @helixa/loopers-codex test`; require PASS.
+- [x] Commit: `feat: load Looper Codex artifacts fail closed`.
 
 ### Task 7: Six non-similarity closed queries
 
-- [ ] Write literal deep-equality schema tests for the six locked non-similarity envelopes/results (all required keys, types, nesting, ordering, nullability, and rejection of every extra key), plus concrete caps, exact rational frequency/ppm, evidence labels, recommended-not-enabled skills, cursor artifact/filter binding, stale/malformed cursor rejection, and immutable outputs.
-- [ ] Run RED: `node --test --test-name-pattern='profile|trait|compare|search|summary|cursor' packages/loopers-codex/test/query-service.test.mjs`.
-- [ ] Implement `cursor.js` and the six operations other than `findSimilar` using the locked contract. `createLooperCodexQueryService` exposes only implemented methods at this commit.
-- [ ] Run the focused tests and full package suite; require PASS.
-- [ ] Commit: `feat: query Looper traits and comparisons`.
+- [x] Write literal deep-equality schema tests for the six locked non-similarity envelopes/results (all required keys, types, nesting, ordering, nullability, and rejection of every extra key), plus concrete caps, exact rational frequency/ppm, evidence labels, recommended-not-enabled skills, cursor artifact/filter binding, stale/malformed cursor rejection, and immutable outputs.
+- [x] Run RED: `node --test --test-name-pattern='profile|trait|compare|search|summary|cursor' packages/loopers-codex/test/query-service.test.mjs`.
+- [x] Implement `cursor.js` and the six operations other than `findSimilar` using the locked contract. `createLooperCodexQueryService` exposes only implemented methods at this commit.
+- [x] Run the focused tests and full package suite; require PASS.
+- [x] Commit: `feat: query Looper traits and comparisons`.
 
 ### Task 8: Seventh query — deterministic similar Loopers
 
-- [ ] Write literal deep-equality tests for the locked `findSimilar` envelope/result and weighted-Jaccard tests proving decimal-string weights, rare-trait weighting, exact fraction ordering, `None` exclusion, self exclusion, max limit 25, score ppm, numeric tie order, evidence ordering, and stable results after artifact reload.
-- [ ] Run RED: `node --test --test-name-pattern='similar' packages/loopers-codex/test/query-service.test.mjs`.
-- [ ] Implement candidate union from non-`None` postings and exact BigInt fraction comparison; add `findSimilar` as the seventh and final public operation.
-- [ ] Run Codex and metadata suites; require PASS.
-- [ ] Commit: `feat: find similar Loopers deterministically`.
+- [x] Write literal deep-equality tests for the locked `findSimilar` envelope/result and weighted-Jaccard tests proving decimal-string weights, rare-trait weighting, exact fraction ordering, `None` exclusion, self exclusion, max limit 25, score ppm, numeric tie order, evidence ordering, and stable results after artifact reload.
+- [x] Run RED: `node --test --test-name-pattern='similar' packages/loopers-codex/test/query-service.test.mjs`.
+- [x] Implement candidate union from non-`None` postings and exact BigInt fraction comparison; add `findSimilar` as the seventh and final public operation.
+- [x] Run Codex and metadata suites; require PASS.
+- [x] Commit: `feat: find similar Loopers deterministically`.
 
 ---
 
@@ -228,18 +228,18 @@ Envelope evidence is operation-specific but exact: profile includes one token fa
 
 ### Task 9: Executable full-artifact proof
 
-- [ ] Write the proof test to load the environment-provided artifact, require 7,777 tokens, execute all seven operations including #3802 profile/explanation/similarity, compare #3802, exact trait search, trait stats, and collection summary, deep-validate every literal locked request/response schema against the full artifact, exercise terminal `nextCursor:null` and stale/filter-bound cursor rejection, reject hostile/unknown fields, prove recommendations never contain `enabled`, and prove `globalThis.fetch` is never called.
-- [ ] Add package script `prove` and root `loopers:codex:prove` invoking `scripts/prove-looper-codex.js`.
-- [ ] Run: `LOOPER_CODEX_ARTIFACT=/home/ubuntu/.openclaw/workspace/tmp/looper-codex-v1.json pnpm loopers:codex:prove`; require PASS with count/hash and no token content.
-- [ ] Run the same artifact through `LOOPER_CODEX_ARTIFACT=... node --test packages/loopers-codex/test/full-artifact-proof.test.mjs`; require PASS.
-- [ ] Commit: `test: prove full Looper Codex queries`.
+- [x] Write the proof test to load the environment-provided artifact, require 7,777 tokens, execute all seven operations including #3802 profile/explanation/similarity, compare #3802, exact trait search, trait stats, and collection summary, deep-validate every literal locked request/response schema against the full artifact, exercise terminal `nextCursor:null` and stale/filter-bound cursor rejection, reject hostile/unknown fields, prove recommendations never contain `enabled`, and prove `globalThis.fetch` is never called.
+- [x] Add package script `prove` and root `loopers:codex:prove` invoking `scripts/prove-looper-codex.js`.
+- [x] Run: `LOOPER_CODEX_ARTIFACT=/home/ubuntu/.openclaw/workspace/tmp/looper-codex-v1.json pnpm loopers:codex:prove`; require PASS with count/hash and no token content.
+- [x] Run the same artifact through `LOOPER_CODEX_ARTIFACT=... node --test packages/loopers-codex/test/full-artifact-proof.test.mjs`; require PASS.
+- [x] Commit: `test: prove full Looper Codex queries`.
 
 ### Task 10: Documentation and final gates
 
-- [ ] Document portable materialization, pinned hashes, artifact schema/hash behavior, safety caps, exact math, all seven query contracts, and downstream integration boundary in `docs/loopers/looper-codex-artifact.md`.
-- [ ] Run sequentially: Codex package tests; metadata package tests; `apps/api/test/looper-persona.test.mjs`; full-artifact proof; `git diff --check`.
-- [ ] Scan package source to require no HTTP fetch, wallet/model/database imports, owner fields, secret-like values, or machine paths; require no generated artifact/source tree is staged.
-- [ ] Mark completed plan steps and commit: `docs: document Looper Codex foundation`.
+- [x] Document portable materialization, pinned hashes, artifact schema/hash behavior, safety caps, exact math, all seven query contracts, and downstream integration boundary in `docs/loopers/looper-codex-artifact.md`.
+- [x] Run sequentially: Codex package tests; metadata package tests; `apps/api/test/looper-persona.test.mjs`; full-artifact proof; `git diff --check`.
+- [x] Scan package source to require no HTTP fetch, wallet/model/database imports, owner fields, secret-like values, or machine paths; require no generated artifact/source tree is staged.
+- [x] Mark completed plan steps and commit: `docs: document Looper Codex foundation`.
 
 ## Completion boundary
 
