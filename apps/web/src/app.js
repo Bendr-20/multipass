@@ -683,11 +683,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
     try {
       const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
-      const challenge = await (claimApi.requestConsoleSessionChallenge ?? defaultRequestConsoleSessionChallenge)({
-        apiBase,
-        wallet: walletSnapshot.address,
-        fetchImpl,
-      });
+      const [challenge] = await Promise.all([
+        (claimApi.requestConsoleSessionChallenge ?? defaultRequestConsoleSessionChallenge)({
+          apiBase,
+          wallet: walletSnapshot.address,
+          fetchImpl,
+        }),
+        activeWalletClient.waitForPreparedSigningProvider?.({ timeoutMs: 15000 }) ?? null,
+      ]);
       const currentWallet = activeWalletClient.getSnapshot();
       if (
         requestId !== consoleChallengeRequestId

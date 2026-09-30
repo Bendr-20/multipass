@@ -7,6 +7,7 @@ import {
   createPrivyConnectAction,
   createPrivyConnectionError,
   createPrivyWalletClient,
+  createPrivySignMessageAction,
   classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
   isPrivyWalletUsableInBrowser,
@@ -44,6 +45,38 @@ test('mobile Safari rejects stale injected OKX state but accepts OKX WalletConne
     userAgent: 'Mozilla/5.0 (iPhone) Mobile/15E148 OKEx/6.191.0',
     okxInjected: true,
   }), true);
+});
+
+test('prepared Base Account signer starts personal_sign synchronously inside the user click', async () => {
+  const calls = [];
+  let finishSignature;
+  const signatureResult = new Promise((resolve) => { finishSignature = resolve; });
+  const provider = {
+    request(payload) {
+      calls.push(payload);
+      return signatureResult;
+    },
+  };
+  const baseAccount = {
+    address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    async getEthereumProvider() {
+      throw new Error('signing must use the provider prepared before the click');
+    },
+  };
+  const client = createPrivyWalletClient();
+  client.setSignableWallet(baseAccount);
+  client.setPreparedSigningProvider(baseAccount, provider);
+  const signMessage = createPrivySignMessageAction({ client });
+
+  const pending = signMessage('Prepared Base Account challenge');
+
+  assert.deepEqual(calls, [{
+    method: 'personal_sign',
+    params: ['0x50726570617265642042617365204163636f756e74206368616c6c656e6765', baseAccount.address],
+  }]);
+  finishSignature('0xbase-signature');
+  assert.deepEqual(await pending, { wallet: baseAccount.address, signature: '0xbase-signature' });
 });
 
 test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {

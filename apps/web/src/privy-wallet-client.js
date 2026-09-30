@@ -215,6 +215,27 @@ export function createPrivyConnectAction({ client, configured, connectWallet }) 
   };
 }
 
+export function createPrivySignMessageAction({ client } = {}) {
+  return function signMessage(message) {
+    const prepared = client.getPreparedSigningProvider?.();
+    if (prepared) {
+      const signature = requestPersonalSign(prepared.provider, prepared.wallet.address, message);
+      return Promise.resolve(signature).then((value) => ({
+        wallet: prepared.wallet.address,
+        signature: value,
+      }));
+    }
+
+    return (async () => {
+      const wallet = await client.waitForSignableWallet();
+      const provider = await wallet.getEthereumProvider();
+      if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
+      const signature = await requestPersonalSign(provider, wallet.address, message);
+      return { wallet: wallet.address, signature };
+    })();
+  };
+}
+
 export function createPrivyWalletClient() {
   let snapshot = defaultWalletSnapshot({
     ready: false,
@@ -230,6 +251,7 @@ export function createPrivyWalletClient() {
   const subscribers = new Set();
   let connectionError = null;
   let signableWallet = null;
+  let preparedSigningProvider = null;
 
   function notify() {
     for (const listener of subscribers) listener(snapshot);
@@ -273,8 +295,46 @@ export function createPrivyWalletClient() {
   }
 
   function setSignableWallet(wallet) {
-    signableWallet = wallet && typeof wallet.getEthereumProvider === 'function' ? wallet : null;
+    const nextWallet = wallet && typeof wallet.getEthereumProvider === 'function' ? wallet : null;
+    if (nextWallet !== signableWallet) preparedSigningProvider = null;
+    signableWallet = nextWallet;
     notify();
+  }
+
+  function setPreparedSigningProvider(wallet, provider) {
+    if (wallet !== signableWallet || typeof provider?.request !== 'function') return false;
+    preparedSigningProvider = { wallet, provider };
+    notify();
+    return true;
+  }
+
+  function getPreparedSigningProvider() {
+    if (preparedSigningProvider?.wallet !== signableWallet) return null;
+    return preparedSigningProvider;
+  }
+
+  function waitForPreparedSigningProvider({ timeoutMs = 15000 } = {}) {
+    return new Promise((resolve, reject) => {
+      const current = getPreparedSigningProvider();
+      if (current) {
+        resolve(current);
+        return;
+      }
+      let settled = false;
+      let unsubscribe = () => {};
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        unsubscribe();
+        callback(value);
+      };
+      const timeoutId = setTimeout(() => finish(reject, new Error('Wallet connected, but its signing provider did not become ready. Return to the browser and try again.')), timeoutMs);
+      unsubscribe = subscribe(() => {
+        const prepared = getPreparedSigningProvider();
+        if (prepared) finish(resolve, prepared);
+      });
+    });
   }
 
   function waitForSignableWallet({ timeoutMs = 120000 } = {}) {
@@ -361,8 +421,11 @@ export function createPrivyWalletClient() {
     clearConnectionError,
     failConnection,
     setSignableWallet,
+    setPreparedSigningProvider,
+    getPreparedSigningProvider,
     waitForConnection,
     waitForSignableWallet,
+    waitForPreparedSigningProvider,
   };
 }
 
@@ -389,7 +452,19 @@ export function PrivyWalletBridge({ client, configured }) {
   const connectWallet = connectWalletFromHook ?? privy?.connectWallet;
 
   useEffect(() => {
+    let current = true;
     client.setSignableWallet(activeWallet);
+    if (activeWallet) {
+      let provider;
+      try {
+        provider = activeWallet.getEthereumProvider();
+      } catch {
+        provider = null;
+      }
+      Promise.resolve(provider).then((resolvedProvider) => {
+        if (current) client.setPreparedSigningProvider(activeWallet, resolvedProvider);
+      }).catch(() => {});
+    }
     client.setSnapshot({
       ready: Boolean(configured && privy?.ready && (walletsReady || connectedAddress)),
       configured: Boolean(configured),
@@ -397,7 +472,8 @@ export function PrivyWalletBridge({ client, configured }) {
       address: connectedAddress,
       walletProfile: classifyPrivyWalletProfile(activeWallet),
     });
-  }, [client, configured, privy?.ready, walletsReady, connectedAddress]);
+    return () => { current = false; };
+  }, [client, configured, privy?.ready, walletsReady, connectedAddress, activeWallet]);
 
   useEffect(() => {
     client.setActions({
@@ -412,13 +488,7 @@ export function PrivyWalletBridge({ client, configured }) {
           address: null,
         });
       },
-      signMessage: async (message) => {
-        const wallet = await client.waitForSignableWallet();
-        const provider = await wallet.getEthereumProvider();
-        if (typeof provider?.request !== 'function') throw new Error(WALLET_CANNOT_SIGN_MESSAGE);
-        const signature = await requestPersonalSign(provider, wallet.address, message);
-        return { wallet: wallet.address, signature };
-      },
+      signMessage: createPrivySignMessageAction({ client }),
       sendTransaction: async (transaction) => submitPrivyLooperTransaction(await client.waitForSignableWallet(), transaction),
       request: async (payload) => {
         const wallet = await client.waitForSignableWallet();
