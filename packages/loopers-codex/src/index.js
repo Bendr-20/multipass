@@ -25,3 +25,14 @@ export {
   materializeLooperCodexRelease,
   verifyLooperCodexRelease,
 } from './release-manifest.js';
+
+export {
+  LOOPER_SOURCE_CODEX_SCHEMA_VERSION,
+  normalizeImageIdentity,
+  normalizeLooperRecord,
+} from './normalize.js';
+
+export {
+  LOOPER_SKILL_RECOMMENDATION_MAP_VERSION,
+  getRecommendedSkills,
+} from './skill-recommendations.js';

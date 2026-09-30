@@ -17,6 +17,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import * as codex from '../src/index.js';
+import { cloneFixture, createLooperRecordFixture } from './fixtures.js';
 
 const {
   canonicalJsonHash,
@@ -443,4 +444,137 @@ test('materializer root script accepts the literal pnpm -- separator', async () 
   );
   assert.match(stdout, /materialize-looper-codex-release/);
   assert.equal(stderr, '');
+});
+
+test('record normalization cross-checks every duplicated field and freezes a closed record', () => {
+  const fixture = createLooperRecordFixture();
+  const record = codex.normalizeLooperRecord({ tokenId: 1, ...fixture });
+
+  assert.deepEqual(Object.keys(record), [
+    'tokenId', 'canonicalName', 'description', 'image', 'imageId', 'externalUrl',
+    'visualTraits', 'traitAtoms', 'classProfile', 'personality', 'lore',
+    'activation', 'recommendedSkills', 'versions',
+  ]);
+  assert.equal(record.tokenId, 1);
+  assert.equal(record.imageId, '7lVgX4TEaRLBUSOe2uPNCmrMn-VROeHW9CeS2porrzM');
+  assert.deepEqual(record.visualTraits, [
+    { type: 'Background', value: 'Swarm Command Halo' },
+    { type: 'Patch Artifact', value: 'Nyan Cat' },
+  ]);
+  assert.equal(record.classProfile.risk.value, 5);
+  assert.equal(record.classProfile.risk.label, 'Balanced');
+  assert.equal(record.classProfile.autonomy.value, 4);
+  assert.equal(record.classProfile.autonomy.label, 'Guided');
+  assert.equal(record.recommendedSkills[0].sourceClass, 'Trader / Broker');
+  assert.equal(record.recommendedSkills[0].mapVersion, codex.LOOPER_SKILL_RECOMMENDATION_MAP_VERSION);
+  assert.equal(record.recommendedSkills[0].status, 'recommended');
+  assert.equal(JSON.stringify(record).includes('enabled'), false);
+  assert.equal(JSON.stringify(record).includes('/home/'), false);
+  assert.equal(JSON.stringify(record).includes('owner'), false);
+  assert.ok(Object.isFrozen(record));
+  assert.ok(Object.isFrozen(record.visualTraits));
+  assert.ok(Object.isFrozen(record.traitAtoms[0]));
+  assert.throws(() => record.visualTraits.push({ type: 'X', value: 'Y' }), TypeError);
+});
+
+test('image identity accepts reviewed Arweave and Turbo forms and rejects every other form', () => {
+  const fixture = createLooperRecordFixture();
+  assert.doesNotThrow(() => codex.normalizeLooperRecord({ tokenId: 1, ...fixture }));
+
+  const swapped = cloneFixture(fixture);
+  swapped.metadata.image = swapped.codex.image;
+  swapped.codex.image = fixture.metadata.image;
+  assert.doesNotThrow(() => codex.normalizeLooperRecord({ tokenId: 1, ...swapped }));
+
+  for (const image of [
+    'https://arweave.net/7lVgX4TEaRLBUSOe2uPNCmrMn-VROeHW9CeS2porrzM',
+    'https://turbo-gateway.com/not-a-transaction',
+    'ipfs://7lVgX4TEaRLBUSOe2uPNCmrMn-VROeHW9CeS2porrzM',
+  ]) {
+    const changed = cloneFixture(fixture);
+    changed.metadata.image = image;
+    assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...changed }), /image/i);
+  }
+
+  const mismatch = cloneFixture(fixture);
+  mismatch.codex.image = 'ar://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...mismatch }), /image identity/i);
+});
+
+test('record normalization rejects all duplicated-field mismatch classes', () => {
+  const cases = [
+    ['token ID', (x) => { x.codex.token_id = 2; }],
+    ['canonical name', (x) => { x.metadata.name = 'Looper #2'; }],
+    ['token URI name', (x) => { x.codex.token_uri_name = 'Looper #2'; }],
+    ['visual trait', (x) => { x.metadata.attributes[0].value = 'Other'; }],
+    ['trait atom', (x) => { x.codex.trait_atoms[0].key = 'Background::Other'; }],
+    ['primary class', (x) => { x.metadata.agent_class = 'Builder / Engineer'; }],
+    ['secondary class', (x) => { x.metadata.secondary_class = null; }],
+    ['specialization', (x) => { x.metadata.specialization = 'other'; }],
+    ['risk label', (x) => { x.metadata.risk_profile = 'Other'; }],
+    ['autonomy label', (x) => { x.metadata.attributes[6].value = 'Other'; }],
+    ['Codex version', (x) => { x.metadata.trait_codex_version = 'other'; }],
+    ['external URL', (x) => { x.metadata.external_url = 'https://example.com/1'; }],
+    ['voice', (x) => { x.metadata.voice = 'other'; }],
+    ['activation seed', (x) => { x.metadata.activation_seed = 'other'; }],
+    ['first mission', (x) => { x.metadata.first_mission = 'other'; }],
+    ['Cred evolution hint', (x) => { x.metadata.cred_evolution_hint = 'other'; }],
+    ['source schema', (x) => { x.codex.schema_version = '9.9.9'; }],
+    ['Codex link', (x) => { x.metadata.codex_uri = x.metadata.codex_uri.replace('/1.json', '/2.json'); }],
+    ['metadata link', (x) => { x.codex.token_metadata_uri = x.codex.token_metadata_uri.replace('/1.json', '/2.json'); }],
+  ];
+
+  for (const [label, mutate] of cases) {
+    const fixture = cloneFixture(createLooperRecordFixture());
+    mutate(fixture);
+    assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...fixture }), Error, label);
+  }
+});
+
+test('record normalization rejects duplicate trait types and keys', () => {
+  const duplicateMetadata = createLooperRecordFixture();
+  duplicateMetadata.metadata.attributes.push({ trait_type: 'Background', value: 'Other' });
+  assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...duplicateMetadata }), /duplicate metadata trait type/i);
+
+  const duplicateSelected = createLooperRecordFixture();
+  duplicateSelected.codex.selected_visual_traits[1] = { ...duplicateSelected.codex.selected_visual_traits[0] };
+  assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...duplicateSelected }), /duplicate selected trait key/i);
+
+  const duplicateAtom = createLooperRecordFixture();
+  duplicateAtom.codex.trait_atoms[1].id = duplicateAtom.codex.trait_atoms[0].id;
+  assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...duplicateAtom }), /duplicate trait atom id/i);
+});
+
+test('record normalization enforces closed fields and maximum text lengths', () => {
+  for (const mutate of [
+    (x) => { x.metadata.owner = '0xprivate'; },
+    (x) => { x.codex.private_memory = 'secret'; },
+    (x) => { x.codex.personality.extra = true; },
+    (x) => { x.codex.selected_visual_traits[0].source_path = '/home/private/file.png'; },
+    (x) => { x.codex.activation.first_missions.push('x'.repeat(257)); },
+    (x) => { x.codex.lore.long_lore = 'x'.repeat(4097); },
+    (x) => { x.codex.selected_visual_traits[0].trait = 'x'.repeat(97); },
+  ]) {
+    const fixture = cloneFixture(createLooperRecordFixture());
+    mutate(fixture);
+    assert.throws(() => codex.normalizeLooperRecord({ tokenId: 1, ...fixture }));
+  }
+});
+
+test('recommendations are deterministic, provenance-labeled, and never enabled', () => {
+  const first = codex.getRecommendedSkills('Trader / Broker');
+  const second = codex.getRecommendedSkills('Trader / Broker');
+  assert.deepEqual(first, second);
+  assert.notEqual(first, second);
+  assert.ok(first.length > 0);
+  for (const recommendation of first) {
+    assert.deepEqual(Object.keys(recommendation), [
+      'skillFamily', 'reason', 'sourceClass', 'mapVersion', 'status',
+    ]);
+    assert.equal(recommendation.sourceClass, 'Trader / Broker');
+    assert.equal(recommendation.status, 'recommended');
+    assert.equal(Object.hasOwn(recommendation, 'enabled'), false);
+    assert.ok(Object.isFrozen(recommendation));
+  }
+  assert.throws(() => codex.getRecommendedSkills('Unknown Class'), /unknown class/i);
 });
