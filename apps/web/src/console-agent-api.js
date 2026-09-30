@@ -166,3 +166,5 @@ async function requestConsoleJson({ apiBase, path, method, body, csrfToken, fetc
   }
   return responseBody;
 }
+
+export { loadConsoleCodexBundle, queryConsoleCodex } from './console-codex-api.js';

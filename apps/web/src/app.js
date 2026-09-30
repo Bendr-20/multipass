@@ -12,6 +12,7 @@ import { getCommunicationChannels, getCommunicationContactPolicy } from './commu
 import {
   activateConsoleAgent as defaultActivateConsoleAgent,
   authenticateConsoleSession as defaultAuthenticateConsoleSession,
+  loadConsoleCodexBundle as defaultLoadConsoleCodexBundle,
   requestConsoleSessionChallenge as defaultRequestConsoleSessionChallenge,
   sendConsoleAgentMessage as defaultSendConsoleAgentMessage,
   updateConsoleAgentName as defaultUpdateConsoleAgentName,
@@ -112,6 +113,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   let consoleReleasedLooperAbortController = null;
+  const consoleCodexCache = new Map();
+  let consoleCodexArtifactHash = null;
   let preparedConsoleChallenge = null;
   let consoleChallengeRequestId = 0;
   const shouldPrefetchProfiles = prefetchProfiles ?? !loadDemo;
@@ -125,6 +128,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   };
   const clearConsoleSessionStateWithPreview = (currentState, options) => {
     clearConsoleImagePreview();
+    consoleCodexCache.clear();
+    consoleCodexArtifactHash = null;
     return clearConsoleSessionState(currentState, options);
   };
 
@@ -172,6 +177,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleOwnedAgentsRequestId: 0,
     consoleScrollRequest: 0,
     consoleActivationRequestId: 0,
+    consoleCodexRequestId: 0,
     consoleThreadGeneration: 0,
     consoleAgentNameMutation: { status: 'idle', requestId: 0, tokenId: null },
     consoleOwnedAgents: consoleMockState?.consoleOwnedAgents ?? createInitialConsoleOwnedAgentsState(),
@@ -180,10 +186,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleSidebarRosterOpen: false,
     consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
     consoleWorkspaceView: consoleMockState
-      ? (['chat', 'wallet', 'multipass'].includes(consoleMockState.consoleWorkspaceView) ? consoleMockState.consoleWorkspaceView : 'chat')
+      ? (['chat', 'wallet', 'multipass', 'codex'].includes(consoleMockState.consoleWorkspaceView) ? consoleMockState.consoleWorkspaceView : 'chat')
       : null,
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
     consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
+    consoleCodex: createInitialConsoleCodexState(),
     looperAgentWallet: consoleMockState?.looperAgentWallet ?? activeLooperWalletController.getSnapshot(),
     consoleMockMode: consoleMockState?.mode ?? null,
     walletSnapshot: consoleMockState?.walletSnapshot ?? activeWalletClient.getSnapshot(),
@@ -1341,8 +1348,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           : createInitialConsoleAgentThreadState(),
       };
       if (selectedAgentId && (selectionChanged || state.consoleAgentThread.status === 'idle')) {
-        await selectAndActivateConsoleAgent(selectedAgentId, {
-          resetSelection: false,
+        await selectConsoleAgentById(selectedAgentId, {
+          resetSelection: selectionChanged || state.consoleAgentThread.status === 'idle',
           ignoreWalletWork: selectionChanged && !preservedAgentId,
           useDefaultWorkspace: true,
         });
@@ -1641,12 +1648,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
     deferredConsoleRenders.delete(root);
     selector?.blur?.();
-    return selectAndActivateConsoleAgent(tokenId);
+    return selectConsoleAgentById(tokenId);
   }
 
   function setConsoleWorkspaceView(event) {
     const view = String(event?.currentTarget?.dataset?.consoleView ?? '').trim();
-    if (!['chat', 'wallet', 'multipass'].includes(view)) return;
+    if (!['chat', 'wallet', 'multipass', 'codex'].includes(view)) return;
     if (!state.consoleSelectedAgentId) return;
     state = { ...state, consoleWorkspaceView: view };
     render(root, state, handlers);
@@ -1654,14 +1661,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function retryConsoleAgentActivation() {
     if (state.consoleAgentNameMutation?.status === 'pending') return;
-    const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
-    if (!tokenId || !state.consoleAgentThread?.activationRetryAvailable) return;
-    return selectAndActivateConsoleAgent(tokenId, { resetSelection: false });
+    if (!state.consoleSelectedAgentId || !state.consoleAgentThread?.activationRetryAvailable) return;
+    return activateSelectedConsoleAgent();
   }
 
-  async function selectAndActivateConsoleAgent(tokenId, {
+  async function selectConsoleAgentById(tokenId, {
     resetSelection = true,
-    restoreGalleryOnFailure = false,
     ignoreWalletWork = false,
     useDefaultWorkspace = false,
   } = {}) {
@@ -1675,31 +1680,125 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       state.consoleParticipantAgentIds,
       normalizedTokenId,
     );
-    const previousSelectedAgentId = state.consoleSelectedAgentId;
-    const previousParticipantAgentIds = state.consoleParticipantAgentIds;
-    const requestId = state.consoleActivationRequestId + 1;
-    if (resetSelection && normalizedTokenId !== previousSelectedAgentId) clearConsoleImagePreview();
+    const selectionChanged = normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim();
+    const activationRequestId = state.consoleActivationRequestId + 1;
+    const codexRequestId = state.consoleCodexRequestId + 1;
+    if (resetSelection && selectionChanged) clearConsoleImagePreview();
     state = {
       ...state,
-      consoleActivationRequestId: requestId,
-      consoleAgentGallery: {
-        ...state.consoleAgentGallery,
-        activationError: null,
-      },
-      consoleAgentNameMutation: normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()
-        ? {
-          status: 'idle',
-          requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1,
-          tokenId: null,
-        }
+      consoleActivationRequestId: activationRequestId,
+      consoleCodexRequestId: codexRequestId,
+      consoleAgentGallery: { ...state.consoleAgentGallery, activationError: null },
+      consoleAgentNameMutation: selectionChanged
+        ? { status: 'idle', requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1, tokenId: null }
         : state.consoleAgentNameMutation,
       consoleSelectedAgentId: normalizedTokenId,
       consoleMainRosterOpen: false,
       consoleSidebarRosterOpen: false,
-      consoleWorkspaceView: useDefaultWorkspace ? null : (resetSelection ? 'chat' : state.consoleWorkspaceView),
+      consoleWorkspaceView: useDefaultWorkspace || resetSelection ? 'codex' : state.consoleWorkspaceView,
       consoleParticipantAgentIds: participantAgentIds,
       consoleAgentThread: {
         ...(resetSelection ? createInitialConsoleAgentThreadState() : state.consoleAgentThread),
+        status: 'inactive',
+        operationStatus: null,
+        error: null,
+        errorKind: null,
+        retryAvailable: false,
+        activationRetryAvailable: false,
+      },
+      consoleCodex: createLoadingConsoleCodexState(normalizedTokenId, codexRequestId),
+    };
+    writeLastLooperForWallet({
+      storage: consolePreferenceStorage,
+      wallet: state.consoleAuthenticatedWallet,
+      tokenId: normalizedTokenId,
+    });
+    render(root, state, handlers);
+    const selectionContext = createConsoleAsyncContext(state, normalizedTokenId, activationRequestId);
+    void loadSelectedLooperWallet(agent, selectionContext);
+    return loadConsoleCodexForSelection(normalizedTokenId, { requestId: codexRequestId });
+  }
+
+  async function retryConsoleCodex() {
+    const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
+    if (!tokenId || state.consoleAgentNameMutation?.status === 'pending') return;
+    const requestId = state.consoleCodexRequestId + 1;
+    state = {
+      ...state,
+      consoleCodexRequestId: requestId,
+      consoleCodex: createLoadingConsoleCodexState(tokenId, requestId),
+    };
+    render(root, state, handlers);
+    return loadConsoleCodexForSelection(tokenId, { force: true, requestId });
+  }
+
+  async function loadConsoleCodexForSelection(tokenId, { force = false, requestId = state.consoleCodexRequestId } = {}) {
+    const context = { tokenId, requestId, sessionGeneration: state.consoleSessionGeneration };
+    const cacheKey = consoleCodexArtifactHash ? `${tokenId}:${consoleCodexArtifactHash}` : null;
+    const cached = !force && cacheKey ? consoleCodexCache.get(cacheKey) : null;
+    if (cached) {
+      if (!isCurrentConsoleCodexContext(state, context)) return;
+      state = { ...state, consoleCodex: createReadyConsoleCodexState(cached, requestId) };
+      render(root, state, handlers);
+      return cached;
+    }
+    try {
+      const apiBase = getWritableApiBaseFromLocation(new URL(window.location.href));
+      const bundle = await (claimApi.loadConsoleCodexBundle ?? defaultLoadConsoleCodexBundle)({
+        apiBase,
+        selectedTokenId: tokenId,
+        csrfToken: state.consoleCsrfToken,
+        fetchImpl,
+      });
+      if (!isCurrentConsoleCodexContext(state, context)) return;
+      if (!isValidConsoleCodexBundle(bundle, tokenId)) throw new Error('invalid Codex bundle');
+      if (consoleCodexArtifactHash && consoleCodexArtifactHash !== bundle.artifactHash) consoleCodexCache.clear();
+      consoleCodexArtifactHash = bundle.artifactHash;
+      consoleCodexCache.set(`${tokenId}:${bundle.artifactHash}`, bundle);
+      state = { ...state, consoleCodex: createReadyConsoleCodexState(bundle, requestId) };
+      render(root, state, handlers);
+      return bundle;
+    } catch (error) {
+      if (!isCurrentConsoleCodexContext(state, context)) return;
+      if (isConsoleUnauthorized(error)) {
+        state = clearConsoleSessionStateWithPreview(state, {
+          walletSnapshot: activeWalletClient.getSnapshot(),
+          status: 'authorization_failed',
+          error: 'Console session expired. Connect again to continue.',
+        });
+        render(root, state, handlers);
+        return;
+      }
+      const unavailable = getConsoleErrorStatus(error) === 503;
+      state = {
+        ...state,
+        consoleCodex: {
+          ...createInitialConsoleCodexState(),
+          status: unavailable ? 'unavailable' : 'error',
+          selectedTokenId: tokenId,
+          requestId,
+          retryAvailable: true,
+          error: unavailable
+            ? 'Verified Codex is unavailable right now.'
+            : 'Verified Codex could not be loaded. Try again.',
+        },
+      };
+      render(root, state, handlers);
+    }
+  }
+
+  async function activateSelectedConsoleAgent() {
+    const normalizedTokenId = String(state.consoleSelectedAgentId ?? '').trim();
+    if (!normalizedTokenId) return;
+    if (state.consoleAgentNameMutation?.status === 'pending' || hasSelectedLooperWalletWork(state)) return;
+    const agent = getConsoleDisplayAgents(state).find((entry) => String(entry?.tokenId ?? '') === normalizedTokenId);
+    if (!agent) return;
+    const requestId = state.consoleActivationRequestId + 1;
+    state = {
+      ...state,
+      consoleActivationRequestId: requestId,
+      consoleAgentThread: {
+        ...state.consoleAgentThread,
         status: 'activating',
         operationStatus: 'setting_up_xmtp',
         error: null,
@@ -1710,25 +1809,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     };
     render(root, state, handlers);
     const activationContext = createConsoleAsyncContext(state, normalizedTokenId, requestId);
-    void loadSelectedLooperWallet(agent, activationContext);
     try {
       await Promise.resolve();
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
-      state = {
-        ...state,
-        consoleAgentThread: {
-          ...state.consoleAgentThread,
-          operationStatus: 'opening_room',
-        },
-      };
+      state = { ...state, consoleAgentThread: { ...state.consoleAgentThread, operationStatus: 'opening_room' } };
       render(root, state, handlers);
       const activated = await activateConsoleAgentRuntime(normalizedTokenId, agent?.name ?? `Looper #${normalizedTokenId}`);
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
-      writeLastLooperForWallet({
-        storage: consolePreferenceStorage,
-        wallet: activationContext.wallet,
-        tokenId: normalizedTokenId,
-      });
       if (activated?.thread) {
         const visibleMessages = filterConsoleHiddenMessages(
           activated.thread.messages,
@@ -1737,6 +1824,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         );
         state = {
           ...state,
+          consoleWorkspaceView: 'chat',
           consoleAgentThread: {
             ...createInitialConsoleAgentThreadState(),
             status: visibleMessages.length ? 'received' : 'idle',
@@ -1756,18 +1844,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
             executionMode: activated.executionMode ?? activated.execution_mode ?? null,
           },
         };
-        render(root, state, handlers);
       } else {
         state = {
           ...state,
-          consoleAgentThread: {
-            ...state.consoleAgentThread,
-            status: 'idle',
-            operationStatus: null,
-          },
+          consoleWorkspaceView: 'chat',
+          consoleAgentThread: { ...state.consoleAgentThread, status: 'idle', operationStatus: null },
         };
-        render(root, state, handlers);
       }
+      render(root, state, handlers);
     } catch (error) {
       if (!isCurrentConsoleAsyncContext(state, activationContext)) return;
       if (isConsoleUnauthorized(error)) {
@@ -1782,16 +1866,6 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const activationError = getSafeConsoleError(error, { phase: 'activate' });
       state = {
         ...state,
-        ...(restoreGalleryOnFailure
-          ? {
-            consoleSelectedAgentId: previousSelectedAgentId,
-            consoleParticipantAgentIds: previousParticipantAgentIds,
-            consoleAgentGallery: {
-              ...state.consoleAgentGallery,
-              activationError,
-            },
-          }
-          : {}),
         consoleAgentThread: {
           ...state.consoleAgentThread,
           status: 'error',
@@ -1803,11 +1877,6 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         },
       };
       render(root, state, handlers);
-      if (restoreGalleryOnFailure) {
-        const restoredButton = [...root.querySelectorAll('.console-agent-gallery [data-action="activate-console-room"]')]
-          .find((button) => String(button.dataset.tokenId ?? '') === normalizedTokenId);
-        restoredButton?.focus?.();
-      }
     }
   }
 
@@ -1815,7 +1884,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const tokenId = String(event?.currentTarget?.dataset?.tokenId ?? '').trim();
     if (!tokenId || tokenId === state.consoleSelectedAgentId) return;
     if (state.consoleAgentNameMutation?.status === 'pending' || hasSelectedLooperWalletWork(state)) return;
-    return selectAndActivateConsoleAgent(tokenId, { restoreGalleryOnFailure: true });
+    return selectConsoleAgentById(tokenId);
   }
 
   async function toggleConsoleAgentRoom(event) {
@@ -1826,6 +1895,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   function resetConsoleSession() {
     abortConsoleReleasedLooperDiscovery();
     clearConsoleImagePreview();
+    consoleCodexCache.clear();
+    consoleCodexArtifactHash = null;
     const walletSnapshot = activeWalletClient.getSnapshot();
     const currentThread = state.consoleAgentThread ?? createInitialConsoleAgentThreadState();
     hideConsoleMessagesLocally(
@@ -1839,6 +1910,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       ...state,
       walletSnapshot,
       consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
+      consoleCodexRequestId: Number(state.consoleCodexRequestId ?? 0) + 1,
+      consoleCodex: createInitialConsoleCodexState(),
       consoleAgentThread: {
         ...createInitialConsoleAgentThreadState(),
         status: 'idle',
@@ -2404,9 +2477,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
-  return { start };
+  return { start, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
 
 async function overlaySavedProfileVisual(liveData, { fetchImpl } = {}) {
@@ -2636,6 +2709,63 @@ function createInitialConsoleAgentThreadState() {
   };
 }
 
+function createInitialConsoleCodexState() {
+  return {
+    status: 'idle',
+    selectedTokenId: null,
+    requestId: 0,
+    artifactHash: null,
+    codexVersion: null,
+    profile: null,
+    explanation: null,
+    similarity: null,
+    error: null,
+    retryAvailable: false,
+  };
+}
+
+function createLoadingConsoleCodexState(selectedTokenId, requestId) {
+  return {
+    ...createInitialConsoleCodexState(),
+    status: 'loading',
+    selectedTokenId,
+    requestId,
+  };
+}
+
+function createReadyConsoleCodexState(bundle, requestId) {
+  return {
+    ...createInitialConsoleCodexState(),
+    status: 'ready',
+    selectedTokenId: bundle.selectedTokenId,
+    requestId,
+    artifactHash: bundle.artifactHash,
+    codexVersion: bundle.codexVersion,
+    profile: bundle.profile,
+    explanation: bundle.explanation,
+    similarity: bundle.similarity,
+  };
+}
+
+function isValidConsoleCodexBundle(bundle, selectedTokenId) {
+  return Boolean(bundle)
+    && typeof bundle === 'object'
+    && !Array.isArray(bundle)
+    && Object.getPrototypeOf(bundle) === Object.prototype
+    && bundle.selectedTokenId === selectedTokenId
+    && /^[a-f0-9]{64}$/u.test(String(bundle.artifactHash ?? ''))
+    && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(String(bundle.codexVersion ?? ''))
+    && bundle.profile?.operation === 'getTokenProfile'
+    && bundle.explanation?.operation === 'explainTraits'
+    && bundle.similarity?.operation === 'findSimilar'
+    && bundle.profile?.artifactHash === bundle.artifactHash
+    && bundle.explanation?.artifactHash === bundle.artifactHash
+    && bundle.similarity?.artifactHash === bundle.artifactHash
+    && bundle.profile?.codexVersion === bundle.codexVersion
+    && bundle.explanation?.codexVersion === bundle.codexVersion
+    && bundle.similarity?.codexVersion === bundle.codexVersion;
+}
+
 function getConsoleSkillProposalResponseFields(response = {}) {
   if (
     !Object.prototype.hasOwnProperty.call(response, 'capabilities')
@@ -2683,6 +2813,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleSessionGeneration: Number(state.consoleSessionGeneration ?? 0) + 1,
     consoleOwnedAgentsRequestId: Number(state.consoleOwnedAgentsRequestId ?? 0) + 1,
     consoleActivationRequestId: Number(state.consoleActivationRequestId ?? 0) + 1,
+    consoleCodexRequestId: Number(state.consoleCodexRequestId ?? 0) + 1,
     consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
     consoleAgentNameMutation: {
       status: 'idle',
@@ -2697,6 +2828,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleWorkspaceView: null,
     consoleParticipantAgentIds: [],
     consoleAgentThread: createInitialConsoleAgentThreadState(),
+    consoleCodex: createInitialConsoleCodexState(),
     looperAgentWallet: {
       mode: 'read_only',
       reason: 'not_selected',
@@ -2760,6 +2892,12 @@ function isCurrentConsoleAsyncContext(state = {}, context = {}) {
   if (context.activationRequestId !== null && state.consoleActivationRequestId !== context.activationRequestId) return false;
   if (state.consoleThreadGeneration !== context.threadGeneration) return false;
   return Boolean(context.wallet && context.tokenId);
+}
+
+function isCurrentConsoleCodexContext(state = {}, context = {}) {
+  return state.consoleSessionGeneration === context.sessionGeneration
+    && String(state.consoleSelectedAgentId ?? '').trim() === context.tokenId
+    && state.consoleCodexRequestId === context.requestId;
 }
 
 function isCurrentConsoleAgentNameMutation(state = {}, context = {}) {
@@ -4872,6 +5010,8 @@ function bindProductHomeEvents(root, handlers, state) {
     button.addEventListener('click', (event) => handlers.setConsoleWorkspaceView?.(event));
   });
   root.querySelector('[data-action="retry-console-agent-activation"]')?.addEventListener('click', () => handlers.retryConsoleAgentActivation?.());
+  root.querySelector('[data-action="retry-console-codex"]')?.addEventListener('click', () => handlers.retryConsoleCodex?.());
+  root.querySelector('[data-action="activate-selected-console-agent"]')?.addEventListener('click', () => handlers.activateSelectedConsoleAgent?.());
   root.querySelectorAll('[data-action="activate-console-room"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.activateConsoleRoom?.(event));
   });
