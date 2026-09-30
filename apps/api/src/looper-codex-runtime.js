@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { lstat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdtemp, open, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createLooperCodexQueryService, loadLooperCodexArtifact } from '@helixa/loopers-codex';
 
 const HARD_CAP = 128 * 1024 * 1024;
@@ -15,12 +17,7 @@ export async function createLooperCodexRuntime({artifactPath,expectedCount,relea
  const started=Date.now(),rss=process.memoryUsage().rss;
  try{
   const count=expectedCount??release.count; validateRelease(release,count);
-  const stat=await lstat(artifactPath);
-  if(!stat.isFile()||stat.isSymbolicLink())throw new TypeError('artifact must be a regular non-symlink file');
-  if(stat.size>HARD_CAP)throw new RangeError('artifact exceeds hard byte cap');
-  if(stat.size!==release.artifactBytes)throw new RangeError('artifact byte length mismatch');
-  if(await sha256(artifactPath)!==release.fileSha256)throw new TypeError('artifact serialized SHA mismatch');
-  const artifact=await loadLooperCodexArtifact({path:artifactPath,expectedCount:count});
+  const artifact=await loadPinnedArtifact(artifactPath,release,count);
   if(artifact.semantic.count!==count||count!==release.count)throw new RangeError('artifact count mismatch');
   if(artifact.artifactHash!==release.artifactHash)throw new TypeError('artifact semantic hash mismatch');
   const service=createLooperCodexQueryService(artifact);
@@ -35,8 +32,8 @@ const specs=Object.freeze({
  getTokenProfile:spec(['tokenId'],[],(s,i)=>s.getTokenProfile(i.tokenId)),
  explainTraits:spec(['tokenId'],[],(s,i)=>s.explainTraits(i.tokenId)),
  compareTokens:spec(['leftTokenId','rightTokenId'],[],(s,i)=>s.compareTokens(i.leftTokenId,i.rightTokenId)),
- findByTraits:spec(['filters'],['cursor','limit'],(s,i)=>s.findByTraits(i.filters,i.cursor??null,i.limit??25)),
- findSimilar:spec(['tokenId'],['limit'],(s,i)=>s.findSimilar(i.tokenId,i.limit??10)),
+ findByTraits:spec(['filters'],['cursor','limit'],(s,i)=>s.findByTraits(i.filters,Object.hasOwn(i,'cursor')?i.cursor:null,Object.hasOwn(i,'limit')?i.limit:25)),
+ findSimilar:spec(['tokenId'],['limit'],(s,i)=>s.findSimilar(i.tokenId,Object.hasOwn(i,'limit')?i.limit:10)),
  getTraitStats:spec(['traitType','value'],[],(s,i)=>s.getTraitStats(i.traitType,i.value)),
  getCollectionSummary:spec([],[],s=>s.getCollectionSummary()),
 });
@@ -48,7 +45,39 @@ function project(profile){const {identity,interpretation:i,visualTraits,versions
 function labelValue(x){return {value:x.value,label:text(x.label)};} function texts(x){return x.slice(0,ARRAY_CAP).map(text);} function text(x){return String(x).slice(0,TEXT_CAP);}
 function unavailable(reason){const status=deepFreeze({available:false,reason});const fail=()=>{throw new LooperCodexUnavailableError();};return Object.freeze({available:false,status,query:fail,getProfileContext:fail});}
 function validateRelease(r,count){if(!plain(r))throw new TypeError('release descriptor must be plain');if(!Number.isSafeInteger(count)||count<1||count!==r.count)throw new RangeError('invalid release count');if(!Number.isSafeInteger(r.artifactBytes)||r.artifactBytes<1)throw new RangeError('invalid release byte length');if(!/^[a-f0-9]{64}$/.test(r.fileSha256)||!/^[a-f0-9]{64}$/.test(r.artifactHash))throw new TypeError('invalid release hash');}
-async function sha256(file){const h=createHash('sha256');for await(const chunk of createReadStream(file))h.update(chunk);return h.digest('hex');}
+async function loadPinnedArtifact(file,release,count){
+ const inspected=await lstat(file);
+ if(!inspected.isFile()||inspected.isSymbolicLink())throw new TypeError('artifact must be a regular non-symlink file');
+ if(inspected.size>HARD_CAP)throw new RangeError('artifact exceeds hard byte cap');
+ const directory=await mkdtemp(join(tmpdir(),'looper-codex-runtime-'));
+ const snapshotName=join(directory,'artifact.json');
+ let input; let snapshot;
+ try{
+  input=await open(file,constants.O_RDONLY|constants.O_NOFOLLOW);
+  const opened=await input.stat();
+  if(!opened.isFile())throw new TypeError('artifact must be a regular file');
+  if(opened.size>HARD_CAP)throw new RangeError('artifact exceeds hard byte cap');
+  snapshot=await open(snapshotName,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL,0o600);
+  const hash=createHash('sha256'); const buffer=Buffer.allocUnsafe(64*1024); let total=0; let position=0;
+  while(true){
+   const {bytesRead}=await input.read(buffer,0,buffer.length,position);
+   if(bytesRead===0)break;
+   total+=bytesRead;
+   if(total>HARD_CAP)throw new RangeError('artifact exceeds hard byte cap while reading');
+   hash.update(buffer.subarray(0,bytesRead));
+   let written=0;
+   while(written<bytesRead){const result=await snapshot.write(buffer,written,bytesRead-written,position+written);written+=result.bytesWritten;}
+   position+=bytesRead;
+  }
+  if(total!==release.artifactBytes)throw new RangeError('artifact byte length mismatch');
+  if(hash.digest('hex')!==release.fileSha256)throw new TypeError('artifact serialized SHA mismatch');
+  await snapshot.sync(); await snapshot.close(); snapshot=undefined;
+  await input.close(); input=undefined;
+  return await loadLooperCodexArtifact({path:snapshotName,expectedCount:count});
+ }finally{
+  await snapshot?.close().catch(()=>{}); await input?.close().catch(()=>{}); await rm(directory,{recursive:true,force:true});
+ }
+}
 function errorClass(e){const n=e?.constructor?.name;return typeof n==='string'&&/^[A-Za-z][A-Za-z0-9]*$/.test(n)?n:'Error';}
 function log(logger,level,event){try{logger?.[level]?.(event);}catch{}}
 function deepFreeze(value){if(!value||typeof value!=='object'||Object.isFrozen(value))return value;for(const child of Object.values(value))deepFreeze(child);return Object.freeze(value);}
