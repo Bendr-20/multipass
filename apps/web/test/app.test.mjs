@@ -7317,7 +7317,7 @@ function createConsoleCodexBundle(tokenId, artifactHash = 'a'.repeat(64), marker
   };
 }
 
-test('Console selection loads Codex without activating chat and exposes selection-preserving retry', async () => {
+test('Console selection loads Codex without activating chat', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const storage = createMemoryStorage();
@@ -7338,8 +7338,6 @@ test('Console selection loads Codex without activating chat and exposes selectio
   assert.deepEqual(codexCalls, ['617']);
   assert.equal(activationCount, 0);
   assert.equal(JSON.parse(storage.value('multipass.console.lastLooperByWallet.v1')).selections[owner.toLowerCase()], '617');
-  await app.retryConsoleCodex();
-  assert.deepEqual(codexCalls, ['617', '617']);
   assert.equal(activationCount, 0);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '617');
 });
@@ -7361,21 +7359,19 @@ test('Console Codex cache is token-and-artifact scoped and reset clears it', asy
   selector.value = '617'; selector.dispatchEvent(new window.Event('change', { bubbles: true })); await flushAsyncEvents(20);
   assert.deepEqual(calls, ['617', '812']);
 
-  selector = root.querySelector('[data-action="select-console-agent"]');
-  selector.value = '812'; selector.dispatchEvent(new window.Event('change', { bubbles: true })); await flushAsyncEvents(20);
+  app.resetConsoleSession();
   hashes.set('812', 'b'.repeat(64));
-  await app.retryConsoleCodex();
+  await app.selectConsoleAgentById('812');
   assert.deepEqual(calls, ['617', '812', '812']);
-  selector = root.querySelector('[data-action="select-console-agent"]');
-  selector.value = '617'; selector.dispatchEvent(new window.Event('change', { bubbles: true })); await flushAsyncEvents(20);
+  await app.selectConsoleAgentById('617');
   assert.deepEqual(calls, ['617', '812', '812', '617']);
 
   app.resetConsoleSession();
-  await app.retryConsoleCodex();
+  await app.selectConsoleAgentById('617');
   assert.deepEqual(calls, ['617', '812', '812', '617', '617']);
 });
 
-test('Console ignores stale Codex responses after selection and request changes', async () => {
+test('Console ignores stale Codex responses after selection and session changes', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const pending = [];
   const calls = [];
@@ -7384,10 +7380,13 @@ test('Console ignores stale Codex responses after selection and request changes'
     root, loadDemo: async () => sampleData(),
     walletClient,
     fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
-    claimApi: { loadConsoleCodexBundle: ({ selectedTokenId }) => { calls.push(selectedTokenId); return new Promise((resolve) => pending.push({ selectedTokenId, resolve })); } },
+    claimApi: { loadConsoleCodexBundle: ({ selectedTokenId }) => {
+      calls.push(selectedTokenId);
+      return new Promise((resolve, reject) => pending.push({ selectedTokenId, resolve, reject }));
+    } },
   });
   const start = app.start(); await flushAsyncEvents(60);
-  pending.find((entry) => entry.selectedTokenId === '617').resolve(createConsoleCodexBundle('617'));
+  pending.find((entry) => entry.selectedTokenId === '617').reject(new Error('initial Codex failure'));
   await start;
 
   const staleSelectionRequest = app.retryConsoleCodex();
@@ -7396,23 +7395,125 @@ test('Console ignores stale Codex responses after selection and request changes'
   pending.filter((entry) => entry.selectedTokenId === '617').at(-1).resolve(createConsoleCodexBundle('617', 'b'.repeat(64), 'stale selection'));
   pending.find((entry) => entry.selectedTokenId === '812').resolve(createConsoleCodexBundle('812'));
   await Promise.all([staleSelectionRequest, secondSelection]);
-  await app.selectConsoleAgentById('617');
-  assert.equal(calls.filter((id) => id === '617').length, 2, 'stale selection response must not replace the matching cache');
 
-  const firstRetry = app.retryConsoleCodex();
-  const secondRetry = app.retryConsoleCodex();
-  await flushAsyncEvents();
-  const retryEntries = pending.filter((entry) => entry.selectedTokenId === '617').slice(-2);
-  retryEntries[1].resolve(createConsoleCodexBundle('617', 'b'.repeat(64), 'new request'));
-  await secondRetry;
-  retryEntries[0].resolve(createConsoleCodexBundle('617', 'a'.repeat(64), 'stale request'));
-  await firstRetry;
-
-  const walletGenerationRequest = app.retryConsoleCodex();
+  app.resetConsoleSession();
+  const walletGenerationRequest = app.selectConsoleAgentById('617');
   await flushAsyncEvents();
   const walletGenerationEntry = pending.filter((entry) => entry.selectedTokenId === '617').at(-1);
   walletClient.setSnapshot({ connected: true, address: '0x709D8d528D2c0C8A408107E74b38a01Fa14e44aE', label: 'other' }, { notify: true });
   walletGenerationEntry.resolve(createConsoleCodexBundle('617', 'c'.repeat(64), 'stale wallet'));
   await walletGenerationRequest;
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '');
+});
+
+test('Console reauthentication discards prior-session Codex state and cache', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const codexCalls = [];
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    claimApi: {
+      loadConsoleCodexBundle: async ({ selectedTokenId }) => {
+        codexCalls.push(selectedTokenId);
+        return createConsoleCodexBundle(selectedTokenId, 'a'.repeat(64), `Session ${codexCalls.length}`);
+      },
+    },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  assert.deepEqual(codexCalls, ['617']);
+
+  root.querySelector('[data-action="connect-console-wallet"]')?.click();
+  await flushAsyncEvents(40);
+
+  assert.deepEqual(codexCalls, ['617', '617']);
+});
+
+test('Console Looper selection invalidates a pending send across A to B to A', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let resolveSend;
+  const pendingSend = new Promise((resolve) => { resolveSend = resolve; });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }),
+    claimApi: {
+      loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId),
+      activateConsoleAgent: async ({ tokenId }) => ({ thread: { transport: 'xmtp_local', participants: [{ tokenId }], messages: [] } }),
+      sendConsoleAgentMessage: async () => pendingSend,
+    },
+  });
+  await app.start();
+  await app.activateSelectedConsoleAgent();
+  const form = root.querySelector('[data-action="send-console-agent-message"]');
+  form.querySelector('textarea').value = 'Old A mission';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+
+  await app.selectConsoleAgentById('812');
+  await app.selectConsoleAgentById('617');
+  resolveSend({ thread: { messages: [{ role: 'agent', text: 'Stale A response' }] }, memory: {}, proposals: [] });
+  await flushAsyncEvents(20);
+  root.querySelector('[data-console-view="chat"]')?.click();
+
+  assert.doesNotMatch(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Stale A response/);
+});
+
+test('Console roster refresh preserves a successfully activated empty thread', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }),
+    claimApi: {
+      loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId),
+      activateConsoleAgent: async () => ({
+        thread: { transport: 'xmtp_group', conversationId: 'empty-thread-617', participants: [{ tokenId: '617' }], messages: [] },
+      }),
+    },
+  });
+  await app.start();
+  await app.activateSelectedConsoleAgent();
+  assert.match(root.querySelector('.console-proof-rail-summary')?.textContent ?? '', /XMTP live/i);
+  assert.ok(root.querySelector('[data-action="send-console-agent-message"]'));
+
+  const refresh = root.querySelector('[data-action="refresh-console-owned-agents"]');
+  assert.ok(refresh);
+  refresh.click();
+  await flushAsyncEvents(30);
+
+  assert.match(root.querySelector('.console-proof-rail-summary')?.textContent ?? '', /XMTP live/i);
+  assert.ok(root.querySelector('[data-action="send-console-agent-message"]'));
+});
+
+test('Console Codex retry only runs from unavailable or error states', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const attempts = new Map();
+  const calls = [];
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812, 913] }),
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => {
+      calls.push(selectedTokenId);
+      const attempt = (attempts.get(selectedTokenId) ?? 0) + 1;
+      attempts.set(selectedTokenId, attempt);
+      if (selectedTokenId === '812' && attempt === 1) throw Object.assign(new Error('unavailable'), { status: 503 });
+      if (selectedTokenId === '913' && attempt === 1) throw new Error('broken');
+      return createConsoleCodexBundle(selectedTokenId);
+    } },
+  });
+  await app.start();
+
+  await app.retryConsoleCodex();
+  assert.deepEqual(calls, ['617']);
+  await app.selectConsoleAgentById('812');
+  await app.retryConsoleCodex();
+  assert.deepEqual(calls, ['617', '812', '812']);
+  await app.retryConsoleCodex();
+  assert.deepEqual(calls, ['617', '812', '812']);
+  await app.selectConsoleAgentById('913');
+  await app.retryConsoleCodex();
+  assert.deepEqual(calls, ['617', '812', '812', '913', '913']);
 });

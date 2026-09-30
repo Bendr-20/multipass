@@ -730,6 +730,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function connectConsoleWallet() {
     abortConsoleReleasedLooperDiscovery();
     clearConsoleImagePreview();
+    consoleCodexCache.clear();
+    consoleCodexArtifactHash = null;
     const sessionGeneration = state.consoleSessionGeneration + 1;
     state = {
       ...state,
@@ -741,6 +743,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleSessionGeneration: sessionGeneration,
       consoleOwnedAgentsRequestId: state.consoleOwnedAgentsRequestId + 1,
       consoleActivationRequestId: state.consoleActivationRequestId + 1,
+      consoleCodexRequestId: state.consoleCodexRequestId + 1,
+      consoleThreadGeneration: state.consoleThreadGeneration + 1,
       consoleAgentNameMutation: {
         status: 'idle',
         requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1,
@@ -753,6 +757,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleSelectedAgentId: null,
       consoleParticipantAgentIds: [],
       consoleAgentThread: createInitialConsoleAgentThreadState(),
+      consoleCodex: createInitialConsoleCodexState(),
       walletSnapshot: activeWalletClient.getSnapshot(),
     };
     render(root, state, handlers);
@@ -1343,13 +1348,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         },
         consoleSelectedAgentId: selectedAgentId,
         consoleParticipantAgentIds: participantAgentIds,
+        consoleThreadGeneration: selectionChanged
+          ? Number(state.consoleThreadGeneration ?? 0) + 1
+          : state.consoleThreadGeneration,
         consoleAgentThread: !selectionChanged
           ? state.consoleAgentThread
           : createInitialConsoleAgentThreadState(),
       };
-      if (selectedAgentId && (selectionChanged || state.consoleAgentThread.status === 'idle')) {
+      if (selectedAgentId && selectionChanged) {
         await selectConsoleAgentById(selectedAgentId, {
-          resetSelection: selectionChanged || state.consoleAgentThread.status === 'idle',
+          resetSelection: true,
           ignoreWalletWork: selectionChanged && !preservedAgentId,
           useDefaultWorkspace: true,
         });
@@ -1688,6 +1696,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       ...state,
       consoleActivationRequestId: activationRequestId,
       consoleCodexRequestId: codexRequestId,
+      consoleThreadGeneration: selectionChanged
+        ? Number(state.consoleThreadGeneration ?? 0) + 1
+        : state.consoleThreadGeneration,
       consoleAgentGallery: { ...state.consoleAgentGallery, activationError: null },
       consoleAgentNameMutation: selectionChanged
         ? { status: 'idle', requestId: Number(state.consoleAgentNameMutation?.requestId ?? 0) + 1, tokenId: null }
@@ -1722,6 +1733,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function retryConsoleCodex() {
     const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
     if (!tokenId || state.consoleAgentNameMutation?.status === 'pending') return;
+    if (!['unavailable', 'error'].includes(state.consoleCodex?.status) || state.consoleCodex?.retryAvailable !== true) return;
     const requestId = state.consoleCodexRequestId + 1;
     state = {
       ...state,
