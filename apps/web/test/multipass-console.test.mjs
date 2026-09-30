@@ -255,7 +255,9 @@ test('cancelled Chat activation stays behind the inactive gate even when stale t
       consoleSelectedAgentId: '1',
       consoleWorkspaceView: 'chat',
       consoleAgentThread: {
-        status: 'cancelled',
+        status: 'error',
+        operationStatus: 'cancelled',
+        activationRetryAvailable: false,
         messages: [{ id: 'stale', role: 'agent', text: 'Stale private history.' }],
       },
     },
