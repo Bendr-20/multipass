@@ -11,6 +11,7 @@ import {
   classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
   isPrivyWalletUsableInBrowser,
+  prepareWalletSigningProvider,
   PRIVY_CONNECT_WALLET_LIST,
   PRIVY_EXTERNAL_WALLET_CONFIG,
   selectConnectedWalletAddress,
@@ -45,6 +46,28 @@ test('mobile Safari rejects stale injected OKX state but accepts OKX WalletConne
     userAgent: 'Mozilla/5.0 (iPhone) Mobile/15E148 OKEx/6.191.0',
     okxInjected: true,
   }), true);
+});
+
+test('Base Account signing preparation bypasses the deferred Privy proxy provider', () => {
+  const calls = [];
+  const provider = { request: async () => '0xbase-signature' };
+  const baseAccount = {
+    address: '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea',
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    getEthereumProvider() {
+      calls.push('privy-proxy');
+      return Promise.resolve({ request: async () => '0xproxy-signature' });
+    },
+  };
+  const baseAccountSdk = {
+    getProvider() {
+      calls.push('base-provider');
+      return provider;
+    },
+  };
+
+  assert.equal(prepareWalletSigningProvider(baseAccount, { baseAccountSdk }), provider);
+  assert.deepEqual(calls, ['base-provider']);
 });
 
 test('prepared Base Account signer starts personal_sign synchronously inside the user click', async () => {

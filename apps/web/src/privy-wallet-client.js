@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { useConnectWallet, useLogout, usePrivy, useWallets } from '@privy-io/react-auth';
+import { useBaseAccountSdk, useConnectWallet, useLogout, usePrivy, useWallets } from '@privy-io/react-auth';
 import { getAddress, isAddress } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 
@@ -236,6 +236,16 @@ export function createPrivySignMessageAction({ client } = {}) {
   };
 }
 
+export function prepareWalletSigningProvider(wallet, { baseAccountSdk } = {}) {
+  if (
+    wallet?.walletClientType === PRIVY_BASE_ACCOUNT_WALLET_ID
+    && typeof baseAccountSdk?.getProvider === 'function'
+  ) {
+    return baseAccountSdk.getProvider();
+  }
+  return wallet?.getEthereumProvider?.();
+}
+
 export function createPrivyWalletClient() {
   let snapshot = defaultWalletSnapshot({
     ready: false,
@@ -432,6 +442,7 @@ export function createPrivyWalletClient() {
 export function PrivyWalletBridge({ client, configured }) {
   const privy = usePrivy();
   const { wallets = [], ready: walletsReady = false } = useWallets();
+  const { baseAccountSdk } = useBaseAccountSdk();
   const handleConnectSuccess = useCallback(() => {
     client.clearConnectionError();
   }, [client]);
@@ -457,7 +468,7 @@ export function PrivyWalletBridge({ client, configured }) {
     if (activeWallet) {
       let provider;
       try {
-        provider = activeWallet.getEthereumProvider();
+        provider = prepareWalletSigningProvider(activeWallet, { baseAccountSdk });
       } catch {
         provider = null;
       }
@@ -473,7 +484,7 @@ export function PrivyWalletBridge({ client, configured }) {
       walletProfile: classifyPrivyWalletProfile(activeWallet),
     });
     return () => { current = false; };
-  }, [client, configured, privy?.ready, walletsReady, connectedAddress, activeWallet]);
+  }, [client, configured, privy?.ready, walletsReady, connectedAddress, activeWallet, baseAccountSdk]);
 
   useEffect(() => {
     client.setActions({
