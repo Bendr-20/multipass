@@ -4,6 +4,13 @@ export {
 } from './canonical-json.js';
 
 export {
+  buildDerivedIndexes,
+  compileLooperCodexArtifact,
+  serializeLooperCodexArtifact,
+  verifyLooperCodexArtifact,
+} from './compiler.js';
+
+export {
   LOOPER_CODEX_COLLECTION,
   LOOPER_CODEX_COMPILER_VERSION,
   LOOPER_CODEX_DERIVED_TRAIT_TYPES,

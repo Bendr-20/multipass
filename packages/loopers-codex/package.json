@@ -9,6 +9,7 @@
     ".": "./src/index.js"
   },
   "scripts": {
+    "build": "node scripts/build-looper-codex.js",
     "materialize": "node scripts/materialize-looper-codex-release.js",
     "test": "node --test test/*.test.mjs"
   }

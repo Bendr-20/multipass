@@ -578,3 +578,185 @@ test('recommendations are deterministic, provenance-labeled, and never enabled',
   }
   assert.throws(() => codex.getRecommendedSkills('Unknown Class'), /unknown class/i);
 });
+
+async function createCompilerRelease(root, { auditedAt = '2026-09-30T00:00:00.000Z', outputName = 'compiler-release' } = {}) {
+  const inputsRoot = join(root, `inputs-${outputName}`);
+  const metadataDir = join(inputsRoot, 'metadata');
+  const codexDir = join(inputsRoot, 'codex');
+  await mkdir(metadataDir, { recursive: true });
+  await mkdir(codexDir, { recursive: true });
+
+  const traits = [
+    [['Background', 'Alpha'], ['Patch Artifact', 'Nyan Cat']],
+    [['Background', 'Alpha'], ['Patch Artifact', 'None']],
+    [['Background', 'Beta'], ['Patch Artifact', 'None']],
+  ];
+  for (let tokenId = 1; tokenId <= traits.length; tokenId += 1) {
+    const fixture = createLooperRecordFixture(tokenId);
+    traits[tokenId - 1].forEach(([type, value], index) => {
+      fixture.metadata.attributes[index] = { trait_type: type === 'Patch Artifact' ? 'Artifact' : type, value };
+      fixture.codex.selected_visual_traits[index] = {
+        layer: type,
+        trait: value,
+        key: `${type}::${value}`,
+        applied_weight: null,
+      };
+      Object.assign(fixture.codex.trait_atoms[index], {
+        id: `${tokenId.toString(16).padStart(8, '0')}${index.toString(16).padStart(8, '0')}`,
+        key: `${type}::${value}`,
+        layer: type,
+        trait: value,
+      });
+    });
+    await writeJson(join(metadataDir, `${tokenId}.json`), fixture.metadata);
+    await writeJson(join(codexDir, `${tokenId}.json`), fixture.codex);
+  }
+
+  const sourcePaths = {
+    traitPersonalityMatrixPath: join(inputsRoot, 'trait-personality-matrix.json'),
+    agentClassModelPath: join(inputsRoot, 'agent-class-model.json'),
+    hashlipsExportManifestPath: join(inputsRoot, 'hashlips-export-manifest.json'),
+    collectionProvenancePath: join(inputsRoot, 'collection-provenance.json'),
+  };
+  await writeJson(sourcePaths.traitPersonalityMatrixPath, { version: 'looper-trait-personality-matrix-v02' });
+  await writeJson(sourcePaths.agentClassModelPath, { version: 'looper-agent-class-model-v01' });
+  await writeJson(sourcePaths.hashlipsExportManifestPath, { version: 'hashlips-engine-export-v01' });
+  await writeJson(sourcePaths.collectionProvenancePath, { version: 'loopers-provenance-v01', collection: 'Loopers' });
+
+  const releaseDir = join(root, outputName);
+  const manifest = await materializeLooperCodexRelease({
+    metadataDir,
+    codexDir,
+    ...sourcePaths,
+    outputDir: releaseDir,
+    auditedAt,
+    chainId: 8453,
+    collection: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+    count: 3,
+    compilerVersion: '1.0.0',
+  });
+  const expectedSourceHashes = Object.fromEntries([
+    'traitPersonalityMatrix', 'agentClassModel', 'hashlipsExportManifest', 'collectionProvenance',
+  ].map((key) => [key, manifest.components[key].sha256]));
+  return { releaseDir, manifest, expectedSourceHashes };
+}
+
+test('compile builds exact deterministic frequencies, postings, stacks, and integer weights', async () => {
+  await withTempDirectory(async (root) => {
+    const release = await createCompilerRelease(root);
+    const artifact = await codex.compileLooperCodexArtifact({ releaseDir: release.releaseDir, expectedCount: 3 });
+
+    assert.equal(artifact.semantic.schemaVersion, '1.0.0');
+    assert.deepEqual(artifact.semantic.collection, {
+      name: 'Loopers',
+      chainId: 8453,
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      count: 3,
+    });
+    assert.equal(artifact.semantic.count, 3);
+    assert.deepEqual(artifact.semantic.tokens.map(({ tokenId }) => tokenId), [1, 2, 3]);
+    assert.deepEqual(artifact.semantic.traitStats, [
+      { type: 'Background', value: 'Alpha', count: 2, weightMicros: 1_500_000, similarityEligible: true },
+      { type: 'Background', value: 'Beta', count: 1, weightMicros: 3_000_000, similarityEligible: true },
+      { type: 'Patch Artifact', value: 'None', count: 2, weightMicros: 1_500_000, similarityEligible: false },
+      { type: 'Patch Artifact', value: 'Nyan Cat', count: 1, weightMicros: 3_000_000, similarityEligible: true },
+    ]);
+    assert.deepEqual(artifact.semantic.postings, [
+      { type: 'Background', value: 'Alpha', tokenIds: [1, 2] },
+      { type: 'Background', value: 'Beta', tokenIds: [3] },
+      { type: 'Patch Artifact', value: 'None', tokenIds: [2, 3] },
+      { type: 'Patch Artifact', value: 'Nyan Cat', tokenIds: [1] },
+    ]);
+    assert.equal(artifact.semantic.exactStacks.length, 3);
+    assert.ok(artifact.semantic.exactStacks.every(({ key }) => /^[0-9a-f]{64}$/.test(key)));
+    assert.match(artifact.artifactHash, /^[0-9a-f]{64}$/);
+    assert.equal(artifact.artifactHash, canonicalJsonHash(artifact.semantic));
+    assert.deepEqual(artifact.semantic.sourceHashes, release.expectedSourceHashes);
+    assert.equal(artifact.semantic.versions.traitCodexVersion, 'looper-trait-personality-matrix-v02');
+    assert.equal(artifact.semantic.versions.classModelVersion, 'looper-agent-class-model-v01');
+    assert.equal(artifact.semantic.versions.recommendationMapVersion, codex.LOOPER_SKILL_RECOMMENDATION_MAP_VERSION);
+    assert.doesNotThrow(() => codex.verifyLooperCodexArtifact(artifact, {
+      expectedCount: 3,
+      expectedSourceHashes: release.expectedSourceHashes,
+    }));
+  });
+});
+
+test('semantic verification rejects hash-consistent corruption of every derived index and source evidence', async () => {
+  await withTempDirectory(async (root) => {
+    const release = await createCompilerRelease(root);
+    const artifact = await codex.compileLooperCodexArtifact({ releaseDir: release.releaseDir, expectedCount: 3 });
+    const corruptions = [
+      (x) => { x.semantic.traitStats[0].count += 1; },
+      (x) => { x.semantic.traitStats[0].weightMicros += 1; },
+      (x) => { x.semantic.postings[0].tokenIds = [1]; },
+      (x) => { x.semantic.exactStacks[0].tokenIds.push(3); },
+      (x) => { x.semantic.sourceHashes.traitPersonalityMatrix = 'a'.repeat(64); },
+      (x) => { x.semantic.collection.chainId = 1; },
+      (x) => { x.semantic.collection.contract = '0x0000000000000000000000000000000000000000'; },
+      (x) => { x.semantic.versions.traitCodexVersion = 'other'; },
+    ];
+    for (const corrupt of corruptions) {
+      const changed = structuredClone(artifact);
+      corrupt(changed);
+      changed.artifactHash = canonicalJsonHash(changed.semantic);
+      assert.throws(() => codex.verifyLooperCodexArtifact(changed, {
+        expectedCount: 3,
+        expectedSourceHashes: release.expectedSourceHashes,
+      }));
+    }
+  });
+});
+
+test('compile semantic hash excludes audit time and identical release bytes serialize identically', async () => {
+  await withTempDirectory(async (root) => {
+    const firstRelease = await createCompilerRelease(root, { outputName: 'first' });
+    const secondRelease = await createCompilerRelease(root, { outputName: 'second' });
+    const laterRelease = await createCompilerRelease(root, {
+      outputName: 'later',
+      auditedAt: '2026-09-30T01:00:00.000Z',
+    });
+    const first = await codex.compileLooperCodexArtifact({ releaseDir: firstRelease.releaseDir, expectedCount: 3 });
+    const second = await codex.compileLooperCodexArtifact({ releaseDir: secondRelease.releaseDir, expectedCount: 3 });
+    const later = await codex.compileLooperCodexArtifact({ releaseDir: laterRelease.releaseDir, expectedCount: 3 });
+
+    assert.equal(codex.serializeLooperCodexArtifact(first), codex.serializeLooperCodexArtifact(second));
+    assert.equal(first.artifactHash, later.artifactHash);
+    assert.deepEqual(first.semantic, later.semantic);
+    assert.notDeepEqual(first.audit, later.audit);
+  });
+});
+
+test('build CLI writes, re-reads, and semantically verifies the artifact', async () => {
+  await withTempDirectory(async (root) => {
+    const release = await createCompilerRelease(root);
+    const output = join(root, 'artifact.json');
+    const { stdout, stderr } = await execFile(
+      process.execPath,
+      [join(packageRoot, 'scripts', 'build-looper-codex.js'), '--release-dir', release.releaseDir, '--output', output],
+      {
+        cwd: repositoryRoot,
+        timeout: 30_000,
+        env: { ...process.env, NODE_ENV: 'test', LOOPER_CODEX_TEST_EXPECTED_COUNT: '3' },
+      },
+    );
+    const artifact = JSON.parse(await readFile(output, 'utf8'));
+    assert.equal(artifact.semantic.count, 3);
+    assert.match(stdout, /count=3 schema=1.0.0 hash=[0-9a-f]{64}/);
+    assert.equal(stderr, '');
+    assert.doesNotThrow(() => codex.verifyLooperCodexArtifact(artifact, {
+      expectedCount: 3,
+      expectedSourceHashes: release.expectedSourceHashes,
+    }));
+  });
+});
+
+test('build CLI rejects gaps and root script preserves the literal pnpm separator', async () => {
+  const { stdout, stderr } = await execFile(
+    'pnpm',
+    ['loopers:codex', '--', '--help'],
+    { cwd: repositoryRoot, timeout: 30_000 },
+  );
+  assert.match(stdout, /build-looper-codex/);
+  assert.equal(stderr, '');
+});
