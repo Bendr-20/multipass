@@ -12,6 +12,7 @@ import {
   DEFAULT_LOOPER_CRED_CONCURRENCY,
   DEFAULT_LOOPER_CRED_TIMEOUT_MS,
 } from './looper-cred-client.js';
+import { createLooperCodexRuntime } from './looper-codex-runtime.js';
 import { createSqliteLooperNameStore } from './looper-name-store.js';
 import { createSqliteSavedRecords } from './saved-records.js';
 
@@ -31,6 +32,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
     loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
     loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
+    looperCodexArtifactPath: env.MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH || null,
     loopersAllowlistRegistrationPaused: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_PAUSED, 'MULTIPASS_LOOPERS_ALLOWLIST_PAUSED') ?? false,
     loopersAllowlistRequireBrowserOrigin: parseOptionalBoolean(env.MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN, 'MULTIPASS_LOOPERS_ALLOWLIST_REQUIRE_BROWSER_ORIGIN') ?? false,
     loopersAllowlistBlockedSources: parseStringList(env.MULTIPASS_LOOPERS_ALLOWLIST_BLOCKED_SOURCES),
@@ -103,6 +105,7 @@ export async function startServer(options = {}) {
     publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
     loopersAllowlistPath: options.loopersAllowlistPath ?? null,
     loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
+    looperCodexArtifactPath: options.looperCodexArtifactPath ?? null,
     loopersAllowlistRegistrationPaused: Boolean(options.loopersAllowlistRegistrationPaused),
     loopersAllowlistRequireBrowserOrigin: Boolean(options.loopersAllowlistRequireBrowserOrigin),
     loopersAllowlistBlockedSources: options.loopersAllowlistBlockedSources ?? [],
@@ -150,11 +153,13 @@ export async function startServer(options = {}) {
       ? await readAllowlistFile(parsed.loopersAllowlistSnapshotPath)
       : null);
   const consoleBootstrapFactory = options.consoleBootstrapFactory ?? createConsoleProductionBootstrap;
+  const looperCodexRuntimeFactory = options.looperCodexRuntimeFactory ?? createLooperCodexRuntime;
   const apiFactory = options.apiFactory ?? createMultipassApi;
   let api;
   let listeningUrl;
   let apiBaseUrl;
   let consoleBootstrap;
+  let looperCodexRuntime;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -188,6 +193,23 @@ export async function startServer(options = {}) {
   });
 
   try {
+    const codexStartedAt = Date.now();
+    const codexStartingRss = process.memoryUsage().rss;
+    looperCodexRuntime = options.looperCodexRuntime ?? await looperCodexRuntimeFactory({
+      artifactPath: parsed.looperCodexArtifactPath,
+      logger: {},
+    });
+    const codexStatus = looperCodexRuntime?.status ?? { available: false };
+    logServerEvent(options.logger ?? console, codexStatus.available ? 'info' : 'warn', {
+      event: 'looper_codex_startup',
+      available: codexStatus.available === true,
+      schemaVersion: safeStartupString(codexStatus.schemaVersion),
+      artifactHashPrefix: safeHashPrefix(codexStatus.artifactHash),
+      count: Number.isSafeInteger(codexStatus.count) ? codexStatus.count : null,
+      loadMs: Date.now() - codexStartedAt,
+      rssDeltaBytes: process.memoryUsage().rss - codexStartingRss,
+    });
+
     consoleBootstrap = await consoleBootstrapFactory({
       ...parsed,
       logger: options.logger ?? console,
@@ -229,6 +251,8 @@ export async function startServer(options = {}) {
       consoleRuntimeRegistry: consoleBootstrap.runtimeRegistry,
       consoleXmtpClient: consoleBootstrap.publishingClient,
       consoleAgentRuntime: consoleBootstrap.runtime,
+      looperCodexRuntime,
+      logger: options.logger ?? console,
       fetchImpl: parsed.fetchImpl,
     });
   } catch (error) {
@@ -370,6 +394,25 @@ function parseRateLimitConfig({ limit, windowSeconds } = {}, sourcePrefix) {
     ...(parsedLimit !== null ? { limit: parsedLimit } : {}),
     ...(parsedWindowSeconds !== null ? { windowMs: parsedWindowSeconds * 1000 } : {}),
   };
+}
+
+function safeStartupString(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized && normalized.length <= 64 ? normalized : null;
+}
+
+function safeHashPrefix(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
+    ? value.slice(0, 12)
+    : null;
+}
+
+function logServerEvent(logger, level, event) {
+  try {
+    logger?.[level]?.(event);
+  } catch {
+    // Logging must never affect service availability.
+  }
 }
 
 async function main() {

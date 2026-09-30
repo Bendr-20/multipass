@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { privateKeyToAccount } from 'viem/accounts';
+
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
 
@@ -21,6 +23,7 @@ test('parseServerOptions returns safe defaults', () => {
     publicBaseUrl: null,
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    looperCodexArtifactPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistBlockedSources: [],
@@ -69,6 +72,7 @@ test('CLI flags override environment values', () => {
       publicBaseUrl: null,
       loopersAllowlistPath: null,
       loopersAllowlistSnapshotPath: null,
+      looperCodexArtifactPath: null,
       loopersAllowlistRegistrationPaused: false,
       loopersAllowlistRequireBrowserOrigin: false,
       loopersAllowlistBlockedSources: [],
@@ -117,6 +121,7 @@ test('parseServerOptions accepts claim management security env', () => {
     publicBaseUrl: 'https://helixa.xyz',
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    looperCodexArtifactPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistBlockedSources: [],
@@ -296,6 +301,122 @@ test('parseServerOptions keeps owner-account reads independently default-off and
     () => parseServerOptions([], { MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'enabled' }),
     /Invalid boolean for MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED/,
   );
+});
+
+test('parseServerOptions reads the Looper Codex artifact path without printing it', () => {
+  const calls = [];
+  const methods = ['log', 'info', 'warn', 'error'];
+  const originals = Object.fromEntries(methods.map((method) => [method, console[method]]));
+  for (const method of methods) console[method] = (...args) => calls.push([method, ...args]);
+  try {
+    const options = parseServerOptions([], {
+      MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH: '/srv/private/loopers-codex.json',
+    });
+    assert.equal(options.looperCodexArtifactPath, '/srv/private/loopers-codex.json');
+    assert.deepEqual(calls, []);
+  } finally {
+    for (const method of methods) console[method] = originals[method];
+  }
+});
+
+test('startServer creates one Looper Codex runtime before API construction and injects it', async () => {
+  const events = [];
+  const runtime = {
+    available: true,
+    status: {
+      available: true,
+      schemaVersion: '1.0.0',
+      artifactHash: 'a'.repeat(64),
+      codexVersion: 'traits-v1',
+      count: 7_777,
+    },
+    query() { return {}; },
+  };
+  let factoryCalls = 0;
+  let injected;
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    looperCodexArtifactPath: '/srv/private/loopers-codex.json',
+    looperCodexRuntimeFactory: async ({ artifactPath, logger }) => {
+      factoryCalls += 1;
+      assert.equal(artifactPath, '/srv/private/loopers-codex.json');
+      assert.deepEqual(logger, {});
+      return runtime;
+    },
+    logger: { info(event) { events.push(event); }, warn(event) { events.push(event); } },
+    consoleBootstrapFactory: async () => ({
+      ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+      runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+      async stopWorker() {}, async closeClient() {},
+    }),
+    apiFactory: (options) => {
+      injected = options.looperCodexRuntime;
+      return { async handleRequest() { return new Response('{}', { status: 200 }); } };
+    },
+  });
+  try {
+    assert.equal(factoryCalls, 1);
+    assert.equal(injected, runtime);
+    assert.equal(events.length, 1);
+    assert.deepEqual(Object.keys(events[0]), [
+      'event', 'available', 'schemaVersion', 'artifactHashPrefix', 'count', 'loadMs', 'rssDeltaBytes',
+    ]);
+    assert.deepEqual(events[0], {
+      event: 'looper_codex_startup',
+      available: true,
+      schemaVersion: '1.0.0',
+      artifactHashPrefix: 'aaaaaaaaaaaa',
+      count: 7_777,
+      loadMs: events[0].loadMs,
+      rssDeltaBytes: events[0].rssDeltaBytes,
+    });
+    assert.ok(Number.isSafeInteger(events[0].loadMs));
+    assert.ok(Number.isSafeInteger(events[0].rssDeltaBytes));
+    assert.equal(JSON.stringify(events).includes('/srv/private'), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('missing or invalid Looper Codex artifacts leave discovery and owned-agent routes healthy', async () => {
+  const account = privateKeyToAccount('0x59c6995e998f97a5a0044966f094538a7bcd1f0b03f82107863cfb2f99adc62c');
+  for (const looperCodexArtifactPath of [null, '/definitely/missing/loopers-codex.json']) {
+    const server = await startServer({
+      fixture: 'generic', host: '127.0.0.1', port: 0, looperCodexArtifactPath,
+      logger: { info() {}, warn() {} },
+      consoleBootstrapFactory: async () => ({
+        ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+        runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+        async stopWorker() {}, async closeClient() {},
+      }),
+    });
+    try {
+      const discovery = await fetch(server.url + '/.well-known/multipass.json');
+      assert.equal(discovery.status, 200);
+
+      const nonce = await fetch(server.url + '/api/multipass/console/session/nonce', {
+        method: 'POST',
+        headers: { origin: server.url, 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: account.address }),
+      });
+      assert.equal(nonce.status, 200);
+      const challenge = await nonce.json();
+      const signature = await account.signMessage({ message: challenge.message });
+      const verified = await fetch(server.url + '/api/multipass/console/session/verify', {
+        method: 'POST',
+        headers: { origin: server.url, 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: account.address, nonce: challenge.nonce, signature }),
+      });
+      assert.equal(verified.status, 200);
+      const cookie = verified.headers.get('set-cookie').split(';')[0];
+
+      const owned = await fetch(server.url + '/api/loopers/owned', { headers: { cookie } });
+      assert.equal(owned.status, 200);
+      assert.deepEqual((await owned.json()).agents, []);
+    } finally {
+      await server.close();
+    }
+  }
 });
 
 test('startServer composes Console and Looper CRED configuration into the correct server boundaries', async () => {

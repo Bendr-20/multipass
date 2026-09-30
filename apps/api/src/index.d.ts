@@ -40,6 +40,24 @@ export interface SavedRecordsStore extends MemoryStore {
 
 export type SignatureVerifier = (input: { wallet: string; message: string; signature: string }) => boolean | Promise<boolean>;
 
+export interface LooperCodexRuntime {
+  available: boolean;
+  status: {
+    available: boolean;
+    schemaVersion?: string;
+    artifactHash?: string;
+    codexVersion?: string;
+    count?: number;
+    reason?: string;
+  };
+  query(operation: string, input: unknown): unknown;
+}
+
+export interface MultipassLogger {
+  info?(event: Record<string, unknown>): void;
+  warn?(event: Record<string, unknown>): void;
+}
+
 export interface MultipassApiOptions {
   store: MemoryStore;
   baseUrl?: string;
@@ -83,6 +101,10 @@ export interface MultipassApiOptions {
     handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown;
     getThread?(input?: Record<string, unknown>): Promise<unknown> | unknown;
   };
+  looperCodexRuntime?: LooperCodexRuntime;
+  logger?: MultipassLogger;
+  consoleCodexWalletRateLimit?: { limit: number; windowMs: number };
+  consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };
 }
 
 export interface MultipassApi {

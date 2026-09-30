@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +35,10 @@ import {
   createLooperCredClient,
   enrichOwnedLoopersWithCred,
 } from './looper-cred-client.js';
+import {
+  LooperCodexInputError,
+  LooperCodexUnavailableError,
+} from './looper-codex-runtime.js';
 import {
   LOOPERS_MAINNET_CHAIN_ID,
   LOOPERS_MAINNET_CONTRACT,
@@ -79,6 +84,18 @@ const CONSOLE_MESSAGE_MAX_BYTES = 2_000;
 const CONSOLE_MESSAGE_SHORT_RATE_LIMIT = { limit: 6, windowMs: 60_000 };
 const CONSOLE_MESSAGE_DAILY_RATE_LIMIT = { limit: 100, windowMs: 86_400_000 };
 const CONSOLE_MESSAGE_GLOBAL_CONCURRENCY = 8;
+const CONSOLE_CODEX_REQUEST_MAX_BYTES = 16 * 1024;
+const CONSOLE_CODEX_WALLET_RATE_LIMIT = { limit: 120, windowMs: 60_000 };
+const CONSOLE_CODEX_GLOBAL_RATE_LIMIT = { limit: 1_200, windowMs: 60_000 };
+const CONSOLE_CODEX_OPERATIONS = new Set([
+  'getTokenProfile',
+  'explainTraits',
+  'compareTokens',
+  'findByTraits',
+  'findSimilar',
+  'getTraitStats',
+  'getCollectionSummary',
+]);
 
 export function createMemoryStore(input = {}) {
   const {
@@ -237,6 +254,10 @@ export function createMultipassApi({
   consoleXmtpClient,
   consoleAgentRuntime,
   consoleWalletContextLoader,
+  looperCodexRuntime,
+  logger = console,
+  consoleCodexWalletRateLimit,
+  consoleCodexGlobalRateLimit,
   consoleMessageShortRateLimit,
   consoleMessageDailyRateLimit,
   consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
@@ -339,6 +360,14 @@ export function createMultipassApi({
     consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
     consoleWalletContextLoader: walletContextLoader,
+    looperCodexRuntime: looperCodexRuntime ?? createUnavailableCodexRuntime(),
+    logger,
+    consoleCodexWalletRateLimiter: createFixedWindowRateLimiter(
+      consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT,
+    ),
+    consoleCodexGlobalRateLimiter: createFixedWindowRateLimiter(
+      consoleCodexGlobalRateLimit ?? CONSOLE_CODEX_GLOBAL_RATE_LIMIT,
+    ),
     consoleMessageShortRateLimiter: createFixedWindowRateLimiter(
       consoleMessageShortRateLimit ?? CONSOLE_MESSAGE_SHORT_RATE_LIMIT,
     ),
@@ -466,6 +495,10 @@ async function handlePostRequest(request, parts, context) {
     return handleConsoleSessionLogout(request, context);
   }
 
+  if (parts[2] === 'console' && parts[3] === 'codex' && parts[4] === 'query' && parts.length === 5) {
+    return handleConsoleCodexQuery(request, context);
+  }
+
   if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'activate' && parts.length === 5) {
     return handleConsoleAgentActivate(request, context);
   }
@@ -570,6 +603,84 @@ function handleConsoleSessionLogout(request, context) {
   const sessionId = parseCookies(request.headers.get('cookie')).get(context.consoleCookieName);
   if (sessionId) context.consoleAuthStore.revokeSession(sessionId);
   return jsonResponse({ schema_version: '0.1.0', ok: true }, 200, { 'set-cookie': clearConsoleSessionCookie(context) });
+}
+
+async function handleConsoleCodexQuery(request, context) {
+  const startedAt = Date.now();
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  assertTrustedOrigin(request, context);
+  const body = await readBoundedJsonBody(request, CONSOLE_CODEX_REQUEST_MAX_BYTES);
+  assertExactCodexRequest(body);
+  const selectedTokenId = normalizeLooperTokenId(body.selectedTokenId);
+  await authorizeConsoleLooper({ tokenId: selectedTokenId, wallet: session.wallet, context });
+
+  const walletLimit = context.consoleCodexWalletRateLimiter.check(
+    createCodexQuotaKey(session.wallet, selectedTokenId),
+  );
+  if (!walletLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_rate_limited',
+      'Looper Codex query rate limit exceeded.',
+      walletLimit.retryAfterSeconds,
+    );
+  }
+
+  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
+  if (!globalLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_global_rate_limited',
+      'Looper Codex service is busy.',
+      globalLimit.retryAfterSeconds,
+    );
+  }
+
+  try {
+    const result = context.looperCodexRuntime.query(body.operation, body.input);
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 200,
+      startedAt,
+      errorClass: null,
+    });
+    return jsonResponse(result);
+  } catch (error) {
+    if (error instanceof LooperCodexUnavailableError) {
+      logCodexQuery(context, {
+        operation: body.operation,
+        selectedTokenId,
+        status: 503,
+        startedAt,
+        errorClass: error.name,
+      });
+      return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
+    }
+    if (error instanceof LooperCodexInputError) {
+      logCodexQuery(context, {
+        operation: body.operation,
+        selectedTokenId,
+        status: 400,
+        startedAt,
+        errorClass: error.name,
+      });
+      return errorResponse(400, 'invalid_codex_query', 'Looper Codex query is invalid.');
+    }
+    throw error;
+  }
 }
 
 async function handleConsoleAgentActivate(request, context) {
@@ -1371,6 +1482,73 @@ function normalizeLooperTokenId(value) {
   } catch {
     throw new ApiInputError('invalid_request', 'Provide a valid Looper token ID.');
   }
+}
+
+function assertExactCodexRequest(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiInputError('invalid_codex_query', 'Looper Codex query must be an object.');
+  }
+  const expected = ['input', 'operation', 'selectedTokenId'];
+  const keys = Object.keys(body);
+  if (keys.length !== expected.length || expected.some((key) => !Object.hasOwn(body, key))) {
+    throw new ApiInputError(
+      'invalid_codex_query',
+      'Looper Codex query requires exactly input, operation, and selectedTokenId.',
+    );
+  }
+}
+
+function createCodexQuotaKey(wallet, selectedTokenId) {
+  const walletHash = createHash('sha256')
+    .update(String(wallet ?? '').trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 24);
+  return walletHash + ':' + selectedTokenId;
+}
+
+function logCodexQuery(context, {
+  operation,
+  selectedTokenId,
+  status,
+  startedAt,
+  errorClass,
+}) {
+  const runtimeStatus = context.looperCodexRuntime?.status ?? {};
+  const event = {
+    event: 'looper_codex_query',
+    operation: CONSOLE_CODEX_OPERATIONS.has(operation) ? operation : 'invalid',
+    selectedTokenId,
+    status,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    schemaVersion: safeCodexMetadata(runtimeStatus.schemaVersion),
+    artifactHashPrefix: typeof runtimeStatus.artifactHash === 'string'
+      && /^[a-f0-9]{64}$/u.test(runtimeStatus.artifactHash)
+      ? runtimeStatus.artifactHash.slice(0, 12)
+      : null,
+    errorClass: safeCodexMetadata(errorClass),
+  };
+  try {
+    context.logger?.info?.(event);
+  } catch {
+    // Logging must never affect query behavior.
+  }
+}
+
+function safeCodexMetadata(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value);
+  return /^[A-Za-z0-9_.-]{1,64}$/u.test(normalized) ? normalized : null;
+}
+
+function createUnavailableCodexRuntime() {
+  const status = Object.freeze({ available: false, reason: 'not_configured' });
+  return Object.freeze({
+    available: false,
+    status,
+    query() {
+      throw new LooperCodexUnavailableError();
+    },
+  });
 }
 
 function normalizeConsoleClientMessageId(value) {
