@@ -9,6 +9,7 @@ export function createLooperCodexQueryService(artifact, { expectedCount = artifa
   const tokenById = new Map(semantic.tokens.map((token) => [token.tokenId, token]));
   const statsByKey = new Map(semantic.traitStats.map((entry) => [traitKey(entry), entry]));
   const postingsByKey = new Map(semantic.postings.map((entry) => [traitKey(entry), entry.tokenIds]));
+  const weightByKey = new Map(semantic.traitStats.map((entry) => [traitKey(entry), BigInt(entry.weightMicros)]));
   const codexVersion = semantic.versions.traitCodexVersion;
 
   function getTokenProfile(tokenId) {
@@ -129,6 +130,64 @@ export function createLooperCodexQueryService(artifact, { expectedCount = artifa
     return envelope('findByTraits', [], evidence, { filters: cloneTraits(canonicalFilters), items, nextCursor });
   }
 
+  function findSimilar(tokenId, limit = LOOPER_CODEX_LIMITS.similarityDefaultLimit) {
+    const subject = requireToken(tokenId);
+    requireLimit(limit, LOOPER_CODEX_LIMITS.similarityMaxLimit, 'similarity limit');
+    const subjectTraits = subject.visualTraits.filter(({ value }) => value !== 'None');
+    const subjectMap = new Map(subjectTraits.map((trait) => [traitKey(trait), trait]));
+    const candidateIds = new Set();
+    for (const key of subjectMap.keys()) {
+      for (const candidateId of postingsByKey.get(key)) {
+        if (candidateId !== tokenId) candidateIds.add(candidateId);
+      }
+    }
+
+    const ranked = [];
+    for (const candidateId of candidateIds) {
+      const candidate = tokenById.get(candidateId);
+      const candidateMap = new Map(
+        candidate.visualTraits
+          .filter(({ value }) => value !== 'None')
+          .map((trait) => [traitKey(trait), trait]),
+      );
+      const unionKeys = new Set([...subjectMap.keys(), ...candidateMap.keys()]);
+      const sharedKeys = [...subjectMap.keys()].filter((key) => candidateMap.has(key));
+      let intersectionWeight = 0n;
+      let unionWeight = 0n;
+      for (const key of sharedKeys) intersectionWeight += weightByKey.get(key);
+      for (const key of unionKeys) unionWeight += weightByKey.get(key);
+      if (intersectionWeight === 0n || unionWeight === 0n) continue;
+      ranked.push({
+        tokenId: candidateId,
+        canonicalName: candidate.canonicalName,
+        intersectionWeight,
+        unionWeight,
+        scorePpm: Number((intersectionWeight * 1_000_000n) / unionWeight),
+        sharedTraits: sortTraits(sharedKeys.map((key) => subjectMap.get(key))),
+      });
+    }
+    ranked.sort(compareSimilarity);
+    const selected = ranked.slice(0, limit);
+    const evidence = [
+      tokenEvidence(tokenId, 'collection_fact'),
+      tokenEvidence(tokenId, 'codex_interpretation'),
+    ];
+    for (const item of selected) {
+      evidence.push(tokenEvidence(item.tokenId, 'collection_fact'));
+      evidence.push(tokenEvidence(item.tokenId, 'codex_interpretation'));
+      for (const trait of item.sharedTraits) evidence.push(traitEvidence(trait, 'collection_fact'));
+    }
+    const items = selected.map((item) => ({
+      tokenId: item.tokenId,
+      canonicalName: item.canonicalName,
+      intersectionWeight: item.intersectionWeight.toString(10),
+      unionWeight: item.unionWeight.toString(10),
+      scorePpm: item.scorePpm,
+      sharedTraits: cloneTraits(item.sharedTraits),
+    }));
+    return envelope('findSimilar', [tokenId], evidence, { tokenId, items });
+  }
+
   function getTraitStats(traitType, value) {
     requireTraitString(traitType, 'trait type');
     requireTraitString(value, 'trait value');
@@ -204,7 +263,7 @@ export function createLooperCodexQueryService(artifact, { expectedCount = artifa
     return { id: `collection:${artifactHash.slice(0, 16)}`, kind: 'collection', label: 'collection_fact' };
   }
 
-  return Object.freeze({ getTokenProfile, explainTraits, compareTokens, findByTraits, getTraitStats, getCollectionSummary });
+  return Object.freeze({ getTokenProfile, explainTraits, compareTokens, findByTraits, findSimilar, getTraitStats, getCollectionSummary });
 }
 
 function normalizeFilters(filters) {
@@ -269,6 +328,13 @@ function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
   return Object.freeze(value);
+}
+
+function compareSimilarity(left, right) {
+  const leftCross = left.intersectionWeight * right.unionWeight;
+  const rightCross = right.intersectionWeight * left.unionWeight;
+  if (leftCross !== rightCross) return leftCross > rightCross ? -1 : 1;
+  return left.tokenId - right.tokenId;
 }
 
 function compareText(left, right) {

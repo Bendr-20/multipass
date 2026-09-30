@@ -128,11 +128,14 @@ export function cloneFixture(value) {
 }
 
 export function createTestArtifact() {
-  const traits = [
+  return createTestArtifactFromTraits([
     [['Background', 'Alpha'], ['Patch Artifact', 'Nyan Cat']],
     [['Background', 'Alpha'], ['Patch Artifact', 'None']],
     [['Background', 'Beta'], ['Patch Artifact', 'None']],
-  ];
+  ]);
+}
+
+export function createTestArtifactFromTraits(traits) {
   const tokens = traits.map((tokenTraits, tokenIndex) => {
     const tokenId = tokenIndex + 1;
     const fixture = createLooperRecordFixture(tokenId);
@@ -162,7 +165,7 @@ export function createTestArtifact() {
       name: 'Loopers',
       chainId: 8453,
       contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
-      count: 3,
+      count: traits.length,
     },
     compilerVersion: LOOPER_CODEX_COMPILER_VERSION,
     sourceHashes: {
@@ -178,9 +181,9 @@ export function createTestArtifact() {
       hashlipsExportVersion: 'hashlips-engine-export-v01',
       collectionProvenanceVersion: 'loopers-provenance-v01',
     },
-    count: 3,
+    count: traits.length,
     tokens,
-    ...buildDerivedIndexes(tokens, 3),
+    ...buildDerivedIndexes(tokens, traits.length),
   };
   return structuredClone({
     semantic,

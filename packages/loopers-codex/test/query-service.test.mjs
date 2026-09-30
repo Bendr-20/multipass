@@ -10,7 +10,7 @@ import {
   createLooperCodexQueryService,
   loadLooperCodexArtifact,
 } from '../src/index.js';
-import { createTestArtifact } from './fixtures.js';
+import { createTestArtifact, createTestArtifactFromTraits } from './fixtures.js';
 
 async function withTempDirectory(run) {
   const directory = await mkdtemp(join(tmpdir(), 'loopers-codex-query-test-'));
@@ -187,7 +187,72 @@ test('trait stats and collection summary use exact closed schemas and ordering',
 
 test('query service rejects invalid IDs and exposes only implemented methods', () => {
   const service = createService();
-  assert.deepEqual(Object.keys(service), ['getTokenProfile', 'explainTraits', 'compareTokens', 'findByTraits', 'getTraitStats', 'getCollectionSummary']);
+  assert.deepEqual(Object.keys(service), ['getTokenProfile', 'explainTraits', 'compareTokens', 'findByTraits', 'findSimilar', 'getTraitStats', 'getCollectionSummary']);
   for (const tokenId of [0, 4, 1.5, '1']) assert.throws(() => service.getTokenProfile(tokenId), /token ID/i);
   assert.throws(() => service.getCollectionSummary('extra'), /arguments/i);
+});
+
+test('similar query returns the exact closed weighted-Jaccard contract', () => {
+  const service = createLooperCodexQueryService(createTestArtifact(), { expectedCount: 3 });
+  const response = service.findSimilar(1);
+  assert.deepEqual(Object.keys(response), ['schemaVersion', 'artifactHash', 'codexVersion', 'operation', 'subjectIds', 'evidence', 'result']);
+  assert.equal(response.operation, 'findSimilar');
+  assert.deepEqual(response.subjectIds, [1]);
+  assert.deepEqual(response.result, {
+    tokenId: 1,
+    items: [{
+      tokenId: 2,
+      canonicalName: 'Looper #2',
+      intersectionWeight: '1500000',
+      unionWeight: '4500000',
+      scorePpm: 333333,
+      sharedTraits: [{ type: 'Background', value: 'Alpha' }],
+    }],
+  });
+  assert.deepEqual(response.evidence, [
+    { id: 'token:1', kind: 'token', label: 'codex_interpretation' },
+    { id: 'token:1', kind: 'token', label: 'collection_fact' },
+    { id: 'token:2', kind: 'token', label: 'codex_interpretation' },
+    { id: 'token:2', kind: 'token', label: 'collection_fact' },
+    { id: `trait:${canonicalJsonHash(['Background', 'Alpha']).slice(0, 16)}`, kind: 'trait', label: 'collection_fact' },
+  ]);
+  assert.equal(response.evidence[4].id.startsWith('trait:'), true);
+  assert.ok(Object.isFrozen(response.result.items));
+});
+
+test('similar ranking uses rare weights, exact fractions, None exclusion, and numeric tie order', () => {
+  const artifact = createTestArtifactFromTraits([
+    [['Background', 'Alpha'], ['Patch Artifact', 'Rare']],
+    [['Background', 'Alpha'], ['Patch Artifact', 'None']],
+    [['Background', 'Alpha'], ['Patch Artifact', 'None']],
+    [['Background', 'Alpha'], ['Patch Artifact', 'None']],
+    [['Background', 'None'], ['Patch Artifact', 'Rare']],
+  ]);
+  const service = createLooperCodexQueryService(artifact, { expectedCount: 5 });
+  const response = service.findSimilar(1, 4);
+  assert.deepEqual(response.result.items.map(({ tokenId }) => tokenId), [5, 2, 3, 4]);
+  assert.deepEqual(response.result.items.map(({ intersectionWeight, unionWeight }) => [intersectionWeight, unionWeight]), [
+    ['2500000', '3750000'],
+    ['1250000', '3750000'],
+    ['1250000', '3750000'],
+    ['1250000', '3750000'],
+  ]);
+  assert.deepEqual(response.result.items.map(({ scorePpm }) => scorePpm), [666666, 333333, 333333, 333333]);
+  assert.equal(response.result.items.some(({ tokenId }) => tokenId === 1), false);
+  assert.equal(response.result.items.flatMap(({ sharedTraits }) => sharedTraits).some(({ value }) => value === 'None'), false);
+});
+
+test('similar query caps limits, handles empty candidate unions, and survives artifact reload', () => {
+  const artifact = createTestArtifact();
+  const reloaded = JSON.parse(JSON.stringify(artifact));
+  const first = createLooperCodexQueryService(artifact, { expectedCount: 3 }).findSimilar(1, 1);
+  const second = createLooperCodexQueryService(reloaded, { expectedCount: 3 }).findSimilar(1, 1);
+  assert.deepEqual(first, second);
+  assert.deepEqual(createLooperCodexQueryService(artifact, { expectedCount: 3 }).findSimilar(3).result.items, []);
+  assert.throws(() => createLooperCodexQueryService(artifact, { expectedCount: 3 }).findSimilar(1, 26), /limit/i);
+  assert.throws(() => createLooperCodexQueryService(artifact, { expectedCount: 3 }).findSimilar(1, 0), /limit/i);
+  assert.throws(() => createLooperCodexQueryService(artifact, { expectedCount: 3 }).findSimilar(4), /token ID/i);
+  assert.deepEqual(Object.keys(createLooperCodexQueryService(artifact, { expectedCount: 3 })), [
+    'getTokenProfile', 'explainTraits', 'compareTokens', 'findByTraits', 'findSimilar', 'getTraitStats', 'getCollectionSummary',
+  ]);
 });
