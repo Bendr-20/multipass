@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { chromium } from 'playwright-core';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/multipass-console.js';
+import { canonicalCodexReadyState } from './console-codex-fixture.mjs';
 
 const OWNER = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
 const ACCOUNT = '0xf2FF55E53f45114f22Fa842C5521B6A3Ced31339';
@@ -52,10 +53,7 @@ function walletMarkup(css) {
 
 function codexMarkup(css) {
   const agent = { tokenId: '617', name: 'Looper #617', role: 'Researcher', credLabel: 'Cred pending', verified: true };
-  const artifactHash = 'a'.repeat(64);
-  const envelope = (operation, result) => ({
-    schemaVersion: '1.0.0', artifactHash, codexVersion: 'traits-v1', operation, subjectIds: [617], evidence: [], result,
-  });
+
   const snapshot = createMultipassConsoleSnapshot({
     agents: [agent],
     state: {
@@ -65,29 +63,7 @@ function codexMarkup(css) {
       consoleSelectedAgentId: '617',
       consoleWorkspaceView: 'codex',
       consoleAgentThread: { status: 'inactive', messages: [] },
-      consoleCodex: {
-        status: 'ready', selectedTokenId: '617', artifactHash, codexVersion: 'traits-v1',
-        profile: envelope('getTokenProfile', {
-          identity: { tokenId: 617, canonicalName: 'Looper #617', description: 'Verified Looper.' },
-          visualTraits: [{ type: 'Background', value: 'Nebula' }, { type: 'Artifact', value: 'Nyan Cat' }],
-          interpretation: {
-            primaryClass: 'Researcher', secondaryClass: 'Builder', specialization: 'signal cartographer',
-            risk: { value: 4, label: 'Balanced' }, autonomy: { value: 6, label: 'Guided' }, voice: 'Precise',
-            quirks: ['Maps every signal'], communicationStyle: ['Short and clear'], values: ['Evidence'], humor: ['Dry'],
-            origin: 'Forged in the archive', missionBias: 'Trace signal', shortLore: 'Keeps the receipts.',
-            longLore: 'A longer verified story.', firstMission: 'Map the signal',
-            recommendedSkills: [{ family: 'research', skill: 'x-research', status: 'recommended' }],
-          },
-        }),
-        explanation: envelope('explainTraits', {
-          tokenId: 617,
-          traits: [{ type: 'Background', value: 'Nebula', frequency: { numerator: 4, denominator: 7777, ppm: 514 } }],
-        }),
-        similarity: envelope('findSimilar', {
-          tokenId: 617,
-          items: [{ tokenId: 700, canonicalName: 'Looper #700', scorePpm: 600000, sharedTraits: [{ type: 'Background', value: 'Nebula' }] }],
-        }),
-      },
+      consoleCodex: canonicalCodexReadyState(),
     },
   });
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><div class="record-shell multipass-console-shell">${renderMultipassConsole(snapshot)}</div></body></html>`;

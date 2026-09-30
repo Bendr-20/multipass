@@ -357,6 +357,7 @@ function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
 
 function shouldGateConsoleChat(thread = {}) {
   return thread.status === 'inactive'
+    || thread.status === 'cancelled'
     || thread.status === 'activating'
     || (thread.status === 'error' && thread.activationRetryAvailable);
 }

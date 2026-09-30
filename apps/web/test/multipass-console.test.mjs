@@ -244,6 +244,29 @@ test('selected Looper exposes Codex before activation and Chat shows an explicit
   assert.equal(chatRoot.querySelector('.console-thread-shell'), null);
 });
 
+test('cancelled Chat activation stays behind the inactive gate even when stale thread data exists', () => {
+  const address = '0x1234567890abcdef1234567890abcdef12345678';
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: sampleAgents(),
+    state: {
+      walletSnapshot: { connected: true, address },
+      consoleAuthenticatedWallet: address,
+      consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
+      consoleSelectedAgentId: '1',
+      consoleWorkspaceView: 'chat',
+      consoleAgentThread: {
+        status: 'cancelled',
+        messages: [{ id: 'stale', role: 'agent', text: 'Stale private history.' }],
+      },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  assert.match(root.querySelector('.console-activation-gate')?.textContent ?? '', /Activate Looper #1 to start Chat/i);
+  assert.equal(root.querySelector('.console-thread-shell'), null);
+  assert.equal(root.querySelector('.console-thread-composer'), null);
+  assert.doesNotMatch(root.textContent ?? '', /Stale private history/);
+});
+
 test('activation failure keeps Codex selected and offers Chat retry without hiding Codex', () => {
   const address = '0x1234567890abcdef1234567890abcdef12345678';
   const snapshot = createMultipassConsoleSnapshot({

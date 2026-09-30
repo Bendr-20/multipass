@@ -10957,7 +10957,19 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.console-codex-recommendations li span,
+.console-codex-recommendations li {
+  display: grid;
+  align-items: start;
+  border-radius: 11px;
+}
+
+.console-codex-recommendations li p {
+  margin: 0;
+  color: rgba(244, 239, 231, 0.78);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .console-codex-traits li span,
 .console-codex-recommendations li small {
   color: rgba(244, 239, 231, 0.6);
@@ -11045,7 +11057,6 @@ h1 {
 .console-codex-state,
 .console-activation-gate {
   display: grid;
-  min-height: 420px;
   align-content: center;
   justify-items: start;
   padding: clamp(24px, 6vw, 52px);
