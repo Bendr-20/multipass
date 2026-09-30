@@ -11,3 +11,17 @@ export {
   LOOPER_CODEX_LIMITS,
   LOOPER_CODEX_SCHEMA_VERSION,
 } from './constants.js';
+
+export {
+  inspectNumberedJsonDirectory,
+  inspectRegularJsonFile,
+  readRegularFile,
+  requireLocalFilesystemPath,
+  requireRegularDirectory,
+  sha256Bytes,
+} from './safe-files.js';
+
+export {
+  materializeLooperCodexRelease,
+  verifyLooperCodexRelease,
+} from './release-manifest.js';
