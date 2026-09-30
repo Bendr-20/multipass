@@ -87,6 +87,7 @@ const CONSOLE_MESSAGE_GLOBAL_CONCURRENCY = 8;
 const CONSOLE_CODEX_REQUEST_MAX_BYTES = 16 * 1024;
 const CONSOLE_CODEX_WALLET_RATE_LIMIT = { limit: 120, windowMs: 60_000 };
 const CONSOLE_CODEX_GLOBAL_RATE_LIMIT = { limit: 1_200, windowMs: 60_000 };
+const CONSOLE_CODEX_WALLET_MAX_BUCKETS = 2_400;
 const CONSOLE_CODEX_OPERATIONS = new Set([
   'getTokenProfile',
   'explainTraits',
@@ -258,6 +259,8 @@ export function createMultipassApi({
   logger = console,
   consoleCodexWalletRateLimit,
   consoleCodexGlobalRateLimit,
+  consoleCodexRateLimitNow = () => Date.now(),
+  consoleCodexWalletMaxBuckets = CONSOLE_CODEX_WALLET_MAX_BUCKETS,
   consoleMessageShortRateLimit,
   consoleMessageDailyRateLimit,
   consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
@@ -362,12 +365,16 @@ export function createMultipassApi({
     consoleWalletContextLoader: walletContextLoader,
     looperCodexRuntime: looperCodexRuntime ?? createUnavailableCodexRuntime(),
     logger,
-    consoleCodexWalletRateLimiter: createFixedWindowRateLimiter(
-      consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT,
-    ),
-    consoleCodexGlobalRateLimiter: createFixedWindowRateLimiter(
-      consoleCodexGlobalRateLimit ?? CONSOLE_CODEX_GLOBAL_RATE_LIMIT,
-    ),
+    consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
+      ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),
+      now: consoleCodexRateLimitNow,
+      maxBuckets: consoleCodexWalletMaxBuckets,
+    }),
+    consoleCodexGlobalRateLimiter: createBoundedFixedWindowRateLimiter({
+      ...(consoleCodexGlobalRateLimit ?? CONSOLE_CODEX_GLOBAL_RATE_LIMIT),
+      now: consoleCodexRateLimitNow,
+      maxBuckets: 1,
+    }),
     consoleMessageShortRateLimiter: createFixedWindowRateLimiter(
       consoleMessageShortRateLimit ?? CONSOLE_MESSAGE_SHORT_RATE_LIMIT,
     ),
@@ -612,7 +619,22 @@ async function handleConsoleCodexQuery(request, context) {
   const body = await readBoundedJsonBody(request, CONSOLE_CODEX_REQUEST_MAX_BYTES);
   assertExactCodexRequest(body);
   const selectedTokenId = normalizeLooperTokenId(body.selectedTokenId);
-  await authorizeConsoleLooper({ tokenId: selectedTokenId, wallet: session.wallet, context });
+
+  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
+  if (!globalLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_global_rate_limited',
+      'Looper Codex service is busy.',
+      globalLimit.retryAfterSeconds,
+    );
+  }
 
   const walletLimit = context.consoleCodexWalletRateLimiter.check(
     createCodexQuotaKey(session.wallet, selectedTokenId),
@@ -632,20 +654,18 @@ async function handleConsoleCodexQuery(request, context) {
     );
   }
 
-  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
-  if (!globalLimit.allowed) {
+  try {
+    await authorizeConsoleLooper({ tokenId: selectedTokenId, wallet: session.wallet, context });
+  } catch (error) {
+    if (error instanceof ApiForbiddenError || error instanceof ApiUnauthorizedError) throw error;
     logCodexQuery(context, {
       operation: body.operation,
       selectedTokenId,
-      status: 429,
+      status: 503,
       startedAt,
-      errorClass: 'RateLimitError',
+      errorClass: error?.constructor?.name ?? 'Error',
     });
-    return consoleThrottleResponse(
-      'codex_global_rate_limited',
-      'Looper Codex service is busy.',
-      globalLimit.retryAfterSeconds,
-    );
+    return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
   }
 
   try {
@@ -2538,6 +2558,69 @@ function createFixedWindowRateLimiter({ limit, windowMs, now = () => Date.now() 
         };
       }
       existing.count += 1;
+      return { allowed: true, retryAfterSeconds: 0 };
+    },
+  };
+}
+
+function createBoundedFixedWindowRateLimiter({
+  limit,
+  windowMs,
+  now = () => Date.now(),
+  maxBuckets = CONSOLE_CODEX_WALLET_MAX_BUCKETS,
+} = {}) {
+  const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 1;
+  const normalizedWindowMs = Number.isInteger(windowMs) && windowMs > 0 ? windowMs : 60_000;
+  const normalizedMaxBuckets = Number.isInteger(maxBuckets) && maxBuckets > 0
+    ? Math.min(maxBuckets, CONSOLE_CODEX_WALLET_MAX_BUCKETS)
+    : CONSOLE_CODEX_WALLET_MAX_BUCKETS;
+  const clock = typeof now === 'function' ? now : () => Date.now();
+  const buckets = new Map();
+  let lastTime = Number.NEGATIVE_INFINITY;
+
+  function readMonotonicTime() {
+    const observed = Number(clock());
+    const safeObserved = Number.isFinite(observed) ? observed : Date.now();
+    lastTime = Math.max(lastTime, safeObserved);
+    return lastTime;
+  }
+
+  function sweepExpired(currentTime) {
+    // Monotonic time and one fixed window keep Map insertion order equal to expiry order.
+    // Each bucket is removed once, and the hard cap bounds worst-case sweep work.
+    while (buckets.size > 0) {
+      const [key, bucket] = buckets.entries().next().value;
+      if (currentTime < bucket.resetAt) break;
+      buckets.delete(key);
+    }
+  }
+
+  return {
+    check(key) {
+      const bucketKey = String(key || 'unknown');
+      const currentTime = readMonotonicTime();
+      sweepExpired(currentTime);
+      const existing = buckets.get(bucketKey);
+      if (existing) {
+        if (existing.count >= normalizedLimit) {
+          return {
+            allowed: false,
+            retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - currentTime) / 1000)),
+          };
+        }
+        existing.count += 1;
+        return { allowed: true, retryAfterSeconds: 0 };
+      }
+
+      if (buckets.size >= normalizedMaxBuckets) {
+        const earliest = buckets.values().next().value;
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((earliest.resetAt - currentTime) / 1000)),
+        };
+      }
+
+      buckets.set(bucketKey, { count: 1, resetAt: currentTime + normalizedWindowMs });
       return { allowed: true, retryAfterSeconds: 0 };
     },
   };

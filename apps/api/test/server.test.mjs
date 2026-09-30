@@ -427,6 +427,32 @@ test('missing or invalid Looper Codex artifacts leave established liveness, disc
   }
 });
 
+test('server fallback returns a stable 500 without internal error details', async () => {
+  const secret = 'https://rpc.internal.example/private?key=server-secret at /srv/private/runtime.json';
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    logger: { info() {}, warn() {} },
+    consoleBootstrapFactory: async () => ({
+      ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+      runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+      async stopWorker() {}, async closeClient() {},
+    }),
+    apiFactory: () => ({ async handleRequest() { throw new Error(secret); } }),
+  });
+  try {
+    const response = await fetch(server.url + '/api/openapi.json');
+    const text = await response.text();
+    assert.equal(response.status, 500);
+    assert.deepEqual(JSON.parse(text), {
+      schema_version: '0.1.0',
+      error: { code: 'server_error', message: 'Internal server error.' },
+    });
+    assert.equal(text.includes(secret), false);
+  } finally {
+    await server.close();
+  }
+});
+
 test('startServer composes Console and Looper CRED configuration into the correct server boundaries', async () => {
   let bootstrapOptions;
   let apiOptions;

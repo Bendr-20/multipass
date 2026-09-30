@@ -105,6 +105,8 @@ export interface MultipassApiOptions {
   logger?: MultipassLogger;
   consoleCodexWalletRateLimit?: { limit: number; windowMs: number };
   consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };
+  consoleCodexRateLimitNow?: () => number;
+  consoleCodexWalletMaxBuckets?: number;
 }
 
 export interface MultipassApi {

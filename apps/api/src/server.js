@@ -180,13 +180,13 @@ export async function startServer(options = {}) {
       } else {
         res.end(Buffer.from(await response.arrayBuffer()));
       }
-    } catch (error) {
+    } catch {
       res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         schema_version: '0.1.0',
         error: {
           code: 'server_error',
-          message: error.message,
+          message: 'Internal server error.',
         },
       }));
     }

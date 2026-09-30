@@ -32,6 +32,8 @@ function createApi({
   logger,
   consoleCodexWalletRateLimit,
   consoleCodexGlobalRateLimit,
+  consoleCodexRateLimitNow,
+  consoleCodexWalletMaxBuckets,
 } = {}) {
   return createMultipassApi({
     store: createMemoryStore(),
@@ -49,6 +51,8 @@ function createApi({
     logger: logger ?? {},
     consoleCodexWalletRateLimit,
     consoleCodexGlobalRateLimit,
+    consoleCodexRateLimitNow,
+    consoleCodexWalletMaxBuckets,
   });
 }
 
@@ -189,6 +193,61 @@ test('Codex query maps typed input and every runtime failure to closed API error
   }
 });
 
+test('Codex authorization infrastructure failures are closed before the HTTP fallback', async () => {
+  const secret = 'https://rpc.internal.example/private?key=secret at /srv/private/provider.json';
+  const entries = [];
+  let runtimeCalls = 0;
+  const api = createApi({
+    logger: { info(event) { entries.push(event); } },
+    authorizer: async () => { throw new Error(secret); },
+    runtime: availableRuntime(() => { runtimeCalls += 1; return {}; }),
+  });
+  const response = await api.handleRequest(request({
+    input: {}, operation: 'getCollectionSummary', selectedTokenId: '617',
+  }));
+  const text = await response.text();
+  assert.equal(response.status, 503);
+  assert.equal(JSON.parse(text).error.code, 'codex_unavailable');
+  assert.equal(text.includes(secret), false);
+  assert.equal(runtimeCalls, 0);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0], {
+    event: 'looper_codex_query',
+    operation: 'getCollectionSummary',
+    selectedTokenId: '617',
+    status: 503,
+    durationMs: entries[0].durationMs,
+    schemaVersion: '1.0.0',
+    artifactHashPrefix: 'aaaaaaaaaaaa',
+    errorClass: 'Error',
+  });
+});
+
+test('failed ownership checks cannot exceed the 120 wallet/token authorizer budget', async () => {
+  let authorizerCalls = 0;
+  let runtimeCalls = 0;
+  const api = createApi({
+    authorizer: async () => {
+      authorizerCalls += 1;
+      const error = new Error('Authenticated wallet does not own this Looper.');
+      error.code = 'forbidden';
+      throw error;
+    },
+    runtime: availableRuntime(() => { runtimeCalls += 1; return {}; }),
+  });
+  const payload = { input: {}, operation: 'getCollectionSummary', selectedTokenId: '617' };
+  for (let index = 0; index < 120; index += 1) {
+    const response = await api.handleRequest(request(payload));
+    assert.equal(response.status, 403, 'request ' + (index + 1));
+    assert.equal((await bodyOf(response)).error.code, 'forbidden');
+  }
+  const limited = await api.handleRequest(request(payload));
+  assert.equal(limited.status, 429);
+  assert.equal((await bodyOf(limited)).error.code, 'codex_rate_limited');
+  assert.equal(authorizerCalls, 120);
+  assert.equal(runtimeCalls, 0);
+});
+
 test('Codex query applies exactly 120 wallet/token requests per minute', async () => {
   let queryCalls = 0;
   const api = createApi({ runtime: availableRuntime(() => ({ call: ++queryCalls })) });
@@ -206,9 +265,16 @@ test('Codex query applies exactly 120 wallet/token requests per minute', async (
   assert.equal(queryCalls, 120);
 });
 
-test('Codex query applies exactly 1,200 total requests per minute', async () => {
+test('Codex query applies exactly 1,200 total requests per minute before authorization', async () => {
   let queryCalls = 0;
-  const api = createApi({ runtime: availableRuntime(() => ({ call: ++queryCalls })) });
+  let authorizerCalls = 0;
+  const api = createApi({
+    runtime: availableRuntime(() => ({ call: ++queryCalls })),
+    authorizer: async ({ tokenId, wallet }) => {
+      authorizerCalls += 1;
+      return identity(tokenId, wallet);
+    },
+  });
   for (let tokenId = 1; tokenId <= 1_200; tokenId += 1) {
     const response = await api.handleRequest(request({
       input: {}, operation: 'getCollectionSummary', selectedTokenId: String(tokenId),
@@ -224,6 +290,42 @@ test('Codex query applies exactly 1,200 total requests per minute', async () => 
   assert.ok(Buffer.byteLength(text) < 512);
   assert.equal(JSON.parse(text).error.code, 'codex_global_rate_limited');
   assert.equal(queryCalls, 1_200);
+  assert.equal(authorizerCalls, 1_200);
+});
+
+test('Codex wallet buckets reset, sweep expired entries, and never evict active quota state', async () => {
+  let now = 1_000;
+  let authorizerCalls = 0;
+  const api = createApi({
+    consoleCodexRateLimitNow: () => now,
+    consoleCodexWalletMaxBuckets: 2,
+    authorizer: async ({ tokenId, wallet }) => {
+      authorizerCalls += 1;
+      return identity(tokenId, wallet);
+    },
+  });
+  const send = (selectedTokenId) => api.handleRequest(request({
+    input: {}, operation: 'getCollectionSummary', selectedTokenId,
+  }));
+
+  for (let index = 0; index < 120; index += 1) {
+    assert.equal((await send('1')).status, 200);
+  }
+  assert.equal((await send('2')).status, 200);
+
+  const atCapacity = await send('3');
+  assert.equal(atCapacity.status, 429);
+  assert.equal((await bodyOf(atCapacity)).error.code, 'codex_rate_limited');
+  assert.equal(authorizerCalls, 121);
+
+  const stillLimited = await send('1');
+  assert.equal(stillLimited.status, 429);
+  assert.equal(authorizerCalls, 121);
+
+  now += 60_000;
+  assert.equal((await send('3')).status, 200);
+  assert.equal((await send('1')).status, 200);
+  assert.equal(authorizerCalls, 123);
 });
 
 test('Codex query logs only bounded operational metadata', async () => {
