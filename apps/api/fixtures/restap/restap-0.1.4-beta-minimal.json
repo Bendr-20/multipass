@@ -1,0 +1,34 @@
+{
+  "_provenance": {
+    "repository": "https://github.com/LiamVisionary/restap",
+    "commit": "5d7222692a0d1c53fbb03091b94de6c732cac2bc",
+    "version": "0.1.4-beta",
+    "readmeUrl": "https://raw.githubusercontent.com/LiamVisionary/restap/5d7222692a0d1c53fbb03091b94de6c732cac2bc/README.md",
+    "readmeSha256": "e94a4ea4b90417760019e314e9b03bf730c1ad519b4b9cbecab77b234f2a3943",
+    "typesUrl": "https://raw.githubusercontent.com/LiamVisionary/restap/5d7222692a0d1c53fbb03091b94de6c732cac2bc/src/types.ts",
+    "typesSha256": "8f7ffe519b7a0cefb6265223ecded251ee3b2893051f37c3ebaedcd05ab8ee30",
+    "packageUrl": "https://raw.githubusercontent.com/LiamVisionary/restap/5d7222692a0d1c53fbb03091b94de6c732cac2bc/package.json",
+    "packageSha256": "d515f98219ec23bef95eccd507c87e88174201a8d7a4d44b666982f97b62bee6",
+    "licenseDeclared": "MIT",
+    "licenseEvidence": "package.json#license",
+    "licenseFileAtCommit": false,
+    "transcription": "independently-authored minimal conformance fixture; no upstream runtime code"
+  },
+  "discovery": {
+    "required": ["restap_version", "agent", "capabilities"],
+    "agentRequired": ["name", "contact"],
+    "capabilityRequired": ["id", "title", "method", "endpoint"]
+  },
+  "talk": {
+    "requestRequired": ["message"],
+    "requestOptional": ["session_id"],
+    "responseRequired": ["reply"],
+    "responseOptional": ["session_id", "suggested_actions"]
+  },
+  "news": {
+    "postRequired": ["type"],
+    "postOptional": ["from", "in_reply_to", "message", "data", "session_id"],
+    "responseRequired": ["items"],
+    "responseOptional": ["timestamp"]
+  }
+}
