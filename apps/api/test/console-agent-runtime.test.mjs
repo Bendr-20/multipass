@@ -765,6 +765,58 @@ test('POST /api/multipass/console/agent/message returns runtime thread payload',
   assert.equal(hasFrontendReviewOnlyProof(body), true);
 });
 
+test('Console Chat falls back to a private Console session when XMTP publishing fails', async () => {
+  const warnings = [];
+  const runtime = createConsoleAgentRuntime({
+    xmtpClient: {
+      provider: 'xmtp_node_sdk',
+      transport: 'xmtp_group',
+      async publishRoomMessages() {
+        throw new Error('private transport detail');
+      },
+      async getThread() {
+        throw new Error('private transport detail');
+      },
+    },
+    memoryClient: createLocalSibylMemoryStore({ now: () => '2026-10-01T15:30:00.000Z' }),
+    now: () => '2026-10-01T15:30:00.000Z',
+    logger: { warn(event) { warnings.push(event); } },
+    llmClient: {
+      async generate() {
+        return { provider: 'fake_bankr', text: 'Console fallback reply.' };
+      },
+    },
+  });
+
+  const message = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+    message: 'Tell me about yourself.',
+  });
+  const recovered = await runtime.getThread({
+    wallet: WALLET,
+    agentId: 'looper-1234',
+    tokenId: '1234',
+  });
+
+  assert.equal(message.thread.transport, 'console_session');
+  assert.equal(message.thread.adapter, 'console_session_fallback');
+  assert.deepEqual(message.thread.messages.map((entry) => entry.text), [
+    'Tell me about yourself.',
+    'Console fallback reply.',
+  ]);
+  assert.deepEqual(recovered.thread.messages.map((entry) => entry.text), [
+    'Tell me about yourself.',
+    'Console fallback reply.',
+  ]);
+  assert.deepEqual(warnings, [
+    { event: 'console_transport_fallback', operation: 'publish', errorClass: 'Error' },
+    { event: 'console_transport_fallback', operation: 'recover', errorClass: 'Error' },
+  ]);
+  assert.equal(JSON.stringify(warnings).includes('private transport detail'), false);
+});
+
 test('Console message route enforces a 2,000-byte UTF-8 cap before any provider call', async () => {
   let providerCalls = 0;
   const api = createMultipassApi({

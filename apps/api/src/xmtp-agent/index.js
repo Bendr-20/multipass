@@ -119,6 +119,39 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
   };
 }
 
+export function createConsoleSessionFallbackClient(options = {}) {
+  const local = createLocalXmtpAgentClient(options);
+  return Object.freeze({
+    provider: 'console_session_fallback',
+    transport: 'console_session',
+    async publishRoomMessages(input = {}) {
+      return projectConsoleSessionRoom(await local.publishRoomMessages(input));
+    },
+    async getThread(input = {}) {
+      return projectConsoleSessionRoom(await local.getThread(input));
+    },
+  });
+}
+
+function projectConsoleSessionRoom(room = {}) {
+  return {
+    ...room,
+    conversationId: null,
+    transport: 'console_session',
+    adapter: 'console_session_fallback',
+    messages: (Array.isArray(room.messages) ? room.messages : []).map((message) => ({
+      ...message,
+      conversationId: null,
+      transport: 'console_session',
+    })),
+    publishedMessages: (Array.isArray(room.publishedMessages) ? room.publishedMessages : []).map((message) => ({
+      ...message,
+      conversationId: null,
+      transport: 'console_session',
+    })),
+  };
+}
+
 export async function createNodeXmtpAgentClient({
   client: providedClient,
   walletKey,

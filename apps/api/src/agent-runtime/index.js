@@ -13,7 +13,7 @@ import { projectConsoleLlmDisplayText } from '../console-transfer-candidate.js';
 import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
 import { deriveReleasedLooperAccount } from '../looper-account.js';
 import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
-import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
+import { createConsoleSessionFallbackClient, createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
 const DEFAULT_AGENT_ID = 'agent-manager';
 const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
@@ -29,6 +29,8 @@ export function createConsoleAgentRuntime({
   llmClient = createLocalLlmClient(),
   signalProvider = createLocalSignalProvider(),
   xmtpClient = createDeferredXmtpAgentClient(),
+  transportFallbackClient = createConsoleSessionFallbackClient(),
+  logger = console,
   now = () => new Date().toISOString(),
   skillProposalsEnabled = false,
   marketReadEnabled = false,
@@ -63,8 +65,9 @@ export function createConsoleAgentRuntime({
       const storedMessages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
       const messages = sanitizeBankrLlmMessages(storedMessages, proposalCatalog);
       const recalledMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
-      const transportThread = xmtpClient.transport === 'unavailable'
-        ? {
+      let transportThread;
+      if (xmtpClient.transport === 'unavailable') {
+        transportThread = {
           threadId: room.threadId,
           topicId: room.topicId,
           conversationId: room.conversationId,
@@ -73,15 +76,28 @@ export function createConsoleAgentRuntime({
           adapter: xmtpClient.provider ?? 'xmtp_disabled',
           participants: room.participants,
           messages: [],
+        };
+      } else {
+        try {
+          transportThread = await xmtpClient.getThread({
+            threadId: room.threadId,
+            topicId: room.topicId,
+            conversationId: room.conversationId,
+            roomName: room.name,
+            wallet,
+            participants: room.participants,
+          });
+        } catch (error) {
+          logTransportFallback(logger, 'recover', error);
+          transportThread = await transportFallbackClient.getThread({
+            threadId: room.threadId,
+            topicId: room.topicId,
+            roomName: room.name,
+            wallet,
+            participants: room.participants,
+          });
         }
-        : await xmtpClient.getThread({
-          threadId: room.threadId,
-          topicId: room.topicId,
-          conversationId: room.conversationId,
-          roomName: room.name,
-          wallet,
-          participants: room.participants,
-        });
+      }
       return {
         schema_version: '0.1.0',
         mode: 'console_agent_runtime',
@@ -291,7 +307,7 @@ export function createConsoleAgentRuntime({
 
       const shouldPublishHumanMessage = input.publishHumanMessage !== false;
       const messagesToPublish = shouldPublishHumanMessage ? [userMessage, ...agentMessages] : agentMessages;
-      const publishedRoom = await xmtpClient.publishRoomMessages({
+      const publishInput = {
         threadId,
         topicId: room.topicId,
         conversationId: room.conversationId,
@@ -299,7 +315,17 @@ export function createConsoleAgentRuntime({
         wallet,
         participants: room.participants,
         messages: messagesToPublish,
-      });
+      };
+      let publishedRoom;
+      try {
+        publishedRoom = await xmtpClient.publishRoomMessages(publishInput);
+      } catch (error) {
+        logTransportFallback(logger, 'publish', error);
+        publishedRoom = await transportFallbackClient.publishRoomMessages({
+          ...publishInput,
+          conversationId: null,
+        });
+      }
       const publishedMessages = publishedRoom.messages.slice(-messagesToPublish.length);
       const publishedThreadBatch = shouldPublishHumanMessage
         ? publishedMessages
@@ -354,6 +380,16 @@ export function createConsoleAgentRuntime({
       };
     },
   };
+}
+
+function logTransportFallback(logger, operation, error) {
+  const errorClass = typeof error?.constructor?.name === 'string'
+    && /^[A-Za-z][A-Za-z0-9]*$/u.test(error.constructor.name)
+    ? error.constructor.name
+    : 'Error';
+  try {
+    logger?.warn?.({ event: 'console_transport_fallback', operation, errorClass });
+  } catch {}
 }
 
 function selectSkillParticipant(room) {

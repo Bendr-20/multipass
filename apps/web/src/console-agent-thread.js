@@ -494,6 +494,7 @@ function formatTransportLabel(value) {
   if (!text || text === 'live_chat') return 'live chat';
   if (text === 'console') return 'live chat';
   if (text === 'xmtp_local') return 'local test adapter';
+  if (text === 'console_session') return 'Console session';
   if (text === 'xmtp_group') return 'XMTP';
   if (text === 'xmtp live') return 'XMTP live';
   if (text === 'xmtp room') return 'XMTP room';

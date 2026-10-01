@@ -19,10 +19,14 @@ function expectRejected(state) {
 }
 
 test('ready Codex renders the complete locked identity, recommendation, evidence, lore, and similarity UI', () => {
-  const normalized = normalizeConsoleCodexState(canonicalCodexReadyState());
+  const state = canonicalCodexReadyState();
+  state.profile.result.identity.description = 'A Looper agent seed generated from the approved HashLips layer-composite pipeline.';
+  const normalized = normalizeConsoleCodexState(state);
   assert.equal(normalized.status, 'ready');
   const { root } = renderState(normalized);
   assert.ok(root);
+  assert.match(root.querySelector('.console-codex-header')?.textContent ?? '', /Verified identity derived from this Looper's published traits./i);
+  assert.doesNotMatch(root.querySelector('.console-codex-header')?.textContent ?? '', /HashLips|layer-composite|pipeline/i);
   assert.match(root.querySelector('.console-codex-proof')?.textContent ?? '', /Token #617.*Verified artifact aaaaaaaaaaaa.*Codex traits-v1/s);
   assert.match(root.querySelector('.console-codex-facts')?.textContent ?? '', /Risk.*Balanced \(4\).*Autonomy.*Guided \(6\)/s);
   assert.equal(root.querySelector('#console-codex-recommendations-title')?.textContent, 'Recommended skill families');
@@ -59,7 +63,7 @@ test('Codex escapes hostile values and rejects mixed release envelopes', () => {
   const { html, root } = renderState(normalizeConsoleCodexState(hostile));
   assert.equal(root?.querySelector('script,img'), null);
   assert.doesNotMatch(html, /onerror=/i);
-  assert.match(root?.textContent ?? '', /<img src=x onerror=alert\(1\)>/);
+  assert.doesNotMatch(root?.textContent ?? '', /<img src=x onerror=alert\(1\)>/);
   for (const invalid of [
     canonicalCodexReadyState({ artifactHash: 'b'.repeat(64) }),
     canonicalCodexReadyState({ explanation: codexEnvelope('getTokenProfile', {}) }),

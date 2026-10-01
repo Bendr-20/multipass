@@ -43,7 +43,6 @@ export function normalizeConsoleCodexState(state = {}) {
       status: 'ready', selectedTokenId, artifactHash, codexVersion,
       identity: {
         canonicalName: profile.identity.canonicalName,
-        description: profile.identity.description,
       },
       facts: compactEntries([
         ['Primary class', interpretation.primaryClass],
@@ -110,7 +109,7 @@ export function renderConsoleCodexWorkspace(input = {}) {
   const shortHash = state.artifactHash.slice(0, 12);
   return '<section class="console-codex-workspace" aria-labelledby="console-codex-title">' +
     '<header class="console-codex-header">' +
-      '<div><span class="console-gate-eyebrow">Verified Codex</span><h2 id="console-codex-title">' + escapeHtml(state.identity.canonicalName) + '</h2>' + (state.identity.description ? '<p>' + escapeHtml(state.identity.description) + '</p>' : '') + '</div>' +
+      '<div><span class="console-gate-eyebrow">Verified Codex</span><h2 id="console-codex-title">' + escapeHtml(state.identity.canonicalName) + '</h2><p>Verified identity derived from this Looper&#39;s published traits.</p></div>' +
       '<div class="console-codex-proof">Token #' + escapeHtml(state.selectedTokenId) + ' · Verified artifact ' + escapeHtml(shortHash) + ' · Codex ' + escapeHtml(state.codexVersion) + ' · ' + formatNumber(state.evidenceCount) + ' evidence records</div>' +
     '</header>' +
     renderFacts(state.facts) +
