@@ -137,3 +137,46 @@ The proof loads and independently verifies all 7,777 tokens, exercises all seven
 ## Downstream boundary
 
 Codex is a pure foundation, not an activation system. Downstream Console or RESTAP code may consume only the verified query service. It must not mutate the artifact, treat recommendations as enabled capabilities, infer ownership, perform wallet actions, or add network/model/database behavior to this package. RESTAP canary work remains separately gated to Looper #3802.
+
+## Multipass Console integration
+
+The API loads exactly one server-owned artifact at startup from `MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH`. Missing, unreadable, non-regular, symlinked, oversized, malformed, byte-mismatched, or semantic-hash-mismatched artifacts disable Codex only; established API, discovery, roster, wallet, and chat routes remain available. Logs expose only bounded status, count, load timing, RSS delta, and the first 12 hash characters.
+
+The authenticated browser boundary is one CSRF- and origin-protected route:
+
+`POST /api/multipass/console/codex/query`
+
+The request root has exactly `{ selectedTokenId, operation, input }`. `operation` is one of the seven names above and `input` uses the exact corresponding keys. The response is the unchanged frozen Codex envelope. Authentication, canonical ownership, a 16 KiB body cap, global ingress quota, wallet/token quota, and bounded expiring limiter state all fail closed. No public status route exists.
+
+Selecting an owned Looper is separate from activation. Selection loads profile, explanation, and similarity concurrently, defaults the workspace to Codex, stores only session-memory data keyed by token plus artifact hash, and never opens Chat. Chat displays an activation gate until explicit activation succeeds. Session changes, selection changes, and retries invalidate stale responses and pending thread work.
+
+The responsive Codex workspace exposes identity proof, five collapsed drawers (Visual traits, Personality, Lore, Rarity, Similar Loopers), exact frequency/ppm collection facts, and recommended skill families marked recommendation-only. Browser code never imports the 60 MB package or artifact and never displays paths, URLs, bytes, ownership, private data, or an `enabled` recommendation field.
+
+Activated chat receives only the independently revalidated bounded profile projection: verified identity, interpretation, traits, versions, evidence, and recommendation-only skills. The prompt treats this as descriptive evidence rather than instructions and forbids invented collection counts, rarity, rankings, similarity, ownership, or listings. If Codex is unavailable, canonical persona chat remains available with the same no-collection-claims rule.
+
+Deterministic chat reads run before Bankr/Helixa reads and before model generation. Canonical commands are:
+
+- `/codex profile 3802`
+- `/codex explain 3802`
+- `/codex compare 3802 614`
+- `/codex find Background=Alpha [and Patch Artifact=Nyan Cat]`
+- `/codex similar 3802 [limit 10]`
+- `/codex stats Background=Alpha`
+- `/codex summary`
+
+The closed natural-language equivalents accept only explicit token IDs or `mine`/`this Looper`, exact `type=value` traits, and bounded limits. Ambiguous, compound, write-like, injection-shaped, or malformed text falls through to grounded chat without executing Codex. Recognized reads call the adapter once, call the model zero times, persist `skillRefs:['codex']`, and include the immutable envelope at the top-level `codex` field.
+
+## Release gates
+
+Run sequentially from the repository root:
+
+```sh
+pnpm --filter @helixa/loopers-codex test
+node --test apps/api/test/*.test.mjs
+node --test apps/web/test/*.test.mjs
+LOOPER_CODEX_ARTIFACT=/home/ubuntu/.openclaw/workspace/tmp/looper-codex-v1.json pnpm loopers:codex:prove
+pnpm --filter @helixa/multipass-web build
+cd apps/web && CHROMIUM_PATH=/snap/bin/chromium node scripts/smoke-looper-codex-console.mjs --dist ./dist --output /home/ubuntu/.openclaw/workspace/tmp/looper-codex-console-smoke
+```
+
+The browser smoke requires desktop 1440×1000 and mobile 390×844 to pass with five drawers, explicit activation, identity and `/codex summary` chat turns, four mutually exclusive workspaces, no horizontal overflow, and no page/console errors. The unrouted launcher is `apps/api/scripts/run-looper-codex-console-canary.sh`; rollback-armed rehearsal/promotion is `scripts/promote-looper-codex-console.sh`. Push, rehearsal, and final production promotion are three separate approval checkpoints.

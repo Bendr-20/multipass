@@ -1,6 +1,6 @@
 # Looper Codex Console Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship the verified 7,777-token Looper Codex as a pre-activation Console workspace and as deterministic, evidence-backed context/read operations for activated chat.
 
@@ -44,7 +44,7 @@
 - Modify: `apps/api/package.json`
 - Modify: `pnpm-lock.yaml`
 
-- [ ] **Step 1: Add failing adapter tests**
+- [x] **Step 1: Add failing adapter tests**
 
 Cover:
 
@@ -63,12 +63,12 @@ assert.throws(() => runtime.query('getCollectionSummary', { extra: true }), /unk
 
 Also require: absent path → `not_configured`; symlink, oversize, serialized SHA mismatch, semantic hash mismatch, malformed/corrupt artifact → `invalid_artifact`; all seven exact schemas/defaults; frozen status/results; prompt projection excludes owner/source/path/enabled keys and caps arrays/text. Capture logger output and require one safe ready event containing only schema, artifact-hash prefix, count, load milliseconds, and RSS delta; unavailable events contain only reason/error class.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test apps/api/test/looper-codex-runtime.test.mjs`  
 Expected: FAIL because `looper-codex-runtime.js` does not exist.
 
-- [ ] **Step 3: Add the workspace dependency**
+- [x] **Step 3: Add the workspace dependency**
 
 Add `"@helixa/loopers-codex": "workspace:*"` to `apps/api/package.json`, then run:
 
@@ -78,7 +78,7 @@ pnpm install --lockfile-only --offline
 
 Require the lockfile to resolve the local workspace package without registry access.
 
-- [ ] **Step 4: Implement the adapter**
+- [x] **Step 4: Implement the adapter**
 
 Export:
 
@@ -96,12 +96,12 @@ export async function createLooperCodexRuntime({ artifactPath, release = LOOPER_
 
 Use `lstat`, the 128 MiB hard cap, streaming SHA-256, `loadLooperCodexArtifact`, and exact semantic hash/count checks. Construct `createLooperCodexQueryService(artifact)` exactly once after all pin checks and retain only that frozen service. Never log the artifact path/content. Implement a closed operation table whose validators require plain objects/exact keys and whose calls preserve foundation envelopes. Convert foundation `TypeError`/`RangeError` into `LooperCodexInputError`; unexpected execution errors become unavailable. Implement `getProfileContext` from `getTokenProfile` with only bounded identity/interpretation/traits/version/evidence data.
 
-- [ ] **Step 5: Run GREEN**
+- [x] **Step 5: Run GREEN**
 
 Run: `node --test apps/api/test/looper-codex-runtime.test.mjs`  
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/api/package.json pnpm-lock.yaml apps/api/src/looper-codex-runtime.js apps/api/test/looper-codex-runtime.test.mjs
@@ -117,7 +117,7 @@ git commit -m "feat: load reviewed Looper Codex runtime"
 - Create: `apps/api/test/looper-codex-console.test.mjs`
 - Modify: `apps/api/test/server.test.mjs`
 
-- [ ] **Step 1: Write failing startup and route tests**
+- [x] **Step 1: Write failing startup and route tests**
 
 Require:
 
@@ -130,16 +130,16 @@ Require:
 - fixed-window limits are exactly 120 per authenticated wallet/selected-token per minute and 1,200 total per minute, with bounded `429` responses;
 - safe query logs contain operation, selected token ID, status, duration, schema/hash prefix, and error class only—never artifact paths/content, lore, traits, cookies, prompts, or owner addresses.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test apps/api/test/looper-codex-console.test.mjs apps/api/test/server.test.mjs`  
 Expected: FAIL on missing option/context/route.
 
-- [ ] **Step 3: Implement server injection**
+- [x] **Step 3: Implement server injection**
 
 Parse and pass `looperCodexArtifactPath`. In `startServer`, create the optional runtime before `apiFactory` and emit one structured safe startup event containing availability, schema, artifact-hash prefix, count, load milliseconds, and RSS delta—never path/content/token data. Close no resources because the adapter is immutable. Add `looperCodexRuntime` injection support for tests.
 
-- [ ] **Step 4: Implement the route**
+- [x] **Step 4: Implement the route**
 
 Add dedicated constants/limiters and handler. Use:
 
@@ -154,7 +154,7 @@ return jsonResponse(context.looperCodexRuntime.query(body.operation, body.input)
 
 Map only typed adapter errors; never expose raw loader errors.
 
-- [ ] **Step 5: Run GREEN and API regression**
+- [x] **Step 5: Run GREEN and API regression**
 
 Run:
 
@@ -165,7 +165,7 @@ node --test apps/api/test/*.test.mjs
 
 Require both commands to PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/api/src/server.js apps/api/src/index.js apps/api/src/index.d.ts apps/api/test/looper-codex-console.test.mjs apps/api/test/server.test.mjs
@@ -186,7 +186,7 @@ git commit -m "feat: expose authenticated Looper Codex queries"
 - Modify: `apps/web/test/app.test.mjs`
 - Modify: `apps/web/test/console-looper-selection.test.mjs`
 
-- [ ] **Step 1: Write failing client/state tests**
+- [x] **Step 1: Write failing client/state tests**
 
 Test exact request bodies and credentials/CSRF. The client validates only the closed outer envelope keys and expected operation/hash format before returning JSON. State tests require selection to:
 
@@ -198,16 +198,16 @@ Test exact request bodies and credentials/CSRF. The client validates only the cl
 - clear cache on session reset;
 - expose explicit retry without activation.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test apps/web/test/console-codex-api.test.mjs apps/web/test/console-looper-selection.test.mjs apps/web/test/app.test.mjs`  
 Expected: FAIL on missing client and current select-and-activate behavior.
 
-- [ ] **Step 3: Implement the browser client**
+- [x] **Step 3: Implement the browser client**
 
 Export `queryConsoleCodex({ apiBase, selectedTokenId, operation, input, csrfToken, fetchImpl })` and `loadConsoleCodexBundle(...)`. Bundle loading performs the three closed calls with `Promise.all`, then requires identical artifact hash/Codex version across envelopes.
 
-- [ ] **Step 4: Split selection from activation**
+- [x] **Step 4: Split selection from activation**
 
 Replace `selectAndActivateConsoleAgent` with focused transitions:
 
@@ -218,7 +218,7 @@ Replace `selectAndActivateConsoleAgent` with focused transitions:
 
 Allow `consoleWorkspaceView` values `chat|wallet|multipass|codex`. Default-last-selection selects only. Preserve wallet-work guards and existing async context checks.
 
-- [ ] **Step 5: Run GREEN and selection regressions**
+- [x] **Step 5: Run GREEN and selection regressions**
 
 Run the focused command from Step 2 plus:
 
@@ -228,7 +228,7 @@ node --test apps/web/test/console-integration-regression.test.mjs apps/web/test/
 
 Require PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/web/src/console-codex-api.js apps/web/src/console-agent-api.js apps/web/src/app.js apps/web/test/console-codex-api.test.mjs apps/web/test/app.test.mjs apps/web/test/console-looper-selection.test.mjs apps/web/test/console-integration-regression.test.mjs apps/web/test/console-agent-gallery.test.mjs
@@ -245,32 +245,32 @@ git commit -m "feat: separate Looper selection from chat activation"
 - Modify: `apps/web/test/multipass-console.test.mjs`
 - Modify: `apps/web/test/console-wallet-workspace-browser.test.mjs`
 
-- [ ] **Step 1: Write literal rendering tests**
+- [x] **Step 1: Write literal rendering tests**
 
 Require four mutually exclusive workspace buttons, pre-activation Codex availability, and exact ready-state sections: identity proof, five collapsed drawers, frequency/ppm, recommendation status, and top-ten similar items. Test loading, unavailable, error/retry, empty similar, XSS escaping, absence of `enabled`, and no artifact path/URL/bytes. At 390px require no horizontal overflow and reachable drawer summaries.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test apps/web/test/console-codex.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/console-wallet-workspace-browser.test.mjs`  
 Expected: FAIL because Codex workspace/nav do not exist.
 
-- [ ] **Step 3: Implement state normalization and renderer**
+- [x] **Step 3: Implement state normalization and renderer**
 
 `console-codex.js` accepts only the three expected envelopes with one hash/version/token ID and returns safe view data. Render a compact header, proof line, recommended skill families, and drawers for Visual traits, Personality, Lore, Rarity, and Similar Loopers. Rarity is frequency only—never a synthetic rank.
 
-- [ ] **Step 4: Integrate workspace and activation gate**
+- [x] **Step 4: Integrate workspace and activation gate**
 
 Add Codex nav buttons to desktop/mobile. `renderConsolePrimaryWorkspace` chooses Codex without requiring activation. Chat renders the explicit activation gate while inactive. Activation success switches to Chat; failure/retry leaves Codex and selection usable.
 
-- [ ] **Step 5: Add responsive styles**
+- [x] **Step 5: Add responsive styles**
 
 Reuse existing panel/drawer tokens. Use a compact responsive facts grid, wrapping trait chips, fixed loading height, and mobile single-column drawers. Do not add a modal or new page.
 
-- [ ] **Step 6: Run GREEN and full web suite**
+- [x] **Step 6: Run GREEN and full web suite**
 
 Run focused tests, then `pnpm --filter @helixa/multipass-web test` or `node --test apps/web/test/*.test.mjs`. Require PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add apps/web/src/console-codex.js apps/web/src/multipass-console.js apps/web/src/styles.css apps/web/test/console-codex.test.mjs apps/web/test/multipass-console.test.mjs apps/web/test/console-wallet-workspace-browser.test.mjs
@@ -290,24 +290,24 @@ git commit -m "feat: add verified Codex Console workspace"
 - Modify: `apps/api/test/console-agent-runtime.test.mjs`
 - Modify: `apps/api/test/looper-codex-console.test.mjs`
 
-- [ ] **Step 1: Write failing prompt/context tests**
+- [x] **Step 1: Write failing prompt/context tests**
 
 Require the message handler to fetch `getProfileContext(selectedTokenId)` only after owner authorization and activation. Assert the model receives bounded Codex identity/traits/version/evidence, recommended-not-enabled skills, and the instruction forbidding invented collection facts. Assert no owner address, source path, postings, full artifact, or `enabled` key enters the prompt. Unavailable Codex keeps activated chat functional with the existing canonical persona and a no-collection-claims instruction.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test --test-name-pattern='Codex|codex' apps/api/test/console-agent-runtime.test.mjs apps/api/test/looper-codex-console.test.mjs`  
 Expected: FAIL because runtime context is not injected.
 
-- [ ] **Step 3: Inject bounded context**
+- [x] **Step 3: Inject bounded context**
 
 After activation check, request the adapter projection and pass it as `codexContext` into `handleMessage`. Validate/freeze again at the runtime boundary. Merge into `createRuntimeProfile` without mutating canonical onchain identity. Update the Bankr system prompt with the trusted-data and no-invention language.
 
-- [ ] **Step 4: Run GREEN and persona regressions**
+- [x] **Step 4: Run GREEN and persona regressions**
 
 Run focused tests plus `node --test apps/api/test/looper-persona.test.mjs apps/api/test/bankr-llm.test.mjs`. Require PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```sh
 git add apps/api/src/index.js apps/api/src/agent-runtime/index.js apps/api/src/bankr-llm/index.js apps/api/test/console-agent-runtime.test.mjs apps/api/test/looper-codex-console.test.mjs
@@ -324,28 +324,28 @@ git commit -m "feat: ground Looper chat in verified Codex"
 - Modify: `apps/api/test/console-agent-runtime.test.mjs`
 - Modify: `apps/api/test/console-skill-catalog.test.mjs`
 
-- [ ] **Step 1: Write parser/executor RED tests**
+- [x] **Step 1: Write parser/executor RED tests**
 
 Cover every canonical slash command and locked natural-language family, `mine/this Looper` resolution, all defaults/caps, exact traits with spaces, unknown traits, conflicting IDs, prompt injection, write-like language, compound clauses, and malformed syntax. Recognized reads must call the adapter exactly once and the model zero times; unrecognized input must call neither executor nor formatter.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test --test-name-pattern='Codex|codex' apps/api/test/console-codex-read.test.mjs apps/api/test/console-agent-runtime.test.mjs`  
 Expected: FAIL on missing resolver/executor.
 
-- [ ] **Step 3: Implement the closed resolver/executor**
+- [x] **Step 3: Implement the closed resolver/executor**
 
 Export `resolveConsoleCodexIntent(message,{selectedTokenId})`, `executeConsoleCodexIntent(intent,{runtime})`, and `formatConsoleCodexResult(envelope)`. Keep parsing independent from the existing Bankr/Helixa resolver. Format bounded deterministic prose by operation and include artifact hash prefix/evidence counts without token lore dumps.
 
-- [ ] **Step 4: Integrate before model generation**
+- [x] **Step 4: Integrate before model generation**
 
 In `handleMessage`, resolve Codex first, then existing read skills, then the model. A Codex hit creates/persists the assistant message with `skillRefs:['codex']`, returns top-level `codex: envelope`, and skips model generation. Add `codex` to the catalog with only `read_verified_looper_codex` enabled when runtime status is available.
 
-- [ ] **Step 5: Run GREEN and complete API suite**
+- [x] **Step 5: Run GREEN and complete API suite**
 
 Run focused tests and `node --test apps/api/test/*.test.mjs`. Require PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/api/src/console-codex-read.js apps/api/src/agent-runtime/index.js apps/api/src/console-skill-catalog.js apps/api/test/console-codex-read.test.mjs apps/api/test/console-agent-runtime.test.mjs apps/api/test/console-skill-catalog.test.mjs
@@ -359,7 +359,7 @@ git commit -m "feat: answer Console Codex reads deterministically"
 - Modify: this plan's checkboxes
 - Deployment files only after inspecting current production service/static configuration.
 
-- [ ] **Step 1: Run sequential repository gates**
+- [x] **Step 1: Run sequential repository gates**
 
 ```sh
 pnpm --filter @helixa/loopers-codex test
@@ -372,7 +372,7 @@ git diff --check
 
 Require all PASS and exact artifact hash `5a776e6c2cacb211dedbbec7837416be46775f9e46a1a4cda4b3a96c70262f24`.
 
-- [ ] **Step 2: Run exact safety scans**
+- [x] **Step 2: Run exact safety scans**
 
 ```sh
 ! git grep -n '@helixa/loopers-codex' -- apps/web
@@ -386,7 +386,7 @@ git diff --check
 
 Expected: each negated scan emits nothing and exits zero; `git diff --check` emits nothing. The first source scan intentionally permits the API workspace dependency and forbids it only in browser source.
 
-- [ ] **Step 3: Add and run deterministic desktop/mobile browser smoke**
+- [x] **Step 3: Add and run deterministic desktop/mobile browser smoke**
 
 Create `apps/web/scripts/smoke-looper-codex-console.mjs`. It launches the built bundle through an ephemeral loopback server mounted at `/multipass/`, injects only mock authenticated roster/Codex responses, and checks at 1440×1000 and 390×844: selection does not activate; Codex panel/five drawers render; Chat shows activation gate; activation enables identity chat and `/codex summary`; four workspaces are mutually exclusive; `document.body.scrollWidth <= window.innerWidth`; browser console/page errors are empty. Run from the package owning Playwright:
 
@@ -397,7 +397,7 @@ CHROMIUM_PATH=/snap/bin/chromium node scripts/smoke-looper-codex-console.mjs --d
 
 Expected final line: `codex-console-smoke=pass desktop=pass mobile=pass overflow=0 errors=0`. Inspect both saved screenshots before proceeding.
 
-- [ ] **Step 4: Commit implementation documentation**
+- [x] **Step 4: Commit implementation documentation**
 
 Document environment variable, pinned hashes, API request schemas, UI state behavior, deterministic commands, failure modes, and proof commands. Mark completed plan steps.
 
