@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "start": "node src/server.js",
+    "smoke:restap-3802": "node scripts/smoke-looper-restap-3802.mjs",
     "loopers:activity-bot": "node scripts/run-loopers-activity-bot.js",
     "xmtp:worker": "node src/xmtp-worker/run.js",
     "sibyl:prove-cold-start": "node scripts/prove-sibyl-cold-start.js",
