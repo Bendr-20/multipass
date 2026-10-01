@@ -34,6 +34,7 @@ test('runbook defines independent gates, safe operations, rollout, rollback, and
     'safe logs', 'redacted', 'SQLite backup API', 'PRAGMA integrity_check', 'retains accepted items', 'replay records',
     'SSE deferred', 'ERC-8004 service publication deferred', 'never copies a production Console cookie',
     '--bankr-env', 'root-owned mode 0600', 'whitelist', 'BANKR_API_KEY', 'BANKR_MODEL',
+    'CANARY_DB="$STATE/canary.sqlite"',
     '--replace', '--stop', '--allow-write', '--owner-auth-challenge-out', '--owner-auth-verify', '--owner-auth-state',
   ]);
 });

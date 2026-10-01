@@ -75,8 +75,8 @@ SHA=$(git rev-parse HEAD); SHORT=$(git rev-parse --short HEAD)
 RELEASE="/home/ubuntu/releases/multipass-restap-$SHORT"
 ARTIFACT_SRC="${LOOPER_CODEX_ARTIFACT:?set reviewed artifact path}"
 POLICY=/etc/helixa/restap-3802-policy.json; BANKR_ENV=/etc/helixa/restap-3802-bankr.env
-CANARY_DB=/home/ubuntu/.openclaw/workspace/tmp/restap-3802-canary.sqlite
 STATE=/home/ubuntu/.openclaw/workspace/tmp/restap-3802-canary-state
+CANARY_DB="$STATE/canary.sqlite"
 BASE=http://127.0.0.1:8793/api/restap/loopers/3802
 WRITE_PROOF_STATE="$STATE/news-write-proof.json"; OWNER_AUTH_STATE="$STATE/owner-auth.json"
 OWNER_AUTH_CHALLENGE="$STATE/owner-auth-challenge.json"; OWNER_SIGNATURE_FILE="$STATE/owner-auth-signature.txt"
