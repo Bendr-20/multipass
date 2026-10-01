@@ -59,7 +59,7 @@ if [[ "$mode" == promote ]]; then
   [[ -f "$rehearsal_proof" ]] || exit 65
   node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync(process.argv[1]));if(p.candidateSha!==process.argv[2]||p.artifactHash!=='5a776e6c2cacb211dedbbec7837416be46775f9e46a1a4cda4b3a96c70262f24')process.exit(1)" "$rehearsal_proof" "$candidate_sha"
 fi
-tmp=$(mktemp "${dropin}.XXXXXX")
+tmp=$(mktemp /tmp/multipass-release-dropin.XXXXXX)
 printf '[Service]\nWorkingDirectory=%s\nEnvironment=MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH=%s\n' "$release" "$artifact" > "$tmp"
 sync "$tmp"
 sudo install -m 0644 "$tmp" "$dropin"
