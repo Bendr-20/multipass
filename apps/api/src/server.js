@@ -15,10 +15,23 @@ import {
 import { createLooperCodexRuntime } from './looper-codex-runtime.js';
 import { createSqliteLooperNameStore } from './looper-name-store.js';
 import { createSqliteSavedRecords } from './saved-records.js';
+import { buildRestap3802Discovery } from './restap-3802-contracts.js';
+import { authorizeRestap3802Policy, loadRestap3802Policy } from './restap-3802-policy.js';
+import { createRestapNewsAuthenticator } from './restap-news-auth.js';
+import { createRestapNewsStore } from './restap-news-store.js';
+import { createRestapPublicSessionStore } from './restap-public-sessions.js';
+import { createBankrRestapInferenceClient, createRestapPublicTalkRuntime } from './restap-public-talk.js';
 
 const DEFAULT_FIXTURE = 'generic';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
+const DEFAULT_RESTAP_TALK_TIMEOUT_MS = 15_000;
+const DEFAULT_RESTAP_TALK_LIMITS = Object.freeze({
+  perIpPerMinute: 20,
+  perSessionPerMinute: 10,
+  globalPerDay: 10_000,
+  concurrency: 4,
+});
 
 export function parseServerOptions(argv = [], env = process.env) {
   const options = {
@@ -69,6 +82,19 @@ export function parseServerOptions(argv = [], env = process.env) {
     consoleXmtpApiUrl: env.MULTIPASS_XMTP_API_URL || null,
     consoleXmtpGatewayHost: env.MULTIPASS_XMTP_GATEWAY_HOST || null,
     consoleXmtpAppVersion: env.MULTIPASS_XMTP_APP_VERSION || 'multipass-console',
+    restapDiscoveryEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_DISCOVERY_ENABLED, 'MULTIPASS_RESTAP_DISCOVERY_ENABLED') ?? false,
+    restapTalkEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_TALK_ENABLED, 'MULTIPASS_RESTAP_TALK_ENABLED') ?? false,
+    restapNewsWriteEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_WRITE_ENABLED, 'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED') ?? false,
+    restapNewsReadEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_READ_ENABLED, 'MULTIPASS_RESTAP_NEWS_READ_ENABLED') ?? false,
+    restap3802PolicyPath: env.MULTIPASS_RESTAP_3802_POLICY_PATH || env.MULTIPASS_RESTAP_POLICY_PATH || null,
+    restapTalkModel: parseOptionalBoundedString(env.MULTIPASS_RESTAP_TALK_MODEL, 'MULTIPASS_RESTAP_TALK_MODEL', 128),
+    restapTalkTimeoutMs: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_TIMEOUT_MS, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'MULTIPASS_RESTAP_TALK_TIMEOUT_MS', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
+    restapTalkLimits: {
+      perIpPerMinute: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE, DEFAULT_RESTAP_TALK_LIMITS.perIpPerMinute, 'MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE', 10_000),
+      perSessionPerMinute: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE, DEFAULT_RESTAP_TALK_LIMITS.perSessionPerMinute, 'MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE', 10_000),
+      globalPerDay: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY, DEFAULT_RESTAP_TALK_LIMITS.globalPerDay, 'MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY', 1_000_000),
+      concurrency: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_CONCURRENCY, DEFAULT_RESTAP_TALK_LIMITS.concurrency, 'MULTIPASS_RESTAP_TALK_CONCURRENCY', 16),
+    },
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -133,6 +159,19 @@ export async function startServer(options = {}) {
     consoleXmtpApiUrl: options.consoleXmtpApiUrl ?? null,
     consoleXmtpGatewayHost: options.consoleXmtpGatewayHost ?? null,
     consoleXmtpAppVersion: options.consoleXmtpAppVersion ?? 'multipass-console',
+    restapDiscoveryEnabled: options.restapDiscoveryEnabled === true,
+    restapTalkEnabled: options.restapTalkEnabled === true,
+    restapNewsWriteEnabled: options.restapNewsWriteEnabled === true,
+    restapNewsReadEnabled: options.restapNewsReadEnabled === true,
+    restap3802PolicyPath: options.restap3802PolicyPath ?? null,
+    restapTalkModel: parseOptionalBoundedString(options.restapTalkModel, 'restapTalkModel', 128),
+    restapTalkTimeoutMs: parseBoundedPositiveInteger(options.restapTalkTimeoutMs, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'restapTalkTimeoutMs', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
+    restapTalkLimits: {
+      perIpPerMinute: parseBoundedPositiveInteger(options.restapTalkLimits?.perIpPerMinute, DEFAULT_RESTAP_TALK_LIMITS.perIpPerMinute, 'restapTalkLimits.perIpPerMinute', 10_000),
+      perSessionPerMinute: parseBoundedPositiveInteger(options.restapTalkLimits?.perSessionPerMinute, DEFAULT_RESTAP_TALK_LIMITS.perSessionPerMinute, 'restapTalkLimits.perSessionPerMinute', 10_000),
+      globalPerDay: parseBoundedPositiveInteger(options.restapTalkLimits?.globalPerDay, DEFAULT_RESTAP_TALK_LIMITS.globalPerDay, 'restapTalkLimits.globalPerDay', 1_000_000),
+      concurrency: parseBoundedPositiveInteger(options.restapTalkLimits?.concurrency, DEFAULT_RESTAP_TALK_LIMITS.concurrency, 'restapTalkLimits.concurrency', 16),
+    },
     loopersOwnedRpcUrl: options.loopersOwnedRpcUrl,
     loopersOwnedMetadataBaseUrl: options.loopersOwnedMetadataBaseUrl,
     loopersPublicClients: options.loopersPublicClients,
@@ -155,11 +194,20 @@ export async function startServer(options = {}) {
   const consoleBootstrapFactory = options.consoleBootstrapFactory ?? createConsoleProductionBootstrap;
   const looperCodexRuntimeFactory = options.looperCodexRuntimeFactory ?? createLooperCodexRuntime;
   const apiFactory = options.apiFactory ?? createMultipassApi;
+  const restapPolicyLoader = options.restapPolicyLoader ?? loadRestap3802Policy;
+  const restapPolicyAuthorizer = options.restapPolicyAuthorizer ?? authorizeRestap3802Policy;
+  const restapPublicSessionStoreFactory = options.restapPublicSessionStoreFactory ?? createRestapPublicSessionStore;
+  const restapInferenceClientFactory = options.restapInferenceClientFactory ?? createBankrRestapInferenceClient;
+  const restapPublicTalkRuntimeFactory = options.restapPublicTalkRuntimeFactory ?? createRestapPublicTalkRuntime;
+  const restapNewsStoreFactory = options.restapNewsStoreFactory ?? createRestapNewsStore;
+  const restapNewsAuthenticatorFactory = options.restapNewsAuthenticatorFactory ?? createRestapNewsAuthenticator;
   let api;
   let listeningUrl;
-  let apiBaseUrl;
+  let apiBaseUrl = parsed.publicBaseUrl ?? (parsed.port === 0 ? null : `http://${parsed.host}:${parsed.port}`);
   let consoleBootstrap;
   let looperCodexRuntime;
+  let restapPublicSessions;
+  let restapNewsStore;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -215,16 +263,114 @@ export async function startServer(options = {}) {
       logger: options.logger ?? console,
     });
 
-    await new Promise((resolve, reject) => {
-      nodeServer.once('error', reject);
-      nodeServer.listen(parsed.port, parsed.host, resolve);
-    });
+    const needsRestapPolicy = parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled || parsed.restapNewsWriteEnabled;
+    const needsRestapNews = parsed.restapNewsWriteEnabled || parsed.restapNewsReadEnabled;
+    let restapPolicy;
+    let restapAuthorityResolver;
+    let restap3802Policy;
+    let restapTalkRuntime;
+    let restapNewsAuthenticator;
 
-    const address = nodeServer.address();
-    const port = typeof address === 'object' && address ? address.port : parsed.port;
-    listeningUrl = `http://${parsed.host}:${port}`;
-    apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
-    api = apiFactory({
+    if (needsRestapPolicy) {
+      if (!parsed.restap3802PolicyPath) throw new Error('RESTAP 3802 policy path is required for enabled public surfaces.');
+      if (!looperCodexRuntime?.available || typeof looperCodexRuntime.getProfileContext !== 'function') {
+        throw new Error('An available pinned RESTAP Codex runtime is required.');
+      }
+      restapPolicy = await restapPolicyLoader({ policyPath: parsed.restap3802PolicyPath });
+      restapAuthorityResolver = options.restapAuthorityResolver
+        ?? createRestapAuthorityResolver({ policy: restapPolicy, publicClients: consoleBootstrap.publicClients });
+      if (typeof restapAuthorityResolver !== 'function') throw new Error('RESTAP authority resolver is required for enabled public surfaces.');
+      const authorize = async ({ surface } = {}) => {
+        let codexProfile;
+        const projection = await restapPolicyAuthorizer({
+          policy: restapPolicy,
+          resolveAuthority: restapAuthorityResolver,
+          loadCodexProfile: async (tokenId) => {
+            codexProfile = looperCodexRuntime.getProfileContext(tokenId);
+            return codexProfile;
+          },
+        });
+        const publicProjection = Object.freeze({
+          canonicalIdentity: projection.canonicalIdentity,
+          ownerPublicProfile: projection.ownerPublicProfile,
+        });
+        if (surface !== 'discovery') return Object.freeze({ publicProjection });
+        return Object.freeze({
+          publicProjection,
+          discovery: buildRestap3802Discovery({
+            publicBaseUrl: apiBaseUrl,
+            codexProfile,
+            ownerProfile: projection.ownerPublicProfile,
+            contact: new URL(apiBaseUrl).origin,
+            availability: {
+              discovery: parsed.restapDiscoveryEnabled,
+              talk: parsed.restapTalkEnabled,
+              newsWrite: parsed.restapNewsWriteEnabled,
+              newsRead: parsed.restapNewsReadEnabled,
+            },
+          }),
+        });
+      };
+      restap3802Policy = Object.freeze({ authorize });
+      await authorize({ surface: 'startup' });
+    }
+
+    if (parsed.restapTalkEnabled) {
+      restapPublicSessions = options.restapPublicSessions ?? restapPublicSessionStoreFactory();
+      const inferenceClient = options.restapInferenceClient ?? restapInferenceClientFactory({
+        apiKey: parsed.bankrLlmKey,
+        model: parsed.restapTalkModel ?? undefined,
+        timeoutMs: parsed.restapTalkTimeoutMs,
+        fetchImpl: parsed.fetchImpl ?? fetch,
+      });
+      if (!inferenceClient || typeof inferenceClient.generate !== 'function') {
+        throw new Error('RESTAP talk requires a dedicated inference client.');
+      }
+      restapTalkRuntime = options.restapTalkRuntime ?? restapPublicTalkRuntimeFactory({
+        codexRuntime: looperCodexRuntime,
+        sessionStore: restapPublicSessions,
+        inferenceClient,
+      });
+    }
+
+    if (needsRestapNews) {
+      if (!parsed.databasePath) throw new Error('RESTAP news requires a persistent database.');
+      restapNewsStore = options.restapNewsStore ?? restapNewsStoreFactory({ databasePath: parsed.databasePath });
+      if (!restapNewsStore || typeof restapNewsStore.list !== 'function') throw new Error('RESTAP news store is unavailable.');
+    }
+
+    if (parsed.restapNewsWriteEnabled) {
+      const enabledSenders = restapPolicy.newsSenders.filter((sender) => sender.enabled === true);
+      if (enabledSenders.length === 0) throw new Error('RESTAP news write requires at least one enabled sender.');
+      const restapResolveErc8004Controller = options.restapResolveErc8004Controller
+        ?? createRestapErc8004ControllerResolver(consoleBootstrap.publicClients);
+      if (enabledSenders.some((sender) => sender.kind === 'erc8004') && typeof restapResolveErc8004Controller !== 'function') {
+        throw new Error('RESTAP news write requires an ERC-8004 controller verifier.');
+      }
+      restapNewsAuthenticator = options.restapNewsAuthenticator ?? restapNewsAuthenticatorFactory({
+        policy: restapPolicy,
+        verifyEip1271: options.restapVerifyEip1271 ?? createRestapEip1271Verifier(consoleBootstrap.publicClients),
+        resolveErc8004Controller: restapResolveErc8004Controller,
+      });
+      if (!restapNewsAuthenticator || typeof restapNewsAuthenticator.authenticate !== 'function') {
+        throw new Error('RESTAP news signature verifier is unavailable.');
+      }
+    }
+
+    if (parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled || parsed.restapNewsWriteEnabled || parsed.restapNewsReadEnabled) {
+      logServerEvent(options.logger ?? console, 'info', {
+        event: 'restap_3802_startup',
+        tokenId: '3802',
+        discovery: parsed.restapDiscoveryEnabled,
+        talk: parsed.restapTalkEnabled,
+        newsWrite: parsed.restapNewsWriteEnabled,
+        newsRead: parsed.restapNewsReadEnabled,
+        ...(parsed.restapNewsWriteEnabled ? { enabledSenderCount: restapPolicy.newsSenders.filter((sender) => sender.enabled === true).length } : {}),
+        ...(parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled ? { codexHashPrefix: safeHashPrefix(codexStatus.artifactHash) } : {}),
+      });
+    }
+
+    const createApi = () => apiFactory({
       store,
       baseUrl: apiBaseUrl,
       savedRecords,
@@ -248,17 +394,41 @@ export async function startServer(options = {}) {
       loopersOwnedAgentLoader: consoleBootstrap.ownedAgentLoader,
       loopersPublicClients: consoleBootstrap.publicClients,
       loopersAuthorizer: consoleBootstrap.authorizeLooper,
+      consoleAuthStore: options.consoleAuthStore,
       consoleRuntimeRegistry: consoleBootstrap.runtimeRegistry,
       consoleXmtpClient: consoleBootstrap.publishingClient,
       consoleAgentRuntime: consoleBootstrap.runtime,
       looperCodexRuntime,
+      restapDiscoveryEnabled: parsed.restapDiscoveryEnabled,
+      restapTalkEnabled: parsed.restapTalkEnabled,
+      restap3802Policy,
+      restap3802AuthorityResolver: restapAuthorityResolver,
+      restapTalkRuntime,
+      restapNewsWriteEnabled: parsed.restapNewsWriteEnabled,
+      restapNewsReadEnabled: parsed.restapNewsReadEnabled,
+      restapNewsStore,
+      restapNewsAuthenticator,
+      restapTalkLimits: parsed.restapTalkLimits,
       logger: options.logger ?? console,
       fetchImpl: parsed.fetchImpl,
     });
+    if (apiBaseUrl) api = createApi();
+
+    await new Promise((resolve, reject) => {
+      nodeServer.once('error', reject);
+      nodeServer.listen(parsed.port, parsed.host, resolve);
+    });
+    const address = nodeServer.address();
+    const port = typeof address === 'object' && address ? address.port : parsed.port;
+    listeningUrl = `http://${parsed.host}:${port}`;
+    apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
+    if (!api) api = createApi();
   } catch (error) {
     await closeServerResources({
       consoleBootstrap,
       nodeServer,
+      restapPublicSessions,
+      restapNewsStore,
       savedRecords,
       ownsSavedRecords,
       looperNameStore,
@@ -286,6 +456,8 @@ export async function startServer(options = {}) {
         closePromise = closeServerResources({
           consoleBootstrap,
           nodeServer,
+          restapPublicSessions,
+          restapNewsStore,
           savedRecords,
           ownsSavedRecords,
           looperNameStore,
@@ -297,11 +469,13 @@ export async function startServer(options = {}) {
   };
 }
 
-async function closeServerResources({ consoleBootstrap, nodeServer, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
+async function closeServerResources({ consoleBootstrap, nodeServer, restapPublicSessions, restapNewsStore, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
   const errors = [];
   for (const close of [
     () => consoleBootstrap?.stopWorker?.(),
     () => closeHttpServer(nodeServer),
+    () => restapPublicSessions?.close?.(),
+    () => restapNewsStore?.close?.(),
     () => consoleBootstrap?.closeClient?.(),
     () => ownsSavedRecords ? savedRecords?.close?.() : undefined,
     () => ownsLooperNameStore ? looperNameStore?.close?.() : undefined,
@@ -313,6 +487,73 @@ async function closeServerResources({ consoleBootstrap, nodeServer, savedRecords
     }
   }
   if (errors.length) throw new AggregateError(errors, 'Multipass server shutdown failed.');
+}
+
+
+
+function createRestapAuthorityResolver({ policy, publicClients } = {}) {
+  const clients = Array.isArray(publicClients) ? publicClients.filter((client) => typeof client?.readContract === 'function') : [];
+  if (!policy?.authority || clients.length === 0) return null;
+  return async function resolveRestapAuthority() {
+    const owner = await readRestapContract(clients, {
+      address: policy.authority.collection,
+      abi: [{ type: 'function', name: 'ownerOf', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ type: 'address' }] }],
+      functionName: 'ownerOf',
+      args: [3802n],
+    });
+    const agentId = await readRestapContract(clients, {
+      address: policy.authority.collection,
+      abi: [{ type: 'function', name: 'erc8004AgentIdByLooper', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ type: 'uint256' }] }],
+      functionName: 'erc8004AgentIdByLooper',
+      args: [3802n],
+    });
+    const controllerVerified = await readRestapContract(clients, {
+      address: '0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27',
+      abi: [{ type: 'function', name: 'isController', stateMutability: 'view', inputs: [{ name: 'agentId', type: 'uint256' }, { name: 'controller', type: 'address' }], outputs: [{ type: 'bool' }] }],
+      functionName: 'isController',
+      args: [BigInt(agentId), policy.authority.controller],
+    });
+    return Object.freeze({
+      chainId: 8453,
+      contract: policy.authority.collection,
+      tokenId: '3802',
+      owner,
+      erc8004AgentId: String(agentId),
+      controller: policy.authority.controller,
+      controllerVerified: controllerVerified === true,
+    });
+  };
+}
+
+function createRestapEip1271Verifier(publicClients) {
+  const clients = Array.isArray(publicClients) ? publicClients.filter((client) => typeof client?.verifyMessage === 'function') : [];
+  if (clients.length === 0) return undefined;
+  return async (input) => {
+    let lastError;
+    for (const client of clients) {
+      try { return await client.verifyMessage(input); } catch (error) { lastError = error; }
+    }
+    throw lastError ?? new Error('RESTAP signature verification unavailable.');
+  };
+}
+
+function createRestapErc8004ControllerResolver(publicClients) {
+  const clients = Array.isArray(publicClients) ? publicClients.filter((client) => typeof client?.readContract === 'function') : [];
+  if (clients.length === 0) return undefined;
+  return ({ registry, agentId }) => readRestapContract(clients, {
+    address: registry,
+    abi: [{ type: 'function', name: 'getAgentWallet', stateMutability: 'view', inputs: [{ name: 'agentId', type: 'uint256' }], outputs: [{ type: 'address' }] }],
+    functionName: 'getAgentWallet',
+    args: [BigInt(agentId)],
+  });
+}
+
+async function readRestapContract(clients, request) {
+  let lastError;
+  for (const client of clients) {
+    try { return await client.readContract(request); } catch (error) { lastError = error; }
+  }
+  throw lastError ?? new Error('RESTAP chain dependency unavailable.');
 }
 
 function closeHttpServer(server) {
@@ -361,6 +602,22 @@ function normalizeOptionalBaseUrl(value, source) {
   } catch {
     throw new Error(`Invalid URL for ${source}: ${value}`);
   }
+}
+
+function parseStrictBoolean(value, source) {
+  if (value === undefined || value === null || value === '') return null;
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  throw new Error(`Invalid boolean for ${source}: ${value}`);
+}
+
+function parseOptionalBoundedString(value, source, maximumBytes) {
+  if (value === undefined || value === null || value === '') return null;
+  const normalized = String(value).trim();
+  if (!normalized || Buffer.byteLength(normalized, 'utf8') > maximumBytes || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+    throw new Error(`Invalid value for ${source}.`);
+  }
+  return normalized;
 }
 
 function parseOptionalBoolean(value, source) {
@@ -420,7 +677,6 @@ async function main() {
   console.log(`Multipass API server listening at ${server.url}`);
   if (server.publicBaseUrl !== server.url) console.log(`Public base URL: ${server.publicBaseUrl}`);
   console.log(`Fixture: ${server.fixtureName}`);
-  if (server.databasePath) console.log(`Database: ${server.databasePath}`);
 
   let shuttingDown = false;
   const shutdown = async (signal) => {

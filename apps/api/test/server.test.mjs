@@ -51,6 +51,19 @@ test('parseServerOptions returns safe defaults', () => {
     consoleXmtpApiUrl: null,
     consoleXmtpGatewayHost: null,
     consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
   });
 });
 
@@ -100,6 +113,19 @@ test('CLI flags override environment values', () => {
       consoleXmtpApiUrl: null,
       consoleXmtpGatewayHost: null,
       consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
     },
   );
 });
@@ -149,6 +175,19 @@ test('parseServerOptions accepts claim management security env', () => {
     consoleXmtpApiUrl: null,
     consoleXmtpGatewayHost: null,
     consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
   });
 });
 
@@ -357,21 +396,21 @@ test('startServer creates one Looper Codex runtime before API construction and i
   try {
     assert.equal(factoryCalls, 1);
     assert.equal(injected, runtime);
-    assert.equal(events.length, 1);
-    assert.deepEqual(Object.keys(events[0]), [
+    const codexEvent = events.find((event) => event.event === 'looper_codex_startup');
+    assert.deepEqual(Object.keys(codexEvent), [
       'event', 'available', 'schemaVersion', 'artifactHashPrefix', 'count', 'loadMs', 'rssDeltaBytes',
     ]);
-    assert.deepEqual(events[0], {
+    assert.deepEqual(codexEvent, {
       event: 'looper_codex_startup',
       available: true,
       schemaVersion: '1.0.0',
       artifactHashPrefix: 'aaaaaaaaaaaa',
       count: 7_777,
-      loadMs: events[0].loadMs,
-      rssDeltaBytes: events[0].rssDeltaBytes,
+      loadMs: codexEvent.loadMs,
+      rssDeltaBytes: codexEvent.rssDeltaBytes,
     });
-    assert.ok(Number.isSafeInteger(events[0].loadMs));
-    assert.ok(Number.isSafeInteger(events[0].rssDeltaBytes));
+    assert.ok(Number.isSafeInteger(codexEvent.loadMs));
+    assert.ok(Number.isSafeInteger(codexEvent.rssDeltaBytes));
     assert.equal(JSON.stringify(events).includes('/srv/private'), false);
   } finally {
     await server.close();
@@ -1043,4 +1082,148 @@ test('startServer posts saved Multipass records through real HTTP server', async
     await server.close();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test('parseServerOptions keeps every RESTAP surface false by default and strictly parses bounded server policy/talk overrides', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_RESTAP_DISCOVERY_ENABLED: 'true',
+    MULTIPASS_RESTAP_TALK_ENABLED: '1',
+    MULTIPASS_RESTAP_NEWS_WRITE_ENABLED: 'false',
+    MULTIPASS_RESTAP_NEWS_READ_ENABLED: '0',
+    MULTIPASS_RESTAP_3802_POLICY_PATH: '/srv/private/restap-3802.json',
+    MULTIPASS_RESTAP_TALK_MODEL: 'claude-haiku-4.5',
+    MULTIPASS_RESTAP_TALK_TIMEOUT_MS: '2500',
+    MULTIPASS_RESTAP_TALK_CONCURRENCY: '3',
+    MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE: '12',
+    MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE: '6',
+    MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY: '900',
+    BANKR_LLM_KEY: 'private-key',
+  });
+  assert.equal(options.restapDiscoveryEnabled, true);
+  assert.equal(options.restapTalkEnabled, true);
+  assert.equal(options.restapNewsWriteEnabled, false);
+  assert.equal(options.restapNewsReadEnabled, false);
+  assert.equal(options.restap3802PolicyPath, '/srv/private/restap-3802.json');
+  assert.equal(options.restapTalkModel, 'claude-haiku-4.5');
+  assert.equal(options.restapTalkTimeoutMs, 2500);
+  assert.deepEqual(options.restapTalkLimits, { perIpPerMinute: 12, perSessionPerMinute: 6, globalPerDay: 900, concurrency: 3 });
+
+  const keyOnly = parseServerOptions([], { BANKR_LLM_KEY: 'private-key' });
+  assert.equal(keyOnly.restapTalkEnabled, false);
+  for (const name of ['MULTIPASS_RESTAP_DISCOVERY_ENABLED', 'MULTIPASS_RESTAP_TALK_ENABLED', 'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED', 'MULTIPASS_RESTAP_NEWS_READ_ENABLED']) {
+    assert.throws(() => parseServerOptions([], { [name]: 'yes' }), new RegExp(name));
+  }
+  for (const [name, value] of [
+    ['MULTIPASS_RESTAP_TALK_MODEL', 'x'.repeat(129)],
+    ['MULTIPASS_RESTAP_TALK_TIMEOUT_MS', '15001'],
+    ['MULTIPASS_RESTAP_TALK_CONCURRENCY', '17'],
+    ['MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE', '0'],
+    ['MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE', '10001'],
+    ['MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY', '1000001'],
+  ]) assert.throws(() => parseServerOptions([], { [name]: value }), new RegExp(name));
+});
+
+test('all RESTAP gates false create no RESTAP policy, database, sessions, or inference dependency', async () => {
+  const calls = [];
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    logger: { info() {}, warn() {} },
+    restapPolicyLoader: async () => { calls.push('policy'); throw new Error('must not load'); },
+    restapPublicSessionStoreFactory: () => { calls.push('sessions'); throw new Error('must not create'); },
+    restapInferenceClientFactory: () => { calls.push('inference'); throw new Error('must not create'); },
+    restapNewsStoreFactory: () => { calls.push('news'); throw new Error('must not create'); },
+  });
+  try { assert.deepEqual(calls, []); } finally { await server.close(); }
+});
+
+test('RESTAP startup performs an uncached authority/Codex warm-check, injects isolated resources, listens last, and logs only safe gate metadata', async () => {
+  const events = [];
+  const order = [];
+  const policy = Object.freeze({
+    authority: Object.freeze({}),
+    publicProfile: Object.freeze({ publicConversationEnabled: true }),
+    newsSenders: Object.freeze([{ id: 'sender.one', enabled: true, kind: 'evm', signer: '0x1111111111111111111111111111111111111111' }]),
+  });
+  const projection = Object.freeze({
+    canonicalIdentity: Object.freeze({ canonicalName: 'Looper #3802', imageUrl: 'https://helixa.xyz/3802.png' }),
+    ownerPublicProfile: Object.freeze({ displayName: 'Owner', publicConversationEnabled: true, biography: 'bio', mission: 'mission', voicePresentation: 'direct' }),
+    newsSenders: policy.newsSenders,
+  });
+  let authorityCalls = 0;
+  let injected;
+  const sessionStore = { create() {}, resolve() {}, appendTurn() {}, close() { order.push('sessions-close'); } };
+  const newsStore = { accept() {}, list() { return { items: [], nextCursor: null }; }, close() { order.push('news-close'); } };
+  const inferenceClient = { async generate() { return { reply: 'ok' }; } };
+  const talkRuntime = { async talk() { return { reply: 'ok', session_id: 'x'.repeat(43) }; } };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, publicBaseUrl: 'https://helixa.xyz/multipass-api',
+    databasePath: '/srv/private/restap.sqlite', savedRecords: {}, looperNameStore: {}, bankrLlmKey: 'private-key',
+    restapDiscoveryEnabled: true, restapTalkEnabled: true, restapNewsWriteEnabled: true, restapNewsReadEnabled: true,
+    restap3802PolicyPath: '/srv/private/restap-3802.json',
+    restapAuthorityResolver: async () => { authorityCalls += 1; return {}; },
+    restapPolicyLoader: async ({ policyPath }) => { assert.equal(policyPath, '/srv/private/restap-3802.json'); order.push('policy'); return policy; },
+    restapPolicyAuthorizer: async ({ resolveAuthority, loadCodexProfile }) => { await resolveAuthority(); await loadCodexProfile('3802'); return projection; },
+    restapPublicSessionStoreFactory: () => { order.push('sessions'); return sessionStore; },
+    restapInferenceClientFactory: (input) => { assert.equal(input.apiKey, 'private-key'); order.push('inference'); return inferenceClient; },
+    restapPublicTalkRuntimeFactory: (input) => { assert.equal(input.sessionStore, sessionStore); assert.equal(input.inferenceClient, inferenceClient); order.push('talk'); return talkRuntime; },
+    restapNewsStoreFactory: ({ databasePath }) => { assert.equal(databasePath, '/srv/private/restap.sqlite'); order.push('news'); return newsStore; },
+    restapNewsAuthenticatorFactory: ({ policy: inputPolicy }) => { assert.equal(inputPolicy, policy); order.push('authenticator'); return { async authenticate() {} }; },
+    restapVerifyEip1271: async () => false,
+    restapResolveErc8004Controller: async () => '0x1111111111111111111111111111111111111111',
+    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'a'.repeat(64) }, getProfileContext(tokenId) { assert.equal(tokenId, '3802'); return { identity: { tokenId: 3802, canonicalName: 'Looper #3802', image: { url: 'https://helixa.xyz/3802.png' } } }; }, query() {} },
+    logger: { info(event) { events.push(event); }, warn(event) { events.push(event); } },
+    apiFactory: (options) => { order.push('api'); injected = options; return { async handleRequest() { await options.restap3802Policy.authorize({ surface: 'discovery' }); return new Response('{}'); } }; },
+  });
+  try {
+    assert.equal(authorityCalls, 1, 'startup warm-check is exactly once');
+    assert.equal(injected.restapDiscoveryEnabled, true);
+    assert.equal(injected.restapTalkEnabled, true);
+    assert.equal(injected.restapNewsWriteEnabled, true);
+    assert.equal(injected.restapNewsReadEnabled, true);
+    assert.equal(injected.restapTalkRuntime, talkRuntime);
+    assert.equal(injected.restapNewsStore, newsStore);
+    assert.equal(typeof injected.restap3802Policy.authorize, 'function');
+    assert.equal(injected.consoleAuthStore, undefined);
+    assert.equal(order.at(-1), 'api', 'all RESTAP initialization precedes API construction/listen');
+    await fetch(server.url + '/anything');
+    assert.equal(authorityCalls, 2, 'request authorization is fresh after warm-check');
+    const startup = events.find((event) => event.event === 'restap_3802_startup');
+    assert.deepEqual(startup, { event: 'restap_3802_startup', tokenId: '3802', discovery: true, talk: true, newsWrite: true, newsRead: true, enabledSenderCount: 1, codexHashPrefix: 'aaaaaaaaaaaa' });
+    const serialized = JSON.stringify(events);
+    for (const secret of ['/srv/private', 'private-key', 'sender.one', '0x1111111111111111111111111111111111111111']) assert.equal(serialized.includes(secret), false);
+  } finally { await server.close(); }
+  assert.deepEqual(order.slice(-2), ['sessions-close', 'news-close']);
+});
+
+test('RESTAP startup rejects missing gate dependencies before listen and closes created resources once in safe order', async () => {
+  const base = {
+    fixture: 'generic', host: '127.0.0.1', port: 0, savedRecords: {}, looperNameStore: {},
+    logger: { info() {}, warn() {} },
+    consoleBootstrapFactory: async () => ({ ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}), runtimeRegistry: {}, publishingClient: {}, runtime: {}, async stopWorker() {}, async closeClient() {} }),
+    restap3802PolicyPath: '/policy.json',
+    restapPolicyLoader: async () => ({ authority: {}, publicProfile: { publicConversationEnabled: true }, newsSenders: [{ id: 'sender.one', enabled: true, kind: 'evm', signer: '0x1111111111111111111111111111111111111111' }] }),
+    restapAuthorityResolver: async () => ({}),
+    restapPolicyAuthorizer: async () => ({ canonicalIdentity: { canonicalName: 'Looper #3802', imageUrl: 'https://helixa.xyz/3802.png' }, ownerPublicProfile: { displayName: 'Owner', publicConversationEnabled: true, biography: 'bio', mission: 'mission', voicePresentation: 'direct' }, newsSenders: [] }),
+    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'b'.repeat(64) }, getProfileContext() { return { identity: { tokenId: 3802 } }; }, query() {} },
+  };
+  await assert.rejects(startServer({ ...base, restapDiscoveryEnabled: true, restapAuthorityResolver: null }), /authority resolver/i);
+  await assert.rejects(startServer({ ...base, restapDiscoveryEnabled: true, looperCodexRuntime: { available: false, status: { available: false } } }), /Codex/i);
+  await assert.rejects(startServer({ ...base, restapTalkEnabled: true }), /inference/i);
+  await assert.rejects(startServer({ ...base, restapNewsReadEnabled: true }), /persistent database/i);
+
+  const closes = [];
+  let apiCalls = 0;
+  await assert.rejects(startServer({
+    ...base,
+    databasePath: '/tmp/restap.sqlite', restapTalkEnabled: true, restapNewsWriteEnabled: true, restapNewsReadEnabled: true, bankrLlmKey: 'key',
+    restapPublicSessionStoreFactory: () => ({ create() {}, resolve() {}, appendTurn() {}, close() { closes.push('sessions'); } }),
+    restapInferenceClientFactory: () => ({ generate() {} }),
+    restapPublicTalkRuntimeFactory: () => ({ talk() {} }),
+    restapNewsStoreFactory: () => ({ accept() {}, list() { return { items: [], nextCursor: null }; }, close() { closes.push('news'); } }),
+    restapNewsAuthenticatorFactory: () => { throw new Error('schema/init failed'); },
+    apiFactory: () => { apiCalls += 1; return { handleRequest() {} }; },
+  }), /schema.init failed/);
+  assert.equal(apiCalls, 0);
+  assert.deepEqual(closes, ['sessions', 'news']);
 });
