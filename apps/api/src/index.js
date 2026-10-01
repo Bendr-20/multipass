@@ -1068,7 +1068,7 @@ async function handleConsoleAgentMessage(request, context) {
     if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
     let codexContext = null;
     try {
-      codexContext = context.looperCodexRuntime.getProfileContext(identity.tokenId);
+      codexContext = context.looperCodexRuntime.getProfileContext(Number(identity.tokenId));
     } catch (error) {
       if (!(error instanceof LooperCodexUnavailableError)) throw error;
     }

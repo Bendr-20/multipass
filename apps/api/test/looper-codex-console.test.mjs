@@ -145,7 +145,7 @@ test('Codex profile context is fetched only after owner authorization and runtim
   const runtime = {
     ...availableRuntime(),
     getProfileContext(tokenId) {
-      events.push('codex:' + tokenId);
+      events.push('codex:' + typeof tokenId + ':' + tokenId);
       return profileContext;
     },
   };
@@ -195,7 +195,7 @@ test('Codex profile context is fetched only after owner authorization and runtim
     consoleAgentRuntime,
   });
   assert.equal((await activeApi.handleRequest(messageRequest({ tokenId: '617', message: 'hello' }))).status, 200);
-  assert.deepEqual(events, ['authorize:active-owner', 'codex:617', 'message']);
+  assert.deepEqual(events, ['authorize:active-owner', 'codex:number:617', 'message']);
 });
 
 test('unavailable Codex degrades activated chat to canonical identity without failing the turn', async () => {
