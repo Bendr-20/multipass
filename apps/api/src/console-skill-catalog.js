@@ -59,6 +59,20 @@ const SERVER_SKILL_DESCRIPTORS = [
       'Profile results are display-only and grant no wallet authority.',
     ],
   },
+  {
+    id: 'codex',
+    name: 'Looper Codex',
+    summary: 'Deterministic evidence-backed reads from the reviewed Looper Codex artifact.',
+    capabilities: ['verified_looper_codex_reads'],
+    enabledCapabilities: [],
+    execution: 'human_review',
+    credentialAccess: false,
+    constraints: [
+      'Reads only the hash-pinned server-owned Looper Codex artifact.',
+      'No credentials, writes, wallet authority, installation, or executable proposals.',
+      'Unrecognized or ambiguous language never executes a Codex operation.',
+    ],
+  },
 ];
 
 for (const descriptor of SERVER_SKILL_DESCRIPTORS) assertDescriptor(descriptor);
@@ -76,6 +90,7 @@ export function getConsoleSkillCatalog(options = {}) {
     ...(gates.proposalEnabled ? ['discover_marketplace_skills', 'propose_transfer', 'propose_other_wallet_actions'] : []),
   ];
   skills[1].enabledCapabilities = gates.helixaReadEnabled ? ['agent_profile_read'] : [];
+  skills[2].enabledCapabilities = gates.codexReadEnabled ? ['read_verified_looper_codex'] : [];
   for (const descriptor of skills) assertDescriptor(descriptor);
   const frozenSkills = deepFreezeJson(skills);
   const catalog = deepFreezeJson({
@@ -98,6 +113,7 @@ function normalizeCatalogGates(options) {
     accountReadEnabled: options?.accountReadEnabled === true,
     proposalEnabled: options?.proposalEnabled === true,
     helixaReadEnabled: options?.helixaReadEnabled === true,
+    codexReadEnabled: options?.codexReadEnabled === true,
   };
 }
 

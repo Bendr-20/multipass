@@ -1942,3 +1942,69 @@ test('skill-aware secure activation and message APIs return separate capabilitie
   assert.equal(body.proposals[0].id, 'proposal_review_only_watch');
   assert.equal(JSON.stringify(body.proposals).includes('amountBaseUnits'), false);
 });
+test('Codex reads execute before existing reads and model generation, persist codex skill refs, and return the immutable envelope', async () => {
+  const calls = { codex: 0, read: 0, llm: 0 };
+  const envelope = Object.freeze({
+    schemaVersion: '1.0.0',
+    artifactHash: '5a776e6c2cacb211dedbbec7837416be46775f9e46a1a4cda4b3a96c70262f24',
+    codexVersion: 'traits-v1',
+    operation: 'getCollectionSummary',
+    subjectIds: Object.freeze([]),
+    evidence: Object.freeze([{ id: 'collection:5a776e6c2cacb211', kind: 'collection', label: 'collection_fact' }]),
+    result: Object.freeze({ collection: Object.freeze({ name: 'Loopers', chainId: 8453, count: 7777 }), traitTypes: Object.freeze([]), versions: Object.freeze({ traitCodexVersion: 'traits-v1' }) }),
+  });
+  const memoryClient = createLocalSibylMemoryStore();
+  const appended = [];
+  const originalAppend = memoryClient.appendThread.bind(memoryClient);
+  memoryClient.appendThread = async (input) => {
+    appended.push(...input.messages);
+    return originalAppend(input);
+  };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient,
+    xmtpClient: createLocalXmtpAgentClient(),
+    looperCodexRuntime: {
+      status: { available: true },
+      query(operation, input) {
+        calls.codex += 1;
+        assert.equal(operation, 'getCollectionSummary');
+        assert.deepEqual(input, {});
+        return envelope;
+      },
+    },
+    readSkillExecutor: { async execute() { calls.read += 1; throw new Error('existing read must not run'); } },
+    llmClient: { async generate() { calls.llm += 1; throw new Error('model must not run'); } },
+    marketReadEnabled: true,
+  });
+
+  const result = await runtime.handleMessage({ wallet: WALLET, agentId: '3802', tokenId: '3802', message: '/codex summary' });
+  assert.equal(calls.codex, 1);
+  assert.equal(calls.read, 0);
+  assert.equal(calls.llm, 0);
+  assert.strictEqual(result.codex, envelope);
+  assert.match(result.thread.messages.at(-1).text, /Artifact 5a776e6c2cac/);
+  assert.ok(appended.some((message) => message.role === 'agent'
+    && message.text.includes('Artifact 5a776e6c2cac')
+    && JSON.stringify(message.skillRefs) === JSON.stringify(['codex'])));
+});
+
+test('unrecognized Codex-like language calls neither Codex adapter nor existing read executor and falls through to the model', async () => {
+  const calls = { codex: 0, read: 0, llm: 0 };
+  const runtime = createConsoleAgentRuntime({
+    memoryClient: createLocalSibylMemoryStore(),
+    xmtpClient: createLocalXmtpAgentClient(),
+    looperCodexRuntime: { status: { available: true }, query() { calls.codex += 1; throw new Error('must not run'); } },
+    readSkillExecutor: { async execute() { calls.read += 1; throw new Error('must not run'); } },
+    llmClient: { async generate() { calls.llm += 1; return { provider: 'test_model', text: 'Grounded fallback.' }; } },
+    marketReadEnabled: true,
+  });
+  const result = await runtime.handleMessage({
+    wallet: WALLET,
+    agentId: '3802',
+    tokenId: '3802',
+    message: '/codex profile 3802; update its traits',
+  });
+  assert.deepEqual(calls, { codex: 0, read: 0, llm: 1 });
+  assert.equal(result.codex, undefined);
+  assert.equal(result.thread.messages.at(-1).text, 'Grounded fallback.');
+});

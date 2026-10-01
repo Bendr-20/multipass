@@ -4,6 +4,11 @@ import {
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
 import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
+import {
+  executeConsoleCodexIntent,
+  formatConsoleCodexResult,
+  resolveConsoleCodexIntent,
+} from '../console-codex-read.js';
 import { projectConsoleLlmDisplayText } from '../console-transfer-candidate.js';
 import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
 import { deriveReleasedLooperAccount } from '../looper-account.js';
@@ -29,12 +34,14 @@ export function createConsoleAgentRuntime({
   marketReadEnabled = false,
   accountReadEnabled = false,
   readSkillExecutor,
+  looperCodexRuntime,
   bankrReadEnabled = true,
   skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
 } = {}) {
   const proposalCatalog = getConsoleSkillCatalog({
     proposalEnabled: skillProposalsEnabled,
     helixaReadEnabled: skillProposalsEnabled,
+    codexReadEnabled: looperCodexRuntime?.status?.available === true,
   });
   const skillTimeoutMs = normalizeSkillProviderTimeout(skillProviderTimeoutMs);
   const inFlightSkillCalls = new Map();
@@ -49,6 +56,7 @@ export function createConsoleAgentRuntime({
         accountReadEnabled,
         bankrReadEnabled,
         accountAddress: walletContext?.scope?.account,
+        codexReadEnabled: looperCodexRuntime?.status?.available === true,
       });
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
@@ -119,7 +127,13 @@ export function createConsoleAgentRuntime({
       const profile = createRuntimeProfile(input);
       const walletContext = normalizeWalletContext(input.walletContext, { wallet, profile });
       const accountAddress = walletContext?.scope?.account ?? null;
-      const resolvedSkillIntent = attachment ? null : resolveConsoleReadSkillIntent(message);
+      const resolvedCodexIntent = attachment
+        ? null
+        : resolveConsoleCodexIntent(message, { selectedTokenId: profile.rootIdentity.tokenId });
+      const explicitCodexIntent = looperCodexRuntime?.status?.available === true
+        ? resolvedCodexIntent
+        : null;
+      const resolvedSkillIntent = attachment || explicitCodexIntent ? null : resolveConsoleReadSkillIntent(message);
       const explicitSkillCommand = resolveEnabledSkillIntent(resolvedSkillIntent, {
         skillProposalsEnabled,
         marketReadEnabled,
@@ -133,6 +147,7 @@ export function createConsoleAgentRuntime({
         accountReadEnabled,
         bankrReadEnabled,
         accountAddress,
+        codexReadEnabled: looperCodexRuntime?.status?.available === true,
       });
 
       const namespace = profile.memoryNamespace;
@@ -144,7 +159,7 @@ export function createConsoleAgentRuntime({
       let recalledMemory = [];
       let signals = [];
       const savedMemory = [];
-      if (!explicitSkillCommand) {
+      if (!explicitCodexIntent && !explicitSkillCommand) {
         const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
         priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, proposalCatalog)
           .filter(isSafeInferenceHistoryMessage);
@@ -175,7 +190,28 @@ export function createConsoleAgentRuntime({
 
       const agentMessages = [];
       const participantResponses = [];
-      if (explicitSkillCommand) {
+      let codexEnvelope = null;
+      if (explicitCodexIntent) {
+        codexEnvelope = executeConsoleCodexIntent(explicitCodexIntent, { runtime: looperCodexRuntime });
+        const participant = selectSkillParticipant(room);
+        const agentMessage = createThreadMessage({
+          id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
+          role: 'agent',
+          text: formatConsoleCodexResult(codexEnvelope),
+          sentAt: now(),
+          transport: xmtpClient.transport ?? 'xmtp_local',
+          inferenceProvider: 'looper_codex',
+          senderLabel: participant.displayName,
+          participantId: participant.participantId,
+        });
+        agentMessages.push(agentMessage);
+        participantResponses.push({
+          participantId: participant.participantId,
+          draftMessage: agentMessage,
+          skillRefs: ['codex'],
+          transferCandidates: [],
+        });
+      } else if (explicitSkillCommand) {
         if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
           throw new Error('Console read skill executor is not configured.');
         }
@@ -265,9 +301,14 @@ export function createConsoleAgentRuntime({
         messages: messagesToPublish,
       });
       const publishedMessages = publishedRoom.messages.slice(-messagesToPublish.length);
-      const threadBatch = shouldPublishHumanMessage
+      const publishedThreadBatch = shouldPublishHumanMessage
         ? publishedMessages
         : [userMessage, ...publishedMessages];
+      const threadBatch = codexEnvelope
+        ? publishedThreadBatch.map((entry) => entry?.role === 'agent'
+          ? { ...entry, skillRefs: ['codex'] }
+          : entry)
+        : publishedThreadBatch;
       const currentPublishedMessages = Array.isArray(publishedRoom.publishedMessages)
         ? publishedRoom.publishedMessages
         : [];
@@ -309,6 +350,7 @@ export function createConsoleAgentRuntime({
         proposals: deriveProposals({ message, signals, room }),
         ...(capabilities ? { capabilities } : {}),
         ...(skillProposalsEnabled ? { proposalCandidates } : {}),
+        ...(codexEnvelope ? { codex: codexEnvelope } : {}),
       };
     },
   };
@@ -338,12 +380,14 @@ function runtimeCapabilities({
   accountReadEnabled,
   bankrReadEnabled,
   accountAddress,
+  codexReadEnabled,
 }) {
   const catalog = getConsoleSkillCatalog({
     proposalEnabled: skillProposalsEnabled,
     helixaReadEnabled: skillProposalsEnabled,
     marketReadEnabled: marketReadEnabled && bankrReadEnabled,
     accountReadEnabled: accountReadEnabled && bankrReadEnabled && Boolean(accountAddress),
+    codexReadEnabled,
   });
   return catalog.skills.some((skill) => skill.enabledCapabilities.length > 0) ? catalog : null;
 }

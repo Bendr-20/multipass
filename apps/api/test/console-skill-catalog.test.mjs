@@ -57,6 +57,21 @@ const HELIXA_DESCRIPTOR = {
   ],
 };
 
+const CODEX_DESCRIPTOR = {
+  id: 'codex',
+  name: 'Looper Codex',
+  summary: 'Deterministic evidence-backed reads from the reviewed Looper Codex artifact.',
+  capabilities: ['verified_looper_codex_reads'],
+  enabledCapabilities: [],
+  execution: 'human_review',
+  credentialAccess: false,
+  constraints: [
+    'Reads only the hash-pinned server-owned Looper Codex artifact.',
+    'No credentials, writes, wallet authority, installation, or executable proposals.',
+    'Unrecognized or ambiguous language never executes a Codex operation.',
+  ],
+};
+
 function canonicalize(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -97,21 +112,22 @@ function visit(value, callback, path = []) {
   }
 }
 
-test('returns exact frozen Bankr and Helixa descriptors with a canonical catalog version', () => {
+test('returns exact frozen Bankr, Helixa, and Codex descriptors with a canonical catalog version', () => {
   const catalog = getConsoleSkillCatalog();
 
   assert.deepEqual(Object.keys(catalog).sort(), ['skills', 'version']);
-  assert.equal(catalog.skills.length, 2);
+  assert.equal(catalog.skills.length, 3);
   for (const descriptor of catalog.skills) {
     assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
   }
-  assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]);
+  assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR]);
   assert.deepEqual(catalog.skills[0].enabledCapabilities, []);
   assert.deepEqual(catalog.skills[1].enabledCapabilities, []);
+  assert.deepEqual(catalog.skills[2].enabledCapabilities, []);
   assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
   assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));
   assert.match(catalog.version, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR]));
+  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR]));
   assertRecursivelyFrozen(catalog);
   assertPlainJson(catalog);
 });
@@ -216,4 +232,15 @@ test('prompt projection contains no commands, secret-like fields, credentialed U
       assert.equal(parsed.password, '');
     }
   });
+});
+test('Codex catalog capability is enabled iff runtime status is available', () => {
+  const unavailable = getConsoleSkillCatalog({ codexReadEnabled: false });
+  const available = getConsoleSkillCatalog({ codexReadEnabled: true });
+  const codexUnavailable = unavailable.skills.find(({ id }) => id === 'codex');
+  const codexAvailable = available.skills.find(({ id }) => id === 'codex');
+  assert.deepEqual(codexUnavailable.enabledCapabilities, []);
+  assert.deepEqual(codexAvailable.enabledCapabilities, ['read_verified_looper_codex']);
+  assert.deepEqual(codexAvailable.capabilities, ['verified_looper_codex_reads']);
+  assert.equal(codexAvailable.credentialAccess, false);
+  assert.equal(codexAvailable.execution, 'human_review');
 });
