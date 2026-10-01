@@ -44,10 +44,12 @@ chmod 700 "$backup_root"
 rsync -a --delete "$static_root/" "$backup_root/static/"
 verify_backup
 cp "$dropin" "$backup_root/20-release.conf"
-[[ ! -f "$env_file" ]] || cp "$env_file" "$backup_root/environment"
+if sudo test -f "$env_file"; then sudo cat "$env_file" > "$backup_root/environment"; chmod 600 "$backup_root/environment"; fi
 systemctl show "$unit" -p WorkingDirectory --value > "$backup_root/prior-cwd"
 systemctl show "$unit" -p MainPID --value > "$backup_root/prior-pid"
 systemctl show "$unit" -p NRestarts --value > "$backup_root/prior-restarts"
+node -e "const {DatabaseSync,backup}=require('node:sqlite');const db=new DatabaseSync('/var/lib/helixa/multipass.sqlite',{readOnly:true});backup(db,process.argv[1]).then(()=>db.close())" "$backup_root/multipass.sqlite"
+[[ -s "$backup_root/multipass.sqlite" ]]
 hash_tree "$static_root" > "$backup_root/prior-static.sha256"
 hash_tree "$release/apps/web/dist" > "$backup_root/candidate-static.sha256"
 candidate_sha=$(git -C "$release" rev-parse HEAD)

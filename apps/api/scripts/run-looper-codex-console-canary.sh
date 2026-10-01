@@ -12,6 +12,7 @@ done
 [[ -n "$release" && -d "$release" && -f "$release/apps/api/src/server.js" ]] || { echo "invalid release" >&2; exit 65; }
 [[ "$port" =~ ^[0-9]+$ ]] && ((port >= 1024 && port <= 65535)) || { echo "invalid port" >&2; exit 65; }
 [[ -n "$state_dir" ]] || { echo "missing state directory" >&2; exit 65; }
+((EUID == 0)) || { echo "root is required to read protected service environment" >&2; exit 77; }
 artifact="$release/runtime/looper-codex-v1.json"
 [[ -f "$artifact" && ! -L "$artifact" ]] || { echo "missing release artifact" >&2; exit 65; }
 if ss -H -ltn "sport = :$port" | grep -q .; then echo "port occupied: $port" >&2; exit 69; fi
@@ -31,8 +32,9 @@ if [[ -e "$state_dir/pid" ]]; then old=$(cat "$state_dir/pid" 2>/dev/null || tru
   export MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED=false
   export MULTIPASS_CONSOLE_MARKET_READ_ENABLED=false
   export MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED=false
+  export HOME=/home/ubuntu
   cd "$release"
-  exec node apps/api/src/server.js --host 127.0.0.1 --port "$port"
+  exec /usr/sbin/runuser -u ubuntu --preserve-environment -- /usr/bin/node apps/api/src/server.js --host 127.0.0.1 --port "$port"
 ) >"$state_dir/stdout.log" 2>"$state_dir/stderr.log" < /dev/null &
 pid=$!
 printf "%s\n" "$pid" > "$state_dir/pid"
