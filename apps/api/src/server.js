@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 import { activateHelixaRecord } from './activation-records.js';
@@ -86,6 +87,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     restapTalkEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_TALK_ENABLED, 'MULTIPASS_RESTAP_TALK_ENABLED') ?? false,
     restapNewsWriteEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_WRITE_ENABLED, 'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED') ?? false,
     restapNewsReadEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_READ_ENABLED, 'MULTIPASS_RESTAP_NEWS_READ_ENABLED') ?? false,
+    restapTrustLoopbackProxy: parseStrictBoolean(env.MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY, 'MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY') ?? false,
     restap3802PolicyPath: env.MULTIPASS_RESTAP_3802_POLICY_PATH || env.MULTIPASS_RESTAP_POLICY_PATH || null,
     restapTalkModel: parseOptionalBoundedString(env.MULTIPASS_RESTAP_TALK_MODEL, 'MULTIPASS_RESTAP_TALK_MODEL', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_TIMEOUT_MS, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'MULTIPASS_RESTAP_TALK_TIMEOUT_MS', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -163,6 +165,7 @@ export async function startServer(options = {}) {
     restapTalkEnabled: options.restapTalkEnabled === true,
     restapNewsWriteEnabled: options.restapNewsWriteEnabled === true,
     restapNewsReadEnabled: options.restapNewsReadEnabled === true,
+    restapTrustLoopbackProxy: options.restapTrustLoopbackProxy === true,
     restap3802PolicyPath: options.restap3802PolicyPath ?? null,
     restapTalkModel: parseOptionalBoundedString(options.restapTalkModel, 'restapTalkModel', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(options.restapTalkTimeoutMs, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'restapTalkTimeoutMs', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -214,7 +217,10 @@ export async function startServer(options = {}) {
     try {
       const requestInit = {
         method: req.method || 'GET',
-        headers: normalizeHeaders(req.headers),
+        headers: sanitizeRestapProxyHeaders(req.headers, {
+          remoteAddress: req.socket?.remoteAddress,
+          trustLoopbackProxy: parsed.restapTrustLoopbackProxy,
+        }),
       };
       if (!['GET', 'HEAD'].includes(requestInit.method.toUpperCase())) {
         requestInit.body = req;
@@ -563,12 +569,53 @@ function closeHttpServer(server) {
   });
 }
 
+export function sanitizeRestapProxyHeaders(headers, { remoteAddress, trustLoopbackProxy = false } = {}) {
+  const normalized = normalizeHeaders(headers);
+  delete normalized['x-multipass-client-ip'];
+
+  const peerAddress = normalizeIp(remoteAddress);
+  let clientAddress = peerAddress;
+  if (trustLoopbackProxy === true && isLoopbackAddress(peerAddress)) {
+    const forwardedCandidates = [
+      normalized['cf-connecting-ip'],
+      normalized['x-real-ip'],
+      normalized['x-forwarded-for'],
+    ].filter((value) => value !== undefined);
+    if (forwardedCandidates.length === 1) {
+      const candidate = normalizeSingleForwardedIp(forwardedCandidates[0]);
+      if (candidate) clientAddress = candidate;
+    }
+  }
+  if (clientAddress) normalized['x-multipass-client-ip'] = clientAddress;
+  return normalized;
+}
+
 function normalizeHeaders(headers) {
   return Object.fromEntries(
     Object.entries(headers)
       .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : String(value)]),
+      .map(([key, value]) => [key.toLowerCase(), Array.isArray(value) ? value.join(', ') : String(value)]),
   );
+}
+
+function normalizeSingleForwardedIp(value) {
+  const candidate = String(value ?? '').trim();
+  if (!candidate || candidate.includes(',') || /[\u0000-\u0020\u007f]/u.test(candidate)) return null;
+  return normalizeIp(candidate);
+}
+
+function normalizeIp(value) {
+  const candidate = String(value ?? '').trim();
+  return isIP(candidate) ? candidate : null;
+}
+
+function isLoopbackAddress(value) {
+  if (!value) return false;
+  if (value === '::1') return true;
+  const ipv4 = value.startsWith('::ffff:') ? value.slice(7) : value;
+  if (isIP(ipv4) !== 4) return false;
+  const first = Number(ipv4.split('.')[0]);
+  return first === 127;
 }
 
 function parsePort(value, fallback, source) {

@@ -9,7 +9,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
 
-import { parseServerOptions, startServer } from '../src/server.js';
+import { parseServerOptions, sanitizeRestapProxyHeaders, startServer } from '../src/server.js';
 
 test('parseServerOptions returns safe defaults', () => {
   assert.deepEqual(parseServerOptions([], {}), {
@@ -55,6 +55,7 @@ test('parseServerOptions returns safe defaults', () => {
     restapTalkEnabled: false,
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -117,6 +118,7 @@ test('CLI flags override environment values', () => {
     restapTalkEnabled: false,
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -179,6 +181,7 @@ test('parseServerOptions accepts claim management security env', () => {
     restapTalkEnabled: false,
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -1226,4 +1229,49 @@ test('RESTAP startup rejects missing gate dependencies before listen and closes 
   }), /schema.init failed/);
   assert.equal(apiCalls, 0);
   assert.deepEqual(closes, ['sessions', 'news']);
+});
+
+
+test('RESTAP proxy trust is false by default and strictly parses its forwarded identity gate', () => {
+  assert.equal(parseServerOptions([], {}).restapTrustLoopbackProxy, false);
+  assert.equal(parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: 'true' }).restapTrustLoopbackProxy, true);
+  assert.equal(parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: '0' }).restapTrustLoopbackProxy, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: 'yes' }),
+    /MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY/,
+  );
+});
+
+test('RESTAP client identity sanitizer ignores spoofed forwarded identity unless a loopback proxy is explicitly trusted', () => {
+  const spoofed = {
+    'x-multipass-client-ip': '198.51.100.99',
+    'cf-connecting-ip': '203.0.113.10',
+  };
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '198.51.100.7' })['x-multipass-client-ip'], '198.51.100.7');
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '198.51.100.7', trustLoopbackProxy: true })['x-multipass-client-ip'], '198.51.100.7');
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '203.0.113.10');
+  assert.equal(sanitizeRestapProxyHeaders({ 'x-real-ip': '2001:db8::7' }, { remoteAddress: '::1', trustLoopbackProxy: true })['x-multipass-client-ip'], '2001:db8::7');
+  assert.equal(sanitizeRestapProxyHeaders({ 'x-forwarded-for': '203.0.113.1, 203.0.113.2' }, { remoteAddress: '::ffff:127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '::ffff:127.0.0.1');
+  assert.equal(sanitizeRestapProxyHeaders({ 'cf-connecting-ip': '203.0.113.1', 'x-real-ip': '203.0.113.2' }, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '127.0.0.1');
+  assert.equal(sanitizeRestapProxyHeaders({ 'cf-connecting-ip': 'not-an-ip' }, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '127.0.0.1');
+});
+
+test('startServer overwrites inbound RESTAP client identity while preserving forwarded headers for non-RESTAP semantics', async () => {
+  const seen = [];
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, restapTrustLoopbackProxy: true,
+    logger: { info() {}, warn() {} },
+    apiFactory: () => ({ async handleRequest(request) {
+      seen.push(Object.fromEntries(request.headers.entries()));
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    } }),
+  });
+  try {
+    await fetch(server.url + '/identity', { headers: {
+      'x-multipass-client-ip': '198.51.100.99',
+      'cf-connecting-ip': '203.0.113.42',
+    } });
+    assert.equal(seen[0]['x-multipass-client-ip'], '203.0.113.42');
+    assert.equal(seen[0]['cf-connecting-ip'], '203.0.113.42');
+  } finally { await server.close(); }
 });
