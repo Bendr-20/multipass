@@ -85,6 +85,13 @@ test('isolates sessions, evicts oldest expiry, sweeps expired entries, and resta
   assert.throws(() => restarted.resolve(fourth.sessionId), /invalid_session_id/u);
 });
 
+test('preserves bounded multiline assistant text for deterministic Codex replies', () => {
+  const store = createRestapPublicSessionStore({ now: () => 1, randomBytesImpl: sequenceRng() });
+  const { sessionId } = store.create();
+  const view = store.appendTurn(sessionId, { user: 'summary', assistant: 'Line one.\n\nLine two.' });
+  assert.equal(view.history[0].assistant, 'Line one.\n\nLine two.');
+});
+
 test('close clears turns and permanently closes the public store', () => {
   const store = createRestapPublicSessionStore({ now: () => 1, randomBytesImpl: sequenceRng() });
   const { sessionId } = store.create();

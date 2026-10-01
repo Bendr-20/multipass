@@ -7,7 +7,7 @@ const MAX_TURNS = 12;
 const MAX_USER_BYTES = 2_000;
 const MAX_ASSISTANT_BYTES = 4_096;
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
 export function createRestapPublicSessionStore({
   now = Date.now,
