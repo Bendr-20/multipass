@@ -63,7 +63,7 @@ test('starts an unrouted loopback canary with exact release and stops only after
   t.after(async () => { await run([...base(f), '--stop']); await rm(f.root, { recursive: true, force: true }); });
   const started = await run(base(f));
   assert.equal(started.code, 0, started.stderr);
-  assert.match(started.stdout, new RegExp('canary=ready .*port=' + f.port));
+  assert.match(started.stdout, new RegExp('canary=ready .*port=' + f.port + ' gates=none'));
   assert.equal((await stat(join(f.state, 'pid'))).isFile(), true);
   assert.equal((await stat(join(f.state, 'stdout.log'))).isFile(), true);
   assert.equal((await stat(join(f.state, 'stderr.log'))).isFile(), true);
@@ -74,7 +74,7 @@ test('starts an unrouted loopback canary with exact release and stops only after
   assert.match(env, /MULTIPASS_RESTAP_NEWS_READ_ENABLED=false/);
   const stopped = await run([...base(f), '--stop']);
   assert.equal(stopped.code, 0, stopped.stderr);
-  assert.match(stopped.stdout, /canary=stopped/);
+  assert.match(stopped.stdout, /canary=stopped .*auth-state=removed/);
 });
 
 test('each gate flag is independent and talk requires a protected Bankr file', async (t) => {

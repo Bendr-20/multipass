@@ -132,8 +132,7 @@ verified_stop() {
   for _ in $(seq 1 80); do
     if ! process_live "$pid"; then
       rm -f -- "$(meta_file owner-auth.json)" "$(meta_file pid)" "$(meta_file starttime)" "$(meta_file release)" "$(meta_file port)" "$(meta_file policy)" "$(meta_file database)" "$(meta_file command.sha256)"
-      printf 'canary=stopped pid=%s port=%s
-' "$pid" "$port"
+      printf 'canary=stopped pid=%s port=%s auth-state=removed\n' "$pid" "$port"
       return 0
     fi
     sleep 0.1
@@ -221,5 +220,9 @@ for _ in $(seq 1 120); do
 done
 [[ "$ready" == true ]] || fail "canary startup timeout" 70
 trap - ERR HUP INT TERM
-printf 'canary=ready pid=%s port=%s gates=%s,%s,%s,%s
-' "$pid" "$port" "$discovery" "$talk" "$news_write" "$news_read"
+gate_list=none
+if [[ "$discovery" == true ]]; then gate_list=discovery; fi
+if [[ "$talk" == true ]]; then gate_list="$gate_list,talk"; fi
+if [[ "$news_write" == true ]]; then gate_list="$gate_list,news-write"; fi
+if [[ "$news_read" == true ]]; then gate_list="$gate_list,news-read"; fi
+printf 'canary=ready pid=%s port=%s gates=%s\n' "$pid" "$port" "$gate_list"
