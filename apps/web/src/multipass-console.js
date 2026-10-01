@@ -70,10 +70,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       : 'Owned Loopers appear here after wallet sign-in.';
   const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
   const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
-  const normalizedAgentWallet = activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null;
-  const activeAgentWallet = normalizedAgentWallet
-    ? { ...normalizedAgentWallet, securityPaused: Boolean(state.looperWalletSecurityPaused) }
-    : null;
+  const activeAgentWallet = activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null;
   const requestedWorkspaceView = ['chat', 'wallet', 'multipass', 'codex'].includes(state.consoleWorkspaceView)
     ? state.consoleWorkspaceView
     : null;
@@ -785,7 +782,6 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
 function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
   if (!wallet) return '';
   const account = wallet.account;
-  const securityPaused = Boolean(wallet.securityPaused);
   const modeLabel = wallet.mode === 'inactive'
     ? 'Setup required'
     : wallet.mode === 'loading'
@@ -806,7 +802,7 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
     || ['prepared', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(wallet.policy?.state);
   const nativeBalance = `${formatWalletUnits(wallet.nativeWei, 18)} ETH`;
   const assetCount = 1 + (wallet.tokens ?? []).length;
-  const canActivate = !securityPaused && wallet.mode === 'inactive' && wallet.canTransact;
+  const canActivate = wallet.mode === 'inactive' && wallet.canTransact;
   const looperWalletLabel = wallet.mode === 'active'
     ? 'Active'
     : wallet.mode === 'inactive'
@@ -844,13 +840,11 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
       meta: 'Agent economy · Base',
     })),
   ] : [];
-  const canSend = !securityPaused && wallet.mode === 'active' && wallet.canTransact;
-  const canRecoverPolicy = !securityPaused && Boolean(wallet.policyRecoveryAllowed);
+  const canSend = wallet.mode === 'active' && wallet.canTransact;
+  const canRecoverPolicy = Boolean(wallet.policyRecoveryAllowed);
   const reasonCopy = wallet.reason ? formatWalletReason(wallet.reason) : null;
-  const controlState = securityPaused
-    ? { tone: 'warning', icon: '!', title: 'Wallet actions paused', body: 'Security review in progress. Do not deposit assets into this address.' }
-    : wallet.mode === 'active' && wallet.canTransact
-      ? { tone: 'ready', icon: '✓', title: 'Owner approval required', body: 'Every transaction requires your wallet approval.' }
+  const controlState = wallet.mode === 'active' && wallet.canTransact
+    ? { tone: 'ready', icon: '✓', title: 'Owner approval required', body: 'Every transaction requires your wallet approval.' }
     : wallet.mode === 'inactive'
       ? { tone: 'warning', icon: '!', title: 'Activation required', body: reasonCopy ?? 'Activate once before this wallet can send assets.' }
       : wallet.mode === 'loading'
@@ -875,14 +869,6 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
         </div>
         <span class="console-looper-wallet-network">Base</span>
       </section>` : ''}
-      ${securityPaused ? `
-        <div class="console-looper-wallet-activation-callout">
-          <div>
-            <strong>Wallet actions temporarily paused</strong>
-            <p>Security review in progress. Balances remain readable; activation, deposits, transfers, and permission changes are disabled.</p>
-          </div>
-        </div>
-      ` : ''}
       ${canActivate ? `
         <div class="console-looper-wallet-activation-callout" aria-labelledby="console-looper-wallet-activation-title">
           <div>
@@ -895,7 +881,7 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
           </form>
         </div>
       ` : ''}
-      ${account && !securityPaused ? `<div class="console-looper-wallet-actions" aria-label="Wallet actions">
+      ${account ? `<div class="console-looper-wallet-actions" aria-label="Wallet actions">
         ${canSend ? `<details class="console-looper-wallet-action" data-wallet-action="send">
           <summary><span aria-hidden="true">↗</span><strong>Send</strong><small>Transfer assets</small></summary>
           <div class="console-looper-wallet-action-body">

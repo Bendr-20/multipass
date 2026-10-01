@@ -527,31 +527,6 @@ test('inactive and internal legacy-only Looper states fail closed without exposi
   assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
 });
 
-test('wallet security pause keeps balances readable and removes every mutation surface', () => {
-  const baseState = {
-    walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
-    consoleOwnedAgents: { status: 'loaded', agents: sampleAgents() },
-    consoleSelectedAgentId: '1',
-    consoleWorkspaceView: 'wallet',
-    looperWalletSecurityPaused: true,
-  };
-  for (const wallet of [
-    { mode: 'inactive', account: '0x9999999999999999999999999999999999999999', nativeWei: '0', tokens: [], canTransact: true },
-    { mode: 'active', account: '0x9999999999999999999999999999999999999999', nativeWei: '7', tokens: [], canTransact: true, policyRecoveryAllowed: true, policyStatus: 'owner-only' },
-  ]) {
-    const snapshot = createMultipassConsoleSnapshot({ agents: sampleAgents(), state: { ...baseState, looperAgentWallet: wallet } });
-    const root = render(renderMultipassConsole(snapshot));
-    const panel = root.querySelector('.console-looper-wallet');
-    assert.match(panel?.textContent ?? '', /wallet actions temporarily paused/i);
-    assert.match(panel?.textContent ?? '', /security review/i);
-    assert.equal(root.querySelector('[data-action="activate-looper-agent-wallet"]'), null);
-    assert.equal(root.querySelector('[data-action="send-looper-agent-wallet"]'), null);
-    assert.equal(root.querySelector('[data-action="set-looper-policy-module"]'), null);
-    assert.equal(root.querySelector('[data-wallet-action="receive"]'), null);
-    if (wallet.mode === 'active') assert.match(panel?.textContent ?? '', /0.000000 ETH/i);
-  }
-});
-
 test('Looper permission status and owner-only recovery stay concise and use existing neutral controls', () => {
   const baseState = {
     walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
