@@ -261,3 +261,7 @@ MULTIPASS_ERC8004_REGISTRY_ADDRESS=0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
 MULTIPASS_ERC8004_BLOCKSCOUT_API=https://base.blockscout.com/api
 BASE_RPC_URL=https://mainnet.base.org
 ```
+
+## Looper #3802 RESTAP canary
+
+The four RESTAP surfaces are **default off** and require the reviewed phased gates. See [the Looper #3802 RESTAP canary runbook](../../docs/loopers/looper-restap-3802-canary.md).
