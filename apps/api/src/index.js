@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +23,41 @@ import {
 import { getAllowlistProof } from './allowlist-snapshot.js';
 import { createConsoleAgentRuntime } from './agent-runtime/index.js';
 import { createBankrLlmClient } from './bankr-llm/index.js';
+import { searchBankrMarketplaceSkills } from './bankr-marketplace-catalog.js';
+import { createConsoleAuthStore } from './console-auth.js';
+import {
+  CONSOLE_IMAGE_REQUEST_MAX_BYTES,
+  normalizeConsoleImageAttachment,
+} from './console-image-attachment.js';
+import { createConsoleReadSkillExecutor } from './console-read-skills.js';
+import {
+  RESTAP_LIMITS,
+  normalizeRestapNewsPost,
+  normalizeRestapNewsRead,
+  normalizeRestapNewsWriteAcknowledgment,
+  normalizeRestapTalkRequest,
+} from './restap-3802-contracts.js';
+import { RestapPolicyNotAuthorizedError } from './restap-3802-policy.js';
+import { parseStrictJsonObject } from './strict-json-envelope.js';
+import { deriveReleasedLooperAccount } from './looper-account.js';
+import {
+  createLooperCredClient,
+  enrichOwnedLoopersWithCred,
+} from './looper-cred-client.js';
+import {
+  LooperCodexInputError,
+  LooperCodexUnavailableError,
+} from './looper-codex-runtime.js';
+import {
+  LOOPERS_MAINNET_CHAIN_ID,
+  LOOPERS_MAINNET_CONTRACT,
+  authorizeLooperControl,
+  createLoopersOwnedAgentLoader,
+  createLoopersPublicClients,
+} from './loopers-owned-agents.js';
+import { createSqliteLooperNameStore } from './looper-name-store.js';
+import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
+import { createLooperWalletReadContextLoader } from './looper-wallet-read-context.js';
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
@@ -38,6 +74,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
 };
 const MANAGER_COOKIE_NAME = 'multipass_manager';
+const CONSOLE_COOKIE_NAME = 'multipass_console';
 const SUPPORTED_HYDRATED_SOURCE_TYPES = new Set([HELIXA_SOURCE_TYPE, ERC8004_SOURCE_TYPE]);
 const LOOPERS_ALLOWLIST_RATE_LIMIT = {
   limit: 1,
@@ -52,6 +89,23 @@ const LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT = {
   windowMs: 3_600_000,
 };
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const CONSOLE_MESSAGE_MAX_BYTES = 2_000;
+const CONSOLE_MESSAGE_SHORT_RATE_LIMIT = { limit: 6, windowMs: 60_000 };
+const CONSOLE_MESSAGE_DAILY_RATE_LIMIT = { limit: 100, windowMs: 86_400_000 };
+const CONSOLE_MESSAGE_GLOBAL_CONCURRENCY = 8;
+const CONSOLE_CODEX_REQUEST_MAX_BYTES = 16 * 1024;
+const CONSOLE_CODEX_WALLET_RATE_LIMIT = { limit: 120, windowMs: 60_000 };
+const CONSOLE_CODEX_GLOBAL_RATE_LIMIT = { limit: 1_200, windowMs: 60_000 };
+const CONSOLE_CODEX_WALLET_MAX_BUCKETS = 2_400;
+const CONSOLE_CODEX_OPERATIONS = new Set([
+  'getTokenProfile',
+  'explainTraits',
+  'compareTokens',
+  'findByTraits',
+  'findSimilar',
+  'getTraitStats',
+  'getCollectionSummary',
+]);
 
 export function createMemoryStore(input = {}) {
   const {
@@ -178,9 +232,26 @@ export function createMultipassApi({
   loopersAllowlistRequireBrowserOrigin = false,
   loopersAllowlistBlockedSources = [],
   loopersTurnstileSecretKey,
+  loopersOwnedAgentLoader,
+  loopersOwnedRpcUrl,
+  loopersOwnedMetadataBaseUrl,
+  loopersPublicClients,
+  loopersAuthorizer,
+  looperNameStore,
+  looperCredClient,
+  loopersCredApiBaseUrl,
+  loopersCredTimeoutMs,
+  loopersCredConcurrency,
+  consoleAuthStore,
+  consoleRuntimeRegistry,
   bankrLlmKey,
+  bankrReadonlyApiKey,
   bankrLlmModel,
+  bankrLlmVisionModel,
   consoleAgentBankrLlmEnabled = false,
+  consoleSkillProposalsEnabled = false,
+  consoleMarketReadEnabled = false,
+  consoleAccountReadEnabled = false,
   consoleXmtpEnabled = false,
   consoleXmtpEnv = 'production',
   consoleXmtpWalletKey = null,
@@ -192,16 +263,56 @@ export function createMultipassApi({
   consoleXmtpAppVersion = 'multipass-console',
   consoleXmtpClient,
   consoleAgentRuntime,
+  consoleWalletContextLoader,
+  looperCodexRuntime,
+  logger = console,
+  consoleCodexWalletRateLimit,
+  consoleCodexGlobalRateLimit,
+  consoleCodexRateLimitNow = () => Date.now(),
+  consoleCodexWalletMaxBuckets = CONSOLE_CODEX_WALLET_MAX_BUCKETS,
+  consoleMessageShortRateLimit,
+  consoleMessageDailyRateLimit,
+  consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
+  consoleSkillProviderTimeoutMs,
+  restapDiscoveryEnabled = false,
+  restapTalkEnabled = false,
+  restap3802Policy,
+  restapTalkRuntime,
+  restapNewsWriteEnabled = false,
+  restapNewsReadEnabled = false,
+  restapNewsStore,
+  restapNewsAuthenticator,
+  restapTalkLimits,
+  restapRateLimitNow = () => Date.now(),
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
   }
 
   const normalizedBaseUrl = stripTrailingSlash(baseUrl ?? 'http://localhost');
+  const resolvedLooperCodexRuntime = looperCodexRuntime ?? createUnavailableCodexRuntime();
   const runtime = consoleAgentRuntime ?? createConsoleAgentRuntime({
+    looperCodexRuntime: resolvedLooperCodexRuntime,
     llmClient: consoleAgentBankrLlmEnabled
-      ? createBankrLlmClient({ apiKey: bankrLlmKey, model: bankrLlmModel, fetchImpl }) ?? undefined
+      ? createBankrLlmClient({
+        apiKey: bankrLlmKey,
+        model: bankrLlmModel,
+        visionModel: bankrLlmVisionModel,
+        fetchImpl,
+        skillProposalsEnabled: consoleSkillProposalsEnabled,
+      }) ?? undefined
       : undefined,
+    skillProposalsEnabled: consoleSkillProposalsEnabled,
+    marketReadEnabled: consoleMarketReadEnabled,
+    accountReadEnabled: consoleAccountReadEnabled,
+    ...(consoleSkillProposalsEnabled || consoleMarketReadEnabled || consoleAccountReadEnabled ? {
+      readSkillExecutor: createConsoleReadSkillExecutor({
+        bankrApiKey: bankrReadonlyApiKey,
+        fetchImpl,
+      }),
+      bankrReadEnabled: Boolean(String(bankrReadonlyApiKey ?? '').trim()),
+      skillProviderTimeoutMs: consoleSkillProviderTimeoutMs,
+    } : {}),
     xmtpClient: consoleXmtpClient ?? createDeferredXmtpAgentClient({
       enabled: consoleXmtpEnabled,
       env: consoleXmtpEnv,
@@ -214,6 +325,37 @@ export function createMultipassApi({
       appVersion: consoleXmtpAppVersion,
     }),
   });
+  const looperClients = loopersOwnedAgentLoader && loopersAuthorizer
+    ? null
+    : createLoopersPublicClients({
+      rpcUrl: loopersOwnedRpcUrl,
+      publicClients: loopersPublicClients,
+    });
+  const authorizedOwnedLoopersLoader = loopersOwnedAgentLoader ?? createLoopersOwnedAgentLoader({
+    fetchImpl,
+    publicClients: looperClients,
+    ...(loopersOwnedMetadataBaseUrl ? { metadataBaseUrl: loopersOwnedMetadataBaseUrl } : {}),
+  });
+  const canonicalCredClient = looperCredClient ?? (loopersCredApiBaseUrl
+    ? createLooperCredClient({
+      baseUrl: loopersCredApiBaseUrl,
+      fetchImpl,
+      ...(loopersCredTimeoutMs ? { timeoutMs: loopersCredTimeoutMs } : {}),
+    })
+    : null);
+  const ownedLoopersLoader = canonicalCredClient
+    ? async (input) => enrichOwnedLoopersWithCred(
+      await authorizedOwnedLoopersLoader(input),
+      {
+        credClient: canonicalCredClient,
+        ...(loopersCredConcurrency ? { concurrency: loopersCredConcurrency } : {}),
+      },
+    )
+    : authorizedOwnedLoopersLoader;
+  const authorizeLooper = loopersAuthorizer ?? ((input) => authorizeLooperControl({ ...input, publicClients: looperClients }));
+  const walletContextLoader = consoleWalletContextLoader ?? (looperClients
+    ? createLooperWalletReadContextLoader({ publicClients: looperClients })
+    : null);
   const context = {
     store,
     savedRecords,
@@ -224,6 +366,8 @@ export function createMultipassApi({
     signatureVerifier,
     cookieSecure: cookieSecure ?? inferSecureCookie(allowedOrigins, normalizedBaseUrl),
     cookieName: MANAGER_COOKIE_NAME,
+    consoleCookieName: CONSOLE_COOKIE_NAME,
+    consoleAuthStore: consoleAuthStore ?? createConsoleAuthStore(),
     fetchImpl,
     loopersAllowlist,
     loopersAllowlistSnapshot,
@@ -234,7 +378,43 @@ export function createMultipassApi({
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
+    loopersOwnedAgentLoader: ownedLoopersLoader,
+    loopersAuthorizer: authorizeLooper,
+    looperNameStore: looperNameStore ?? createSqliteLooperNameStore(),
+    consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
+    consoleWalletContextLoader: walletContextLoader,
+    looperCodexRuntime: resolvedLooperCodexRuntime,
+    logger,
+    consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
+      ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),
+      now: consoleCodexRateLimitNow,
+      maxBuckets: consoleCodexWalletMaxBuckets,
+    }),
+    consoleCodexGlobalRateLimiter: createBoundedFixedWindowRateLimiter({
+      ...(consoleCodexGlobalRateLimit ?? CONSOLE_CODEX_GLOBAL_RATE_LIMIT),
+      now: consoleCodexRateLimitNow,
+      maxBuckets: 1,
+    }),
+    consoleMessageShortRateLimiter: createFixedWindowRateLimiter(
+      consoleMessageShortRateLimit ?? CONSOLE_MESSAGE_SHORT_RATE_LIMIT,
+    ),
+    consoleMessageDailyRateLimiter: createFixedWindowRateLimiter(
+      consoleMessageDailyRateLimit ?? CONSOLE_MESSAGE_DAILY_RATE_LIMIT,
+    ),
+    consoleMessageConcurrency: createConcurrencyGate(consoleMessageGlobalConcurrency),
+    restapDiscoveryEnabled: Boolean(restapDiscoveryEnabled),
+    restapTalkEnabled: Boolean(restapTalkEnabled),
+    restap3802Policy,
+    restapTalkRuntime,
+    restapNewsWriteEnabled: Boolean(restapNewsWriteEnabled),
+    restapNewsReadEnabled: Boolean(restapNewsReadEnabled),
+    restapNewsStore,
+    restapNewsAuthenticator,
+    restapIpRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perIpPerMinute ?? 20, windowMs: 60_000, now: restapRateLimitNow }),
+    restapSessionRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perSessionPerMinute ?? 10, windowMs: 60_000, now: restapRateLimitNow }),
+    restapDailyRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.globalPerDay ?? 10_000, windowMs: 86_400_000, now: restapRateLimitNow }),
+    restapConcurrency: createConcurrencyGate(restapTalkLimits?.concurrency ?? 4),
   };
 
   return {
@@ -243,6 +423,9 @@ export function createMultipassApi({
         const url = new URL(request.url);
         const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
         const method = request.method.toUpperCase();
+
+        const restapResponse = await handleRestap3802Request(request, url, method, context);
+        if (restapResponse) return restapResponse;
 
         if (method === 'POST') {
           if (parts[0] === 'api' && parts[1] === 'loopers') {
@@ -270,12 +453,19 @@ export function createMultipassApi({
           return jsonResponse(createOpenApiDocument(normalizedBaseUrl));
         }
 
+        if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'console' && parts[3] === 'skills' && parts.length === 4) {
+          const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+          return jsonResponse(searchBankrMarketplaceSkills(url.searchParams.get('q') ?? '', {
+            limit: Number.isInteger(requestedLimit) ? requestedLimit : 20,
+          }), 200, { 'cache-control': 'public, max-age=300' });
+        }
+
         if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'resolve') {
           return await handleCanonicalResolve(url, context);
         }
 
         if (parts[0] === 'api' && parts[1] === 'loopers') {
-          return await handleLooperRead(url, parts, context);
+          return await handleLooperRead(request, url, parts, context);
         }
 
         if (parts[0] === 'api' && parts[1] === 'resolve') {
@@ -298,7 +488,7 @@ export function createMultipassApi({
         return handlePublicRead(parts, context);
       } catch (error) {
         if (error instanceof ApiInputError) {
-          return errorResponse(400, error.code, error.message);
+          return errorResponse(error.status ?? 400, error.code, error.message);
         }
         if (error instanceof ApiUnauthorizedError) {
           return errorResponse(401, 'unauthorized', error.message);
@@ -324,6 +514,217 @@ export function createMultipassApi({
   };
 }
 
+async function handleRestap3802Request(request, url, method, context) {
+  const discoveryPath = '/api/restap/loopers/3802/.well-known/restap.json';
+  const talkPath = '/api/restap/loopers/3802/talk';
+  const newsPath = '/api/restap/loopers/3802/news';
+  const exactDiscovery = url.pathname === discoveryPath && url.search === '';
+  const exactTalk = url.pathname === talkPath && url.search === '';
+  const exactNews = url.pathname === newsPath;
+  if (!exactDiscovery && !exactTalk && !exactNews) return null;
+
+  if (exactNews) return handleRestap3802News(request, url, method, context);
+
+  if (exactDiscovery) {
+    if (!context.restapDiscoveryEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    if (method !== 'GET') return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+    const started = Date.now();
+    try {
+      const authorization = await context.restap3802Policy?.authorize?.({ surface: 'discovery' });
+      if (!authorization?.discovery) throw new Error('unavailable');
+      safeRestapLog(context.logger, { event: 'restap_request', status: 200, durationMs: Date.now() - started, tokenId: '3802', errorClass: null });
+      return jsonResponse(authorization.discovery, 200, { 'cache-control': 'public, max-age=60' });
+    } catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) {
+        safeRestapLog(context.logger, { event: 'restap_request', status: 404, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'NotAuthorized' });
+        return errorResponse(404, 'not_found', 'Route not found.');
+      }
+      safeRestapLog(context.logger, { event: 'restap_request', status: 503, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'Unavailable' });
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+  }
+
+  if (!context.restapTalkEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+  if (method !== 'POST') return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  const started = Date.now();
+  let body;
+  try {
+    body = await readRestapJsonBody(request, RESTAP_LIMITS.talkBodyBytes);
+    body = normalizeRestapTalkRequest(body);
+  } catch (error) {
+    if (error instanceof RestapPayloadTooLargeError) {
+      safeRestapLog(context.logger, { event: 'restap_request', status: 413, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'PayloadTooLarge' });
+      return errorResponse(413, 'payload_too_large', 'RESTAP request body is too large.');
+    }
+    safeRestapLog(context.logger, { event: 'restap_request', status: 400, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'InvalidRequest' });
+    return errorResponse(400, 'invalid_request', 'Invalid RESTAP talk request.');
+  }
+
+  const ipKey = String(request.headers.get('x-multipass-client-ip') ?? 'direct');
+  const ipLimit = context.restapIpRateLimiter.check(ipKey);
+  if (!ipLimit.allowed) return restapThrottle(ipLimit.retryAfterSeconds);
+  if (body.session_id) {
+    const sessionLimit = context.restapSessionRateLimiter.check(body.session_id);
+    if (!sessionLimit.allowed) return restapThrottle(sessionLimit.retryAfterSeconds);
+  }
+  const dailyLimit = context.restapDailyRateLimiter.check('global');
+  if (!dailyLimit.allowed) return restapThrottle(dailyLimit.retryAfterSeconds);
+  const release = context.restapConcurrency.tryAcquire();
+  if (!release) return restapThrottle(1);
+
+  try {
+    let authorization;
+    try { authorization = await context.restap3802Policy?.authorize?.({ surface: 'talk' }); }
+    catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) return errorResponse(404, 'not_found', 'Route not found.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    if (!authorization?.publicProjection || typeof context.restapTalkRuntime?.talk !== 'function') {
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    try {
+      const result = await context.restapTalkRuntime.talk({ message: body.message, ...(body.session_id ? { sessionId: body.session_id } : {}), publicProjection: authorization.publicProjection });
+      safeRestapLog(context.logger, { event: 'restap_request', status: 200, durationMs: Date.now() - started, tokenId: '3802', errorClass: null });
+      return jsonResponse(result);
+    } catch (error) {
+      if (error?.message === 'invalid_session_id') return errorResponse(400, 'invalid_session_id', 'Invalid RESTAP session.');
+      if (error?.code === 'provider_unavailable') return errorResponse(503, 'provider_unavailable', 'RESTAP provider is temporarily unavailable.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+  } finally { release(); }
+}
+
+async function handleRestap3802News(request, url, method, context) {
+  if (method === 'POST') {
+    if (!context.restapNewsWriteEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    let body;
+    try { body = normalizeRestapNewsPost(await readRestapJsonBody(request, RESTAP_LIMITS.newsBodyBytes)); }
+    catch (error) {
+      if (error instanceof RestapPayloadTooLargeError) return errorResponse(413, 'payload_too_large', 'RESTAP request body is too large.');
+      return errorResponse(400, 'invalid_request', 'Invalid RESTAP news request.');
+    }
+    try { await context['restap3802' + 'Policy']?.authorize?.({ surface: 'news-write' }); }
+    catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) return errorResponse(404, 'not_found', 'Route not found.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    if (typeof context.restapNewsAuthenticator?.authenticate !== 'function' || typeof context.restapNewsStore?.accept !== 'function') {
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    let authenticated;
+    try {
+      authenticated = await context.restapNewsAuthenticator.authenticate({
+        method,
+        path: '/multipass-api/api/restap/loopers/3802/news',
+        headers: request.headers,
+        body,
+      });
+    } catch (error) {
+      const status = [401, 403, 503].includes(error?.status) ? error.status : 403;
+      const code = status === 401 ? 'authentication_required' : status === 503 ? 'dependency_unavailable' : 'sender_not_authorized';
+      return errorResponse(status, code, status === 503 ? 'RESTAP authentication dependency is unavailable.' : 'RESTAP sender authentication failed.');
+    }
+    try {
+      const accepted = context.restapNewsStore.accept(authenticated);
+      return jsonResponse(normalizeRestapNewsWriteAcknowledgment(accepted), 202);
+    } catch (error) {
+      if (error?.code === 'replay' || error?.status === 409) return errorResponse(409, 'replay', 'RESTAP news replay rejected.');
+      return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    }
+  }
+
+  if (method === 'GET') {
+    if (!context.restapNewsReadEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    let query;
+    try { query = parseRestapNewsQuery(url.searchParams); }
+    catch { return errorResponse(400, 'invalid_request', 'Invalid RESTAP news query.'); }
+    const session = requireConsoleSession(request, context, { requireCsrf: false });
+    try { await authorizeConsoleLooper({ tokenId: '3802', wallet: session.wallet, context }); }
+    catch (error) {
+      if (error instanceof ApiForbiddenError) throw error;
+      return errorResponse(503, 'authorization_unavailable', 'Owner authorization is temporarily unavailable.');
+    }
+    if (typeof context.restapNewsStore?.list !== 'function') return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    try {
+      const page = context.restapNewsStore.list(query);
+      const output = normalizeRestapNewsRead({
+        items: page.items.map((item) => item.canonicalBody),
+        timestamp: Date.now(),
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      });
+      return jsonResponse(output);
+    } catch (error) {
+      if (error instanceof TypeError || error instanceof RangeError) return errorResponse(400, 'invalid_request', 'Invalid RESTAP news query.');
+      return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    }
+  }
+
+  if (context.restapNewsReadEnabled || context.restapNewsWriteEnabled) return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  return errorResponse(404, 'not_found', 'Route not found.');
+}
+
+function parseRestapNewsQuery(searchParams) {
+  for (const key of searchParams.keys()) if (key !== 'cursor' && key !== 'limit') throw new TypeError('Unknown RESTAP news query.');
+  if (searchParams.getAll('cursor').length > 1 || searchParams.getAll('limit').length > 1) throw new TypeError('Duplicate RESTAP news query.');
+  const cursor = searchParams.get('cursor') ?? undefined;
+  const limitSource = searchParams.get('limit');
+  const limit = limitSource === null ? RESTAP_LIMITS.newsPageDefault : Number(limitSource);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > RESTAP_LIMITS.newsPageMax) throw new RangeError('RESTAP news limit is invalid.');
+  return { cursor, limit };
+}
+
+class RestapPayloadTooLargeError extends Error {}
+
+async function readRestapJsonBody(request, maximumBytes) {
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  if (contentType !== 'application/json') throw new TypeError('RESTAP requires application/json.');
+  const declaredHeader = request.headers.get('content-length');
+  if (declaredHeader !== null) {
+    const declared = Number(declaredHeader);
+    if (!Number.isSafeInteger(declared) || declared < 0) throw new TypeError('RESTAP content length is invalid.');
+    if (declared > maximumBytes) throw new RestapPayloadTooLargeError();
+  }
+  const bytes = await readBoundedRestapBody(request.body, maximumBytes);
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return parseStrictJsonObject(text);
+}
+
+async function readBoundedRestapBody(body, maximumBytes) {
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new RestapPayloadTooLargeError();
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof RestapPayloadTooLargeError) await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+function restapThrottle(retryAfterSeconds) {
+  return errorResponse(429, 'rate_limited', 'RESTAP request limit exceeded.', undefined, { 'retry-after': String(Math.max(1, retryAfterSeconds)) });
+}
+
+function safeRestapLog(logger, event) {
+  try { logger?.info?.(event); } catch {}
+}
+
 async function handleStaticMultipassShellRead(parts) {
   if (parts[0] !== 'multipass' || parts[1] !== 'agents' || parts.length !== 2) return null;
   return htmlResponse(await loadMultipassWebIndexHtml(), {
@@ -334,6 +735,30 @@ async function handleStaticMultipassShellRead(parts) {
 async function handlePostRequest(request, parts, context) {
   if (parts[0] !== 'api' || parts[1] !== 'multipass') {
     return errorResponse(404, 'not_found', 'Route not found.');
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'nonce' && parts.length === 5) {
+    return handleConsoleSessionNonce(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'verify' && parts.length === 5) {
+    return handleConsoleSessionVerify(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'session' && parts[4] === 'logout' && parts.length === 5) {
+    return handleConsoleSessionLogout(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'codex' && parts[4] === 'query' && parts.length === 5) {
+    return handleConsoleCodexQuery(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'activate' && parts.length === 5) {
+    return handleConsoleAgentActivate(request, context);
+  }
+
+  if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'name' && parts.length === 5) {
+    return handleConsoleAgentName(request, context);
   }
 
   if (parts[2] === 'console' && parts[3] === 'agent' && parts[4] === 'message' && parts.length === 5) {
@@ -396,17 +821,285 @@ async function handlePostRequest(request, parts, context) {
   return errorResponse(404, 'not_found', 'Route not found.');
 }
 
-async function handleConsoleAgentMessage(request, context) {
+async function handleConsoleSessionNonce(request, context) {
+  assertTrustedOrigin(request, context);
   const body = await readJsonBody(request);
-  const wallet = normalizeWallet(body.wallet, 'wallet');
-  const message = String(body.message ?? '').trim();
-  if (!message) throw new ApiInputError('invalid_request', 'Message is required.');
-  const result = await context.consoleAgentRuntime.handleMessage({
-    ...body,
-    wallet,
-    message,
+  return jsonResponse(context.consoleAuthStore.createChallenge({
+    wallet: normalizeWallet(body.wallet, 'wallet'),
+    domain: domainFromRequest(request),
+  }));
+}
+
+async function handleConsoleSessionVerify(request, context) {
+  assertTrustedOrigin(request, context);
+  const body = await readJsonBody(request);
+  let session;
+  try {
+    session = await context.consoleAuthStore.verifyChallenge({
+      wallet: normalizeWallet(body.wallet, 'wallet'),
+      nonce: String(body.nonce ?? ''),
+      signature: String(body.signature ?? ''),
+      signatureVerifier: context.signatureVerifier,
+    });
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
+  return jsonResponse({
+    schema_version: '0.1.0',
+    wallet: session.wallet,
+    csrfToken: session.csrfToken,
+    session_expires_at: session.expires_at,
+  }, 200, { 'set-cookie': buildConsoleSessionCookie(session.sessionId, context) });
+}
+
+function handleConsoleSessionLogout(request, context) {
+  assertTrustedOrigin(request, context);
+  const sessionId = parseCookies(request.headers.get('cookie')).get(context.consoleCookieName);
+  if (sessionId) context.consoleAuthStore.revokeSession(sessionId);
+  return jsonResponse({ schema_version: '0.1.0', ok: true }, 200, { 'set-cookie': clearConsoleSessionCookie(context) });
+}
+
+async function handleConsoleCodexQuery(request, context) {
+  const startedAt = Date.now();
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  assertTrustedOrigin(request, context);
+  const body = await readBoundedJsonBody(request, CONSOLE_CODEX_REQUEST_MAX_BYTES);
+  assertExactCodexRequest(body);
+  const selectedTokenId = normalizeLooperTokenId(body.selectedTokenId);
+
+  const walletLimit = context.consoleCodexWalletRateLimiter.check(
+    createCodexQuotaKey(session.wallet, selectedTokenId),
+  );
+  if (!walletLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_rate_limited',
+      'Looper Codex query rate limit exceeded.',
+      walletLimit.retryAfterSeconds,
+    );
+  }
+
+  const globalLimit = context.consoleCodexGlobalRateLimiter.check('global');
+  if (!globalLimit.allowed) {
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 429,
+      startedAt,
+      errorClass: 'RateLimitError',
+    });
+    return consoleThrottleResponse(
+      'codex_global_rate_limited',
+      'Looper Codex service is busy.',
+      globalLimit.retryAfterSeconds,
+    );
+  }
+
+  try {
+    await authorizeConsoleLooper({ tokenId: selectedTokenId, wallet: session.wallet, context });
+  } catch (error) {
+    if (error instanceof ApiForbiddenError) {
+      throw new ApiForbiddenError('Authenticated wallet is not authorized for this Looper.');
+    }
+    if (error instanceof ApiUnauthorizedError) throw error;
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 503,
+      startedAt,
+      errorClass: error?.constructor?.name ?? 'Error',
+    });
+    return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
+  }
+
+  try {
+    const result = context.looperCodexRuntime.query(body.operation, body.input);
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 200,
+      startedAt,
+      errorClass: null,
+    });
+    return jsonResponse(result);
+  } catch (error) {
+    if (error instanceof LooperCodexUnavailableError) {
+      logCodexQuery(context, {
+        operation: body.operation,
+        selectedTokenId,
+        status: 503,
+        startedAt,
+        errorClass: error.name,
+      });
+      return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
+    }
+    if (error instanceof LooperCodexInputError) {
+      logCodexQuery(context, {
+        operation: body.operation,
+        selectedTokenId,
+        status: 400,
+        startedAt,
+        errorClass: error.name,
+      });
+      return errorResponse(400, 'invalid_codex_query', 'Looper Codex query is invalid.');
+    }
+    logCodexQuery(context, {
+      operation: body.operation,
+      selectedTokenId,
+      status: 503,
+      startedAt,
+      errorClass: error?.constructor?.name ?? 'Error',
+    });
+    return errorResponse(503, 'codex_unavailable', 'Looper Codex is unavailable.');
+  }
+}
+
+async function handleConsoleAgentActivate(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readJsonBody(request);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const persistedName = context.looperNameStore.get(identity)?.name;
+  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: persistedName ?? body.runtimeName });
+  const recovered = typeof context.consoleAgentRuntime.getThread === 'function'
+    ? await context.consoleAgentRuntime.getThread({
+      tokenId: identity.tokenId,
+      agentId: identity.erc8004AgentId,
+      activationId: runtime.key,
+      agentName: runtime.runtimeName,
+      wallet: session.wallet,
+      canonicalIdentity: identity,
+      canonicalConversationId: runtime.conversationId,
+    })
+    : null;
+  return jsonResponse({
+    schema_version: '0.1.0',
+    runtime,
+    ...(recovered ? {
+      room: recovered.room,
+      thread: recovered.thread,
+      memory: recovered.memory,
+      missions: recovered.missions,
+      proposals: recovered.proposals,
+      executionMode: recovered.executionMode,
+      ...('capabilities' in recovered ? { capabilities: recovered.capabilities } : {}),
+      ...('proposalCandidates' in recovered ? { proposalCandidates: recovered.proposalCandidates } : {}),
+    } : {}),
   });
-  return jsonResponse(result);
+}
+
+async function handleConsoleAgentName(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readJsonBody(request);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  const canonicalName = String(identity.persona?.canonicalName ?? `Looper #${tokenId}`).trim();
+  const saved = body.name === null
+    ? context.looperNameStore.reset({ identity, wallet: session.wallet })
+    : context.looperNameStore.set({ identity, name: body.name, wallet: session.wallet });
+  const name = saved?.name ?? canonicalName;
+  const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: name });
+  return jsonResponse({
+    schema_version: '0.1.0',
+    tokenId,
+    name,
+    canonicalName,
+    customName: saved?.name ?? null,
+    runtime,
+  });
+}
+
+async function handleConsoleAgentMessage(request, context) {
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  const body = await readBoundedJsonBody(request, CONSOLE_IMAGE_REQUEST_MAX_BYTES);
+  const tokenId = normalizeLooperTokenId(body.tokenId);
+  const rawMessage = String(body.message ?? '');
+  if (Buffer.byteLength(rawMessage, 'utf8') > CONSOLE_MESSAGE_MAX_BYTES) {
+    throw new ApiInputError('message_too_large', 'Message must be at most 2,000 UTF-8 bytes.');
+  }
+  const message = rawMessage.trim();
+  if (!message && !body.attachment) throw new ApiInputError('invalid_request', 'Message or image is required.');
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+  let attachment = null;
+  if (body.attachment) {
+    try {
+      attachment = normalizeConsoleImageAttachment(body.attachment);
+    } catch (error) {
+      throw new ApiInputError('invalid_image_attachment', error.message);
+    }
+  }
+  const clientMessageId = normalizeConsoleClientMessageId(body.clientMessageId);
+  if (attachment && !clientMessageId) {
+    throw new ApiInputError('invalid_request', 'Image turns require a stable clientMessageId.');
+  }
+  const quotaKey = `${session.wallet}:${identity.tokenId}`;
+  const shortWindow = context.consoleMessageShortRateLimiter.check(quotaKey);
+  if (!shortWindow.allowed) {
+    return consoleThrottleResponse(
+      'console_message_rate_limited',
+      'Console message rate limit exceeded.',
+      shortWindow.retryAfterSeconds,
+    );
+  }
+  const daily = context.consoleMessageDailyRateLimiter.check(quotaKey);
+  if (!daily.allowed) {
+    return consoleThrottleResponse(
+      'console_message_daily_quota',
+      'Console daily message quota exceeded.',
+      daily.retryAfterSeconds,
+    );
+  }
+  const releaseConcurrency = context.consoleMessageConcurrency.tryAcquire();
+  if (!releaseConcurrency) {
+    return consoleThrottleResponse('console_message_busy', 'Console providers are busy.', 1);
+  }
+  try {
+    const suppliedWalletContext = normalizeConsoleWalletContext(body.walletContext, { identity, wallet: session.wallet });
+    const walletContext = context.consoleWalletContextLoader
+      ? await context.consoleWalletContextLoader({ identity, wallet: session.wallet })
+      : suppliedWalletContext;
+    const activation = context.consoleRuntimeRegistry.get(identity);
+    if (!activation) throw new ApiForbiddenError('Activate this Looper runtime before messaging it.');
+    let codexContext = null;
+    try {
+      codexContext = context.looperCodexRuntime.getProfileContext(identity.tokenId);
+    } catch (error) {
+      if (!(error instanceof LooperCodexUnavailableError)) throw error;
+    }
+    const result = await context.consoleAgentRuntime.handleMessage({
+      tokenId: identity.tokenId,
+      agentId: identity.erc8004AgentId,
+      activationId: activation.key,
+      agentName: activation.runtimeName,
+      wallet: session.wallet,
+      canonicalIdentity: activation.identity,
+      canonicalConversationId: activation.conversationId,
+      message,
+      attachment,
+      clientMessageId,
+      walletContext,
+      codexContext,
+    });
+    if (result?.thread?.conversationId) {
+      context.consoleRuntimeRegistry.bindConversation({
+        identity,
+        conversationId: result.thread.conversationId,
+        threadId: result.thread.threadId,
+        topicId: result.thread.topicId,
+        transport: result.thread.transport,
+        participants: result.thread.participants,
+      });
+    }
+    return jsonResponse(result);
+  } finally {
+    releaseConcurrency();
+  }
 }
 
 async function handleLooperPost(request, parts, context) {
@@ -499,7 +1192,28 @@ async function handleLooperPost(request, parts, context) {
   return errorResponse(404, 'not_found', 'Route not found.');
 }
 
-async function handleLooperRead(url, parts, context) {
+async function handleLooperRead(request, url, parts, context) {
+  if (parts[2] === 'owned' && parts.length === 3) {
+    const session = requireConsoleSession(request, context);
+    const loadedAgents = await context.loopersOwnedAgentLoader({ address: session.wallet });
+    const agents = loadedAgents.map((agent) => {
+      const persisted = context.looperNameStore.get({
+        chainId: agent.chainId ?? LOOPERS_MAINNET_CHAIN_ID,
+        contract: agent.contract ?? LOOPERS_MAINNET_CONTRACT,
+        tokenId: agent.tokenId,
+      });
+      if (!persisted) return agent;
+      const canonicalName = String(agent.canonicalName ?? agent.name ?? `Looper #${agent.tokenId}`).trim();
+      return { ...agent, name: persisted.name, canonicalName, customName: persisted.name };
+    });
+    return jsonResponse({
+      schema_version: '0.1.0',
+      collection: 'loopers',
+      owner: session.wallet,
+      agents,
+    });
+  }
+
   if (parts[2] === 'allowlist' && parts[3] === 'status' && parts.length === 4) {
     if (!context.loopersAllowlist) {
       return errorResponse(503, 'not_configured', 'Looper allowlist registration is not configured.');
@@ -965,6 +1679,172 @@ async function handleRefreshTool(request, identifier, fragmentId, context) {
   } catch (error) {
     throw mapToolImportError(error);
   }
+}
+
+function requireConsoleSession(request, context, { requireCsrf = false } = {}) {
+  assertTrustedOrigin(request, context);
+  const sessionId = parseCookies(request.headers.get('cookie')).get(context.consoleCookieName);
+  if (!sessionId) throw new ApiUnauthorizedError('Authenticated Console wallet session is required.');
+  try {
+    return context.consoleAuthStore.validateSession({
+      sessionId,
+      csrfToken: request.headers.get('x-csrf-token') ?? '',
+      requireCsrf,
+    });
+  } catch (error) {
+    throw new ApiForbiddenError(error.message);
+  }
+}
+
+async function authorizeConsoleLooper({ tokenId, wallet, context }) {
+  try {
+    const identity = await context.loopersAuthorizer({ tokenId, wallet });
+    if (
+      Number(identity?.chainId) !== LOOPERS_MAINNET_CHAIN_ID
+      || String(identity?.contract ?? '').toLowerCase() !== LOOPERS_MAINNET_CONTRACT.toLowerCase()
+      || String(identity?.tokenId ?? '') !== String(tokenId)
+      || String(identity?.owner ?? '').toLowerCase() !== String(wallet).toLowerCase()
+      || !/^\d+$/.test(String(identity?.erc8004AgentId ?? ''))
+      || identity?.controllerVerified !== true
+    ) {
+      throw new ApiForbiddenError('Canonical Looper owner/controller authorization failed.');
+    }
+    return identity;
+  } catch (error) {
+    if (error instanceof ApiForbiddenError) throw error;
+    if (error?.code === 'forbidden' || /does not own|not the ERC-8004 identity controller/i.test(error?.message ?? '')) {
+      throw new ApiForbiddenError(error.message);
+    }
+    throw error;
+  }
+}
+
+function normalizeConsoleWalletContext(value, { identity, wallet }) {
+  if (value === undefined || value === null) return null;
+  rejectExecutableWalletContext(value);
+  const capabilities = value?.capabilities;
+  const scope = value?.scope;
+  const expectedAccount = deriveReleasedLooperAccount(identity.tokenId);
+  const matchesIdentity = value?.schema_version === '0.1.0'
+    && value?.kind === 'looper_wallet_read_context'
+    && scope?.chainId === LOOPERS_MAINNET_CHAIN_ID
+    && String(scope?.collection ?? '').toLowerCase() === String(identity.contract).toLowerCase()
+    && String(scope?.tokenId ?? '') === String(identity.tokenId)
+    && String(scope?.owner ?? '').toLowerCase() === String(wallet).toLowerCase()
+    && /^0x[a-fA-F0-9]{40}$/.test(String(scope?.account ?? ''))
+    && String(scope.account).toLowerCase() === expectedAccount
+    && capabilities?.read === true
+    && capabilities?.sign === false
+    && capabilities?.submit === false
+    && capabilities?.approve === false;
+  if (!matchesIdentity) throw new ApiForbiddenError('Looper wallet context is not owner-scoped read-only evidence.');
+  return JSON.parse(JSON.stringify(value));
+}
+
+function rejectExecutableWalletContext(value, path = '') {
+  if (typeof value === 'function' || typeof value === 'bigint') {
+    throw new ApiForbiddenError('Looper wallet context must contain JSON read evidence only.');
+  }
+  if (!value || typeof value !== 'object') return;
+  if (Object.getPrototypeOf(value) !== Object.prototype && !Array.isArray(value)) {
+    throw new ApiForbiddenError('Looper wallet context must contain plain JSON only.');
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = path ? `${path}.${key}` : key;
+    if (/(?:calldata|transaction|prepared|provider|callback|credential|api.?key|store.?key)/i.test(nextPath)) {
+      throw new ApiForbiddenError('Looper wallet context contains executable or private data.');
+    }
+    rejectExecutableWalletContext(entry, nextPath);
+  }
+}
+
+function normalizeLooperTokenId(value) {
+  try {
+    const tokenId = BigInt(String(value ?? '').trim());
+    if (tokenId <= 0n || tokenId > 7_777n) throw new Error('out of range');
+    return tokenId.toString();
+  } catch {
+    throw new ApiInputError('invalid_request', 'Provide a valid Looper token ID.');
+  }
+}
+
+function assertExactCodexRequest(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiInputError('invalid_codex_query', 'Looper Codex query must be an object.');
+  }
+  const expected = ['input', 'operation', 'selectedTokenId'];
+  const keys = Object.keys(body);
+  if (keys.length !== expected.length || expected.some((key) => !Object.hasOwn(body, key))) {
+    throw new ApiInputError(
+      'invalid_codex_query',
+      'Looper Codex query requires exactly input, operation, and selectedTokenId.',
+    );
+  }
+}
+
+function createCodexQuotaKey(wallet, selectedTokenId) {
+  const walletHash = createHash('sha256')
+    .update(String(wallet ?? '').trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 24);
+  return walletHash + ':' + selectedTokenId;
+}
+
+function logCodexQuery(context, {
+  operation,
+  selectedTokenId,
+  status,
+  startedAt,
+  errorClass,
+}) {
+  const runtimeStatus = context.looperCodexRuntime?.status ?? {};
+  const event = {
+    event: 'looper_codex_query',
+    operation: CONSOLE_CODEX_OPERATIONS.has(operation) ? operation : 'invalid',
+    selectedTokenId,
+    status,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    schemaVersion: safeCodexMetadata(runtimeStatus.schemaVersion),
+    artifactHashPrefix: typeof runtimeStatus.artifactHash === 'string'
+      && /^[a-f0-9]{64}$/u.test(runtimeStatus.artifactHash)
+      ? runtimeStatus.artifactHash.slice(0, 12)
+      : null,
+    errorClass: safeCodexMetadata(errorClass),
+  };
+  try {
+    context.logger?.info?.(event);
+  } catch {
+    // Logging must never affect query behavior.
+  }
+}
+
+function safeCodexMetadata(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value);
+  return /^[A-Za-z0-9_.-]{1,64}$/u.test(normalized) ? normalized : null;
+}
+
+function createUnavailableCodexRuntime() {
+  const status = Object.freeze({ available: false, reason: 'not_configured' });
+  return Object.freeze({
+    available: false,
+    status,
+    query() {
+      throw new LooperCodexUnavailableError();
+    },
+    getProfileContext() {
+      throw new LooperCodexUnavailableError();
+    },
+  });
+}
+
+function normalizeConsoleClientMessageId(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(normalized)) {
+    throw new ApiInputError('invalid_client_message_id', 'clientMessageId is invalid.');
+  }
+  return normalized;
 }
 
 function requireManagerSession(request, identifier, context) {
@@ -1829,6 +2709,43 @@ function mapAdminClaimError(error) {
 
 async function readJsonBody(request) {
   const raw = await request.text();
+  return parseJsonBody(raw);
+}
+
+async function readBoundedJsonBody(request, maxBytes) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && (/^\d+$/u.test(declared) === false || Number(declared) > maxBytes)) {
+    throw new ApiInputError('request_too_large', `Request body must be at most ${maxBytes} bytes.`, 413);
+  }
+  if (!request.body) return {};
+  const reader = request.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new ApiInputError('request_too_large', `Request body must be at most ${maxBytes} bytes.`, 413);
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return parseJsonBody(new TextDecoder('utf-8', { fatal: true }).decode(merged));
+  } catch (error) {
+    if (error instanceof ApiInputError) throw error;
+    throw new ApiInputError('invalid_json', 'Request body must be valid UTF-8 JSON.');
+  }
+}
+
+function parseJsonBody(raw) {
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw);
@@ -1838,10 +2755,11 @@ async function readJsonBody(request) {
 }
 
 class ApiInputError extends Error {
-  constructor(code, message) {
+  constructor(code, message, status = 400) {
     super(message);
     this.name = 'ApiInputError';
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -1903,6 +2821,95 @@ function createFixedWindowRateLimiter({ limit, windowMs, now = () => Date.now() 
       return { allowed: true, retryAfterSeconds: 0 };
     },
   };
+}
+
+function createBoundedFixedWindowRateLimiter({
+  limit,
+  windowMs,
+  now = () => Date.now(),
+  maxBuckets = CONSOLE_CODEX_WALLET_MAX_BUCKETS,
+} = {}) {
+  const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 1;
+  const normalizedWindowMs = Number.isInteger(windowMs) && windowMs > 0 ? windowMs : 60_000;
+  const normalizedMaxBuckets = Number.isInteger(maxBuckets) && maxBuckets > 0
+    ? Math.min(maxBuckets, CONSOLE_CODEX_WALLET_MAX_BUCKETS)
+    : CONSOLE_CODEX_WALLET_MAX_BUCKETS;
+  const clock = typeof now === 'function' ? now : () => Date.now();
+  const buckets = new Map();
+  let lastTime = Number.NEGATIVE_INFINITY;
+
+  function readMonotonicTime() {
+    const observed = Number(clock());
+    const safeObserved = Number.isFinite(observed) ? observed : Date.now();
+    lastTime = Math.max(lastTime, safeObserved);
+    return lastTime;
+  }
+
+  function sweepExpired(currentTime) {
+    // Monotonic time and one fixed window keep Map insertion order equal to expiry order.
+    // Each bucket is removed once, and the hard cap bounds worst-case sweep work.
+    while (buckets.size > 0) {
+      const [key, bucket] = buckets.entries().next().value;
+      if (currentTime < bucket.resetAt) break;
+      buckets.delete(key);
+    }
+  }
+
+  return {
+    check(key) {
+      const bucketKey = String(key || 'unknown');
+      const currentTime = readMonotonicTime();
+      sweepExpired(currentTime);
+      const existing = buckets.get(bucketKey);
+      if (existing) {
+        if (existing.count >= normalizedLimit) {
+          return {
+            allowed: false,
+            retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - currentTime) / 1000)),
+          };
+        }
+        existing.count += 1;
+        return { allowed: true, retryAfterSeconds: 0 };
+      }
+
+      if (buckets.size >= normalizedMaxBuckets) {
+        const earliest = buckets.values().next().value;
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((earliest.resetAt - currentTime) / 1000)),
+        };
+      }
+
+      buckets.set(bucketKey, { count: 1, resetAt: currentTime + normalizedWindowMs });
+      return { allowed: true, retryAfterSeconds: 0 };
+    },
+  };
+}
+
+function createConcurrencyGate(limit) {
+  const normalizedLimit = Number.isInteger(limit) && limit > 0
+    ? limit
+    : CONSOLE_MESSAGE_GLOBAL_CONCURRENCY;
+  let active = 0;
+  return {
+    tryAcquire() {
+      if (active >= normalizedLimit) return null;
+      active += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        active -= 1;
+      };
+    },
+  };
+}
+
+function consoleThrottleResponse(code, message, retryAfterSeconds) {
+  return jsonResponse({
+    schema_version: '0.1.0',
+    error: { code, message },
+  }, 429, { 'retry-after': String(Math.max(1, retryAfterSeconds)) });
 }
 
 function getClientRateLimitKey(request) {
@@ -1989,7 +2996,7 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
   });
 }
 
-function errorResponse(status, code, message, details) {
+function errorResponse(status, code, message, details, extraHeaders = {}) {
   return jsonResponse({
     schema_version: '0.1.0',
     error: {
@@ -1997,7 +3004,7 @@ function errorResponse(status, code, message, details) {
       message,
       ...(details === undefined ? {} : { details }),
     },
-  }, status);
+  }, status, extraHeaders);
 }
 
 function createDiscoveryDocument(baseUrl) {
@@ -2268,6 +3275,27 @@ function clearSessionCookie(context) {
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
+    'Max-Age=0',
+    context.cookieSecure ? 'Secure' : null,
+  ].filter(Boolean).join('; ');
+}
+
+function buildConsoleSessionCookie(sessionId, context) {
+  return [
+    `${context.consoleCookieName}=${encodeURIComponent(sessionId)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    context.cookieSecure ? 'Secure' : null,
+  ].filter(Boolean).join('; ');
+}
+
+function clearConsoleSessionCookie(context) {
+  return [
+    `${context.consoleCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
     'Max-Age=0',
     context.cookieSecure ? 'Secure' : null,
   ].filter(Boolean).join('; ');

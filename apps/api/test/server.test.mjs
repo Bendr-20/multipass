@@ -4,10 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { privateKeyToAccount } from 'viem/accounts';
+
 import { buildSavedRecordFromHelixaAgent } from '../src/activation-records.js';
 import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-snapshot.js';
 
-import { parseServerOptions, startServer } from '../src/server.js';
+import { parseServerOptions, sanitizeRestapProxyHeaders, startServer } from '../src/server.js';
 
 test('parseServerOptions returns safe defaults', () => {
   assert.deepEqual(parseServerOptions([], {}), {
@@ -21,6 +23,7 @@ test('parseServerOptions returns safe defaults', () => {
     publicBaseUrl: null,
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    looperCodexArtifactPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistBlockedSources: [],
@@ -28,9 +31,17 @@ test('parseServerOptions returns safe defaults', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+    loopersCredTimeoutMs: 4000,
+    loopersCredConcurrency: 4,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
+    bankrLlmVisionModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -40,6 +51,20 @@ test('parseServerOptions returns safe defaults', () => {
     consoleXmtpApiUrl: null,
     consoleXmtpGatewayHost: null,
     consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
   });
 });
 
@@ -61,6 +86,7 @@ test('CLI flags override environment values', () => {
       publicBaseUrl: null,
       loopersAllowlistPath: null,
       loopersAllowlistSnapshotPath: null,
+      looperCodexArtifactPath: null,
       loopersAllowlistRegistrationPaused: false,
       loopersAllowlistRequireBrowserOrigin: false,
       loopersAllowlistBlockedSources: [],
@@ -68,9 +94,17 @@ test('CLI flags override environment values', () => {
       loopersAllowlistSubnetRateLimit: undefined,
       loopersAllowlistGlobalRateLimit: undefined,
       loopersTurnstileSecretKey: null,
+      loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+      loopersCredTimeoutMs: 4000,
+      loopersCredConcurrency: 4,
       bankrLlmKey: null,
+      bankrReadonlyApiKey: null,
       bankrLlmModel: null,
+    bankrLlmVisionModel: null,
       consoleAgentBankrLlmEnabled: false,
+      consoleSkillProposalsEnabled: false,
+      consoleMarketReadEnabled: false,
+      consoleAccountReadEnabled: false,
       consoleXmtpEnabled: false,
       consoleXmtpEnv: 'production',
       consoleXmtpWalletKey: null,
@@ -80,6 +114,20 @@ test('CLI flags override environment values', () => {
       consoleXmtpApiUrl: null,
       consoleXmtpGatewayHost: null,
       consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
     },
   );
 });
@@ -101,6 +149,7 @@ test('parseServerOptions accepts claim management security env', () => {
     publicBaseUrl: 'https://helixa.xyz',
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
+    looperCodexArtifactPath: null,
     loopersAllowlistRegistrationPaused: false,
     loopersAllowlistRequireBrowserOrigin: false,
     loopersAllowlistBlockedSources: [],
@@ -108,9 +157,17 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersAllowlistSubnetRateLimit: undefined,
     loopersAllowlistGlobalRateLimit: undefined,
     loopersTurnstileSecretKey: null,
+    loopersCredApiBaseUrl: 'https://api.helixa.xyz',
+    loopersCredTimeoutMs: 4000,
+    loopersCredConcurrency: 4,
     bankrLlmKey: null,
+    bankrReadonlyApiKey: null,
     bankrLlmModel: null,
+    bankrLlmVisionModel: null,
     consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: false,
+    consoleAccountReadEnabled: false,
     consoleXmtpEnabled: false,
     consoleXmtpEnv: 'production',
     consoleXmtpWalletKey: null,
@@ -120,7 +177,43 @@ test('parseServerOptions accepts claim management security env', () => {
     consoleXmtpApiUrl: null,
     consoleXmtpGatewayHost: null,
     consoleXmtpAppVersion: 'multipass-console',
+    restapDiscoveryEnabled: false,
+    restapTalkEnabled: false,
+    restapNewsWriteEnabled: false,
+    restapNewsReadEnabled: false,
+    restapTrustLoopbackProxy: false,
+    restap3802PolicyPath: null,
+    restapTalkModel: null,
+    restapTalkTimeoutMs: 15000,
+    restapTalkLimits: {
+      perIpPerMinute: 20,
+      perSessionPerMinute: 10,
+      globalPerDay: 10000,
+      concurrency: 4,
+    },
   });
+});
+
+
+test('parseServerOptions configures bounded server-side Looper CRED reads without a secret', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_LOOPER_CRED_API_BASE_URL: 'https://cred.internal.example/root/',
+    MULTIPASS_LOOPER_CRED_TIMEOUT_MS: '2500',
+    MULTIPASS_LOOPER_CRED_CONCURRENCY: '3',
+  });
+  assert.equal(options.loopersCredApiBaseUrl, 'https://cred.internal.example/root');
+  assert.equal(options.loopersCredTimeoutMs, 2500);
+  assert.equal(options.loopersCredConcurrency, 3);
+  assert.equal(Object.keys(options).some((key) => /cred.*(?:key|secret|token)/iu.test(key)), false);
+
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_LOOPER_CRED_TIMEOUT_MS: '0' }),
+    /MULTIPASS_LOOPER_CRED_TIMEOUT_MS/,
+  );
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_LOOPER_CRED_CONCURRENCY: '17' }),
+    /MULTIPASS_LOOPER_CRED_CONCURRENCY/,
+  );
 });
 
 test('parseServerOptions rejects invalid ports', () => {
@@ -174,10 +267,12 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
   const defaultOptions = parseServerOptions([], {
     BANKR_LLM_KEY: 'test-key',
     MULTIPASS_AGENT_LLM_MODEL: 'test-model',
+    MULTIPASS_AGENT_LLM_VISION_MODEL: 'vision-model',
   });
 
   assert.equal(defaultOptions.bankrLlmKey, 'test-key');
   assert.equal(defaultOptions.bankrLlmModel, 'test-model');
+  assert.equal(defaultOptions.bankrLlmVisionModel, 'vision-model');
   assert.equal(defaultOptions.consoleAgentBankrLlmEnabled, false);
 
   const enabledOptions = parseServerOptions([], {
@@ -187,6 +282,286 @@ test('parseServerOptions keeps Bankr Console inference behind an explicit opt-in
 
   assert.equal(enabledOptions.bankrLlmKey, 'fallback-key');
   assert.equal(enabledOptions.consoleAgentBankrLlmEnabled, true);
+});
+
+test('parseServerOptions never falls back to LLM or general Bankr keys for read skills', () => {
+  const absent = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+  });
+  assert.equal(absent.bankrLlmKey, 'llm-secret');
+  assert.equal(absent.bankrReadonlyApiKey, null);
+
+  const separated = parseServerOptions([], {
+    BANKR_LLM_KEY: 'llm-secret',
+    BANKR_API_KEY: 'general-secret',
+    BANKR_READONLY_API_KEY: 'readonly-secret',
+  });
+  assert.equal(separated.bankrLlmKey, 'llm-secret');
+  assert.equal(separated.bankrReadonlyApiKey, 'readonly-secret');
+});
+
+test('parseServerOptions keeps skill proposals independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_AGENT_BANKR_LLM_ENABLED: '1',
+  }).consoleSkillProposalsEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'true',
+  }).consoleSkillProposalsEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: '0',
+  }).consoleSkillProposalsEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_SKILL_PROPOSALS_ENABLED/,
+  );
+});
+
+test('parseServerOptions keeps market reads independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {}).consoleMarketReadEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'true',
+  }).consoleMarketReadEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_MARKET_READ_ENABLED: '0',
+  }).consoleMarketReadEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_MARKET_READ_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_MARKET_READ_ENABLED/,
+  );
+});
+
+test('parseServerOptions keeps owner-account reads independently default-off and rejects malformed values', () => {
+  assert.equal(parseServerOptions([], {}).consoleAccountReadEnabled, false);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'true',
+  }).consoleAccountReadEnabled, true);
+  assert.equal(parseServerOptions([], {
+    MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: '0',
+  }).consoleAccountReadEnabled, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED: 'enabled' }),
+    /Invalid boolean for MULTIPASS_CONSOLE_ACCOUNT_READ_ENABLED/,
+  );
+});
+
+test('parseServerOptions reads the Looper Codex artifact path without printing it', () => {
+  const calls = [];
+  const methods = ['log', 'info', 'warn', 'error'];
+  const originals = Object.fromEntries(methods.map((method) => [method, console[method]]));
+  for (const method of methods) console[method] = (...args) => calls.push([method, ...args]);
+  try {
+    const options = parseServerOptions([], {
+      MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH: '/srv/private/loopers-codex.json',
+    });
+    assert.equal(options.looperCodexArtifactPath, '/srv/private/loopers-codex.json');
+    assert.deepEqual(calls, []);
+  } finally {
+    for (const method of methods) console[method] = originals[method];
+  }
+});
+
+test('startServer creates one Looper Codex runtime before API construction and injects it', async () => {
+  const events = [];
+  const runtime = {
+    available: true,
+    status: {
+      available: true,
+      schemaVersion: '1.0.0',
+      artifactHash: 'a'.repeat(64),
+      codexVersion: 'traits-v1',
+      count: 7_777,
+    },
+    query() { return {}; },
+  };
+  let factoryCalls = 0;
+  let injected;
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    looperCodexArtifactPath: '/srv/private/loopers-codex.json',
+    looperCodexRuntimeFactory: async ({ artifactPath, logger }) => {
+      factoryCalls += 1;
+      assert.equal(artifactPath, '/srv/private/loopers-codex.json');
+      assert.deepEqual(logger, {});
+      return runtime;
+    },
+    logger: { info(event) { events.push(event); }, warn(event) { events.push(event); } },
+    consoleBootstrapFactory: async () => ({
+      ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+      runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+      async stopWorker() {}, async closeClient() {},
+    }),
+    apiFactory: (options) => {
+      injected = options.looperCodexRuntime;
+      return { async handleRequest() { return new Response('{}', { status: 200 }); } };
+    },
+  });
+  try {
+    assert.equal(factoryCalls, 1);
+    assert.equal(injected, runtime);
+    const codexEvent = events.find((event) => event.event === 'looper_codex_startup');
+    assert.deepEqual(Object.keys(codexEvent), [
+      'event', 'available', 'schemaVersion', 'artifactHashPrefix', 'count', 'loadMs', 'rssDeltaBytes',
+    ]);
+    assert.deepEqual(codexEvent, {
+      event: 'looper_codex_startup',
+      available: true,
+      schemaVersion: '1.0.0',
+      artifactHashPrefix: 'aaaaaaaaaaaa',
+      count: 7_777,
+      loadMs: codexEvent.loadMs,
+      rssDeltaBytes: codexEvent.rssDeltaBytes,
+    });
+    assert.ok(Number.isSafeInteger(codexEvent.loadMs));
+    assert.ok(Number.isSafeInteger(codexEvent.rssDeltaBytes));
+    assert.equal(JSON.stringify(events).includes('/srv/private'), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('missing or invalid Looper Codex artifacts leave established liveness, discovery, and owned-agent routes healthy', async () => {
+  const account = privateKeyToAccount('0x59c6995e998f97a5a0044966f094538a7bcd1f0b03f82107863cfb2f99adc62c');
+  for (const looperCodexArtifactPath of [null, '/definitely/missing/loopers-codex.json']) {
+    const server = await startServer({
+      fixture: 'generic', host: '127.0.0.1', port: 0, looperCodexArtifactPath,
+      logger: { info() {}, warn() {} },
+      consoleBootstrapFactory: async () => ({
+        ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+        runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+        async stopWorker() {}, async closeClient() {},
+      }),
+    });
+    try {
+      const health = await fetch(server.url + '/health');
+      assert.equal(health.status, 404);
+      assert.equal((await health.json()).error.code, 'not_found');
+
+      const liveness = await fetch(server.url + '/api/openapi.json');
+      assert.equal(liveness.status, 200);
+      assert.equal((await liveness.json()).openapi, '3.1.0');
+
+      const discovery = await fetch(server.url + '/.well-known/multipass.json');
+      assert.equal(discovery.status, 200);
+
+      const nonce = await fetch(server.url + '/api/multipass/console/session/nonce', {
+        method: 'POST',
+        headers: { origin: server.url, 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: account.address }),
+      });
+      assert.equal(nonce.status, 200);
+      const challenge = await nonce.json();
+      const signature = await account.signMessage({ message: challenge.message });
+      const verified = await fetch(server.url + '/api/multipass/console/session/verify', {
+        method: 'POST',
+        headers: { origin: server.url, 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: account.address, nonce: challenge.nonce, signature }),
+      });
+      assert.equal(verified.status, 200);
+      const cookie = verified.headers.get('set-cookie').split(';')[0];
+
+      const owned = await fetch(server.url + '/api/loopers/owned', { headers: { cookie } });
+      assert.equal(owned.status, 200);
+      assert.deepEqual((await owned.json()).agents, []);
+    } finally {
+      await server.close();
+    }
+  }
+});
+
+test('server fallback returns a stable 500 without internal error details', async () => {
+  const secret = 'https://rpc.internal.example/private?key=server-secret at /srv/private/runtime.json';
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    logger: { info() {}, warn() {} },
+    consoleBootstrapFactory: async () => ({
+      ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+      runtimeRegistry: {}, publishingClient: {}, runtime: { async handleMessage() {} },
+      async stopWorker() {}, async closeClient() {},
+    }),
+    apiFactory: () => ({ async handleRequest() { throw new Error(secret); } }),
+  });
+  try {
+    const response = await fetch(server.url + '/api/openapi.json');
+    const text = await response.text();
+    assert.equal(response.status, 500);
+    assert.deepEqual(JSON.parse(text), {
+      schema_version: '0.1.0',
+      error: { code: 'server_error', message: 'Internal server error.' },
+    });
+    assert.equal(text.includes(secret), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer composes Console and Looper CRED configuration into the correct server boundaries', async () => {
+  let bootstrapOptions;
+  let apiOptions;
+  const runtime = { async handleMessage() {}, async getThread() { return null; } };
+  const server = await startServer({
+    fixture: 'generic',
+    host: '127.0.0.1',
+    port: 0,
+    consoleAgentBankrLlmEnabled: false,
+    consoleSkillProposalsEnabled: true,
+    loopersCredApiBaseUrl: 'https://cred.internal.example',
+    loopersCredTimeoutMs: 2500,
+    loopersCredConcurrency: 3,
+    consoleBootstrapFactory: async (options) => {
+      bootstrapOptions = options;
+      return {
+        ownedAgentLoader: async () => [],
+        publicClients: [],
+        authorizeLooper: async () => ({}),
+        runtimeRegistry: {},
+        publishingClient: {},
+        runtime,
+        async stopWorker() {},
+        async closeClient() {},
+      };
+    },
+    apiFactory: (options) => {
+      apiOptions = options;
+      return {
+        async handleRequest() { return new Response('{}', { status: 200 }); },
+      };
+    },
+  });
+  try {
+    assert.equal(bootstrapOptions.consoleAgentBankrLlmEnabled, false);
+    assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, true);
+    assert.equal(apiOptions.loopersCredApiBaseUrl, 'https://cred.internal.example');
+    assert.equal(apiOptions.loopersCredTimeoutMs, 2500);
+    assert.equal(apiOptions.loopersCredConcurrency, 3);
+  } finally {
+    await server.close();
+  }
+});
+
+test('startServer composes the market-read flag independently of proposal mode', async () => {
+  let bootstrapOptions;
+  const runtime = { async handleMessage() {}, async getThread() { return null; } };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    consoleSkillProposalsEnabled: false,
+    consoleMarketReadEnabled: true,
+    consoleBootstrapFactory: async (options) => {
+      bootstrapOptions = options;
+      return {
+        ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}),
+        runtimeRegistry: {}, publishingClient: {}, runtime,
+        async stopWorker() {}, async closeClient() {},
+      };
+    },
+    apiFactory: () => ({ async handleRequest() { return new Response('{}', { status: 200 }); } }),
+  });
+  try {
+    assert.equal(bootstrapOptions.consoleMarketReadEnabled, true);
+    assert.equal(bootstrapOptions.consoleSkillProposalsEnabled, false);
+  } finally {
+    await server.close();
+  }
 });
 
 test('startServer can advertise a public base URL while listening locally', async () => {
@@ -710,4 +1085,193 @@ test('startServer posts saved Multipass records through real HTTP server', async
     await server.close();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test('parseServerOptions keeps every RESTAP surface false by default and strictly parses bounded server policy/talk overrides', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_RESTAP_DISCOVERY_ENABLED: 'true',
+    MULTIPASS_RESTAP_TALK_ENABLED: '1',
+    MULTIPASS_RESTAP_NEWS_WRITE_ENABLED: 'false',
+    MULTIPASS_RESTAP_NEWS_READ_ENABLED: '0',
+    MULTIPASS_RESTAP_3802_POLICY_PATH: '/srv/private/restap-3802.json',
+    MULTIPASS_RESTAP_TALK_MODEL: 'claude-haiku-4.5',
+    MULTIPASS_RESTAP_TALK_TIMEOUT_MS: '2500',
+    MULTIPASS_RESTAP_TALK_CONCURRENCY: '3',
+    MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE: '12',
+    MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE: '6',
+    MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY: '900',
+    BANKR_LLM_KEY: 'private-key',
+  });
+  assert.equal(options.restapDiscoveryEnabled, true);
+  assert.equal(options.restapTalkEnabled, true);
+  assert.equal(options.restapNewsWriteEnabled, false);
+  assert.equal(options.restapNewsReadEnabled, false);
+  assert.equal(options.restap3802PolicyPath, '/srv/private/restap-3802.json');
+  assert.equal(options.restapTalkModel, 'claude-haiku-4.5');
+  assert.equal(options.restapTalkTimeoutMs, 2500);
+  assert.deepEqual(options.restapTalkLimits, { perIpPerMinute: 12, perSessionPerMinute: 6, globalPerDay: 900, concurrency: 3 });
+
+  const keyOnly = parseServerOptions([], { BANKR_LLM_KEY: 'private-key' });
+  assert.equal(keyOnly.restapTalkEnabled, false);
+  for (const name of ['MULTIPASS_RESTAP_DISCOVERY_ENABLED', 'MULTIPASS_RESTAP_TALK_ENABLED', 'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED', 'MULTIPASS_RESTAP_NEWS_READ_ENABLED']) {
+    assert.throws(() => parseServerOptions([], { [name]: 'yes' }), new RegExp(name));
+  }
+  for (const [name, value] of [
+    ['MULTIPASS_RESTAP_TALK_MODEL', 'x'.repeat(129)],
+    ['MULTIPASS_RESTAP_TALK_TIMEOUT_MS', '15001'],
+    ['MULTIPASS_RESTAP_TALK_CONCURRENCY', '17'],
+    ['MULTIPASS_RESTAP_TALK_PER_IP_PER_MINUTE', '0'],
+    ['MULTIPASS_RESTAP_TALK_PER_SESSION_PER_MINUTE', '10001'],
+    ['MULTIPASS_RESTAP_TALK_GLOBAL_PER_DAY', '1000001'],
+  ]) assert.throws(() => parseServerOptions([], { [name]: value }), new RegExp(name));
+});
+
+test('all RESTAP gates false create no RESTAP policy, database, sessions, or inference dependency', async () => {
+  const calls = [];
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    logger: { info() {}, warn() {} },
+    restapPolicyLoader: async () => { calls.push('policy'); throw new Error('must not load'); },
+    restapPublicSessionStoreFactory: () => { calls.push('sessions'); throw new Error('must not create'); },
+    restapInferenceClientFactory: () => { calls.push('inference'); throw new Error('must not create'); },
+    restapNewsStoreFactory: () => { calls.push('news'); throw new Error('must not create'); },
+  });
+  try { assert.deepEqual(calls, []); } finally { await server.close(); }
+});
+
+test('RESTAP startup performs an uncached authority/Codex warm-check, injects isolated resources, listens last, and logs only safe gate metadata', async () => {
+  const events = [];
+  const order = [];
+  const policy = Object.freeze({
+    authority: Object.freeze({}),
+    publicProfile: Object.freeze({ publicConversationEnabled: true }),
+    newsSenders: Object.freeze([{ id: 'sender.one', enabled: true, kind: 'evm', signer: '0x1111111111111111111111111111111111111111' }]),
+  });
+  const projection = Object.freeze({
+    canonicalIdentity: Object.freeze({ canonicalName: 'Looper #3802', imageUrl: 'https://helixa.xyz/3802.png' }),
+    ownerPublicProfile: Object.freeze({ displayName: 'Owner', publicConversationEnabled: true, biography: 'bio', mission: 'mission', voicePresentation: 'direct' }),
+    newsSenders: policy.newsSenders,
+  });
+  let authorityCalls = 0;
+  let injected;
+  const sessionStore = { create() {}, resolve() {}, appendTurn() {}, close() { order.push('sessions-close'); } };
+  const newsStore = { accept() {}, list() { return { items: [], nextCursor: null }; }, close() { order.push('news-close'); } };
+  const inferenceClient = { async generate() { return { reply: 'ok' }; } };
+  const talkRuntime = { async talk() { return { reply: 'ok', session_id: 'x'.repeat(43) }; } };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, publicBaseUrl: 'https://helixa.xyz/multipass-api',
+    databasePath: '/srv/private/restap.sqlite', savedRecords: {}, looperNameStore: {}, bankrLlmKey: 'private-key',
+    restapDiscoveryEnabled: true, restapTalkEnabled: true, restapNewsWriteEnabled: true, restapNewsReadEnabled: true,
+    restap3802PolicyPath: '/srv/private/restap-3802.json',
+    restapAuthorityResolver: async () => { authorityCalls += 1; return {}; },
+    restapPolicyLoader: async ({ policyPath }) => { assert.equal(policyPath, '/srv/private/restap-3802.json'); order.push('policy'); return policy; },
+    restapPolicyAuthorizer: async ({ resolveAuthority, loadCodexProfile }) => { await resolveAuthority(); await loadCodexProfile('3802'); return projection; },
+    restapPublicSessionStoreFactory: () => { order.push('sessions'); return sessionStore; },
+    restapInferenceClientFactory: (input) => { assert.equal(input.apiKey, 'private-key'); order.push('inference'); return inferenceClient; },
+    restapPublicTalkRuntimeFactory: (input) => { assert.equal(input.sessionStore, sessionStore); assert.equal(input.inferenceClient, inferenceClient); order.push('talk'); return talkRuntime; },
+    restapNewsStoreFactory: ({ databasePath }) => { assert.equal(databasePath, '/srv/private/restap.sqlite'); order.push('news'); return newsStore; },
+    restapNewsAuthenticatorFactory: ({ policy: inputPolicy }) => { assert.equal(inputPolicy, policy); order.push('authenticator'); return { async authenticate() {} }; },
+    restapVerifyEip1271: async () => false,
+    restapResolveErc8004Controller: async () => '0x1111111111111111111111111111111111111111',
+    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'a'.repeat(64) }, getProfileContext(tokenId) { assert.equal(tokenId, '3802'); return { identity: { tokenId: 3802, canonicalName: 'Looper #3802', image: { url: 'https://helixa.xyz/3802.png' } } }; }, query() {} },
+    logger: { info(event) { events.push(event); }, warn(event) { events.push(event); } },
+    apiFactory: (options) => { order.push('api'); injected = options; return { async handleRequest() { await options.restap3802Policy.authorize({ surface: 'discovery' }); return new Response('{}'); } }; },
+  });
+  try {
+    assert.equal(authorityCalls, 1, 'startup warm-check is exactly once');
+    assert.equal(injected.restapDiscoveryEnabled, true);
+    assert.equal(injected.restapTalkEnabled, true);
+    assert.equal(injected.restapNewsWriteEnabled, true);
+    assert.equal(injected.restapNewsReadEnabled, true);
+    assert.equal(injected.restapTalkRuntime, talkRuntime);
+    assert.equal(injected.restapNewsStore, newsStore);
+    assert.equal(typeof injected.restap3802Policy.authorize, 'function');
+    assert.equal(injected.consoleAuthStore, undefined);
+    assert.equal(order.at(-1), 'api', 'all RESTAP initialization precedes API construction/listen');
+    await fetch(server.url + '/anything');
+    assert.equal(authorityCalls, 2, 'request authorization is fresh after warm-check');
+    const startup = events.find((event) => event.event === 'restap_3802_startup');
+    assert.deepEqual(startup, { event: 'restap_3802_startup', tokenId: '3802', discovery: true, talk: true, newsWrite: true, newsRead: true, enabledSenderCount: 1, codexHashPrefix: 'aaaaaaaaaaaa' });
+    const serialized = JSON.stringify(events);
+    for (const secret of ['/srv/private', 'private-key', 'sender.one', '0x1111111111111111111111111111111111111111']) assert.equal(serialized.includes(secret), false);
+  } finally { await server.close(); }
+  assert.deepEqual(order.slice(-2), ['sessions-close', 'news-close']);
+});
+
+test('RESTAP startup rejects missing gate dependencies before listen and closes created resources once in safe order', async () => {
+  const base = {
+    fixture: 'generic', host: '127.0.0.1', port: 0, savedRecords: {}, looperNameStore: {},
+    logger: { info() {}, warn() {} },
+    consoleBootstrapFactory: async () => ({ ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}), runtimeRegistry: {}, publishingClient: {}, runtime: {}, async stopWorker() {}, async closeClient() {} }),
+    restap3802PolicyPath: '/policy.json',
+    restapPolicyLoader: async () => ({ authority: {}, publicProfile: { publicConversationEnabled: true }, newsSenders: [{ id: 'sender.one', enabled: true, kind: 'evm', signer: '0x1111111111111111111111111111111111111111' }] }),
+    restapAuthorityResolver: async () => ({}),
+    restapPolicyAuthorizer: async () => ({ canonicalIdentity: { canonicalName: 'Looper #3802', imageUrl: 'https://helixa.xyz/3802.png' }, ownerPublicProfile: { displayName: 'Owner', publicConversationEnabled: true, biography: 'bio', mission: 'mission', voicePresentation: 'direct' }, newsSenders: [] }),
+    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'b'.repeat(64) }, getProfileContext() { return { identity: { tokenId: 3802 } }; }, query() {} },
+  };
+  await assert.rejects(startServer({ ...base, restapDiscoveryEnabled: true, restapAuthorityResolver: null }), /authority resolver/i);
+  await assert.rejects(startServer({ ...base, restapDiscoveryEnabled: true, looperCodexRuntime: { available: false, status: { available: false } } }), /Codex/i);
+  await assert.rejects(startServer({ ...base, restapTalkEnabled: true }), /inference/i);
+  await assert.rejects(startServer({ ...base, restapNewsReadEnabled: true }), /persistent database/i);
+
+  const closes = [];
+  let apiCalls = 0;
+  await assert.rejects(startServer({
+    ...base,
+    databasePath: '/tmp/restap.sqlite', restapTalkEnabled: true, restapNewsWriteEnabled: true, restapNewsReadEnabled: true, bankrLlmKey: 'key',
+    restapPublicSessionStoreFactory: () => ({ create() {}, resolve() {}, appendTurn() {}, close() { closes.push('sessions'); } }),
+    restapInferenceClientFactory: () => ({ generate() {} }),
+    restapPublicTalkRuntimeFactory: () => ({ talk() {} }),
+    restapNewsStoreFactory: () => ({ accept() {}, list() { return { items: [], nextCursor: null }; }, close() { closes.push('news'); } }),
+    restapNewsAuthenticatorFactory: () => { throw new Error('schema/init failed'); },
+    apiFactory: () => { apiCalls += 1; return { handleRequest() {} }; },
+  }), /schema.init failed/);
+  assert.equal(apiCalls, 0);
+  assert.deepEqual(closes, ['sessions', 'news']);
+});
+
+
+test('RESTAP proxy trust is false by default and strictly parses its forwarded identity gate', () => {
+  assert.equal(parseServerOptions([], {}).restapTrustLoopbackProxy, false);
+  assert.equal(parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: 'true' }).restapTrustLoopbackProxy, true);
+  assert.equal(parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: '0' }).restapTrustLoopbackProxy, false);
+  assert.throws(
+    () => parseServerOptions([], { MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY: 'yes' }),
+    /MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY/,
+  );
+});
+
+test('RESTAP client identity sanitizer ignores spoofed forwarded identity unless a loopback proxy is explicitly trusted', () => {
+  const spoofed = {
+    'x-multipass-client-ip': '198.51.100.99',
+    'cf-connecting-ip': '203.0.113.10',
+  };
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '198.51.100.7' })['x-multipass-client-ip'], '198.51.100.7');
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '198.51.100.7', trustLoopbackProxy: true })['x-multipass-client-ip'], '198.51.100.7');
+  assert.equal(sanitizeRestapProxyHeaders(spoofed, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '203.0.113.10');
+  assert.equal(sanitizeRestapProxyHeaders({ 'x-real-ip': '2001:db8::7' }, { remoteAddress: '::1', trustLoopbackProxy: true })['x-multipass-client-ip'], '2001:db8::7');
+  assert.equal(sanitizeRestapProxyHeaders({ 'x-forwarded-for': '203.0.113.1, 203.0.113.2' }, { remoteAddress: '::ffff:127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '::ffff:127.0.0.1');
+  assert.equal(sanitizeRestapProxyHeaders({ 'cf-connecting-ip': '203.0.113.1', 'x-real-ip': '203.0.113.2' }, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '127.0.0.1');
+  assert.equal(sanitizeRestapProxyHeaders({ 'cf-connecting-ip': 'not-an-ip' }, { remoteAddress: '127.0.0.1', trustLoopbackProxy: true })['x-multipass-client-ip'], '127.0.0.1');
+});
+
+test('startServer overwrites inbound RESTAP client identity while preserving forwarded headers for non-RESTAP semantics', async () => {
+  const seen = [];
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, restapTrustLoopbackProxy: true,
+    logger: { info() {}, warn() {} },
+    apiFactory: () => ({ async handleRequest(request) {
+      seen.push(Object.fromEntries(request.headers.entries()));
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    } }),
+  });
+  try {
+    await fetch(server.url + '/identity', { headers: {
+      'x-multipass-client-ip': '198.51.100.99',
+      'cf-connecting-ip': '203.0.113.42',
+    } });
+    assert.equal(seen[0]['x-multipass-client-ip'], '203.0.113.42');
+    assert.equal(seen[0]['cf-connecting-ip'], '203.0.113.42');
+  } finally { await server.close(); }
 });

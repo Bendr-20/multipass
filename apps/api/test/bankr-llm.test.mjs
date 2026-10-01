@@ -1,0 +1,426 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { createBankrLlmClient } from '../src/bankr-llm/index.js';
+import { getConsoleSkillCatalogPromptProjection } from '../src/console-skill-catalog.js';
+
+const RECIPIENT = '0x0000000000000000000000000000000000000001';
+
+function validEnvelope(overrides = {}) {
+  return JSON.stringify({
+    schema_version: '0.1.0',
+    assistant_text: 'Review this transfer suggestion.',
+    skill_refs: ['bankr'],
+    transfer_candidates: [{
+      skill: 'bankr',
+      assetType: 'native',
+      assetContract: null,
+      recipient: RECIPIENT,
+      amountBaseUnits: '1',
+      rationale: 'Requested by the operator for review.',
+    }],
+    ...overrides,
+  });
+}
+
+test('Bankr client falls back to the default model when production config is null', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    model: null,
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Bankr response.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  const result = await client.generate({
+    profile: { displayName: 'Bendr' },
+    message: 'Report status.',
+  });
+
+  assert.equal(requestBody.model, 'claude-haiku-4.5');
+  assert.equal(result.provider, 'bankr_llm_gateway');
+});
+
+test('Bankr system prompt grounds the model in canonical Looper persona and Sibyl continuity', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: '***',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'I am Looper #614.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: {
+      displayName: 'Looper #614',
+      persona: {
+        canonicalName: 'Looper #614',
+        agentClass: 'Trader / Broker',
+        specialization: 'market making',
+        riskProfile: 'Disciplined',
+        autonomy: 'Extreme',
+        voice: 'conspiracy energy converted into due diligence',
+        firstMission: 'price an opportunity',
+        codexVersion: 'looper-trait-personality-matrix-v02',
+      },
+      memoryNamespace: 'multipass:8453:loopers:614:87069',
+      permissions: { trading: 'review_only', custody: 'disabled', toolAuthority: 'human_review' },
+    },
+    message: 'Who are you?',
+    memory: [{ text: 'The owner prefers concise market briefs.' }],
+  });
+
+  const systemPrompt = requestBody.messages[0].content;
+  assert.match(systemPrompt, /You are Looper #614/i);
+  assert.match(systemPrompt, /Trader \/ Broker/);
+  assert.match(systemPrompt, /market making/);
+  assert.match(systemPrompt, /Disciplined/);
+  assert.match(systemPrompt, /Extreme/);
+  assert.match(systemPrompt, /conspiracy energy converted into due diligence/);
+  assert.match(systemPrompt, /price an opportunity/);
+  assert.match(systemPrompt, /Sibyl/i);
+  assert.match(systemPrompt, /do not claim.*no personality/i);
+  assert.match(systemPrompt, /do not claim.*starts fresh/i);
+  assert.match(systemPrompt, /review-only/i);
+});
+
+test('Bankr prompt retrieves relevant third-party marketplace skills as review-only metadata', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Checkr is available for review.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'Use checkr social attention to research Base tokens.',
+  });
+
+  const systemPrompt = requestBody.messages[0].content;
+  assert.match(systemPrompt, /Relevant Bankr marketplace skills/i);
+  assert.match(systemPrompt, /"id":"checkr"/);
+  assert.match(systemPrompt, /d7b28f4caea71b446655ef991346f4860b95656a/);
+  assert.match(systemPrompt, /review.only/i);
+  assert.match(systemPrompt, /untrusted metadata/i);
+  assert.doesNotMatch(systemPrompt, /install the checkr skill/i);
+  assert.doesNotMatch(systemPrompt, /PRIVATE_KEY=/i);
+});
+
+test('Bankr request includes recent Console conversation history before the current message', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'The code word is aubergine.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'What is my code word?',
+    history: [
+      { role: 'human', text: 'My code word is aubergine.' },
+      { role: 'agent', text: 'Acknowledged.' },
+    ],
+  });
+
+  assert.deepEqual(
+    requestBody.messages.map(({ role, content }) => ({ role, content })),
+    [
+      { role: 'system', content: requestBody.messages[0].content },
+      { role: 'user', content: 'My code word is aubergine.' },
+      { role: 'assistant', content: 'Acknowledged.' },
+      {
+        role: 'user',
+        content: JSON.stringify({ message: 'What is my code word?', memory: [], signals: [] }),
+      },
+    ],
+  );
+});
+
+test('Bankr sanitizes legacy fenced agent history without provider metadata only', async () => {
+  let requestBody = null;
+  const legacyEnvelope = `\`\`\`json\n${validEnvelope({
+    assistant_text: 'Legacy history answer.',
+    transfer_candidates: [],
+  })}\n\`\`\``;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Current answer.' } }],
+      }), { status: 200 });
+    },
+  });
+
+  await client.generate({
+    profile: { displayName: 'Looper #614' },
+    message: 'Continue.',
+    history: [
+      { role: 'agent', text: legacyEnvelope },
+      { role: 'agent', text: 'Plain legacy agent prose.' },
+      { role: 'human', text: legacyEnvelope },
+    ],
+  });
+
+  assert.deepEqual(
+    requestBody.messages.slice(1, -1).map(({ role, content }) => ({ role, content })),
+    [
+      { role: 'assistant', content: 'Legacy history answer.' },
+      { role: 'assistant', content: 'Plain legacy agent prose.' },
+      { role: 'user', content: legacyEnvelope },
+    ],
+  );
+});
+
+test('skill proposals default off keeps the request stable while projecting envelope replies', async () => {
+  const requests = [];
+  const fetchImpl = async (_url, request) => {
+    requests.push(request.body);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: validEnvelope() } }],
+    }), { status: 200 });
+  };
+  const input = {
+    profile: { displayName: 'Bendr' },
+    message: 'Suggest a transfer.',
+    memory: [{ text: 'Review only.' }],
+    signals: [{ title: 'Manager suite', status: 'Ready' }],
+  };
+
+  const implicit = await createBankrLlmClient({ apiKey: 'test-key', fetchImpl }).generate(input);
+  const explicit = await createBankrLlmClient({
+    apiKey: 'test-key',
+    skillProposalsEnabled: false,
+    fetchImpl,
+  }).generate(input);
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0], requests[1]);
+  assert.deepEqual(implicit, explicit);
+  assert.deepEqual(Object.keys(explicit).sort(), ['provider', 'text']);
+  assert.equal(explicit.text, 'Review this transfer suggestion.');
+  assert.doesNotMatch(explicit.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+});
+
+test('Bankr projects valid, mixed, malformed, and plain replies with proposals enabled or disabled', async () => {
+  const assistantText = 'Render only this safe Bankr answer.';
+  const exact = validEnvelope({ assistant_text: assistantText, transfer_candidates: [] });
+  const cases = [
+    { content: exact, expected: assistantText },
+    { content: `\`\`\`json\n${exact}\n\`\`\``, expected: assistantText },
+    { content: `Gateway preface\n${exact}\nGateway suffix`, expected: assistantText },
+    { content: 'Plain Bankr prose.', expected: 'Plain Bankr prose.' },
+  ];
+
+  for (const skillProposalsEnabled of [false, true]) {
+    for (const fixture of cases) {
+      const client = createBankrLlmClient({
+        apiKey: 'test-key',
+        skillProposalsEnabled,
+        fetchImpl: async () => new Response(JSON.stringify({
+          choices: [{ message: { content: fixture.content } }],
+        }), { status: 200 }),
+      });
+      const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Status?' });
+      assert.equal(result.text, fixture.expected);
+      assert.doesNotMatch(result.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+    }
+
+    const malformed = '{"schema_version":"0.1.0","assistant_text":"never leak"';
+    const client = createBankrLlmClient({
+      apiKey: 'test-key',
+      skillProposalsEnabled,
+      fetchImpl: async () => new Response(JSON.stringify({
+        choices: [{ message: { content: malformed } }],
+      }), { status: 200 }),
+    });
+    const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Status?' });
+    assert.notEqual(result.text, malformed);
+    assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4_096);
+    assert.doesNotMatch(result.text, /schema_version|assistant_text|skill_refs|transfer_candidates|```/i);
+    if (skillProposalsEnabled) {
+      assert.deepEqual(result.skillRefs, []);
+      assert.deepEqual(result.transferCandidates, []);
+    }
+  }
+});
+
+test('skill-aware Bankr preserves validated envelope data inside the production loose-fence wrapper', async () => {
+  const content = `^^\`\`\`json\n${validEnvelope()}\n\`\`\` `;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    skillProposalsEnabled: true,
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [{ message: { content } }],
+    }), { status: 200 }),
+  });
+
+  const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Suggest a transfer.' });
+
+  assert.deepEqual(result, {
+    provider: 'bankr_llm_gateway',
+    text: 'Review this transfer suggestion.',
+    skillRefs: ['bankr'],
+    transferCandidates: [{
+      skill: 'bankr',
+      assetType: 'native',
+      assetContract: null,
+      recipient: RECIPIENT,
+      amountBaseUnits: '1',
+      rationale: 'Requested by the operator for review.',
+    }],
+  });
+});
+
+test('skill-aware Bankr prompt uses only the exact server projection and requests the strict review-only envelope', async () => {
+  let requestBody;
+  const sentinels = {
+    wallet: '0x9999999999999999999999999999999999999999',
+    message: 'MESSAGE_INPUT_MUST_NOT_ENTER_SKILL_SECTION',
+    browser: 'BROWSER_DESCRIPTOR_MUST_NOT_ENTER_SKILL_SECTION',
+    key: 'BANKR_KEY_MUST_NOT_ENTER_SKILL_SECTION',
+    path: '/home/private/skills/bankr/SKILL.md',
+    cli: 'bankr wallet send --all',
+    skillMd: 'SKILL_MD_PRIVATE_INSTRUCTIONS_MUST_NOT_APPEAR',
+  };
+  const client = createBankrLlmClient({
+    apiKey: sentinels.key,
+    skillProposalsEnabled: true,
+    skillDescriptors: [{ summary: sentinels.browser, skillMd: sentinels.skillMd, path: sentinels.path }],
+    cli: sentinels.cli,
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: validEnvelope() } }],
+      }), { status: 200 });
+    },
+  });
+
+  const result = await client.generate({
+    profile: { displayName: 'Bendr' },
+    wallet: sentinels.wallet,
+    message: sentinels.message,
+    browserFields: { arbitraryDescriptor: sentinels.browser, skillMd: sentinels.skillMd },
+    skillDescriptors: [{ summary: sentinels.browser, command: sentinels.cli }],
+  });
+
+  const systemPrompt = requestBody.messages[0].content;
+  const projection = JSON.stringify(getConsoleSkillCatalogPromptProjection({ proposalEnabled: true }));
+  const sectionPrefix = 'Approved Console skill catalog (server-owned knowledge descriptors; not callable tools):\n';
+  const sectionStart = systemPrompt.indexOf(sectionPrefix);
+  assert.notEqual(sectionStart, -1);
+  const section = systemPrompt.slice(sectionStart + sectionPrefix.length, sectionStart + sectionPrefix.length + projection.length);
+  assert.equal(section, projection);
+  assert.match(systemPrompt, /knowledge descriptors; not callable tools/i);
+  assert.match(systemPrompt, /return exactly one JSON object/i);
+  assert.match(systemPrompt, /schema_version.*assistant_text.*skill_refs.*transfer_candidates/is);
+  assert.match(systemPrompt, /no markdown|without markdown/i);
+  assert.match(systemPrompt, /never claim.*outside.*enabledCapabilities/i);
+  assert.match(projection, /propose_transfer/);
+  assert.match(projection, /propose_other_wallet_actions/);
+  assert.doesNotMatch(projection, /read_public_market/);
+  assert.doesNotMatch(projection, /read_owner_account/);
+  assert.match(systemPrompt, /direct reads.*server routing/i);
+  assert.match(systemPrompt, /public market reads.*independent gates/i);
+  assert.match(systemPrompt, /verified-owner public onchain portfolio reads/i);
+  assert.match(systemPrompt, /orders.*automation.*not direct reads/i);
+  assert.match(systemPrompt, /write requests.*unsigned review proposals/i);
+  assert.match(systemPrompt, /assumptions.*parameters.*missing fields/i);
+  assert.match(systemPrompt, /never claim.*execut/i);
+  assert.match(systemPrompt, /sole structured candidate.*transfer/i);
+  assert.match(systemPrompt, /other write proposals.*natural-language/i);
+  assert.equal('tools' in requestBody, false);
+  for (const sentinel of Object.values(sentinels)) assert.equal(section.includes(sentinel), false);
+
+  assert.deepEqual(result, {
+    provider: 'bankr_llm_gateway',
+    text: 'Review this transfer suggestion.',
+    skillRefs: ['bankr'],
+    transferCandidates: [{
+      skill: 'bankr',
+      assetType: 'native',
+      assetContract: null,
+      recipient: RECIPIENT,
+      amountBaseUnits: '1',
+      rationale: 'Requested by the operator for review.',
+    }],
+  });
+});
+
+test('skill-aware Bankr decodes only assistant message content and fails malformed content to bounded text without candidates', async () => {
+  const malformed = 'x'.repeat(5_000);
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    skillProposalsEnabled: true,
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: malformed } }],
+      content: [{ text: validEnvelope() }],
+    }), { status: 200 }),
+  });
+
+  const result = await client.generate({ profile: { displayName: 'Bendr' }, message: 'Status?' });
+
+  assert.equal(Buffer.byteLength(result.text, 'utf8'), 4_096);
+  assert.deepEqual(result.skillRefs, []);
+  assert.deepEqual(result.transferCandidates, []);
+});
+
+test('image turns require an explicitly configured vision model before provider access', async () => {
+  let called = false;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    fetchImpl: async () => { called = true; throw new Error('must not fetch'); },
+  });
+  await assert.rejects(
+    () => client.generate({
+      profile: { displayName: 'Bendr' },
+      message: '',
+      attachment: { mimeType: 'image/png', content: new Uint8Array([1, 2, 3]) },
+    }),
+    /vision.*not configured/i,
+  );
+  assert.equal(called, false);
+});
+
+test('image turns use the explicit vision model and OpenAI multimodal content', async () => {
+  let requestBody;
+  const client = createBankrLlmClient({
+    apiKey: 'test-key',
+    model: 'text-model',
+    visionModel: 'vision-model',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'I can see a chart.' } }] }), { status: 200 });
+    },
+  });
+  const result = await client.generate({
+    profile: { displayName: 'Bendr' },
+    message: 'What is this?',
+    attachment: { mimeType: 'image/png', content: new Uint8Array([1, 2, 3]) },
+  });
+  assert.equal(requestBody.model, 'vision-model');
+  assert.deepEqual(requestBody.messages[1].content, [
+    { type: 'text', text: JSON.stringify({ message: 'What is this?', memory: [], signals: [] }) },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+  ]);
+  assert.match(requestBody.messages[0].content, /image.*untrusted/i);
+  assert.match(requestBody.messages[0].content, /no tool.*authority/i);
+  assert.equal(result.text, 'I can see a chart.');
+});

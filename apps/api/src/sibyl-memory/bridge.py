@@ -53,9 +53,35 @@ def normalize_memory_entry(entry: dict) -> dict | None:
     }
 
 
+def normalize_thread_attachment(value) -> dict | None:
+    if not isinstance(value, dict) or value.get("kind") != "image":
+        return None
+    mime_type = str(value.get("mimeType") or "").strip()
+    digest = str(value.get("sha256") or "").strip().lower()
+    byte_length = value.get("byteLength")
+    if mime_type not in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+        return None
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        return None
+    maximum = 512 * 1024 if mime_type == "image/gif" else 750 * 1024
+    if not isinstance(byte_length, int) or byte_length < 1 or byte_length > maximum:
+        return None
+    dimension = lambda item: item if isinstance(item, int) and 1 <= item <= 2048 else None
+    return {
+        "kind": "image",
+        "mimeType": mime_type,
+        "filename": str(value.get("filename") or "image")[:96],
+        "byteLength": byte_length,
+        "width": dimension(value.get("width")),
+        "height": dimension(value.get("height")),
+        "sha256": digest,
+    }
+
+
 def normalize_thread_message(message: dict) -> dict | None:
     text = str((message or {}).get("text") or "").strip()
-    if not text:
+    attachment = normalize_thread_attachment((message or {}).get("attachment"))
+    if not text and attachment is None:
         return None
     role = "human" if str((message or {}).get("role") or "agent") == "human" else "agent"
     normalized = {
@@ -65,9 +91,15 @@ def normalize_thread_message(message: dict) -> dict | None:
         "sentAt": str((message or {}).get("sentAt") or utc_now()),
         "transport": str((message or {}).get("transport") or "live_chat"),
     }
+    for field in ("senderLabel", "participantId", "conversationId", "xmtpMessageId"):
+        value = str((message or {}).get(field) or "").strip()
+        if value:
+            normalized[field] = value
     inference_provider = str((message or {}).get("inferenceProvider") or "").strip()
     if inference_provider:
         normalized["inferenceProvider"] = inference_provider
+    if attachment is not None:
+        normalized["attachment"] = attachment
     return normalized
 
 

@@ -1,15 +1,31 @@
+import { contentTypeAttachment } from '@xmtp/node-sdk';
 import { hexToBytes } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+
+import { normalizeConsoleImageAttachment, projectConsoleImageMetadata } from '../console-image-attachment.js';
 
 const ETHEREUM_IDENTIFIER_KIND = 0;
 
 export function createDeferredXmtpAgentClient(options = {}) {
-  const fallback = createLocalXmtpAgentClient(options);
+  if (!options.enabled) {
+    return options.localFallbackEnabled
+      ? createLocalXmtpAgentClient(options)
+      : createUnavailableXmtpAgentClient({
+        provider: 'xmtp_disabled',
+        message: 'XMTP transport is disabled. Enable and configure the XMTP Node SDK or inject the explicit local test adapter.',
+      });
+  }
+  if (!String(options.walletKey ?? '').trim()) {
+    return createUnavailableXmtpAgentClient({
+      provider: 'xmtp_unconfigured',
+      message: 'XMTP is enabled but wallet configuration is unavailable.',
+    });
+  }
   let clientPromise = null;
 
   return {
-    provider: options.enabled ? 'xmtp_deferred' : fallback.provider,
-    transport: options.enabled ? 'xmtp_group' : fallback.transport,
+    provider: 'xmtp_node_sdk',
+    transport: 'xmtp_group',
 
     async publishRoomMessages(input = {}) {
       const client = await resolveClient();
@@ -23,14 +39,21 @@ export function createDeferredXmtpAgentClient(options = {}) {
   };
 
   async function resolveClient() {
-    if (clientPromise) return clientPromise;
-    if (!options.enabled || !String(options.walletKey ?? '').trim()) {
-      clientPromise = Promise.resolve(fallback);
-      return clientPromise;
-    }
-    clientPromise = createNodeXmtpAgentClient(options);
+    if (!clientPromise) clientPromise = createNodeXmtpAgentClient(options);
     return clientPromise;
   }
+}
+
+export function createUnavailableXmtpAgentClient({ provider = 'xmtp_disabled', message = 'XMTP transport is unavailable.' } = {}) {
+  async function unavailable() {
+    throw new Error(message);
+  }
+  return {
+    provider,
+    transport: 'unavailable',
+    publishRoomMessages: unavailable,
+    getThread: unavailable,
+  };
 }
 
 export function createLocalXmtpAgentClient({ now = () => new Date().toISOString() } = {}) {
@@ -45,6 +68,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
       const roomName = normalizeRoomName(input.roomName);
       const room = rooms.get(threadId) ?? {
         threadId,
+        topicId: String(input.topicId ?? threadId).trim(),
         conversationId: `local:${threadId}`,
         roomName,
         participants: [],
@@ -59,7 +83,7 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
           sentAt: now(),
           transport: 'xmtp_local',
           conversationId: room.conversationId,
-        })).filter(Boolean)
+        })).filter(Boolean).map((message) => projectPublishedMessage(message))
         : [];
 
       room.messages.push(...nextMessages);
@@ -67,12 +91,14 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
 
       return {
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversationId,
         roomName: room.roomName,
         transport: 'xmtp_local',
         adapter: 'local_xmtp_adapter',
         participants: [...room.participants],
         messages: [...room.messages],
+        publishedMessages: nextMessages,
       };
     },
 
@@ -81,9 +107,12 @@ export function createLocalXmtpAgentClient({ now = () => new Date().toISOString(
       const room = rooms.get(threadId);
       return {
         threadId,
+        topicId: room?.topicId ?? String(input.topicId ?? threadId).trim(),
         conversationId: room?.conversationId ?? null,
         roomName: room?.roomName ?? normalizeRoomName(input.roomName),
-        participants: [...(room?.participants ?? [])],
+        transport: 'xmtp_local',
+        adapter: 'local_xmtp_adapter',
+        participants: [...(room?.participants ?? input.participants ?? [])],
         messages: [...(room?.messages ?? [])],
       };
     },
@@ -126,6 +155,7 @@ export async function createNodeXmtpAgentClient({
         client,
         threadId,
         conversationId: input.conversationId,
+        topicId: input.topicId,
         roomName,
         wallet: input.wallet,
         participants: input.participants,
@@ -141,15 +171,36 @@ export async function createNodeXmtpAgentClient({
           conversationId: room.conversation.id,
         });
         if (!normalized) continue;
+        if (normalized.attachment) {
+          const attachmentMessageId = await room.conversation.sendAttachment({
+            filename: normalized.attachment.filename,
+            mimeType: normalized.attachment.mimeType,
+            content: normalized.attachment.content,
+          }, normalized.id ? { idempotencyKey: `${normalized.id}:attachment` } : undefined);
+          let captionMessageId = null;
+          if (normalized.text) {
+            captionMessageId = await room.conversation.sendText(
+              buildOutboundText(normalized),
+              normalized.id ? { idempotencyKey: `${normalized.id}:caption` } : undefined,
+            );
+          }
+          publishedMessages.push(projectPublishedMessage({
+            ...normalized,
+            id: attachmentMessageId || normalized.id,
+            xmtpMessageId: attachmentMessageId || normalized.id,
+            ...(captionMessageId ? { captionXmtpMessageId: captionMessageId } : {}),
+          }));
+          continue;
+        }
         const xmtpMessageId = await room.conversation.sendText(
           buildOutboundText(normalized),
           normalized.id ? { idempotencyKey: normalized.id } : undefined,
         );
-        publishedMessages.push({
+        publishedMessages.push(projectPublishedMessage({
           ...normalized,
           id: xmtpMessageId || normalized.id,
           xmtpMessageId: xmtpMessageId || normalized.id,
-        });
+        }));
       }
 
       room.participants = mergeParticipants(room.participants, input.participants);
@@ -157,23 +208,39 @@ export async function createNodeXmtpAgentClient({
 
       return {
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversation.id,
         roomName: room.roomName,
         transport: 'xmtp_group',
         adapter: 'xmtp_node_sdk',
         participants: [...room.participants],
         messages: [...room.messages],
+        publishedMessages,
       };
     },
 
     async getThread(input = {}) {
       const threadId = requireThreadId(input.threadId);
-      const room = rooms.get(threadId);
+      let room = rooms.get(threadId);
+      if (!room && input.conversationId) {
+        room = await openBoundRoom({
+          rooms,
+          client,
+          threadId,
+          conversationId: input.conversationId,
+          topicId: input.topicId,
+          roomName: normalizeRoomName(input.roomName),
+          participants: input.participants,
+        });
+      }
       return {
         threadId,
+        topicId: room?.topicId ?? String(input.topicId ?? threadId).trim(),
         conversationId: room?.conversation?.id ?? null,
         roomName: room?.roomName ?? normalizeRoomName(input.roomName),
-        participants: [...(room?.participants ?? [])],
+        transport: 'xmtp_group',
+        adapter: 'xmtp_node_sdk',
+        participants: [...(room?.participants ?? input.participants ?? [])],
         messages: [...(room?.messages ?? [])],
       };
     },
@@ -219,7 +286,7 @@ function createEoaSigner(privateKey) {
   };
 }
 
-async function ensureRoom({ rooms, client, threadId, conversationId, roomName, wallet, participants } = {}) {
+async function ensureRoom({ rooms, client, threadId, conversationId, topicId, roomName, wallet, participants } = {}) {
   const existing = rooms.get(threadId);
   if (existing) {
     existing.roomName = roomName;
@@ -228,40 +295,151 @@ async function ensureRoom({ rooms, client, threadId, conversationId, roomName, w
   }
 
   if (conversationId) {
-    await client.conversations.sync?.();
-    const conversation = await client.conversations.getConversationById(conversationId);
-    if (!conversation) {
-      throw new Error(`XMTP conversation not found: ${conversationId}`);
-    }
-    const room = {
-      conversation,
-      roomName,
-      participants: mergeParticipants([], participants),
-      messages: [],
-    };
-    rooms.set(threadId, room);
-    return room;
+    return openBoundRoom({ rooms, client, threadId, conversationId, topicId, roomName, participants });
   }
 
   const identifiers = buildMemberIdentifiers(wallet);
-  let conversation;
-  try {
-    conversation = identifiers.length
-      ? await client.conversations.createGroupWithIdentifiers(identifiers, { name: roomName })
-      : client.conversations.createGroupOptimistic({ name: roomName });
-  } catch (error) {
-    if (!identifiers.length) throw error;
-    conversation = client.conversations.createGroupOptimistic({ name: roomName });
-  }
+  if (!identifiers.length) throw new TypeError('Authenticated holder wallet is required for a new XMTP group.');
+  const metadata = { name: roomName, description: String(topicId ?? threadId) };
+  const conversation = await client.conversations.createGroupWithIdentifiers(identifiers, metadata);
 
   const room = {
     conversation,
+    topicId: String(topicId ?? threadId),
     roomName,
     participants: mergeParticipants([], participants),
     messages: [],
   };
   rooms.set(threadId, room);
   return room;
+}
+
+async function openBoundRoom({ rooms, client, threadId, conversationId, topicId, roomName, participants } = {}) {
+  await client.conversations.sync?.();
+  const conversation = await client.conversations.getConversationById(conversationId);
+  if (!conversation) throw new Error(`XMTP conversation not found: ${conversationId}`);
+  const room = {
+    conversation,
+    topicId: String(topicId ?? threadId),
+    roomName,
+    participants: mergeParticipants([], participants),
+    messages: await loadConversationMessages(conversation, { ownInboxId: client?.inboxId }),
+  };
+  rooms.set(threadId, room);
+  return room;
+}
+
+async function loadConversationMessages(conversation, { ownInboxId = null } = {}) {
+  if (typeof conversation?.messages !== 'function') return [];
+  const recovered = await conversation.messages({ limit: 50 }).catch(() => []);
+  const normalized = (Array.isArray(recovered) ? recovered : [])
+    .map((message) => normalizeRecoveredMessage(message, { ownInboxId }))
+    .filter(Boolean);
+  return pairRecoveredImageCaptions(normalized);
+}
+
+function normalizeRecoveredMessage(message = {}, { ownInboxId = null } = {}) {
+  const id = String(message.id ?? '').trim();
+  const senderInboxId = String(message.senderInboxId ?? '').trim();
+  const base = {
+    id: id || `xmtp_recovered_${String(message.sentAtNs ?? message.sentAt ?? '')}`,
+    xmtpMessageId: id || undefined,
+    role: ownInboxId && senderInboxId === String(ownInboxId) ? 'agent' : 'human',
+    text: '',
+    sentAt: normalizeRecoveredTimestamp(message),
+    transport: 'xmtp_group',
+    senderInboxId,
+    ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
+  };
+  if (typeof message.content === 'string') return { ...base, text: message.content.trim() };
+  if (sameContentType(message.contentType, contentTypeAttachment())) {
+    const content = message.content;
+    const bytes = content?.content instanceof Uint8Array
+      ? content.content
+      : (content?.data instanceof Uint8Array ? content.data : null);
+    if (bytes) {
+      try {
+        const normalized = normalizeConsoleImageAttachment({
+          mimeType: content.mimeType,
+          filename: content.filename,
+          base64: Buffer.from(bytes).toString('base64'),
+          width: null,
+          height: null,
+        }, { allowUnknownDimensions: true });
+        return {
+          ...base,
+          attachment: {
+            ...projectConsoleImageMetadata(normalized),
+            base64: Buffer.from(normalized.content).toString('base64'),
+          },
+        };
+      } catch {
+        return {
+          ...base,
+          attachment: { kind: 'unsupported', filename: String(content?.filename ?? 'image'), unavailable: true },
+        };
+      }
+    }
+  }
+  return {
+    ...base,
+    text: 'Unsupported XMTP content.',
+    attachment: { kind: 'unsupported', filename: 'attachment', unavailable: true },
+  };
+}
+
+function pairRecoveredImageCaptions(messages) {
+  const paired = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const current = messages[index];
+    const next = messages[index + 1];
+    if (current?.attachment?.kind === 'image'
+      && next?.text
+      && current.senderInboxId
+      && current.senderInboxId === next.senderInboxId
+      && timestampsAreNear(current.sentAt, next.sentAt)) {
+      const ownAgentCaption = /^\[[^\]]{1,100}\]\s/u.test(next.text);
+      paired.push(stripRecoveryInternals({
+        ...current,
+        role: ownAgentCaption ? 'agent' : 'human',
+        text: next.text,
+        captionXmtpMessageId: next.xmtpMessageId ?? next.id,
+      }));
+      index += 1;
+      continue;
+    }
+    paired.push(stripRecoveryInternals(current));
+  }
+  return paired;
+}
+
+function timestampsAreNear(left, right) {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs >= leftMs && rightMs - leftMs <= 10_000;
+}
+
+function stripRecoveryInternals(message) {
+  if (!message) return message;
+  const { senderInboxId, ...publicMessage } = message;
+  return publicMessage;
+}
+
+function sameContentType(left, right) {
+  if (!left || !right) return false;
+  return String(left.authorityId ?? left.authority_id ?? '') === String(right.authorityId ?? right.authority_id ?? '')
+    && String(left.typeId ?? left.type_id ?? '') === String(right.typeId ?? right.type_id ?? '')
+    && Number(left.versionMajor ?? left.version_major ?? 0) === Number(right.versionMajor ?? right.version_major ?? 0)
+    && Number(left.versionMinor ?? left.version_minor ?? 0) === Number(right.versionMinor ?? right.version_minor ?? 0);
+}
+
+function normalizeRecoveredTimestamp(message) {
+  const direct = String(message.sentAt ?? '').trim();
+  if (direct) return direct;
+  try {
+    if (message.sentAtNs !== undefined) return new Date(Number(BigInt(message.sentAtNs) / 1_000_000n)).toISOString();
+  } catch {}
+  return new Date(0).toISOString();
 }
 
 function buildMemberIdentifiers(wallet) {
@@ -281,17 +459,45 @@ function buildOutboundText(message = {}) {
 
 function normalizeOutboundMessage(message = {}, defaults = {}) {
   const text = String(message.text ?? '').trim();
-  if (!text) return null;
+  const attachment = normalizeOutboundAttachment(message.attachment);
+  if (!text && !attachment) return null;
   return {
     id: String(message.id ?? defaults.fallbackId ?? '').trim() || defaults.fallbackId,
     role: String(message.role ?? 'agent') === 'human' ? 'human' : 'agent',
     text,
+    ...(attachment ? { attachment } : {}),
     sentAt: String(message.sentAt ?? defaults.sentAt ?? new Date().toISOString()),
     transport: String(message.transport ?? defaults.transport ?? 'xmtp_local'),
     ...(message.senderLabel ? { senderLabel: String(message.senderLabel) } : {}),
     ...(message.participantId ? { participantId: String(message.participantId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
     ...(defaults.conversationId ? { conversationId: String(defaults.conversationId) } : {}),
+  };
+}
+
+function normalizeOutboundAttachment(value) {
+  if (!value || value.kind !== 'image' || !(value.content instanceof Uint8Array)) return null;
+  return {
+    kind: 'image',
+    filename: String(value.filename ?? 'image'),
+    mimeType: String(value.mimeType ?? ''),
+    content: value.content,
+    byteLength: Number(value.byteLength ?? value.content.byteLength),
+    width: value.width ?? null,
+    height: value.height ?? null,
+    sha256: String(value.sha256 ?? ''),
+  };
+}
+
+function projectPublishedMessage(message) {
+  if (!message?.attachment) return message;
+  const { content, ...metadata } = message.attachment;
+  return {
+    ...message,
+    attachment: {
+      ...metadata,
+      base64: Buffer.from(content).toString('base64'),
+    },
   };
 }
 
@@ -307,16 +513,19 @@ function mergeParticipants(existing = [], incoming = []) {
 
 function normalizeParticipant(participant = {}) {
   const participantId = String(
-    participant.participantId ?? participant.agentId ?? participant.tokenId ?? '',
+    participant.participantId ?? participant.agentId ?? participant.tokenId ?? participant.wallet ?? '',
   ).trim();
   if (!participantId) return null;
-  return {
+  const normalized = {
     participantId,
-    agentId: String(participant.agentId ?? participantId).trim() || participantId,
-    tokenId: String(participant.tokenId ?? participantId).trim() || participantId,
     displayName: String(participant.displayName ?? participant.agentName ?? `Agent ${participantId}`).trim() || `Agent ${participantId}`,
     role: String(participant.role ?? 'Onchain agent').trim() || 'Onchain agent',
   };
+  if (participant.kind) normalized.kind = String(participant.kind);
+  if (participant.wallet) normalized.wallet = String(participant.wallet).trim().toLowerCase();
+  if (participant.agentId) normalized.agentId = String(participant.agentId).trim();
+  if (participant.tokenId) normalized.tokenId = String(participant.tokenId).trim();
+  return normalized;
 }
 
 function normalizeRoomName(value) {

@@ -40,6 +40,24 @@ export interface SavedRecordsStore extends MemoryStore {
 
 export type SignatureVerifier = (input: { wallet: string; message: string; signature: string }) => boolean | Promise<boolean>;
 
+export interface LooperCodexRuntime {
+  available: boolean;
+  status: {
+    available: boolean;
+    schemaVersion?: string;
+    artifactHash?: string;
+    codexVersion?: string;
+    count?: number;
+    reason?: string;
+  };
+  query(operation: string, input: unknown): unknown;
+}
+
+export interface MultipassLogger {
+  info?(event: Record<string, unknown>): void;
+  warn?(event: Record<string, unknown>): void;
+}
+
 export interface MultipassApiOptions {
   store: MemoryStore;
   baseUrl?: string;
@@ -55,10 +73,54 @@ export interface MultipassApiOptions {
   loopersAllowlistRateLimit?: unknown;
   loopersAllowlistSubnetRateLimit?: unknown;
   loopersTurnstileSecretKey?: string | null;
+  loopersOwnedAgentLoader?: (input: { address: string }) => Promise<unknown[]>;
+  loopersOwnedRpcUrl?: string;
+  loopersOwnedMetadataBaseUrl?: string;
+  loopersPublicClients?: unknown[];
+  loopersAuthorizer?: (input: { tokenId: string; wallet: string }) => Promise<Record<string, unknown>>;
+  consoleAuthStore?: unknown;
+  consoleRuntimeRegistry?: unknown;
   bankrLlmKey?: string | null;
   bankrLlmModel?: string | null;
+  bankrLlmVisionModel?: string | null;
   consoleAgentBankrLlmEnabled?: boolean;
-  consoleAgentRuntime?: { handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown };
+  consoleSkillProposalsEnabled?: boolean;
+  consoleMarketReadEnabled?: boolean;
+  consoleAccountReadEnabled?: boolean;
+  consoleXmtpEnabled?: boolean;
+  consoleXmtpEnv?: string;
+  consoleXmtpWalletKey?: string | null;
+  consoleXmtpDbPath?: string | null;
+  consoleXmtpDbEncryptionKey?: string | Uint8Array | null;
+  consoleXmtpHistorySyncUrl?: string | null;
+  consoleXmtpApiUrl?: string | null;
+  consoleXmtpGatewayHost?: string | null;
+  consoleXmtpAppVersion?: string;
+  consoleXmtpClient?: unknown;
+  consoleAgentRuntime?: {
+    handleMessage(input?: Record<string, unknown>): Promise<unknown> | unknown;
+    getThread?(input?: Record<string, unknown>): Promise<unknown> | unknown;
+  };
+  looperCodexRuntime?: LooperCodexRuntime;
+  logger?: MultipassLogger;
+  consoleCodexWalletRateLimit?: { limit: number; windowMs: number };
+  consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };
+  consoleCodexRateLimitNow?: () => number;
+  consoleCodexWalletMaxBuckets?: number;
+  restapDiscoveryEnabled?: boolean;
+  restapTalkEnabled?: boolean;
+  restap3802Policy?: {
+    authorize(input: { surface: 'discovery' | 'talk' | 'news-write' }): Promise<{ discovery?: unknown; publicProjection?: unknown }> | { discovery?: unknown; publicProjection?: unknown };
+  };
+  restapTalkRuntime?: {
+    talk(input: { message: string; sessionId?: string; publicProjection: unknown }): Promise<{ reply: string; session_id: string }> | { reply: string; session_id: string };
+  };
+  restapNewsWriteEnabled?: boolean;
+  restapNewsReadEnabled?: boolean;
+  restapNewsStore?: { accept(input: unknown): { itemId: string; receivedAt: string }; list(input: { cursor?: string; limit: number }): { items: Array<{ canonicalBody: unknown }>; nextCursor?: string | null } };
+  restapNewsAuthenticator?: { authenticate(input: unknown): Promise<unknown> | unknown };
+  restapTalkLimits?: { perIpPerMinute?: number; perSessionPerMinute?: number; globalPerDay?: number; concurrency?: number };
+  restapRateLimitNow?: () => number;
 }
 
 export interface MultipassApi {

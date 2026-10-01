@@ -1,3 +1,11 @@
+import { safeConsoleAvatarUrl } from './console-owner-profile.js';
+import {
+  createConsoleCapabilityViewModel,
+  createUnverifiedTransferSuggestion,
+  renderConsoleCapabilitySurface,
+  renderUnverifiedTransferSuggestion,
+} from './console-wallet-proposals.js';
+
 export function renderConsoleAgentThread(thread = {}) {
   const participants = Array.isArray(thread.participants) ? thread.participants.filter(Boolean) : [];
   const contextItems = Array.isArray(thread.contextItems) ? thread.contextItems.filter(Boolean).slice(0, 6) : [];
@@ -5,18 +13,19 @@ export function renderConsoleAgentThread(thread = {}) {
     ? thread.messages
     : [{
       role: 'agent',
-      text: thread.sessionReset && thread.recalledMission
-        ? thread.recalledMission
-        : (thread.summary ?? 'Connect wallet to start.'),
-      transport: thread.transport ?? 'xmtp_local',
+      text: thread.summary ?? 'Connect wallet to start.',
+      transport: thread.transport ?? 'unavailable',
       senderLabel: participants[0]?.displayName ?? thread.agentName ?? 'Selected agent',
     }];
   const proposals = Array.isArray(thread.proposals) ? thread.proposals : [];
   const sending = thread.status === 'sending';
-  const disabled = Boolean(thread.disabled || sending);
-  const agentName = thread.agentName ?? 'Selected agent';
+  const activating = thread.status === 'activating';
+  const preparingImage = thread.attachment?.status === 'preparing';
+  const disabled = Boolean(thread.disabled || sending || activating || preparingImage);
+  const selectedAgentName = String(thread.agentName ?? '').trim();
+  const agentName = selectedAgentName || 'Selected agent';
   const roomName = String(thread.roomName ?? '').trim() || `${agentName} room`;
-  const threadTitle = String(thread.title ?? '').trim() || agentName;
+  const threadTitle = selectedAgentName ? `${selectedAgentName} Private Chat` : 'Agent Private Chat';
   const roomLabel = String(thread.metaLabel ?? '').trim() || (participants.length > 1 ? `#${roomName}` : 'Direct thread');
   const roomSummary = createRoomSummary(messages, proposals);
   const participantSummary = createParticipantSummary(participants);
@@ -25,77 +34,120 @@ export function renderConsoleAgentThread(thread = {}) {
   const linkStatus = disabled ? 'Standby' : 'Channel open';
   const contextSummary = createContextSummary(contextItems);
   const roomNotes = [
-    participants.length > 1 ? `${participants.length} agents in room.` : null,
+    participants.length > 1 ? `${participants.length} participants in room.` : null,
     memoryCueCount ? `${memoryCueCount} memory cue${memoryCueCount === 1 ? '' : 's'} loaded.` : 'Sibyl memory standing by.',
     contextSummary,
   ].filter(Boolean).join(' ');
   const noteLabel = thread.contextLabel ?? (participants.length > 1 ? 'Room notes' : 'Thread note');
+  const skillProposalSurface = createSkillProposalSurface(thread, { messages, participants });
   const timeline = createTimeline({
     messages,
     proposals,
+    transferSuggestions: skillProposalSurface.transferSuggestions,
     recall,
     savedMemory: thread.savedMemory,
     recalledMemory: thread.recalledMemory,
     missions: thread.missions,
   });
+  const operation = createOperationState(thread);
 
   return `
-    <section class="console-panel console-agent-thread-panel" aria-label="Live agent chat">
+    <section class="console-panel console-agent-thread-panel${selectedAgentName ? '' : ' console-agent-thread-panel-empty'}" aria-label="Live agent chat">
       <header class="console-thread-shell-header">
         <div class="console-thread-shell-heading">
           <div class="console-thread-chat-head">
-            ${renderAvatar({
-              label: agentName,
-              imageUrl: thread.agentAvatarUrl ?? participants[0]?.avatarUrl ?? null,
-              className: 'console-thread-avatar-chat',
-            })}
             <div class="console-thread-chat-copy">
               <h2>${escapeHtml(threadTitle)}</h2>
               <p>${escapeHtml(thread.summary ?? 'Live chat ready.')}</p>
             </div>
           </div>
         </div>
-        <div class="console-thread-shell-meta" aria-label="Room summary">
-          <strong>${escapeHtml(roomLabel)}</strong>
-          <span>${escapeHtml(`${linkStatus} · ${roomSummary}`)}</span>
-        </div>
       </header>
-      <section class="console-thread-toolbar" aria-label="Chat room controls">
-        ${participants.length ? `
-          <div class="console-thread-members" aria-label="Room participants">
-            ${participants.length > 1 ? `<span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>` : ''}
-            <div class="console-thread-member-list">
-              ${participants.map(renderParticipantPill).join('')}
+      <details class="console-thread-secondary-details">
+        <summary>
+          <span>Room details</span>
+          <small>${escapeHtml(participantSummary)}</small>
+        </summary>
+        <section class="console-thread-toolbar" aria-label="Secondary room context">
+          <div class="console-thread-shell-meta" aria-label="Room and transport summary">
+            <strong>${escapeHtml(roomLabel)}</strong>
+            <span>${escapeHtml(`${formatTransportLabel(thread.transport)} · ${linkStatus} · ${roomSummary}`)}</span>
+          </div>
+          ${participants.length ? `
+            <div class="console-thread-members" aria-label="Room participants">
+              ${participants.length > 1 ? `<span class="console-thread-members-label">${escapeHtml(participantSummary)}</span>` : ''}
+              <div class="console-thread-member-list">
+                ${participants.map(renderParticipantPill).join('')}
+              </div>
             </div>
+          ` : ''}
+          ${roomNotes ? `
+            <div class="console-thread-context-summary">
+              <span>${escapeHtml(noteLabel)}</span>
+              <p>${escapeHtml(roomNotes)}</p>
+            </div>
+          ` : ''}
+          ${skillProposalSurface.capabilities ? renderConsoleCapabilitySurface(skillProposalSurface.capabilities) : ''}
+          <div class="console-thread-local-actions">
+            <p>Hide the messages already shown on this browser. XMTP history stays intact.</p>
+            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Hide chat locally</button>
           </div>
-        ` : ''}
-        ${roomNotes ? `
-          <div class="console-thread-context-summary">
-            <span>${escapeHtml(noteLabel)}</span>
-            <p>${escapeHtml(roomNotes)}</p>
-          </div>
-        ` : ''}
-      </section>
+        </section>
+      </details>
       <div class="console-thread-daybreak" aria-hidden="true"><span>Today</span></div>
-      <div class="console-thread-messages">
+      ${operation ? `
+        <div class="console-thread-operation console-thread-operation-${escapeAttribute(operation.tone)}" role="status">
+          <div>
+            <strong>${escapeHtml(operation.title)}</strong>
+            <span>${escapeHtml(operation.body)}</span>
+          </div>
+          ${thread.activationRetryAvailable ? `<button type="button" data-action="retry-console-agent-activation" ${thread.roomActivationDisabled ? 'disabled' : ''}>Retry room activation</button>` : ''}
+        </div>
+      ` : ''}
+      <div class="console-thread-messages" data-console-room-key="${escapeAttribute(thread.roomKey ?? '')}" data-console-scroll-request="${escapeAttribute(thread.scrollRequest ?? 0)}">
         ${timeline.map((item) => renderTimelineItem(item, agentName)).join('')}
       </div>
-      <form class="console-thread-composer" data-action="send-console-agent-message">
-        <label class="console-thread-composer-label">
+      <form class="console-thread-composer" data-action="send-console-agent-message" data-console-image-dropzone aria-busy="${preparingImage ? 'true' : 'false'}">
+        <label class="console-thread-composer-label" for="console-agent-message">
           <span>Message room</span>
         </label>
         <div class="console-thread-composer-shell">
-          <textarea name="message" rows="4" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}></textarea>
+          ${renderComposerAttachment(thread.attachment, { disabled })}
+          <textarea id="console-agent-message" name="message" rows="4" aria-describedby="console-image-help console-image-error" placeholder="${escapeAttribute(thread.defaultMission ?? 'Tell the selected agent what to watch, remember, or brief you on.')}" ${disabled ? 'disabled' : ''}>${escapeHtml(thread.draft ?? '')}</textarea>
           <div class="console-thread-actions">
+            <div class="console-thread-attachment-actions">
+              <label class="console-attachment-button${disabled ? ' disabled' : ''}">
+                <span>Attach image</span>
+                <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" data-console-image-input ${disabled ? 'disabled' : ''}>
+              </label>
+              <small id="console-image-help">JPEG, PNG, WebP, or GIF. One image, 750 KiB prepared maximum. Paste or drop works too.</small>
+            </div>
             <small class="console-thread-actions-note">Review-only. Nothing executes without your approval.</small>
-            <button type="button" data-action="reset-console-session" ${thread.canReset ? '' : 'disabled'}>Reset chat</button>
-            <button type="submit" ${disabled ? 'disabled' : ''}>${sending ? 'Sending...' : 'Send'}</button>
+            <button class="console-send-button" type="submit" aria-label="${thread.retryAvailable ? 'Retry message' : 'Send message'}" ${disabled ? 'disabled' : ''}>
+              <span>${sending ? 'Sending...' : (thread.retryAvailable ? 'Retry' : 'Send')}</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z"/></svg>
+            </button>
           </div>
+          <p id="console-image-error" class="console-image-error" role="alert" aria-live="polite">${escapeHtml(thread.attachment?.error ?? '')}</p>
         </div>
       </form>
       ${thread.error ? `<p class="console-thread-error">${escapeHtml(thread.error)}</p>` : ''}
     </section>
   `;
+}
+
+function createOperationState(thread = {}) {
+  const states = {
+    setting_up_xmtp: { title: 'Setting up XMTP', body: 'Preparing the wallet-bound transport before opening the room.', tone: 'working' },
+    opening_room: { title: 'Opening room', body: 'Recovering the canonical server conversation.', tone: 'working' },
+    sending_mission: { title: 'Sending mission', body: 'Submitting the preserved draft to the selected agent.', tone: 'working' },
+    waiting_bankr_sibyl: { title: 'Waiting for Bankr', body: 'Generating the reply · saving Sibyl memory · recalling Sibyl memory.', tone: 'working' },
+    cancelled: { title: 'Operation cancelled', body: 'Nothing was changed.', tone: 'neutral' },
+    authorization_failed: { title: 'Authorization failed', body: 'Reconnect the wallet session before retrying.', tone: 'error' },
+    activation_failed: { title: 'Room activation failed', body: 'The selected agent is unchanged. Retry opening its canonical room.', tone: 'error' },
+    transport_failed: { title: 'Transport failed', body: 'Your draft is preserved. Try again when the provider is reachable.', tone: 'error' },
+  };
+  return states[thread.operationStatus] ?? null;
 }
 
 function renderTimelineItem(item = {}, agentName = 'Selected agent') {
@@ -108,6 +160,9 @@ function renderTimelineItem(item = {}, agentName = 'Selected agent') {
   if (item.type === 'proposal') {
     return renderInlineProposal(item.proposal);
   }
+  if (item.type === 'transfer-suggestion') {
+    return renderUnverifiedTransferSuggestion(item.suggestion);
+  }
   return renderThreadMessage(item.message, agentName);
 }
 
@@ -116,7 +171,7 @@ function renderThreadMessage(message = {}, agentName = 'Selected agent') {
     ? (String(message.senderLabel ?? '').trim() || 'You')
     : (String(message.senderLabel ?? '').trim() || agentName);
   return `
-    <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}">
+    <article class="console-thread-message ${message.role === 'human' ? 'human' : 'agent'}" data-console-message-identity="${escapeAttribute(getConsoleMessageIdentity(message))}">
       ${renderAvatar({
         label: role,
         imageUrl: message.avatarUrl ?? null,
@@ -124,12 +179,58 @@ function renderThreadMessage(message = {}, agentName = 'Selected agent') {
       <div class="console-thread-entry">
         <span class="console-thread-meta">
           <strong class="console-thread-role">${escapeHtml(role)}</strong>
-          <small>${escapeHtml(formatTransportLabel(message.transport))}</small>
         </span>
-        <p>${escapeHtml(message.text ?? '')}</p>
+        ${renderMessageAttachment(message.attachment, role)}
+        ${message.text ? `<p>${escapeHtml(message.text)}</p>` : ''}
       </div>
     </article>
   `;
+}
+
+function renderComposerAttachment(attachment, { disabled = false } = {}) {
+  if (attachment?.status === 'preparing') {
+    return '<div class="console-composer-image-status" role="status" aria-live="polite">Preparing image...</div>';
+  }
+  if (!attachment?.prepared || !attachment.previewUrl) return '';
+  const filename = String(attachment.prepared.filename ?? 'Attached image');
+  return `
+    <div class="console-composer-image-preview" data-console-image-preview>
+      <img src="${escapeAttribute(attachment.previewUrl)}" alt="Preview of ${escapeAttribute(filename)}">
+      <div><strong>${escapeHtml(filename)}</strong><small>${escapeHtml(formatImageBytes(attachment.prepared.byteLength))}</small></div>
+      <button type="button" data-action="remove-console-image" aria-label="Remove attached image" ${disabled ? 'disabled' : ''}>Remove</button>
+    </div>
+  `;
+}
+
+function renderMessageAttachment(attachment, role) {
+  if (!attachment) return '';
+  const src = safeInlineImageSrc(attachment);
+  const filename = String(attachment.filename ?? 'image');
+  if (!src) {
+    return `<div class="console-message-image-placeholder" role="img" aria-label="Image unavailable">Image unavailable: ${escapeHtml(filename)}</div>`;
+  }
+  return `
+    <figure class="console-message-image">
+      <img src="${escapeAttribute(src)}" alt="Image sent by ${escapeAttribute(role)}: ${escapeAttribute(filename)}" loading="lazy">
+      <figcaption>${escapeHtml(filename)}</figcaption>
+    </figure>
+  `;
+}
+
+function safeInlineImageSrc(attachment) {
+  const previewUrl = String(attachment.previewUrl ?? '');
+  if (/^blob:/u.test(previewUrl)) return previewUrl;
+  const mimeType = String(attachment.mimeType ?? '').toLowerCase();
+  const base64 = String(attachment.base64 ?? '');
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mimeType)) return null;
+  if (!base64 || base64.length > 1_024_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(base64)) return null;
+  return `data:${mimeType};base64,${base64}`;
+}
+
+function formatImageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 1) return 'Prepared image';
+  return `${Math.ceil(bytes / 1024)} KiB`;
 }
 
 function renderInlineProposal(proposal = {}) {
@@ -168,11 +269,12 @@ function renderThreadActivity(activity = {}) {
 
 function renderParticipantPill(participant = {}) {
   const label = String(participant.displayName ?? participant.agentName ?? participant.participantId ?? 'Agent').trim() || 'Agent';
+  const imageUrl = safeConsoleAvatarUrl(participant.avatarUrl);
   return `
     <span class="console-thread-member-pill">
       <strong class="console-thread-member-avatar">
-        ${participant.avatarUrl
-          ? `<img src="${escapeAttribute(participant.avatarUrl)}" alt="" loading="lazy" />`
+        ${imageUrl
+          ? `<img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy" data-console-avatar-image><span class="console-thread-avatar-fallback" hidden>${escapeHtml(initialsForLabel(label))}</span>`
           : escapeHtml(initialsForLabel(label))}
       </strong>
       <span>${escapeHtml(label)}</span>
@@ -182,19 +284,23 @@ function renderParticipantPill(participant = {}) {
 
 function renderAvatar({ label = 'Agent', imageUrl = null, className = '' } = {}) {
   const classes = ['console-thread-avatar', className].filter(Boolean).join(' ');
-  if (imageUrl) {
+  const safeImageUrl = safeConsoleAvatarUrl(imageUrl);
+  const fallback = escapeHtml(initialsForLabel(label));
+  if (safeImageUrl) {
     return `
       <div class="${escapeAttribute(classes)}" aria-hidden="true">
-        <img src="${escapeAttribute(imageUrl)}" alt="" loading="lazy">
+        <img src="${escapeAttribute(safeImageUrl)}" alt="" loading="lazy" data-console-avatar-image>
+        <span class="console-thread-avatar-fallback" hidden>${fallback}</span>
       </div>
     `;
   }
-  return `<div class="${escapeAttribute(classes)}" aria-hidden="true">${escapeHtml(initialsForLabel(label))}</div>`;
+  return `<div class="${escapeAttribute(classes)}" aria-hidden="true"><span class="console-thread-avatar-fallback">${fallback}</span></div>`;
 }
 
 function createTimeline({
   messages = [],
   proposals = [],
+  transferSuggestions = [],
   recall = null,
   savedMemory = [],
   recalledMemory = [],
@@ -215,8 +321,17 @@ function createTimeline({
   }
   const safeMessages = Array.isArray(messages) ? messages : [];
   const safeProposals = Array.isArray(proposals) ? proposals : [];
+  const safeTransferSuggestions = Array.isArray(transferSuggestions) ? transferSuggestions : [];
   for (const message of safeMessages) {
     timeline.push({ type: 'message', message });
+    for (const suggestion of safeTransferSuggestions) {
+      if (
+        suggestion.sourceMessage.id === String(message?.id ?? '')
+        && suggestion.participant.id === String(message?.participantId ?? '')
+      ) {
+        timeline.push({ type: 'transfer-suggestion', suggestion });
+      }
+    }
   }
   if (safeProposals.length) {
     timeline.push({ type: 'divider', label: safeMessages.length || roomActivity.length ? 'Review queue' : 'Queued proposals' });
@@ -225,6 +340,35 @@ function createTimeline({
     }
   }
   return timeline;
+}
+
+function createSkillProposalSurface(thread, { messages, participants }) {
+  const hasCapabilities = Object.prototype.hasOwnProperty.call(thread, 'capabilities');
+  const hasCandidates = Object.prototype.hasOwnProperty.call(thread, 'proposalCandidates');
+  if (!hasCapabilities || !hasCandidates || !Array.isArray(thread.proposalCandidates)) {
+    return { capabilities: null, transferSuggestions: [] };
+  }
+
+  let capabilities;
+  try {
+    capabilities = createConsoleCapabilityViewModel(thread.capabilities);
+  } catch {
+    return { capabilities: null, transferSuggestions: [] };
+  }
+
+  const transferSuggestions = [];
+  for (const candidate of thread.proposalCandidates) {
+    try {
+      transferSuggestions.push(createUnverifiedTransferSuggestion(candidate, {
+        capabilities: thread.capabilities,
+        messages,
+        participants,
+      }));
+    } catch {
+      // Invalid or stale candidate provenance is omitted rather than repaired in the browser.
+    }
+  }
+  return { capabilities, transferSuggestions };
 }
 
 function createRoomActivity({ recall = null, savedMemory = [], recalledMemory = [], missions = [] } = {}) {
@@ -349,9 +493,12 @@ function formatTransportLabel(value) {
   const text = String(value ?? '').trim().toLowerCase();
   if (!text || text === 'live_chat') return 'live chat';
   if (text === 'console') return 'live chat';
-  if (text === 'xmtp_local') return 'xmtp room';
-  if (text === 'xmtp_group') return 'xmtp group';
-  if (text === 'xmtp-ready' || text === 'xmtp_ready') return 'xmtp ready';
+  if (text === 'xmtp_local') return 'local test adapter';
+  if (text === 'xmtp_group') return 'XMTP';
+  if (text === 'xmtp live') return 'XMTP live';
+  if (text === 'xmtp room') return 'XMTP room';
+  if (text === 'unavailable') return 'transport unavailable';
+  if (text === 'xmtp-ready' || text === 'xmtp_ready' || text === 'xmtp configured') return 'XMTP configured';
   return text.replaceAll('_', ' ');
 }
 
@@ -366,12 +513,14 @@ function createRoomSummary(messages = [], proposals = []) {
 
 function createParticipantSummary(participants = []) {
   const count = Array.isArray(participants) ? participants.length : 0;
-  if (!count) return 'No agents in room';
-  if (count === 1) return '1 agent in room';
-  return `${count} agents in room`;
+  if (!count) return 'No participants in room';
+  if (count === 1) return '1 participant in room';
+  return `${count} participants in room`;
 }
 
 function initialsForLabel(value) {
+  const normalized = String(value ?? '').trim();
+  if (/^0x/iu.test(normalized)) return '0X';
   const parts = String(value ?? '')
     .trim()
     .split(/\s+/)
@@ -379,6 +528,19 @@ function initialsForLabel(value) {
     .slice(0, 2);
   if (!parts.length) return 'AG';
   return parts.map((part) => part[0]?.toUpperCase() ?? '').join('') || 'AG';
+}
+
+export function getConsoleMessageIdentity(message = {}) {
+  const xmtpMessageId = String(message?.xmtpMessageId ?? '').trim();
+  if (xmtpMessageId) return `xmtp:${xmtpMessageId}`;
+  const id = String(message?.id ?? '').trim();
+  if (id) return `id:${id}`;
+  return `fallback:${[
+    message?.role,
+    message?.senderLabel ?? message?.sender,
+    message?.text,
+    message?.createdAt ?? message?.timestamp,
+  ].map((value) => String(value ?? '')).join('\u001f')}`;
 }
 
 function escapeHtml(value) {

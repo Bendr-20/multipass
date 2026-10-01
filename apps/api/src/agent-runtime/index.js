@@ -3,11 +3,26 @@ import {
   createSibylMemoryStore,
   extractDurableMemoryFromMessage,
 } from '../sibyl-memory/index.js';
+import { getConsoleSkillCatalog } from '../console-skill-catalog.js';
+import {
+  executeConsoleCodexIntent,
+  formatConsoleCodexResult,
+  resolveConsoleCodexIntent,
+} from '../console-codex-read.js';
+import { projectConsoleLlmDisplayText } from '../console-transfer-candidate.js';
+import { resolveConsoleReadSkillIntent } from '../console-read-skills.js';
+import { deriveReleasedLooperAccount } from '../looper-account.js';
+import { buildCanonicalConsoleRoom } from '../looper-runtime-registry.js';
 import { createDeferredXmtpAgentClient } from '../xmtp-agent/index.js';
 
 const DEFAULT_AGENT_ID = 'agent-manager';
 const DEFAULT_TOKEN_CONTRACT = '0x2e3B541C59D38b84E3Bc54e977200230A204Fe60';
 const MAX_THREAD_HISTORY = 24;
+const CONSOLE_EXECUTION_MODE = 'review_only';
+const DEFAULT_SKILL_PROVIDER_TIMEOUT_MS = 55_000;
+const MAX_SKILL_RESULT_TEXT_BYTES = 2_048;
+const MAX_MARKET_RESULT_TEXT_BYTES = 4_096;
+const MARKET_RESULT_FOOTER = 'Read-only market research; informational only.';
 
 export function createConsoleAgentRuntime({
   memoryClient = createSibylMemoryStore(),
@@ -15,27 +30,156 @@ export function createConsoleAgentRuntime({
   signalProvider = createLocalSignalProvider(),
   xmtpClient = createDeferredXmtpAgentClient(),
   now = () => new Date().toISOString(),
+  skillProposalsEnabled = false,
+  marketReadEnabled = false,
+  accountReadEnabled = false,
+  readSkillExecutor,
+  looperCodexRuntime,
+  bankrReadEnabled = true,
+  skillProviderTimeoutMs = DEFAULT_SKILL_PROVIDER_TIMEOUT_MS,
 } = {}) {
+  const proposalCatalog = getConsoleSkillCatalog({
+    proposalEnabled: skillProposalsEnabled,
+    helixaReadEnabled: skillProposalsEnabled,
+    codexReadEnabled: looperCodexRuntime?.status?.available === true,
+  });
+  const skillTimeoutMs = normalizeSkillProviderTimeout(skillProviderTimeoutMs);
+  const inFlightSkillCalls = new Map();
   return {
+    async getThread(input = {}) {
+      const wallet = requireWallet(input.wallet);
+      const profile = createRuntimeProfile(input);
+      const walletContext = normalizeWalletContext(input.walletContext, { wallet, profile });
+      const capabilities = runtimeCapabilities({
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress: walletContext?.scope?.account,
+        codexReadEnabled: looperCodexRuntime?.status?.available === true,
+      });
+      const namespace = profile.memoryNamespace;
+      const room = createRoomState(input, profile);
+      const storedMessages = await memoryClient.loadThread?.({ namespace, limit: MAX_THREAD_HISTORY }) ?? [];
+      const messages = sanitizeBankrLlmMessages(storedMessages, proposalCatalog);
+      const recalledMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
+      const transportThread = xmtpClient.transport === 'unavailable'
+        ? {
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: room.conversationId,
+          roomName: room.name,
+          transport: 'unavailable',
+          adapter: xmtpClient.provider ?? 'xmtp_disabled',
+          participants: room.participants,
+          messages: [],
+        }
+        : await xmtpClient.getThread({
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: room.conversationId,
+          roomName: room.name,
+          wallet,
+          participants: room.participants,
+        });
+      return {
+        schema_version: '0.1.0',
+        mode: 'console_agent_runtime',
+        executionMode: CONSOLE_EXECUTION_MODE,
+        profile,
+        room: publicRoom(room),
+        thread: {
+          transport: transportThread.transport ?? xmtpClient.transport,
+          adapter: transportThread.adapter ?? xmtpClient.provider,
+          threadId: room.threadId,
+          topicId: room.topicId,
+          conversationId: transportThread.conversationId ?? room.conversationId ?? null,
+          roomName: transportThread.roomName ?? room.name,
+          participants: transportThread.participants?.length ? transportThread.participants : room.participants,
+          messages: sanitizeBankrLlmMessages(
+            mergeRecoveredThreadMessages(messages, transportThread.messages),
+            proposalCatalog,
+          ),
+        },
+        memory: {
+          provider: memoryClient.provider ?? 'sibyl_memory',
+          namespace,
+          recalled: recalledMemory,
+          saved: [],
+        },
+        signals: [],
+        missions: [],
+        proposals: [],
+        ...(capabilities ? { capabilities } : {}),
+        ...(skillProposalsEnabled ? { proposalCandidates: [] } : {}),
+      };
+    },
+
     async handleMessage(input = {}) {
       const wallet = requireWallet(input.wallet);
       const message = String(input.message ?? '').trim();
-      if (!message) throw new TypeError('Message is required.');
+      const attachment = normalizeRuntimeImageAttachment(input.attachment);
+      if (!message && !attachment) throw new TypeError('Message or image is required.');
+      if (attachment && llmClient?.supportsVision !== true) {
+        throw new Error('Image understanding is unavailable because a vision-capable LLM is not configured.');
+      }
 
       const profile = createRuntimeProfile(input);
+      const walletContext = normalizeWalletContext(input.walletContext, { wallet, profile });
+      const accountAddress = walletContext?.scope?.account ?? null;
+      const resolvedCodexIntent = attachment
+        ? null
+        : resolveConsoleCodexIntent(message, { selectedTokenId: profile.rootIdentity.tokenId });
+      const explicitCodexIntent = looperCodexRuntime?.status?.available === true
+        ? resolvedCodexIntent
+        : null;
+      const resolvedSkillIntent = attachment || explicitCodexIntent ? null : resolveConsoleReadSkillIntent(message);
+      const explicitSkillCommand = resolveEnabledSkillIntent(resolvedSkillIntent, {
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress,
+      });
+      const capabilities = runtimeCapabilities({
+        skillProposalsEnabled,
+        marketReadEnabled,
+        accountReadEnabled,
+        bankrReadEnabled,
+        accountAddress,
+        codexReadEnabled: looperCodexRuntime?.status?.available === true,
+      });
+
       const namespace = profile.memoryNamespace;
       const room = createRoomState(input, profile);
       const threadId = room.threadId;
-      const priorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
-      const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
-      const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
-      const recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
-      const signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory });
+      const clientMessageId = normalizeClientMessageId(input.clientMessageId ?? input.inboundMessageId);
+      if (attachment && !clientMessageId) throw new TypeError('Image turns require a stable client message id.');
+      let priorMessages = [];
+      let recalledMemory = [];
+      let signals = [];
+      const savedMemory = [];
+      if (!explicitCodexIntent && !explicitSkillCommand) {
+        const storedPriorMessages = await memoryClient.loadThread?.({ namespace, limit: 12 }) ?? [];
+        priorMessages = sanitizeBankrLlmMessages(storedPriorMessages, proposalCatalog)
+          .filter(isSafeInferenceHistoryMessage);
+        const recentMemory = await memoryClient.recallMemory({ namespace, limit: 5 });
+        const matchedMemory = await memoryClient.searchMemory({ namespace, query: message, limit: 5 });
+        recalledMemory = mergeMemoryEntries([...matchedMemory, ...recentMemory]);
+        signals = await signalProvider.getSignals({ profile, room, message, memory: recalledMemory, walletContext });
+        for (const memory of extractDurableMemoryFromMessage(message)) {
+          const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
+          if (saved) savedMemory.push(saved);
+        }
+      }
 
       const userMessage = createThreadMessage({
-        id: `msg_${hashish(`${threadId}:human:${message}:${now()}`)}`,
+        id: `msg_${hashish(clientMessageId
+          ? `${threadId}:human:${clientMessageId}`
+          : `${threadId}:human:${message}:${now()}`)}`,
         role: 'human',
         text: message,
+        attachment,
         sentAt: now(),
         transport: xmtpClient.transport ?? 'xmtp_local',
         senderLabel: 'You',
@@ -44,41 +188,112 @@ export function createConsoleAgentRuntime({
         xmtpMessageId: input.inboundMessageId,
       });
 
-      const extractedMemories = extractDurableMemoryFromMessage(message);
-      const savedMemory = [];
-      for (const memory of extractedMemories) {
-        const saved = await memoryClient.saveMemory({ namespace, ...memory, savedAt: now() });
-        if (saved) savedMemory.push(saved);
-      }
-
       const agentMessages = [];
-      for (const participant of room.participants) {
-        const llm = await llmClient.generate({
-          profile: createParticipantProfile(profile, participant, room),
-          participant,
-          room,
-          wallet,
-          message,
-          memory: recalledMemory,
-          signals,
-          history: priorMessages,
-        });
-        agentMessages.push(createThreadMessage({
-          id: `msg_${hashish(`${threadId}:${participant.participantId}:${llm.text}:${now()}`)}`,
+      const participantResponses = [];
+      let codexEnvelope = null;
+      if (explicitCodexIntent) {
+        codexEnvelope = executeConsoleCodexIntent(explicitCodexIntent, { runtime: looperCodexRuntime });
+        const participant = selectSkillParticipant(room);
+        const agentMessage = createThreadMessage({
+          id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
           role: 'agent',
-          text: llm.text,
+          text: formatConsoleCodexResult(codexEnvelope),
           sentAt: now(),
           transport: xmtpClient.transport ?? 'xmtp_local',
-          inferenceProvider: llm.provider,
+          inferenceProvider: 'looper_codex',
           senderLabel: participant.displayName,
           participantId: participant.participantId,
-        }));
+        });
+        agentMessages.push(agentMessage);
+        participantResponses.push({
+          participantId: participant.participantId,
+          draftMessage: agentMessage,
+          skillRefs: ['codex'],
+          transferCandidates: [],
+        });
+      } else if (explicitSkillCommand) {
+        if (!readSkillExecutor || typeof readSkillExecutor.execute !== 'function') {
+          throw new Error('Console read skill executor is not configured.');
+        }
+        const dedupeKey = `${wallet}:${profile.rootIdentity.tokenId}:${accountAddress ?? 'public'}:${explicitSkillCommand.command}`;
+        const skillResult = await executeSkillWithDedupe({
+          command: explicitSkillCommand.command,
+          expectedSkill: explicitSkillCommand.skill,
+          expectedOperation: explicitSkillCommand.operation,
+          expectedKind: explicitSkillCommand.kind,
+          expectedQuery: explicitSkillCommand.operation === 'market_research'
+            ? explicitSkillCommand.command.replace(/^\/bankr research (?:market|news|comparison) /, '')
+            : explicitSkillCommand.operation === 'owner_account_read'
+              ? explicitSkillCommand.command.replace(/^\/bankr read /, '')
+              : null,
+          accountAddress,
+          readSkillExecutor,
+          timeoutMs: skillTimeoutMs,
+          inFlightSkillCalls,
+          dedupeKey,
+        });
+        const participant = selectSkillParticipant(room);
+        const agentMessage = createThreadMessage({
+          id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
+          role: 'agent',
+          text: skillResult.text,
+          sentAt: now(),
+          transport: xmtpClient.transport ?? 'xmtp_local',
+          inferenceProvider: skillResult.provider,
+          senderLabel: participant.displayName,
+          participantId: participant.participantId,
+        });
+        agentMessages.push(agentMessage);
+        participantResponses.push({
+          participantId: participant.participantId,
+          draftMessage: agentMessage,
+          skillRefs: [skillResult.skill],
+          transferCandidates: [],
+        });
+      } else {
+        for (const participant of room.participants.filter((entry) => entry.kind !== 'operator')) {
+          const llm = await llmClient.generate({
+            profile: createParticipantProfile(profile, participant, room),
+            participant,
+            room,
+            wallet,
+            message,
+            memory: recalledMemory,
+            signals,
+            history: priorMessages,
+            walletContext,
+            attachment,
+          });
+          const displayText = llm.provider === 'bankr_llm_gateway'
+            ? projectConsoleLlmDisplayText(llm.text, { catalog: proposalCatalog })
+            : llm.text;
+          const agentMessage = createThreadMessage({
+            id: `msg_${hashish(`${userMessage.id}:${participant.participantId}:reply`)}`,
+            role: 'agent',
+            text: displayText,
+            sentAt: now(),
+            transport: xmtpClient.transport ?? 'xmtp_local',
+            inferenceProvider: llm.provider,
+            senderLabel: participant.displayName,
+            participantId: participant.participantId,
+          });
+          agentMessages.push(agentMessage);
+          if (skillProposalsEnabled) {
+            participantResponses.push({
+              participantId: participant.participantId,
+              draftMessage: agentMessage,
+              skillRefs: normalizeRuntimeSkillRefs(llm.skillRefs, proposalCatalog),
+              transferCandidates: Array.isArray(llm.transferCandidates) ? llm.transferCandidates.slice(0, 1) : [],
+            });
+          }
+        }
       }
 
       const shouldPublishHumanMessage = input.publishHumanMessage !== false;
       const messagesToPublish = shouldPublishHumanMessage ? [userMessage, ...agentMessages] : agentMessages;
       const publishedRoom = await xmtpClient.publishRoomMessages({
         threadId,
+        topicId: room.topicId,
         conversationId: room.conversationId,
         roomName: room.name,
         wallet,
@@ -86,33 +301,43 @@ export function createConsoleAgentRuntime({
         messages: messagesToPublish,
       });
       const publishedMessages = publishedRoom.messages.slice(-messagesToPublish.length);
-      const threadBatch = shouldPublishHumanMessage
+      const publishedThreadBatch = shouldPublishHumanMessage
         ? publishedMessages
         : [userMessage, ...publishedMessages];
+      const threadBatch = codexEnvelope
+        ? publishedThreadBatch.map((entry) => entry?.role === 'agent'
+          ? { ...entry, skillRefs: ['codex'] }
+          : entry)
+        : publishedThreadBatch;
+      const currentPublishedMessages = Array.isArray(publishedRoom.publishedMessages)
+        ? publishedRoom.publishedMessages
+        : [];
+      const proposalCandidates = skillProposalsEnabled
+        ? bindProposalCandidates(participantResponses, currentPublishedMessages, proposalCatalog)
+        : null;
 
-      const threadMessages = await memoryClient.appendThread({
+      const persistedThreadMessages = await memoryClient.appendThread({
         namespace,
         messages: threadBatch.slice(-MAX_THREAD_HISTORY),
       });
+      const sanitizedThreadMessages = sanitizeBankrLlmMessages(persistedThreadMessages, proposalCatalog);
+      const responseThreadMessages = hydrateCurrentThreadAttachments(sanitizedThreadMessages, threadBatch);
 
       return {
         schema_version: '0.1.0',
         mode: 'console_agent_runtime',
+        executionMode: CONSOLE_EXECUTION_MODE,
         profile,
-        room: {
-          id: room.id,
-          name: room.name,
-          primaryParticipantId: room.primaryParticipantId,
-          participants: room.participants,
-        },
+        room: publicRoom(room),
         thread: {
           transport: publishedRoom.transport,
           adapter: publishedRoom.adapter,
           threadId,
+          topicId: publishedRoom.topicId ?? room.topicId,
           conversationId: publishedRoom.conversationId ?? null,
           roomName: publishedRoom.roomName ?? room.name,
           participants: publishedRoom.participants ?? room.participants,
-          messages: threadMessages,
+          messages: responseThreadMessages,
         },
         memory: {
           provider: memoryClient.provider ?? 'sibyl_memory',
@@ -123,26 +348,283 @@ export function createConsoleAgentRuntime({
         signals,
         missions: deriveMissions(message, savedMemory),
         proposals: deriveProposals({ message, signals, room }),
+        ...(capabilities ? { capabilities } : {}),
+        ...(skillProposalsEnabled ? { proposalCandidates } : {}),
+        ...(codexEnvelope ? { codex: codexEnvelope } : {}),
       };
     },
   };
 }
 
+function selectSkillParticipant(room) {
+  const agents = room.participants.filter((entry) => entry.kind !== 'operator');
+  return agents.find((entry) => entry.participantId === room.primaryParticipantId) ?? agents[0];
+}
+
+function resolveEnabledSkillIntent(intent, gates) {
+  if (!intent) return null;
+  if (intent.skill === 'helixa') return gates.skillProposalsEnabled ? intent : null;
+  if (!gates.bankrReadEnabled) return null;
+  if (intent.operation === 'price' || intent.operation === 'market_research') {
+    return gates.marketReadEnabled ? intent : null;
+  }
+  if (intent.operation === 'owner_account_read') {
+    return gates.accountReadEnabled && gates.accountAddress ? intent : null;
+  }
+  return null;
+}
+
+function runtimeCapabilities({
+  skillProposalsEnabled,
+  marketReadEnabled,
+  accountReadEnabled,
+  bankrReadEnabled,
+  accountAddress,
+  codexReadEnabled,
+}) {
+  const catalog = getConsoleSkillCatalog({
+    proposalEnabled: skillProposalsEnabled,
+    helixaReadEnabled: skillProposalsEnabled,
+    marketReadEnabled: marketReadEnabled && bankrReadEnabled,
+    accountReadEnabled: accountReadEnabled && bankrReadEnabled && Boolean(accountAddress),
+    codexReadEnabled,
+  });
+  return catalog.skills.some((skill) => skill.enabledCapabilities.length > 0) ? catalog : null;
+}
+
+function executeSkillWithDedupe({
+  command,
+  expectedSkill,
+  expectedOperation,
+  expectedKind,
+  expectedQuery,
+  accountAddress,
+  readSkillExecutor,
+  timeoutMs,
+  inFlightSkillCalls,
+  dedupeKey,
+}) {
+  const existing = inFlightSkillCalls.get(dedupeKey);
+  if (existing) return existing;
+
+  const controller = new AbortController();
+  let timeout;
+  const providerCall = Promise.resolve()
+    .then(() => readSkillExecutor.execute(command, {
+      signal: controller.signal,
+      ...(accountAddress ? { accountAddress } : {}),
+    }))
+    .then((result) => projectDisplayOnlySkillResult(
+      result,
+      expectedSkill,
+      expectedOperation,
+      expectedKind,
+      expectedQuery,
+      accountAddress,
+    ));
+  const deadline = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Console skill provider deadline exceeded.'));
+    }, timeoutMs);
+  });
+  const boundedCall = Promise.race([providerCall, deadline]).finally(() => {
+    clearTimeout(timeout);
+  });
+  inFlightSkillCalls.set(dedupeKey, boundedCall);
+  providerCall.then(
+    () => {
+      if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
+    },
+    () => {
+      if (inFlightSkillCalls.get(dedupeKey) === boundedCall) inFlightSkillCalls.delete(dedupeKey);
+    },
+  );
+  return boundedCall;
+}
+
+function projectDisplayOnlySkillResult(value, expectedSkill, expectedOperation, expectedKind, expectedQuery, accountAddress) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Malformed Console skill result.');
+  }
+  if (value.skill !== expectedSkill || typeof value.text !== 'string' || !value.text.trim()) {
+    throw new Error('Malformed Console skill result.');
+  }
+  const expected = expectedSkill === 'bankr'
+    ? { operation: expectedOperation, provider: 'bankr_agent_api' }
+    : { operation: 'agent_profile_read', provider: 'helixa_public_api' };
+  if (value.operation !== expected.operation || value.provider !== expected.provider) {
+    throw new Error('Malformed Console skill result.');
+  }
+  if (expectedOperation === 'market_research') {
+    if (!value.data
+      || value.data.kind !== expectedKind
+      || value.data.query !== expectedQuery
+      || !value.text.endsWith('Read-only market research; informational only.')) {
+      throw new Error('Malformed Console skill result.');
+    }
+  }
+  if (expectedOperation === 'owner_account_read') {
+    if (!value.data
+      || value.data.query !== expectedQuery
+      || value.data.accountAddress !== accountAddress
+      || !value.text.endsWith(`Account: ${accountAddress}`)) {
+      throw new Error('Malformed Console skill result.');
+    }
+  }
+  const text = expectedOperation === 'market_research'
+    ? truncateMarketResearchText(value.text.trim())
+    : truncateUtf8(value.text.trim(), MAX_SKILL_RESULT_TEXT_BYTES);
+  return Object.freeze({
+    skill: expectedSkill,
+    operation: expected.operation,
+    provider: expected.provider,
+    text,
+    ...(expectedOperation === 'market_research' ? { kind: expectedKind } : {}),
+  });
+}
+
+function truncateMarketResearchText(value) {
+  if (Buffer.byteLength(value, 'utf8') <= MAX_MARKET_RESULT_TEXT_BYTES) return value;
+  const suffix = `\n\n${MARKET_RESULT_FOOTER}`;
+  const body = value.slice(0, -MARKET_RESULT_FOOTER.length).trimEnd();
+  return `${truncateUtf8(body, MAX_MARKET_RESULT_TEXT_BYTES - Buffer.byteLength(suffix, 'utf8'))}${suffix}`;
+}
+
+function normalizeSkillProviderTimeout(value) {
+  if (value === undefined || value === null) return DEFAULT_SKILL_PROVIDER_TIMEOUT_MS;
+  if (!Number.isInteger(value) || value < 10 || value > 60_000) {
+    throw new TypeError('skillProviderTimeoutMs must be between 10 and 60000.');
+  }
+  return value;
+}
+
+function truncateUtf8(value, maxBytes) {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  let output = '';
+  let bytes = 0;
+  for (const character of value) {
+    const size = Buffer.byteLength(character, 'utf8');
+    if (bytes + size > maxBytes) break;
+    output += character;
+    bytes += size;
+  }
+  return output;
+}
+
+function isSafeInferenceHistoryMessage(message) {
+  return !['bankr_agent_api', 'helixa_public_api'].includes(String(message?.inferenceProvider ?? ''));
+}
+
+function sanitizeBankrLlmMessages(messages, catalog) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((message) => {
+    if (
+      message?.role !== 'agent'
+      || message?.inferenceProvider !== 'bankr_llm_gateway'
+    ) return message;
+    return {
+      ...message,
+      text: projectConsoleLlmDisplayText(message.text, { catalog }),
+    };
+  });
+}
+
+function normalizeRuntimeSkillRefs(value, catalog) {
+  if (!Array.isArray(value)) return [];
+  const knownSkills = new Set(catalog.skills.map((skill) => skill.id));
+  const seen = new Set();
+  const refs = [];
+  for (const ref of value) {
+    if (typeof ref !== 'string' || Buffer.byteLength(ref, 'utf8') > 32 || !knownSkills.has(ref) || seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push(ref);
+    if (refs.length === 4) break;
+  }
+  return refs;
+}
+
+function bindProposalCandidates(participantResponses, publishedMessages, catalog) {
+  const enabledBySkill = new Map(catalog.skills.map((skill) => [skill.id, new Set(skill.enabledCapabilities)]));
+  const bound = [];
+  for (const response of participantResponses) {
+    const message = findPublishedParticipantMessage(response, publishedMessages);
+    const sourceMessageId = String(message?.id ?? '').trim();
+    if (!sourceMessageId) continue;
+    for (const [sourceOrdinal, value] of response.transferCandidates.entries()) {
+      const candidate = normalizeRuntimeTransferCandidate(value, response.skillRefs, enabledBySkill);
+      if (!candidate) continue;
+      bound.push({
+        ...candidate,
+        sourceMessageId,
+        participantId: response.participantId,
+        sourceOrdinal,
+        skillRefs: [...response.skillRefs],
+      });
+    }
+  }
+  return bound;
+}
+
+function findPublishedParticipantMessage(response, publishedMessages) {
+  const draft = response.draftMessage;
+  if (!draft?.text || !Array.isArray(publishedMessages)) return null;
+  for (let index = publishedMessages.length - 1; index >= 0; index -= 1) {
+    const message = publishedMessages[index];
+    if (message?.role !== 'agent' || String(message.participantId ?? '') !== response.participantId) continue;
+    if (String(message.id ?? '') === draft.id) return message;
+    if (
+      message.text === draft.text
+      && message.sentAt === draft.sentAt
+      && message.senderLabel === draft.senderLabel
+      && message.inferenceProvider === draft.inferenceProvider
+    ) return message;
+  }
+  return null;
+}
+
+function normalizeRuntimeTransferCandidate(value, skillRefs, enabledBySkill) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!skillRefs.includes(value.skill) || !enabledBySkill.get(value.skill)?.has('propose_transfer')) return null;
+  if (!['native', 'erc20'].includes(value.assetType)) return null;
+  if (value.assetType === 'native' && value.assetContract !== null) return null;
+  if (value.assetType === 'erc20' && typeof value.assetContract !== 'string') return null;
+  if (typeof value.recipient !== 'string' || typeof value.amountBaseUnits !== 'string' || typeof value.rationale !== 'string') return null;
+  if (Buffer.byteLength(value.rationale, 'utf8') > 512) return null;
+  return {
+    skill: value.skill,
+    assetType: value.assetType,
+    assetContract: value.assetContract,
+    recipient: value.recipient,
+    amountBaseUnits: value.amountBaseUnits,
+    rationale: value.rationale,
+  };
+}
+
 export function createRuntimeProfile(input = {}) {
   const wallet = requireWallet(input.wallet);
-  const tokenId = String(input.tokenId ?? input.agentId ?? 'unknown').trim() || 'unknown';
-  const agentId = String(input.agentId ?? tokenId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
+  const canonicalIdentity = input.canonicalIdentity && typeof input.canonicalIdentity === 'object'
+    ? input.canonicalIdentity
+    : null;
+  const tokenId = String(canonicalIdentity?.tokenId ?? input.tokenId ?? input.agentId ?? 'unknown').trim() || 'unknown';
+  const agentId = String(canonicalIdentity?.erc8004AgentId ?? input.agentId ?? tokenId ?? DEFAULT_AGENT_ID).trim() || DEFAULT_AGENT_ID;
   const activationId = String(input.activationId ?? `activation_${agentId}`).trim();
   const displayName = String(input.agentName ?? input.displayName ?? (tokenId === 'unknown' ? 'Selected agent' : `Agent #${tokenId}`)).trim();
+  const tokenContract = String(canonicalIdentity?.contract ?? input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim();
+  const chainId = Number(canonicalIdentity?.chainId ?? 8453);
+  const persona = normalizeRuntimePersona(canonicalIdentity?.persona, tokenId);
+  const codexContext = normalizeRuntimeCodexContext(input.codexContext, tokenId);
   return {
     activationId,
     agentId,
     displayName,
     source: 'multipass_console_manager',
     rootIdentity: {
-      collection: 'Helixa AgentDNA',
-      tokenContract: String(input.tokenContract ?? DEFAULT_TOKEN_CONTRACT).trim(),
+      collection: canonicalIdentity ? 'Loopers' : 'Helixa AgentDNA',
+      chainId,
+      tokenContract,
       tokenId,
+      erc8004AgentId: canonicalIdentity?.erc8004AgentId ?? agentId,
       ownerWallet: wallet,
     },
     chat: {
@@ -153,7 +635,17 @@ export function createRuntimeProfile(input = {}) {
       provider: 'bankr_llm_gateway',
       status: 'server_side_only',
     },
-    memoryNamespace: buildSibylMemoryNamespace({ wallet, agentId, activationId }),
+    ...(persona ? { persona } : {}),
+    ...(codexContext ? { codexContext } : {}),
+    memoryNamespace: canonicalIdentity
+      ? buildSibylMemoryNamespace({
+        chainId,
+        tokenContract,
+        tokenId,
+        identityAgentId: agentId,
+        wallet,
+      })
+      : buildSibylMemoryNamespace({ wallet, agentId, activationId }),
     permissions: {
       trading: 'review_only',
       custody: 'disabled',
@@ -165,6 +657,7 @@ export function createRuntimeProfile(input = {}) {
 export function createLocalLlmClient() {
   return {
     provider: 'local_bankr_adapter',
+    supportsVision: false,
     async generate({ profile, participant, room, memory, signals, history } = {}) {
       const memoryLine = memory?.length
         ? `I found ${memory.length} Sibyl memory item${memory.length === 1 ? '' : 's'} tied to this agent.`
@@ -219,6 +712,8 @@ function deriveProposals({ message, signals, room }) {
     id: 'proposal_review_only_watch',
     title: 'Review live briefing',
     status: 'review_only',
+    executable: false,
+    executionMode: CONSOLE_EXECUTION_MODE,
     action: room?.participants?.length > 1
       ? 'Keep monitoring together and wait for human approval before any external action.'
       : 'Keep monitoring and wait for human approval before any external action.',
@@ -228,6 +723,20 @@ function deriveProposals({ message, signals, room }) {
 }
 
 function createRoomState(input = {}, profile = {}) {
+  if (input.canonicalIdentity) {
+    const canonical = buildCanonicalConsoleRoom({
+      activation: {
+        status: 'active',
+        runtimeName: profile.displayName,
+        identity: input.canonicalIdentity,
+      },
+    });
+    return {
+      ...canonical,
+      conversationId: String(input.canonicalConversationId ?? '').trim() || null,
+      operatorId: requireWallet(input.wallet),
+    };
+  }
   const participants = normalizeParticipants(input, profile);
   const primaryParticipant = participants.find((participant) => participant.agentId === profile.agentId) ?? participants[0];
   const roomId = `room_${participants.map((participant) => participant.participantId).join('_')}`;
@@ -237,10 +746,21 @@ function createRoomState(input = {}, profile = {}) {
     id: roomId,
     name: String(input.roomName ?? `${primaryParticipant?.displayName ?? profile.displayName} ops`).trim() || 'Multipass room',
     threadId,
+    topicId: threadId.replace(/^xmtp:/, ''),
     conversationId,
     operatorId: requireWallet(input.wallet),
     primaryParticipantId: primaryParticipant?.participantId ?? profile.agentId,
     participants,
+  };
+}
+
+function publicRoom(room = {}) {
+  return {
+    id: room.id,
+    name: room.name,
+    topicId: room.topicId,
+    primaryParticipantId: room.primaryParticipantId,
+    participants: room.participants,
   };
 }
 
@@ -282,10 +802,187 @@ function createParticipantProfile(profile = {}, participant = {}, room = {}) {
   };
 }
 
+function normalizeRuntimePersona(value, tokenId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const limits = {
+    canonicalName: 120,
+    description: 500,
+    agentClass: 120,
+    secondaryClass: 120,
+    specialization: 160,
+    riskProfile: 120,
+    autonomy: 120,
+    voice: 300,
+    firstMission: 300,
+    codexVersion: 160,
+  };
+  const persona = { tokenId: String(tokenId ?? '').trim() };
+  for (const [field, maxLength] of Object.entries(limits)) {
+    const text = String(value[field] ?? '').replace(/\s+/gu, ' ').trim().slice(0, maxLength);
+    if (text) persona[field] = text;
+  }
+  return Object.keys(persona).length > 1 ? persona : null;
+}
+
+function normalizeRuntimeCodexContext(value, tokenId) {
+  if (value === null || value === undefined) return null;
+  assertCodexObject(value, [
+    'schemaVersion', 'artifactHash', 'codexVersion', 'identity', 'interpretation',
+    'traits', 'versions', 'evidence',
+  ]);
+  assertCodexObject(value.identity, ['tokenId', 'canonicalName']);
+  if (String(value.identity.tokenId) !== String(tokenId)) {
+    throw new TypeError('codexContext identity does not match the selected Looper.');
+  }
+  assertCodexObject(value.interpretation, [
+    'primaryClass', 'secondaryClass', 'specialization', 'risk', 'autonomy', 'voice',
+    'values', 'communicationStyle', 'humor', 'origin', 'shortLore', 'missionBias',
+    'firstMission', 'recommendedSkills',
+  ]);
+  assertCodexObject(value.interpretation.risk, ['value', 'label']);
+  assertCodexObject(value.interpretation.autonomy, ['value', 'label']);
+  assertCodexObject(value.versions, ['traitCodexVersion', 'classModelVersion']);
+  const normalized = {
+    schemaVersion: codexText(value.schemaVersion),
+    artifactHash: codexHash(value.artifactHash),
+    codexVersion: codexText(value.codexVersion),
+    identity: {
+      tokenId: String(value.identity.tokenId),
+      canonicalName: codexText(value.identity.canonicalName),
+    },
+    interpretation: {
+      primaryClass: codexText(value.interpretation.primaryClass),
+      secondaryClass: codexText(value.interpretation.secondaryClass),
+      specialization: codexText(value.interpretation.specialization),
+      risk: normalizeCodexLabel(value.interpretation.risk),
+      autonomy: normalizeCodexLabel(value.interpretation.autonomy),
+      voice: codexText(value.interpretation.voice),
+      values: normalizeCodexTextArray(value.interpretation.values),
+      communicationStyle: normalizeCodexTextArray(value.interpretation.communicationStyle),
+      humor: normalizeCodexTextArray(value.interpretation.humor),
+      origin: codexText(value.interpretation.origin),
+      shortLore: codexText(value.interpretation.shortLore),
+      missionBias: codexText(value.interpretation.missionBias),
+      firstMission: codexText(value.interpretation.firstMission),
+      recommendedSkills: normalizeCodexRecommendedSkills(value.interpretation.recommendedSkills),
+    },
+    traits: normalizeCodexRecords(value.traits, ['type', 'value']),
+    versions: {
+      traitCodexVersion: codexText(value.versions.traitCodexVersion),
+      classModelVersion: codexText(value.versions.classModelVersion),
+    },
+    evidence: normalizeCodexRecords(value.evidence, ['id', 'kind', 'label']),
+  };
+  return deepFreezeRuntimeValue(normalized);
+}
+
+function assertCodexObject(value, exactKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== exactKeys.length || keys.some((key) => !exactKeys.includes(key))) {
+    throw new TypeError('codexContext must contain only the verified bounded projection.');
+  }
+}
+
+function codexText(value) {
+  if (typeof value !== 'string' || value.length > 512 || Buffer.byteLength(value, 'utf8') > 2_048) {
+    throw new TypeError('codexContext text must be bounded.');
+  }
+  return value;
+}
+
+function codexHash(value) {
+  const hash = codexText(value);
+  if (!/^[a-f0-9]{64}$/u.test(hash)) throw new TypeError('codexContext artifact hash is invalid.');
+  return hash;
+}
+
+function normalizeCodexLabel(value) {
+  const score = typeof value.value === 'string'
+    ? codexText(value.value)
+    : Number.isSafeInteger(value.value) && Math.abs(value.value) <= 1_000_000
+      ? value.value
+      : null;
+  if (score === null) throw new TypeError('codexContext label values must be bounded.');
+  return { value: score, label: codexText(value.label) };
+}
+
+function normalizeCodexTextArray(value) {
+  if (!Array.isArray(value) || value.length > 16) throw new TypeError('codexContext arrays must be bounded.');
+  return value.map(codexText);
+}
+
+function normalizeCodexRecommendedSkills(value) {
+  if (!Array.isArray(value) || value.length > 8) throw new TypeError('codexContext skills must be bounded.');
+  return value.map((entry) => {
+    assertCodexObject(entry, ['skillFamily', 'reason', 'status']);
+    if (entry.status !== 'recommended') throw new TypeError('codexContext skills are recommendations only.');
+    return {
+      skillFamily: codexText(entry.skillFamily),
+      reason: codexText(entry.reason),
+      status: 'recommended',
+    };
+  });
+}
+
+function normalizeCodexRecords(value, exactKeys) {
+  if (!Array.isArray(value) || value.length > 16) throw new TypeError('codexContext arrays must be bounded.');
+  return value.map((entry) => {
+    assertCodexObject(entry, exactKeys);
+    return Object.fromEntries(exactKeys.map((key) => [key, codexText(entry[key])]));
+  });
+}
+
+function deepFreezeRuntimeValue(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreezeRuntimeValue(child);
+  return Object.freeze(value);
+}
+
+function normalizeWalletContext(value, { wallet, profile } = {}) {
+  if (!value) return null;
+  const account = String(value.scope?.account ?? '').toLowerCase();
+  const owner = String(value.scope?.owner ?? '').toLowerCase();
+  const tokenId = String(profile?.rootIdentity?.tokenId ?? '');
+  const collection = String(profile?.rootIdentity?.tokenContract ?? '').toLowerCase();
+  const expectedAccount = deriveReleasedLooperAccount(tokenId);
+  if (value.schema_version !== '0.1.0'
+    || value.kind !== 'looper_wallet_read_context'
+    || Number(value.scope?.chainId) !== Number(profile?.rootIdentity?.chainId)
+    || String(value.scope?.collection ?? '').toLowerCase() !== collection
+    || String(value.scope?.tokenId ?? '') !== tokenId
+    || !/^0x[a-f0-9]{40}$/.test(account)
+    || account !== expectedAccount
+    || owner !== String(wallet ?? '').toLowerCase()
+    || value.capabilities?.read !== true
+    || value.capabilities?.sign !== false
+    || value.capabilities?.submit !== false
+    || value.capabilities?.approve !== false) {
+    throw new TypeError('walletContext must be verified owner-scoped read-only evidence.');
+  }
+  return JSON.parse(JSON.stringify({
+    ...value,
+    scope: { ...value.scope, account, owner },
+  }));
+}
+
 function requireWallet(value) {
   const wallet = String(value ?? '').trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(wallet)) throw new TypeError('wallet must be an EVM wallet address.');
   return wallet;
+}
+
+function normalizeClientMessageId(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(normalized)) throw new TypeError('clientMessageId is invalid.');
+  return normalized;
 }
 
 function createThreadMessage(message = {}) {
@@ -299,7 +996,62 @@ function createThreadMessage(message = {}) {
     ...(message.participantId ? { participantId: String(message.participantId) } : {}),
     ...(message.conversationId ? { conversationId: String(message.conversationId) } : {}),
     ...(message.xmtpMessageId ? { xmtpMessageId: String(message.xmtpMessageId) } : {}),
+    ...(message.captionXmtpMessageId ? { captionXmtpMessageId: String(message.captionXmtpMessageId) } : {}),
     ...(message.inferenceProvider ? { inferenceProvider: String(message.inferenceProvider) } : {}),
+    ...(message.attachment ? { attachment: message.attachment } : {}),
+  };
+}
+
+function mergeRecoveredThreadMessages(storedMessages, transportMessages) {
+  const stored = Array.isArray(storedMessages) ? storedMessages : [];
+  const transport = Array.isArray(transportMessages) ? transportMessages : [];
+  if (!stored.length) return transport;
+  const keyOf = (message) => String(message?.id ?? message?.xmtpMessageId ?? '');
+  const transportById = new Map(transport.map((message) => [keyOf(message), message]));
+  const merged = stored.map((message) => {
+    const recovered = transportById.get(keyOf(message));
+    return recovered?.attachment?.base64 ? { ...message, attachment: recovered.attachment } : message;
+  });
+  const seen = new Set(merged.flatMap((message) => [
+    keyOf(message),
+    String(message?.xmtpMessageId ?? ''),
+    String(message?.captionXmtpMessageId ?? ''),
+  ]).filter(Boolean));
+  for (const message of transport) {
+    const key = keyOf(message);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(message);
+  }
+  return merged.sort((left, right) => String(left?.sentAt ?? '').localeCompare(String(right?.sentAt ?? '')));
+}
+
+function hydrateCurrentThreadAttachments(storedMessages, currentMessages) {
+  const attachmentById = new Map(
+    (Array.isArray(currentMessages) ? currentMessages : [])
+      .filter((message) => message?.attachment?.base64)
+      .map((message) => [String(message.id ?? ''), message.attachment]),
+  );
+  return (Array.isArray(storedMessages) ? storedMessages : []).map((message) => {
+    const attachment = attachmentById.get(String(message?.id ?? ''));
+    return attachment ? { ...message, attachment } : message;
+  });
+}
+
+function normalizeRuntimeImageAttachment(value) {
+  if (!value) return null;
+  if (value.kind !== 'image' || !(value.content instanceof Uint8Array)) {
+    throw new TypeError('Runtime image attachment is invalid.');
+  }
+  return {
+    kind: 'image',
+    mimeType: String(value.mimeType),
+    filename: String(value.filename),
+    content: value.content,
+    byteLength: Number(value.byteLength),
+    width: value.width ?? null,
+    height: value.height ?? null,
+    sha256: String(value.sha256),
   };
 }
 

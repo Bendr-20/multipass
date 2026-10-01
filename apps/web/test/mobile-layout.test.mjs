@@ -129,7 +129,67 @@ test('profile-first layout and drawers have dedicated responsive selectors', asy
 test('console portrait keeps the full Looper image visible in the sidebar card', async () => {
   const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
 
-  assert.match(css, /\.console-agent-portrait\s*\{[^}]*aspect-ratio:\s*1;/s);
+  assert.match(css, /\.console-agent-portrait\s*\{[^}]*width:\s*min\(100%, 252px\);[^}]*aspect-ratio:\s*1;/s);
   assert.match(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center bottom;[^}]*transform:\s*none;/s);
   assert.doesNotMatch(css, /\.console-agent-portrait img\s*\{[^}]*object-fit:\s*cover;[^}]*transform:\s*scale/s);
+  assert.match(css, /\.console-agent-portrait \.console-thread-avatar-fallback\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*color:\s*rgba\(248, 243, 236, 0\.78\);[^}]*font-size:\s*12px;[^}]*font-weight:\s*900;[^}]*text-align:\s*center;[^}]*text-transform:\s*uppercase;/s);
+  assert.doesNotMatch(css, /\.console-identity-card-compact\s*\{/s);
+  assert.match(css, /\.console-workspace-sidebar \.console-agent-selector select,\s*\.console-workspace-sidebar \.console-agent-selector option\s*\{[^}]*background:\s*#17131f;[^}]*color:\s*#f8f3ec;/s);
+  assert.match(css, /\.console-thread-chat-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
+});
+
+test('mobile Console shows one workspace below the agent switcher and three-way navigation', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 1100px)'));
+  const finalPhoneBlock = css.slice(css.lastIndexOf('@media (max-width: 560px)'));
+
+  assert.match(css, /\.console-agent-switcher-mobile\s*\{[^}]*display:\s*none;/s);
+  assert.match(css, /\.console-workspace-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/s);
+  assert.match(mobileBlock, /\.console-agent-switcher-mobile\s*\{[^}]*display:\s*block;[^}]*grid-row:\s*1;/s);
+  assert.match(mobileBlock, /\.console-workspace-nav-mobile\s*\{[^}]*grid-row:\s*2;/s);
+  assert.match(mobileBlock, /\.console-basic-main\s*\{[^}]*grid-row:\s*3;/s);
+  assert.match(mobileBlock, /\.console-basic-sidebar\s*\{[^}]*display:\s*none;/s);
+  assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer,\s*\.console-basic-shell > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
+  assert.match(finalPhoneBlock, /\.multipass-console-shell \.record-header\s*\{[^}]*padding-left:\s*12px;/s);
+});
+
+test('desktop Console roster spans both columns and the lower panels share one stretched row', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.lastIndexOf('@media (max-width: 1100px)'));
+
+  assert.match(css, /\.console-basic-shell\s*\{[^}]*align-items:\s*stretch;/s);
+  assert.match(css, /\.console-basic-shell-roster-active > \.console-main-roster-drawer\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-row:\s*1;/s);
+  assert.match(css, /\.console-basic-sidebar\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1;[^}]*align-self:\s*stretch;/s);
+  assert.match(css, /\.console-basic-main\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1;[^}]*align-self:\s*stretch;/s);
+  assert.match(css, /\.console-basic-shell-roster-active > \.console-basic-sidebar,\s*\.console-basic-shell-roster-active > \.console-basic-main\s*\{[^}]*grid-row:\s*2;/s);
+  assert.match(mobileBlock, /\.console-basic-main > \.console-main-roster-drawer,\s*\.console-basic-shell > \.console-main-roster-drawer\s*\{[^}]*display:\s*none;/s);
+  assert.match(mobileBlock, /\.console-basic-main,\s*\.console-basic-shell-roster-active > \.console-basic-main\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*3;/s);
+});
+
+test('mobile Console messages wrap inside the chat card without horizontal clipping', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-thread-messages\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*hidden;/s);
+  assert.match(css, /\.console-thread-message\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(css, /\.console-thread-entry p\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+});
+
+test('signed-out Console removes the inactive transcript and composer from the visual hierarchy', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+
+  assert.match(css, /\.console-agent-thread-panel-empty\s*{[^}]*min-height:\s*220px;/s);
+  assert.match(css, /\.console-agent-thread-panel-empty \.console-thread-messages,[\s\S]*?\.console-agent-thread-panel-empty \.console-thread-composer\s*{[^}]*display:\s*none;/s);
+});
+
+test('skill proposal surfaces wrap full addresses without leaking controls on narrow viewports', async () => {
+  const css = await readFile(join(webRoot, 'src/styles.css'), 'utf8');
+  const mobileBlock = css.slice(css.indexOf('@media (max-width: 700px)'));
+
+  assert.match(css, /\.console-unverified-transfer\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.console-unverified-transfer code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-word;/s);
+  assert.match(css, /\.console-skill-capabilities\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+  assert.match(mobileBlock, /\.console-unverified-transfer-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(css, /\.console-unverified-transfer > summary\s*{[^}]*cursor:\s*pointer;/s);
+  assert.doesNotMatch(css, /\.console-unverified-transfer\s*{[^}]*cursor:\s*pointer/s);
 });

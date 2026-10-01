@@ -57,6 +57,36 @@ test('durable memory extraction does not treat avoided high-risk entries as a hi
   assert.doesNotMatch(extracted.map((item) => item.text).join('\n'), /Risk preference: high risk/);
 });
 
+test('Sibyl bridge preserves canonical XMTP message evidence in thread records', async () => {
+  const script = `
+import importlib.util, json
+spec = importlib.util.spec_from_file_location("multipass_sibyl_bridge", ${JSON.stringify(new URL('../src/sibyl-memory/bridge.py', import.meta.url).pathname)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(json.dumps(module.normalize_thread_message({
+  "id": "xmtp-message-1",
+  "role": "agent",
+  "text": "Live XMTP reply.",
+  "sentAt": "2026-09-17T20:45:00.000Z",
+  "transport": "xmtp_group",
+  "senderLabel": "Bendr",
+  "participantId": "erc8004:89144",
+  "conversationId": "conversation-2431",
+  "xmtpMessageId": "xmtp-message-1",
+  "inferenceProvider": "local_bankr_adapter",
+})))
+`;
+  const { stdout } = await execFileAsync('/home/ubuntu/.openclaw/sibyl-venv/bin/python', ['-c', script]);
+  const record = JSON.parse(stdout);
+
+  assert.equal(record.id, 'xmtp-message-1');
+  assert.equal(record.senderLabel, 'Bendr');
+  assert.equal(record.participantId, 'erc8004:89144');
+  assert.equal(record.conversationId, 'conversation-2431');
+  assert.equal(record.xmtpMessageId, 'xmtp-message-1');
+  assert.equal(record.inferenceProvider, 'local_bankr_adapter');
+});
+
 test('Sibyl memory store can require the real bridge instead of silently falling back', async () => {
   const memory = createSibylMemoryStore({
     pythonBin: '/tmp/missing-sibyl-python',
@@ -92,4 +122,24 @@ test('prove-sibyl-cold-start script fails when the required bridge is unavailabl
   }
   assert.ok(error);
   assert.match(error.stderr, /missing-sibyl-python|ENOENT|Sibyl bridge unavailable/i);
+});
+
+test('Sibyl thread projection stores image metadata and excludes payload bytes', async () => {
+  const memory = createLocalSibylMemoryStore({ now: () => '2026-09-27T00:00:00.000Z' });
+  const messages = await memory.appendThread({
+    namespace: 'multipass:image-test',
+    messages: [{
+      id: 'image-1', role: 'human', text: '', sentAt: '2026-09-27T00:00:00.000Z',
+      attachment: {
+        kind: 'image', mimeType: 'image/png', filename: 'proof.png', byteLength: 4,
+        width: 12, height: 8, sha256: 'a'.repeat(64), base64: 'iVBORw==', content: [1, 2, 3],
+      },
+    }],
+  });
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].attachment, {
+    kind: 'image', mimeType: 'image/png', filename: 'proof.png', byteLength: 4,
+    width: 12, height: 8, sha256: 'a'.repeat(64),
+  });
+  assert.doesNotMatch(JSON.stringify(messages), /base64|content|iVBORw/);
 });

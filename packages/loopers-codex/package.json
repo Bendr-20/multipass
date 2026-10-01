@@ -1,0 +1,17 @@
+{
+  "name": "@helixa/loopers-codex",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "build": "node scripts/build-looper-codex.js",
+    "materialize": "node scripts/materialize-looper-codex-release.js",
+    "prove": "node scripts/prove-looper-codex.js",
+    "test": "node --test test/*.test.mjs"
+  }
+}

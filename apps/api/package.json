@@ -13,6 +13,7 @@
     }
   },
   "dependencies": {
+    "@helixa/loopers-codex": "workspace:*",
     "@helixa/multipass-sdk": "workspace:*",
     "@xmtp/node-sdk": "6.1.0",
     "lossless-json": "^4.3.1",
@@ -25,6 +26,7 @@
   ],
   "scripts": {
     "start": "node src/server.js",
+    "smoke:restap-3802": "node scripts/smoke-looper-restap-3802.mjs",
     "loopers:activity-bot": "node scripts/run-loopers-activity-bot.js",
     "loopers:sales-bot": "node scripts/run-loopers-sales-bot.js",
     "xmtp:worker": "node src/xmtp-worker/run.js",
