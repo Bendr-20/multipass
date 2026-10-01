@@ -30,7 +30,13 @@ import {
   normalizeConsoleImageAttachment,
 } from './console-image-attachment.js';
 import { createConsoleReadSkillExecutor } from './console-read-skills.js';
-import { RESTAP_LIMITS, normalizeRestapTalkRequest } from './restap-3802-contracts.js';
+import {
+  RESTAP_LIMITS,
+  normalizeRestapNewsPost,
+  normalizeRestapNewsRead,
+  normalizeRestapNewsWriteAcknowledgment,
+  normalizeRestapTalkRequest,
+} from './restap-3802-contracts.js';
 import { parseStrictJsonObject } from './strict-json-envelope.js';
 import { deriveReleasedLooperAccount } from './looper-account.js';
 import {
@@ -271,6 +277,10 @@ export function createMultipassApi({
   restapTalkEnabled = false,
   restap3802Policy,
   restapTalkRuntime,
+  restapNewsWriteEnabled = false,
+  restapNewsReadEnabled = false,
+  restapNewsStore,
+  restapNewsAuthenticator,
   restapTalkLimits,
   restapRateLimitNow = () => Date.now(),
 } = {}) {
@@ -396,6 +406,10 @@ export function createMultipassApi({
     restapTalkEnabled: Boolean(restapTalkEnabled),
     restap3802Policy,
     restapTalkRuntime,
+    restapNewsWriteEnabled: Boolean(restapNewsWriteEnabled),
+    restapNewsReadEnabled: Boolean(restapNewsReadEnabled),
+    restapNewsStore,
+    restapNewsAuthenticator,
     restapIpRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perIpPerMinute ?? 20, windowMs: 60_000, now: restapRateLimitNow }),
     restapSessionRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perSessionPerMinute ?? 10, windowMs: 60_000, now: restapRateLimitNow }),
     restapDailyRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.globalPerDay ?? 10_000, windowMs: 86_400_000, now: restapRateLimitNow }),
@@ -502,9 +516,13 @@ export function createMultipassApi({
 async function handleRestap3802Request(request, url, method, context) {
   const discoveryPath = '/api/restap/loopers/3802/.well-known/restap.json';
   const talkPath = '/api/restap/loopers/3802/talk';
+  const newsPath = '/api/restap/loopers/3802/news';
   const exactDiscovery = url.pathname === discoveryPath && url.search === '';
   const exactTalk = url.pathname === talkPath && url.search === '';
-  if (!exactDiscovery && !exactTalk) return null;
+  const exactNews = url.pathname === newsPath;
+  if (!exactDiscovery && !exactTalk && !exactNews) return null;
+
+  if (exactNews) return handleRestap3802News(request, url, method, context);
 
   if (exactDiscovery) {
     if (!context.restapDiscoveryEnabled) return errorResponse(404, 'not_found', 'Route not found.');
@@ -562,6 +580,79 @@ async function handleRestap3802Request(request, url, method, context) {
       return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
     }
   } finally { release(); }
+}
+
+async function handleRestap3802News(request, url, method, context) {
+  if (method === 'POST') {
+    if (!context.restapNewsWriteEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    let body;
+    try { body = normalizeRestapNewsPost(await readRestapJsonBody(request, RESTAP_LIMITS.newsBodyBytes)); }
+    catch { return errorResponse(400, 'invalid_request', 'Invalid RESTAP news request.'); }
+    try { await context['restap3802' + 'Policy']?.authorize?.({ surface: 'news-write' }); }
+    catch { return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.'); }
+    if (typeof context.restapNewsAuthenticator?.authenticate !== 'function' || typeof context.restapNewsStore?.accept !== 'function') {
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    let authenticated;
+    try {
+      authenticated = await context.restapNewsAuthenticator.authenticate({
+        method,
+        path: '/multipass-api/api/restap/loopers/3802/news',
+        headers: request.headers,
+        body,
+      });
+    } catch (error) {
+      const status = [401, 403, 503].includes(error?.status) ? error.status : 403;
+      const code = status === 401 ? 'authentication_required' : status === 503 ? 'dependency_unavailable' : 'sender_not_authorized';
+      return errorResponse(status, code, status === 503 ? 'RESTAP authentication dependency is unavailable.' : 'RESTAP sender authentication failed.');
+    }
+    try {
+      const accepted = context.restapNewsStore.accept(authenticated);
+      return jsonResponse(normalizeRestapNewsWriteAcknowledgment(accepted), 202);
+    } catch (error) {
+      if (error?.code === 'replay' || error?.status === 409) return errorResponse(409, 'replay', 'RESTAP news replay rejected.');
+      return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    }
+  }
+
+  if (method === 'GET') {
+    if (!context.restapNewsReadEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    let query;
+    try { query = parseRestapNewsQuery(url.searchParams); }
+    catch { return errorResponse(400, 'invalid_request', 'Invalid RESTAP news query.'); }
+    const session = requireConsoleSession(request, context, { requireCsrf: false });
+    try { await authorizeConsoleLooper({ tokenId: '3802', wallet: session.wallet, context }); }
+    catch (error) {
+      if (error instanceof ApiForbiddenError) throw error;
+      return errorResponse(503, 'authorization_unavailable', 'Owner authorization is temporarily unavailable.');
+    }
+    if (typeof context.restapNewsStore?.list !== 'function') return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    try {
+      const page = context.restapNewsStore.list(query);
+      const output = normalizeRestapNewsRead({
+        items: page.items.map((item) => item.canonicalBody),
+        timestamp: Date.now(),
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      });
+      return jsonResponse(output);
+    } catch (error) {
+      if (error instanceof TypeError || error instanceof RangeError) return errorResponse(400, 'invalid_request', 'Invalid RESTAP news query.');
+      return errorResponse(503, 'store_unavailable', 'RESTAP news storage is temporarily unavailable.');
+    }
+  }
+
+  if (context.restapNewsReadEnabled || context.restapNewsWriteEnabled) return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  return errorResponse(404, 'not_found', 'Route not found.');
+}
+
+function parseRestapNewsQuery(searchParams) {
+  for (const key of searchParams.keys()) if (key !== 'cursor' && key !== 'limit') throw new TypeError('Unknown RESTAP news query.');
+  if (searchParams.getAll('cursor').length > 1 || searchParams.getAll('limit').length > 1) throw new TypeError('Duplicate RESTAP news query.');
+  const cursor = searchParams.get('cursor') ?? undefined;
+  const limitSource = searchParams.get('limit');
+  const limit = limitSource === null ? RESTAP_LIMITS.newsPageDefault : Number(limitSource);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > RESTAP_LIMITS.newsPageMax) throw new RangeError('RESTAP news limit is invalid.');
+  return { cursor, limit };
 }
 
 async function readRestapJsonBody(request, maximumBytes) {

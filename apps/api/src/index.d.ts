@@ -110,11 +110,15 @@ export interface MultipassApiOptions {
   restapDiscoveryEnabled?: boolean;
   restapTalkEnabled?: boolean;
   restap3802Policy?: {
-    authorize(input: { surface: 'discovery' | 'talk' }): Promise<{ discovery?: unknown; publicProjection?: unknown }> | { discovery?: unknown; publicProjection?: unknown };
+    authorize(input: { surface: 'discovery' | 'talk' | 'news-write' }): Promise<{ discovery?: unknown; publicProjection?: unknown }> | { discovery?: unknown; publicProjection?: unknown };
   };
   restapTalkRuntime?: {
     talk(input: { message: string; sessionId?: string; publicProjection: unknown }): Promise<{ reply: string; session_id: string }> | { reply: string; session_id: string };
   };
+  restapNewsWriteEnabled?: boolean;
+  restapNewsReadEnabled?: boolean;
+  restapNewsStore?: { accept(input: unknown): { itemId: string; receivedAt: string }; list(input: { cursor?: string; limit: number }): { items: Array<{ canonicalBody: unknown }>; nextCursor?: string | null } };
+  restapNewsAuthenticator?: { authenticate(input: unknown): Promise<unknown> | unknown };
   restapTalkLimits?: { perIpPerMinute?: number; perSessionPerMinute?: number; globalPerDay?: number; concurrency?: number };
   restapRateLimitNow?: () => number;
 }

@@ -57,3 +57,43 @@ test('talk enforces per-IP, per-session, and global daily limits with Retry-Afte
   assert.equal((await send({ message: 'two', session_id: SESSION }, '203.0.113.2')).status, 200);
   const daily = await send({ message: 'three' }, '203.0.113.3'); assert.equal(daily.status, 429); assert.equal((await json(daily)).error.code, 'rate_limited');
 });
+
+test('news read and write gates are independent ordinary 404s', async () => {
+  const disabled = api();
+  assert.equal((await disabled.instance.handleRequest(request('/api/restap/loopers/3802/news'))).status, 404);
+  assert.equal((await disabled.instance.handleRequest(request('/api/restap/loopers/3802/news', { method: 'POST', body: { type: 'update' }, headers: { 'content-type': 'application/json' } }))).status, 404);
+  const readOnly = api({ restapNewsReadEnabled: true });
+  assert.notEqual((await readOnly.instance.handleRequest(request('/api/restap/loopers/3802/news'))).status, 404);
+  assert.equal((await readOnly.instance.handleRequest(request('/api/restap/loopers/3802/news', { method: 'POST', body: { type: 'update' }, headers: { 'content-type': 'application/json' } }))).status, 404);
+});
+
+test('passive news write freshly authorizes, authenticates, stores once, and returns namespaced acknowledgment', async () => {
+  const accepted = [];
+  const authCalls = [];
+  const { instance, policyCalls } = api({
+    restapNewsWriteEnabled: true,
+    restapNewsAuthenticator: { async authenticate(input) { authCalls.push(input); return { senderId: 'agent.one', verifiedSigner: '0x1111111111111111111111111111111111111111', canonicalBody: JSON.stringify(input.body), bodyHash: 'a'.repeat(64), receivedAt: '2026-10-01T20:00:00.000Z', correlationId: null, nonceHash: 'b'.repeat(64), replayExpiresAt: '2026-10-01T20:05:00.000Z' }; } },
+    restapNewsStore: { accept(input) { accepted.push(input); return { itemId: '7', receivedAt: input.receivedAt }; }, list() { throw new Error('not used'); } },
+  });
+  const response = await instance.handleRequest(request('/api/restap/loopers/3802/news', { method: 'POST', body: { type: 'agent.update', message: 'passive' }, headers: { 'content-type': 'application/json', 'x-restap-sender': 'agent.one' } }));
+  assert.equal(response.status, 202);
+  assert.deepEqual(await json(response), { x_helixa_accepted: true, x_helixa_item_id: '7', x_helixa_received_at: '2026-10-01T20:00:00.000Z' });
+  assert.deepEqual(policyCalls, [{ surface: 'news-write' }]); assert.equal(authCalls.length, 1); assert.equal(accepted.length, 1);
+});
+
+test('news write maps auth, replay, and dependency failures without invoking storage early', async () => {
+  for (const [status, code, error] of [[401, 'authentication_required', Object.assign(new Error(), { status: 401, code: 'authentication_required' })], [403, 'sender_not_authorized', Object.assign(new Error(), { status: 403, code: 'sender_not_authorized' })], [503, 'dependency_unavailable', Object.assign(new Error(), { status: 503, code: 'dependency_unavailable' })]]) {
+    let stores = 0; const { instance } = api({ restapNewsWriteEnabled: true, restapNewsAuthenticator: { async authenticate() { throw error; } }, restapNewsStore: { accept() { stores += 1; } } });
+    const response = await instance.handleRequest(request('/api/restap/loopers/3802/news', { method: 'POST', body: { type: 'x' }, headers: { 'content-type': 'application/json' } })); assert.equal(response.status, status); assert.equal((await json(response)).error.code, code); assert.equal(stores, 0);
+  }
+  const replay = api({ restapNewsWriteEnabled: true, restapNewsAuthenticator: { async authenticate(input) { return { senderId: 'a', verifiedSigner: '0x1111111111111111111111111111111111111111', canonicalBody: JSON.stringify(input.body), bodyHash: 'a'.repeat(64), receivedAt: '2026-10-01T20:00:00.000Z', correlationId: null, nonceHash: 'b'.repeat(64), replayExpiresAt: '2026-10-01T20:05:00.000Z' }; } }, restapNewsStore: { accept() { throw Object.assign(new Error(), { code: 'replay', status: 409 }); } } });
+  const response = await replay.instance.handleRequest(request('/api/restap/loopers/3802/news', { method: 'POST', body: { type: 'x' }, headers: { 'content-type': 'application/json' } })); assert.equal(response.status, 409); assert.equal((await json(response)).error.code, 'replay');
+});
+
+test('owner news read requires same-process Console session and reauthorizes every page', async () => {
+  const ownerCalls = []; const listCalls = [];
+  const { instance } = api({ restapNewsReadEnabled: true, consoleAuthStore: { validateSession({ sessionId, requireCsrf }) { assert.equal(sessionId, 'session-one'); assert.equal(requireCsrf, false); return { wallet: '0x1111111111111111111111111111111111111111' }; } }, loopersAuthorizer: async (input) => { ownerCalls.push(input); return { chainId: 8453, contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', tokenId: '3802', owner: input.wallet, erc8004AgentId: '1', controllerVerified: true }; }, restapNewsStore: { list(input) { listCalls.push(input); return { items: [{ canonicalBody: { type: 'update', message: 'hello' } }], nextCursor: 'next' }; } } });
+  let response = await instance.handleRequest(request('/api/restap/loopers/3802/news?limit=1', { headers: { cookie: 'multipass_console=session-one' } })); assert.equal(response.status, 200); const firstBody = await json(response); assert.deepEqual(firstBody.items, [{ type: 'update', message: 'hello' }]); assert.equal(typeof firstBody.timestamp, 'number'); assert.equal(firstBody.x_helixa_next_cursor, 'next');
+  response = await instance.handleRequest(request('/api/restap/loopers/3802/news?cursor=abc&limit=1', { headers: { cookie: 'multipass_console=session-one' } })); assert.equal(response.status, 200); assert.equal(ownerCalls.length, 2); assert.deepEqual(listCalls, [{ cursor: undefined, limit: 1 }, { cursor: 'abc', limit: 1 }]);
+  assert.equal((await instance.handleRequest(request('/api/restap/loopers/3802/news'))).status, 401);
+});
