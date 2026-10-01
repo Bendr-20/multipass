@@ -40,23 +40,38 @@ artifact_real=$(realpath -e -- "$artifact") || fail "invalid pinned Codex artifa
 artifact_mode=$(stat -c '%a' -- "$artifact")
 (( (8#$artifact_mode & 8#022) == 0 )) || fail "pinned Codex artifact is writable"
 
-if [[ ! -e "$state_dir" ]]; then mkdir -m 700 -- "$state_dir"; fi
+runtime_uid=$EUID
+runtime_user=
+if ((EUID == 0)) && command -v runuser >/dev/null 2>&1 && id ubuntu >/dev/null 2>&1; then
+  runtime_user=ubuntu
+  runtime_uid=$(id -u ubuntu)
+fi
+if [[ ! -e "$state_dir" ]]; then
+  if [[ -n "$runtime_user" ]]; then install -d -m 700 -o "$runtime_user" -g "$runtime_user" -- "$state_dir"; else mkdir -m 700 -- "$state_dir"; fi
+fi
 [[ -d "$state_dir" && ! -L "$state_dir" ]] || fail "invalid state directory"
 state_real=$(realpath -e -- "$state_dir") || fail "invalid state directory"
 [[ "$state_dir" == "$state_real" ]] || fail "state directory path must be exact"
-[[ $(stat -c '%u' -- "$state_dir") == "$EUID" ]] || fail "invalid state directory owner"
+[[ $(stat -c '%u' -- "$state_dir") == "$runtime_uid" ]] || fail "invalid state directory owner"
 [[ $(stat -c '%a' -- "$state_dir") == 700 ]] || fail "invalid state directory mode"
 
-protected_file() {
-  local path=$1 label=$2 mode owner
-  [[ -f "$path" && ! -L "$path" ]] || fail "invalid $label"
+protected_policy() {
+  local path=$1 mode owner
+  [[ -f "$path" && ! -L "$path" ]] || fail "invalid policy"
   mode=$(stat -c '%a' -- "$path"); owner=$(stat -c '%u' -- "$path")
-  [[ "$mode" == 600 || "$mode" == 400 ]] || fail "$label must be protected"
-  [[ "$owner" == "$EUID" || "$owner" == 0 ]] || fail "invalid $label owner"
+  (( (8#$mode & 8#022) == 0 )) || fail "policy must be protected"
+  [[ "$owner" == "$EUID" || "$owner" == 0 || "$owner" == "$runtime_uid" ]] || fail "invalid policy owner"
 }
-protected_file "$policy" "policy"
+protected_database() {
+  local path=$1 owner
+  [[ -f "$path" && ! -L "$path" ]] || fail "invalid database"
+  [[ $(stat -c '%a' -- "$path") == 600 ]] || fail "database must be protected"
+  owner=$(stat -c '%u' -- "$path")
+  [[ "$owner" == "$runtime_uid" ]] || fail "invalid database owner"
+}
+protected_policy "$policy"
 policy_real=$(realpath -e -- "$policy") || fail "invalid policy"
-protected_file "$database" "database"
+protected_database "$database"
 database_real=$(realpath -e -- "$database") || fail "invalid database"
 [[ "$database_real" == "$state_real"/* ]] || fail "database must be a copied canary database inside state directory"
 
@@ -189,8 +204,8 @@ if [[ "$talk" == true ]]; then
 fi
 
 runner=(/usr/bin/node apps/api/src/server.js --host 127.0.0.1 --port "$port" --database "$database_real")
-if ((EUID == 0)) && command -v runuser >/dev/null 2>&1 && id ubuntu >/dev/null 2>&1; then
-  runner=(/usr/sbin/runuser -u ubuntu --preserve-environment -- "${runner[@]}")
+if [[ -n "$runtime_user" ]]; then
+  runner=(/usr/sbin/runuser -u "$runtime_user" --preserve-environment -- "${runner[@]}")
 fi
 cd "$release_real"
 setsid "${runner[@]}" >"$(meta_file stdout.log)" 2>"$(meta_file stderr.log)" < /dev/null &

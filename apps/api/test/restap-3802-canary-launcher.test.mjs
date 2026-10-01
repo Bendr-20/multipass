@@ -56,6 +56,9 @@ test('launcher defaults all RESTAP gates off and contains no mutation/auth boots
   for (const gate of ['DISCOVERY', 'TALK', 'NEWS_WRITE', 'NEWS_READ']) assert.match(source, new RegExp('MULTIPASS_RESTAP_' + gate + '_ENABLED'));
   assert.doesNotMatch(source, /nginx|systemctl|systemd|ERC-?8004|owner-auth-state|--wallet|--signature|--cookie|--session|--challenge/iu);
   assert.doesNotMatch(source, /(?:^|[;\s])(?:source|eval|\.)\s+.*bankr/imu);
+  assert.match(source, /runtime_uid=\$\(id -u ubuntu\)/u);
+  assert.match(source, /stat -c '%u'.*database.*runtime_uid/su);
+  assert.match(source, /8#022.*policy must be protected/su);
 });
 
 test('starts an unrouted loopback canary with exact release and stops only after verified identity', async (t) => {
@@ -101,8 +104,8 @@ test('rejects symlinked artifacts, exposed policy, outside database, occupied po
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));
   const badPolicy = join(f.root, 'bad-policy.json');
-  await writeFile(badPolicy, '{}\n', { mode: 0o644 });
-  await chmod(badPolicy, 0o644);
+  await writeFile(badPolicy, '{}\n', { mode: 0o666 });
+  await chmod(badPolicy, 0o666);
   assert.notEqual((await run([...base(f).map((x, i, a) => a[i - 1] === '--policy' ? badPolicy : x)])).code, 0);
   const outside = join(f.root, 'production.sqlite');
   await writeFile(outside, 'x', { mode: 0o600 });
