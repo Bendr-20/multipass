@@ -107,6 +107,16 @@ export interface MultipassApiOptions {
   consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };
   consoleCodexRateLimitNow?: () => number;
   consoleCodexWalletMaxBuckets?: number;
+  restapDiscoveryEnabled?: boolean;
+  restapTalkEnabled?: boolean;
+  restap3802Policy?: {
+    authorize(input: { surface: 'discovery' | 'talk' }): Promise<{ discovery?: unknown; publicProjection?: unknown }> | { discovery?: unknown; publicProjection?: unknown };
+  };
+  restapTalkRuntime?: {
+    talk(input: { message: string; sessionId?: string; publicProjection: unknown }): Promise<{ reply: string; session_id: string }> | { reply: string; session_id: string };
+  };
+  restapTalkLimits?: { perIpPerMinute?: number; perSessionPerMinute?: number; globalPerDay?: number; concurrency?: number };
+  restapRateLimitNow?: () => number;
 }
 
 export interface MultipassApi {

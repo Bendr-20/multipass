@@ -30,6 +30,8 @@ import {
   normalizeConsoleImageAttachment,
 } from './console-image-attachment.js';
 import { createConsoleReadSkillExecutor } from './console-read-skills.js';
+import { RESTAP_LIMITS, normalizeRestapTalkRequest } from './restap-3802-contracts.js';
+import { parseStrictJsonObject } from './strict-json-envelope.js';
 import { deriveReleasedLooperAccount } from './looper-account.js';
 import {
   createLooperCredClient,
@@ -265,6 +267,12 @@ export function createMultipassApi({
   consoleMessageDailyRateLimit,
   consoleMessageGlobalConcurrency = CONSOLE_MESSAGE_GLOBAL_CONCURRENCY,
   consoleSkillProviderTimeoutMs,
+  restapDiscoveryEnabled = false,
+  restapTalkEnabled = false,
+  restap3802Policy,
+  restapTalkRuntime,
+  restapTalkLimits,
+  restapRateLimitNow = () => Date.now(),
 } = {}) {
   if (!store) {
     throw new TypeError('createMultipassApi requires a store');
@@ -384,6 +392,14 @@ export function createMultipassApi({
       consoleMessageDailyRateLimit ?? CONSOLE_MESSAGE_DAILY_RATE_LIMIT,
     ),
     consoleMessageConcurrency: createConcurrencyGate(consoleMessageGlobalConcurrency),
+    restapDiscoveryEnabled: Boolean(restapDiscoveryEnabled),
+    restapTalkEnabled: Boolean(restapTalkEnabled),
+    restap3802Policy,
+    restapTalkRuntime,
+    restapIpRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perIpPerMinute ?? 20, windowMs: 60_000, now: restapRateLimitNow }),
+    restapSessionRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.perSessionPerMinute ?? 10, windowMs: 60_000, now: restapRateLimitNow }),
+    restapDailyRateLimiter: createFixedWindowRateLimiter({ limit: restapTalkLimits?.globalPerDay ?? 10_000, windowMs: 86_400_000, now: restapRateLimitNow }),
+    restapConcurrency: createConcurrencyGate(restapTalkLimits?.concurrency ?? 4),
   };
 
   return {
@@ -392,6 +408,9 @@ export function createMultipassApi({
         const url = new URL(request.url);
         const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
         const method = request.method.toUpperCase();
+
+        const restapResponse = await handleRestap3802Request(request, url, method, context);
+        if (restapResponse) return restapResponse;
 
         if (method === 'POST') {
           if (parts[0] === 'api' && parts[1] === 'loopers') {
@@ -478,6 +497,90 @@ export function createMultipassApi({
       }
     },
   };
+}
+
+async function handleRestap3802Request(request, url, method, context) {
+  const discoveryPath = '/api/restap/loopers/3802/.well-known/restap.json';
+  const talkPath = '/api/restap/loopers/3802/talk';
+  const exactDiscovery = url.pathname === discoveryPath && url.search === '';
+  const exactTalk = url.pathname === talkPath && url.search === '';
+  if (!exactDiscovery && !exactTalk) return null;
+
+  if (exactDiscovery) {
+    if (!context.restapDiscoveryEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+    if (method !== 'GET') return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+    const started = Date.now();
+    try {
+      const authorization = await context.restap3802Policy?.authorize?.({ surface: 'discovery' });
+      if (!authorization?.discovery) throw new Error('unavailable');
+      safeRestapLog(context.logger, { event: 'restap_request', status: 200, durationMs: Date.now() - started, tokenId: '3802', errorClass: null });
+      return jsonResponse(authorization.discovery, 200, { 'cache-control': 'public, max-age=60' });
+    } catch {
+      safeRestapLog(context.logger, { event: 'restap_request', status: 503, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'Unavailable' });
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+  }
+
+  if (!context.restapTalkEnabled) return errorResponse(404, 'not_found', 'Route not found.');
+  if (method !== 'POST') return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  const started = Date.now();
+  let body;
+  try {
+    body = await readRestapJsonBody(request, RESTAP_LIMITS.talkBodyBytes);
+    body = normalizeRestapTalkRequest(body);
+  } catch {
+    safeRestapLog(context.logger, { event: 'restap_request', status: 400, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'InvalidRequest' });
+    return errorResponse(400, 'invalid_request', 'Invalid RESTAP talk request.');
+  }
+
+  const ipKey = String(request.headers.get('x-multipass-client-ip') ?? 'direct');
+  const ipLimit = context.restapIpRateLimiter.check(ipKey);
+  if (!ipLimit.allowed) return restapThrottle(ipLimit.retryAfterSeconds);
+  if (body.session_id) {
+    const sessionLimit = context.restapSessionRateLimiter.check(body.session_id);
+    if (!sessionLimit.allowed) return restapThrottle(sessionLimit.retryAfterSeconds);
+  }
+  const dailyLimit = context.restapDailyRateLimiter.check('global');
+  if (!dailyLimit.allowed) return restapThrottle(dailyLimit.retryAfterSeconds);
+  const release = context.restapConcurrency.tryAcquire();
+  if (!release) return restapThrottle(1);
+
+  try {
+    let authorization;
+    try { authorization = await context.restap3802Policy?.authorize?.({ surface: 'talk' }); }
+    catch { return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.'); }
+    if (!authorization?.publicProjection || typeof context.restapTalkRuntime?.talk !== 'function') {
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+    try {
+      const result = await context.restapTalkRuntime.talk({ message: body.message, ...(body.session_id ? { sessionId: body.session_id } : {}), publicProjection: authorization.publicProjection });
+      safeRestapLog(context.logger, { event: 'restap_request', status: 200, durationMs: Date.now() - started, tokenId: '3802', errorClass: null });
+      return jsonResponse(result);
+    } catch (error) {
+      if (error?.message === 'invalid_session_id') return errorResponse(400, 'invalid_session_id', 'Invalid RESTAP session.');
+      if (error?.code === 'provider_unavailable') return errorResponse(503, 'provider_unavailable', 'RESTAP provider is temporarily unavailable.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
+  } finally { release(); }
+}
+
+async function readRestapJsonBody(request, maximumBytes) {
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  if (contentType !== 'application/json') throw new TypeError('RESTAP requires application/json.');
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maximumBytes) throw new RangeError('RESTAP body is too large.');
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > maximumBytes) throw new RangeError('RESTAP body is too large.');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return parseStrictJsonObject(text);
+}
+
+function restapThrottle(retryAfterSeconds) {
+  return errorResponse(429, 'rate_limited', 'RESTAP request limit exceeded.', undefined, { 'retry-after': String(Math.max(1, retryAfterSeconds)) });
+}
+
+function safeRestapLog(logger, event) {
+  try { logger?.info?.(event); } catch {}
 }
 
 async function handleStaticMultipassShellRead(parts) {
@@ -2751,7 +2854,7 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
   });
 }
 
-function errorResponse(status, code, message, details) {
+function errorResponse(status, code, message, details, extraHeaders = {}) {
   return jsonResponse({
     schema_version: '0.1.0',
     error: {
@@ -2759,7 +2862,7 @@ function errorResponse(status, code, message, details) {
       message,
       ...(details === undefined ? {} : { details }),
     },
-  }, status);
+  }, status, extraHeaders);
 }
 
 function createDiscoveryDocument(baseUrl) {
