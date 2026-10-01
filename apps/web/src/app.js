@@ -170,7 +170,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleAgentNameOverrides,
     consoleWalletStatus: consoleMockState?.consoleWalletStatus ?? null,
     consoleWalletError: consoleMockState?.consoleWalletError ?? null,
-    consoleCsrfToken: null,
+    consoleCsrfToken: consoleMockState?.consoleCsrfToken ?? null,
     consoleAuthenticatedWallet: consoleMockState?.walletSnapshot?.address ?? null,
     consoleOwnerProfile: null,
     consoleSessionGeneration: 0,
@@ -921,7 +921,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const preparedAttachment = state.consoleAgentThread?.attachment?.prepared ?? null;
     const clientMessageId = state.consoleAgentThread?.attachment?.clientMessageId ?? null;
     if (!message && !preparedAttachment) return;
-    const walletSnapshot = activeWalletClient.getSnapshot();
+    const walletSnapshot = state.consoleMockMode ? state.walletSnapshot : activeWalletClient.getSnapshot();
     if (!walletSnapshot.connected || !walletSnapshot.address) {
       state = {
         ...state,
@@ -2998,6 +2998,7 @@ function getInitialConsoleMockState() {
     },
     consoleWalletStatus: 'connected',
     consoleWalletError: null,
+    consoleCsrfToken: 'mock-csrf',
     consoleOwnedAgents: {
       status: 'loaded',
       error: null,
