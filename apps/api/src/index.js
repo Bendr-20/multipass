@@ -271,7 +271,9 @@ export function createMultipassApi({
   }
 
   const normalizedBaseUrl = stripTrailingSlash(baseUrl ?? 'http://localhost');
+  const resolvedLooperCodexRuntime = looperCodexRuntime ?? createUnavailableCodexRuntime();
   const runtime = consoleAgentRuntime ?? createConsoleAgentRuntime({
+    looperCodexRuntime: resolvedLooperCodexRuntime,
     llmClient: consoleAgentBankrLlmEnabled
       ? createBankrLlmClient({
         apiKey: bankrLlmKey,
@@ -363,7 +365,7 @@ export function createMultipassApi({
     consoleRuntimeRegistry: consoleRuntimeRegistry ?? createLooperRuntimeRegistry(),
     consoleAgentRuntime: runtime,
     consoleWalletContextLoader: walletContextLoader,
-    looperCodexRuntime: looperCodexRuntime ?? createUnavailableCodexRuntime(),
+    looperCodexRuntime: resolvedLooperCodexRuntime,
     logger,
     consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
       ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),

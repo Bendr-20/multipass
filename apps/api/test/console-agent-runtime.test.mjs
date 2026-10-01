@@ -2008,3 +2008,42 @@ test('unrecognized Codex-like language calls neither Codex adapter nor existing 
   assert.equal(result.codex, undefined);
   assert.equal(result.thread.messages.at(-1).text, 'Grounded fallback.');
 });
+
+test('default API runtime wires the loaded Codex adapter into deterministic Console reads', async () => {
+  let queryCalls = 0;
+  const envelope = Object.freeze({
+    schemaVersion: '1.0.0',
+    artifactHash: '5a776e6c2cacb211dedbbec7837416be46775f9e46a1a4cda4b3a96c70262f24',
+    codexVersion: 'traits-v1',
+    operation: 'getCollectionSummary',
+    subjectIds: Object.freeze([]),
+    evidence: Object.freeze([{ id: 'collection:5a776e6c2cacb211', kind: 'collection', label: 'collection_fact' }]),
+    result: Object.freeze({
+      collection: Object.freeze({ name: 'Loopers', chainId: 8453, count: 7777 }),
+      traitTypes: Object.freeze([]),
+      versions: Object.freeze({ traitCodexVersion: 'traits-v1' }),
+    }),
+  });
+  const api = createMultipassApi({
+    store: createMemoryStore(),
+    ...createLegacyAuthorizedOptions(),
+    looperCodexRuntime: {
+      status: { available: true },
+      getProfileContext() { return null; },
+      query(operation, input) {
+        queryCalls += 1;
+        assert.equal(operation, 'getCollectionSummary');
+        assert.deepEqual(input, {});
+        return envelope;
+      },
+    },
+    consoleXmtpClient: createLocalXmtpAgentClient(),
+  });
+
+  const response = await api.handleRequest(secureConsoleRequest({ message: '/codex summary' }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(queryCalls, 1);
+  assert.deepEqual(body.codex, envelope);
+  assert.match(body.thread.messages.at(-1).text, /Artifact 5a776e6c2cac/);
+});
