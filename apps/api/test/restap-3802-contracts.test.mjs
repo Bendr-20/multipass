@@ -191,3 +191,18 @@ test('canonical JSON sorts object keys, preserves array order, and rejects unsaf
   assert.throws(() => canonicalizeRestapJson({ value: Number.NaN }), /finite|json/i);
   assert.throws(() => canonicalizeRestapJson({ __proto__: { polluted: true } }), /plain|prototype|json/i);
 });
+
+test('hostile UTF-8, prototype, path-shaped, and nested contract inputs stay bounded plain data', () => {
+  assert.throws(() => normalizeRestapTalkRequest({ message: '🙂'.repeat(501) }), /2000|byte/i);
+  const nullRoot = Object.assign(Object.create(null), { message: 'safe' });
+  const normalized = normalizeRestapTalkRequest(nullRoot);
+  assert.equal(Object.getPrototypeOf(normalized), Object.prototype);
+  for (const message of ['/../private', 'https://internal.invalid/a?x=.*', '(a+)+$', 'SELECT * FROM secrets']) {
+    assert.deepEqual(normalizeRestapTalkRequest({ message }), { message });
+  }
+  for (const bad of [
+    JSON.parse('{"type":"x","constructor":{"prototype":{"polluted":true}}}'),
+    JSON.parse('{"type":"x","data":{"prototype":"bad"}}'),
+    { type: 'x', data: { nested: { nested: { nested: { nested: { nested: { nested: { nested: { nested: { nested: true } } } } } } } } } },
+  ]) assert.throws(() => normalizeRestapNewsPost(bad), /unknown|forbidden|depth|executable/i);
+});

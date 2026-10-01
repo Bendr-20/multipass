@@ -86,3 +86,20 @@ test('revalidates ERC-8004 sender controller before acceptance', async () => {
   const stale = createRestapNewsAuthenticator({ policy: ercPolicy, now: () => nowSeconds * 1000, resolveErc8004Controller: async () => '0x1111111111111111111111111111111111111111' });
   await assert.rejects(() => stale.authenticate(input), RestapSenderNotAuthorizedError);
 });
+
+test('timestamp, nonce, sender normalization, and header ambiguity fail closed without identity detail', async () => {
+  const auth = createRestapNewsAuthenticator({ policy, now: () => nowSeconds * 1000 });
+  for (const timestamp of [nowSeconds - 301, nowSeconds + 301]) {
+    const input = await signedInput({ timestamp });
+    await assert.rejects(() => auth.authenticate(input), RestapSenderNotAuthorizedError);
+  }
+  for (const nonceValue of ['A'.repeat(21), 'A'.repeat(129), 'A'.repeat(21) + '+']) {
+    const input = await signedInput();
+    input.headers['x-restap-nonce'] = nonceValue;
+    await assert.rejects(() => auth.authenticate(input), RestapAuthenticationRequiredError);
+  }
+  const duplicate = await signedInput();
+  duplicate.headers = new Headers(Object.entries(duplicate.headers));
+  duplicate.headers.append('x-restap-sender', 'agent.two');
+  await assert.rejects(() => auth.authenticate(duplicate), (error) => error instanceof RestapAuthenticationRequiredError || error instanceof RestapSenderNotAuthorizedError);
+});

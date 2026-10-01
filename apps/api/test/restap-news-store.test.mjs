@@ -58,3 +58,15 @@ test('retention caps items while keeping unexpired replay records and close is i
   assert.equal(store.list({ limit: 50 }).items.length, 3); assert.throws(() => store.accept(item(1, { replayExpiresAt: new Date(now + 300_000).toISOString() })), RestapNewsReplayError);
   assert.equal(store.close(), undefined); assert.equal(store.close(), undefined);
 }));
+
+test('simultaneous duplicate writes accept once and malformed cursor variants never reach SQL detail', async () => withDatabase(async (path) => {
+  const left = createRestapNewsStore({ databasePath: path });
+  const right = createRestapNewsStore({ databasePath: path });
+  const outcomes = await Promise.allSettled([Promise.resolve().then(() => left.accept(item(9))), Promise.resolve().then(() => right.accept(item(9)))]);
+  assert.equal(outcomes.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((result) => result.status === 'rejected' && result.reason instanceof RestapNewsReplayError).length, 1);
+  for (const cursor of ['', '***', '../1', 'A'.repeat(513), 'MQ==']) {
+    assert.throws(() => left.list({ cursor, limit: 1 }), /cursor/i);
+  }
+  left.close(); right.close();
+}));

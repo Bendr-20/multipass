@@ -94,3 +94,21 @@ test('maps resolver failures to typed unavailable errors', async () => {
     await assert.rejects(() => authorizeRestap3802Policy({ policy, resolveAuthority: async () => { throw new Error('secret rpc'); }, loadCodexProfile: async () => ({}) }), RestapPolicyUnavailableError);
   });
 });
+
+test('every request-boundary authorization re-resolves authority and stale owner A never leaks presentation', async () => {
+  await withPolicy(null, async (path) => {
+    const policy = await loadRestap3802Policy({ policyPath: path });
+    let owner = OWNER;
+    let calls = 0;
+    const authorize = () => authorizeRestap3802Policy({
+      policy,
+      resolveAuthority: async () => { calls += 1; return { chainId: 8453, contract: policy.authority.collection, tokenId: '3802', owner, erc8004AgentId: '1', controller: owner, controllerVerified: true }; },
+      loadCodexProfile: async () => ({ identity: { tokenId: 3802, canonicalName: 'Looper #3802', image: { url: 'https://helixa.xyz/i.png' } } }),
+    });
+    assert.equal((await authorize()).ownerPublicProfile.displayName, policy.publicProfile.displayName);
+    owner = '0x2222222222222222222222222222222222222222';
+    await assert.rejects(authorize, RestapPolicyNotAuthorizedError);
+    await assert.rejects(authorize, RestapPolicyNotAuthorizedError);
+    assert.equal(calls, 3);
+  });
+});

@@ -37,6 +37,7 @@ import {
   normalizeRestapNewsWriteAcknowledgment,
   normalizeRestapTalkRequest,
 } from './restap-3802-contracts.js';
+import { RestapPolicyNotAuthorizedError } from './restap-3802-policy.js';
 import { parseStrictJsonObject } from './strict-json-envelope.js';
 import { deriveReleasedLooperAccount } from './looper-account.js';
 import {
@@ -533,7 +534,11 @@ async function handleRestap3802Request(request, url, method, context) {
       if (!authorization?.discovery) throw new Error('unavailable');
       safeRestapLog(context.logger, { event: 'restap_request', status: 200, durationMs: Date.now() - started, tokenId: '3802', errorClass: null });
       return jsonResponse(authorization.discovery, 200, { 'cache-control': 'public, max-age=60' });
-    } catch {
+    } catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) {
+        safeRestapLog(context.logger, { event: 'restap_request', status: 404, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'NotAuthorized' });
+        return errorResponse(404, 'not_found', 'Route not found.');
+      }
       safeRestapLog(context.logger, { event: 'restap_request', status: 503, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'Unavailable' });
       return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
     }
@@ -546,7 +551,11 @@ async function handleRestap3802Request(request, url, method, context) {
   try {
     body = await readRestapJsonBody(request, RESTAP_LIMITS.talkBodyBytes);
     body = normalizeRestapTalkRequest(body);
-  } catch {
+  } catch (error) {
+    if (error instanceof RestapPayloadTooLargeError) {
+      safeRestapLog(context.logger, { event: 'restap_request', status: 413, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'PayloadTooLarge' });
+      return errorResponse(413, 'payload_too_large', 'RESTAP request body is too large.');
+    }
     safeRestapLog(context.logger, { event: 'restap_request', status: 400, durationMs: Date.now() - started, tokenId: '3802', errorClass: 'InvalidRequest' });
     return errorResponse(400, 'invalid_request', 'Invalid RESTAP talk request.');
   }
@@ -566,7 +575,10 @@ async function handleRestap3802Request(request, url, method, context) {
   try {
     let authorization;
     try { authorization = await context.restap3802Policy?.authorize?.({ surface: 'talk' }); }
-    catch { return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.'); }
+    catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) return errorResponse(404, 'not_found', 'Route not found.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
     if (!authorization?.publicProjection || typeof context.restapTalkRuntime?.talk !== 'function') {
       return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
     }
@@ -587,9 +599,15 @@ async function handleRestap3802News(request, url, method, context) {
     if (!context.restapNewsWriteEnabled) return errorResponse(404, 'not_found', 'Route not found.');
     let body;
     try { body = normalizeRestapNewsPost(await readRestapJsonBody(request, RESTAP_LIMITS.newsBodyBytes)); }
-    catch { return errorResponse(400, 'invalid_request', 'Invalid RESTAP news request.'); }
+    catch (error) {
+      if (error instanceof RestapPayloadTooLargeError) return errorResponse(413, 'payload_too_large', 'RESTAP request body is too large.');
+      return errorResponse(400, 'invalid_request', 'Invalid RESTAP news request.');
+    }
     try { await context['restap3802' + 'Policy']?.authorize?.({ surface: 'news-write' }); }
-    catch { return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.'); }
+    catch (error) {
+      if (error instanceof RestapPolicyNotAuthorizedError) return errorResponse(404, 'not_found', 'Route not found.');
+      return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
+    }
     if (typeof context.restapNewsAuthenticator?.authenticate !== 'function' || typeof context.restapNewsStore?.accept !== 'function') {
       return errorResponse(503, 'restap_unavailable', 'RESTAP is temporarily unavailable.');
     }
@@ -655,15 +673,48 @@ function parseRestapNewsQuery(searchParams) {
   return { cursor, limit };
 }
 
+class RestapPayloadTooLargeError extends Error {}
+
 async function readRestapJsonBody(request, maximumBytes) {
   const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
   if (contentType !== 'application/json') throw new TypeError('RESTAP requires application/json.');
-  const declared = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new RangeError('RESTAP body is too large.');
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > maximumBytes) throw new RangeError('RESTAP body is too large.');
+  const declaredHeader = request.headers.get('content-length');
+  if (declaredHeader !== null) {
+    const declared = Number(declaredHeader);
+    if (!Number.isSafeInteger(declared) || declared < 0) throw new TypeError('RESTAP content length is invalid.');
+    if (declared > maximumBytes) throw new RestapPayloadTooLargeError();
+  }
+  const bytes = await readBoundedRestapBody(request.body, maximumBytes);
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   return parseStrictJsonObject(text);
+}
+
+async function readBoundedRestapBody(body, maximumBytes) {
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new RestapPayloadTooLargeError();
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof RestapPayloadTooLargeError) await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function restapThrottle(retryAfterSeconds) {

@@ -101,3 +101,17 @@ test('close clears turns and permanently closes the public store', () => {
   assert.throws(() => store.resolve(sessionId), /closed/i);
   assert.throws(() => store.create(), /closed/i);
 });
+
+test('hostile session and turn values cannot select namespaces or retain prototypes', () => {
+  const store = createRestapPublicSessionStore({ now: () => 1, randomBytesImpl: sequenceRng() });
+  const { sessionId } = store.create();
+  for (const hostile of ['../' + sessionId, '%2F' + sessionId, sessionId + '\u0000', 'Ａ'.repeat(43)]) {
+    assert.throws(() => store.resolve(hostile), /invalid_session_id/u);
+  }
+  const nullTurn = Object.assign(Object.create(null), { user: 'hello', assistant: 'safe' });
+  const view = store.appendTurn(sessionId, nullTurn);
+  assert.equal(Object.getPrototypeOf(view.history[0]), Object.prototype);
+  for (const key of ['wallet', 'cookie', 'owner', 'xmtp', 'namespace']) {
+    assert.throws(() => store.appendTurn(sessionId, { user: 'x', assistant: 'y', [key]: 'private' }), /unknown|metadata/i);
+  }
+});
