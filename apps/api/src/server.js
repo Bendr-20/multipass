@@ -292,7 +292,7 @@ export async function startServer(options = {}) {
           policy: restapPolicy,
           resolveAuthority: restapAuthorityResolver,
           loadCodexProfile: async (tokenId) => {
-            codexProfile = looperCodexRuntime.getProfileContext(tokenId);
+            codexProfile = looperCodexRuntime.getProfileContext(Number(tokenId));
             return codexProfile;
           },
         });

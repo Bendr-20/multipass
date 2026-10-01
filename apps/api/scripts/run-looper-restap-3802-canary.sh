@@ -217,7 +217,7 @@ cleanup_start() {
 }
 trap 'cleanup_start; exit 70' ERR HUP INT TERM
 for _ in $(seq 1 100); do [[ -r "/proc/$pid/stat" ]] && break; sleep 0.02; done
-process_live "$pid" || { cat "$(meta_file stderr.log)" >&2; fail "canary failed to start" 70; }
+process_live "$pid" || { cat "$(meta_file stderr.log)" >&2; cleanup_start; fail "canary failed to start" 70; }
 write_meta() { local name=$1 value=$2 tmp; tmp=$(meta_file ".$name.tmp.$$"); printf '%s
 ' "$value" > "$tmp"; chmod 600 "$tmp"; mv -f -- "$tmp" "$(meta_file "$name")"; }
 write_meta pid "$pid"
@@ -229,11 +229,11 @@ write_meta database "$database_real"
 write_meta command.sha256 "$(sha256sum "/proc/$pid/cmdline" | awk '{print $1}')"
 ready=false
 for _ in $(seq 1 120); do
-  process_live "$pid" || { cat "$(meta_file stderr.log)" >&2; fail "canary failed to start" 70; }
+  process_live "$pid" || { cat "$(meta_file stderr.log)" >&2; cleanup_start; fail "canary failed to start" 70; }
   if /usr/bin/node -e "const n=require('node:net').connect({host:'127.0.0.1',port:$port});n.once('connect',()=>{n.destroy();process.exit(0)});n.once('error',()=>process.exit(1));setTimeout(()=>process.exit(1),100)"; then ready=true; break; fi
   sleep 0.1
 done
-[[ "$ready" == true ]] || fail "canary startup timeout" 70
+[[ "$ready" == true ]] || { cleanup_start; fail "canary startup timeout" 70; }
 trap - ERR HUP INT TERM
 gate_list=none
 if [[ "$discovery" == true ]]; then gate_list=discovery; fi

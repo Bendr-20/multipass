@@ -15,7 +15,7 @@ const PUBLIC = Object.freeze({ canonicalIdentity: Object.freeze({ canonicalName:
 
 function sessions() { let seed = 6; return createRestapPublicSessionStore({ now: () => 1, randomBytesImpl: () => Buffer.alloc(32, seed += 1) }); }
 function runtime({ inferenceClient, codexRuntime, sessionStore } = {}) {
-  return createRestapPublicTalkRuntime({ codexRuntime: codexRuntime ?? { available: true, getProfileContext(id) { assert.equal(id, '3802'); return PROFILE; }, query(name, input) { return envelope(name, input); } }, sessionStore: sessionStore ?? sessions(), inferenceClient: inferenceClient ?? { async generate() { return { reply: 'Hello from public RESTAP.' }; } } });
+  return createRestapPublicTalkRuntime({ codexRuntime: codexRuntime ?? { available: true, getProfileContext(id) { assert.equal(id, 3802); return PROFILE; }, query(name, input) { return envelope(name, input); } }, sessionStore: sessionStore ?? sessions(), inferenceClient: inferenceClient ?? { async generate() { return { reply: 'Hello from public RESTAP.' }; } } });
 }
 function envelope(operation, input) { return Object.freeze({ schemaVersion: '1.0.0', artifactHash: PROFILE.artifactHash, codexVersion: 'traits-v1', operation, subjectIds: Object.freeze(input.tokenId ? [input.tokenId] : []), evidence: Object.freeze([]), result: operation === 'getCollectionSummary' ? { collection: { name: 'Loopers', chainId: 8453, count: 7777 }, traitTypes: [], versions: { traitCodexVersion: 'v1' } } : { identity: { tokenId: input.tokenId, canonicalName: 'Looper #' + input.tokenId, description: '' }, visualTraits: [], interpretation: { primaryClass: 'Builder', secondaryClass: 'Researcher', specialization: 'proofs' } } }); }
 

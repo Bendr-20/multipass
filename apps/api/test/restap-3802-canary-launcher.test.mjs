@@ -135,6 +135,21 @@ test('rejects an occupied loopback port and news-write policy without restap-smo
   assert.match(wrongSender.stderr, /restap-smoke/iu);
 });
 
+test('startup failure removes stale identity metadata and leaves copied inputs', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  const server = join(f.release, 'apps/api/src/server.js');
+  await chmod(server, 0o644);
+  await writeFile(server, "setTimeout(() => process.exit(1), 150); setInterval(() => {}, 1000);");
+  await chmod(server, 0o444);
+  const result = await run(base(f));
+  assert.notEqual(result.code, 0);
+  for (const name of ['pid', 'starttime', 'release', 'port', 'policy', 'database', 'command.sha256']) {
+    await assert.rejects(stat(join(f.state, name)), { code: 'ENOENT' });
+  }
+  assert.equal((await stat(f.database)).isFile(), true);
+});
+
 test('--stop fails closed on tampered identity and preserves owner auth until verified exit', async (t) => {
   const f = await fixture();
   t.after(async () => { await rm(join(f.state, 'pid'), { force: true }); await rm(f.root, { recursive: true, force: true }); });

@@ -19,7 +19,7 @@ export function createRestapPublicTalkRuntime({ codexRuntime, sessionStore, infe
   async function talk({ message, sessionId, publicProjection } = {}) {
     const text = boundedText(message, 'message', MESSAGE_BYTES);
     const projection = normalizePublicProjection(publicProjection);
-    const codexProfile = codexRuntime.getProfileContext('3802');
+    const codexProfile = codexRuntime.getProfileContext(3802);
     if (String(codexProfile?.identity?.tokenId) !== '3802') throw new TypeError('RESTAP talk Codex profile must be token 3802.');
     const session = sessionId === undefined ? sessionStore.create() : sessionStore.resolve(sessionId);
 

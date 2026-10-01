@@ -1174,7 +1174,7 @@ test('RESTAP startup performs an uncached authority/Codex warm-check, injects is
     restapNewsAuthenticatorFactory: ({ policy: inputPolicy }) => { assert.equal(inputPolicy, policy); order.push('authenticator'); return { async authenticate() {} }; },
     restapVerifyEip1271: async () => false,
     restapResolveErc8004Controller: async () => '0x1111111111111111111111111111111111111111',
-    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'a'.repeat(64) }, getProfileContext(tokenId) { assert.equal(tokenId, '3802'); return { identity: { tokenId: 3802, canonicalName: 'Looper #3802', image: { url: 'https://helixa.xyz/3802.png' } } }; }, query() {} },
+    looperCodexRuntime: { available: true, status: { available: true, artifactHash: 'a'.repeat(64) }, getProfileContext(tokenId) { assert.equal(tokenId, 3802); return { identity: { tokenId: 3802, canonicalName: 'Looper #3802', image: { url: 'https://helixa.xyz/3802.png' } } }; }, query() {} },
     logger: { info(event) { events.push(event); }, warn(event) { events.push(event); } },
     apiFactory: (options) => { order.push('api'); injected = options; return { async handleRequest() { await options.restap3802Policy.authorize({ surface: 'discovery' }); return new Response('{}'); } }; },
   });
