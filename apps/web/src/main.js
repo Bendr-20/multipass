@@ -12,13 +12,14 @@ const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
 const appRoot = document.querySelector('#app');
 const walletRoot = document.querySelector('#wallet-root');
 const walletClient = createPrivyWalletClient();
+const consoleMockMode = new URL(window.location.href).searchParams.get('mock') === 'looper';
 const looperMintConfig = getLooperMintConfigFromLocation(window.location.href);
 const walletDefaultChain = looperMintConfig.enabled ? looperMintConfig.chain : base;
 const walletSupportedChains = Array.from(new Map([base, baseSepolia, walletDefaultChain].map((chain) => [chain.id, chain])).values());
 
 createApp({ root: appRoot, walletClient }).start();
 
-if (walletRoot && PRIVY_APP_ID) {
+if (walletRoot && PRIVY_APP_ID && !consoleMockMode) {
   createRoot(walletRoot).render(
     React.createElement(
       PrivyProvider,
