@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0.0",
+  "tokenId": "3802",
+  "authority": {
+    "chainId": 8453,
+    "collection": "0x1649CD37f4748807b4882FC48765bA0B2aFfa94a",
+    "owner": "0x1111111111111111111111111111111111111111",
+    "erc8004Registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "erc8004AgentId": "1",
+    "controller": "0x1111111111111111111111111111111111111111"
+  },
+  "publicProfile": {
+    "displayName": "Owner-approved bounded public name",
+    "publicConversationEnabled": true,
+    "biography": "Owner-approved bounded public text",
+    "mission": "Owner-approved bounded public text",
+    "voicePresentation": "Owner-approved bounded public text"
+  },
+  "newsSenders": []
+}
