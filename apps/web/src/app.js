@@ -78,7 +78,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview, looperWalletSecurityPaused = false } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -135,6 +135,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   let state = {
     pageKind: getInitialPageKind(),
+    looperWalletSecurityPaused: Boolean(looperWalletSecurityPaused),
     expandedCard: null,
     selectedAgentCard: 0,
     resolverInput: '',
@@ -1522,6 +1523,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function activateLooperAgentWallet(event) {
     event?.preventDefault?.();
+    if (looperWalletSecurityPaused) return;
     const confirmed = createFormData(event?.currentTarget).get('confirmed') === 'on';
     if (!confirmed) {
       state = { ...state, looperAgentWallet: { ...state.looperAgentWallet, error: 'Explicit activation confirmation is required.' } };
@@ -1565,6 +1567,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function sendLooperAgentWallet(event) {
     event?.preventDefault?.();
+    if (looperWalletSecurityPaused) return;
     const form = event?.currentTarget;
     const data = createFormData(form);
     if (data.get('confirmed') !== 'on') {
@@ -1617,6 +1620,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function setLooperPolicyModule(event) {
     event?.preventDefault?.();
+    if (looperWalletSecurityPaused) return;
     const data = createFormData(event?.currentTarget);
     if (data.get('confirmed') !== 'on') {
       state = {

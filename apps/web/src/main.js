@@ -6,6 +6,7 @@ import { base, baseSepolia } from 'viem/chains';
 
 import { createApp } from './app.js';
 import { getLooperMintConfigFromLocation } from './looper-mint.js';
+import { LOOPER_WALLET_SECURITY_PAUSED } from './looper-agent-wallet.js';
 import { createPrivyWalletClient, PRIVY_CONNECT_WALLET_LIST, PRIVY_EXTERNAL_WALLET_CONFIG, PrivyWalletBridge } from './privy-wallet-client.js';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
@@ -17,7 +18,7 @@ const looperMintConfig = getLooperMintConfigFromLocation(window.location.href);
 const walletDefaultChain = looperMintConfig.enabled ? looperMintConfig.chain : base;
 const walletSupportedChains = Array.from(new Map([base, baseSepolia, walletDefaultChain].map((chain) => [chain.id, chain])).values());
 
-createApp({ root: appRoot, walletClient }).start();
+createApp({ root: appRoot, walletClient, looperWalletSecurityPaused: LOOPER_WALLET_SECURITY_PAUSED }).start();
 
 if (walletRoot && PRIVY_APP_ID && !consoleMockMode) {
   createRoot(walletRoot).render(

@@ -9,6 +9,7 @@ import {
 } from 'viem';
 
 export const BASE_CHAIN_ID = 8453;
+export const LOOPER_WALLET_SECURITY_PAUSED = true;
 export const LOOPERS_COLLECTION = getAddress('0x1649CD37f4748807b4882FC48765bA0B2aFfa94a');
 export const ERC6551_REGISTRY = getAddress('0x000000006551c19487814612e58FE06813775758');
 export const ACCOUNT_SALT = '0xff28549509272e76f1d1c6ef7d6976d848c5ff6cb5068b2183c8d52f4cbe2bee';
