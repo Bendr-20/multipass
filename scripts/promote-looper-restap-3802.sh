@@ -52,8 +52,8 @@ service_prop() { systemctl show "$unit" -p "$1" --value; }
 load_service_endpoint() {
   local service_environment parsed
   service_environment=$(service_prop Environment)
-  parsed=$(/usr/bin/node -e 'const value=process.argv[1];const host=/(?:^|\s)HOST=([A-Za-z0-9.-]+)(?:\s|$)/u.exec(value)?.[1];const port=/(?:^|\s)PORT=([0-9]+)(?:\s|$)/u.exec(value)?.[1];if(host!=="127.0.0.1"||!port||Number(port)<1024||Number(port)>65535)process.exit(1);process.stdout.write(host+" "+port)' "$service_environment") || { echo "service endpoint drift" >&2; exit 65; }
-  read -r service_host service_port <<<"$parsed"
+  parsed=$(/usr/bin/node -e 'const value=process.argv[1];const host=/(?:^|\s)HOST=([A-Za-z0-9.-]+)(?:\s|$)/u.exec(value)?.[1];const port=/(?:^|\s)PORT=([0-9]+)(?:\s|$)/u.exec(value)?.[1];const database=/(?:^|\s)MULTIPASS_DB_PATH=([^\s"]+)(?:\s|$)/u.exec(value)?.[1];if(host!=="127.0.0.1"||!port||Number(port)<1024||Number(port)>65535||!database)process.exit(1);process.stdout.write(host+" "+port+" "+database)' "$service_environment") || { echo "service endpoint drift" >&2; exit 65; }
+  read -r service_host service_port service_database <<<"$parsed"
 }
 
 inspect() {
@@ -63,15 +63,14 @@ inspect() {
   prior_cwd=$(service_prop WorkingDirectory); prior_pid=$(service_prop MainPID); prior_restarts=$(service_prop NRestarts)
   exact_dir "$prior_cwd" || { echo "working directory drift" >&2; exit 65; }
   [[ "$prior_pid" =~ ^[1-9][0-9]*$ && "$prior_restarts" =~ ^[0-9]+$ ]] || { echo "service process drift" >&2; exit 65; }
-  [[ $(grep -Ec '^MULTIPASS_DB_PATH=' "$env_file") == 1 ]] || { echo "database environment drift" >&2; exit 65; }
-  [[ $(grep -E '^MULTIPASS_DB_PATH=' "$env_file" | cut -d= -f2-) == "$database" ]] || { echo "database path drift" >&2; exit 65; }
+  load_service_endpoint
+  [[ "$service_database" == "$database" ]] || { echo "database path drift" >&2; exit 65; }
   if [[ "$phase" != discovery ]]; then
     [[ $(grep -Ec '^BANKR_API_KEY=.{16,}$' "$env_file") == 1 ]] || { echo "protected inference environment is unavailable" >&2; exit 65; }
   fi
   grep -Eq 'location[[:space:]]+/api/' "$nginx_file" || { echo "nginx API route drift" >&2; exit 65; }
   grep -Fq "root $static_root" "$nginx_file" || { echo "nginx static root drift" >&2; exit 65; }
   systemctl cat "$unit" >/dev/null
-  load_service_endpoint
 }
 
 backup_database() {
