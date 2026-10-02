@@ -38,6 +38,13 @@ import {
   normalizeRestapTalkRequest,
 } from './restap-3802-contracts.js';
 import { RestapPolicyNotAuthorizedError } from './restap-3802-policy.js';
+import {
+  normalizeRestapNetworkIntentCancel,
+  normalizeRestapNetworkIntentInput,
+  normalizeRestapNetworkPolicyInput,
+  normalizeRestapNetworkStopInput,
+  normalizeRestapNetworkTokenId,
+} from './restap-network/schema.js';
 import { parseStrictJsonObject } from './strict-json-envelope.js';
 import { deriveReleasedLooperAccount } from './looper-account.js';
 import {
@@ -94,6 +101,7 @@ const CONSOLE_MESSAGE_SHORT_RATE_LIMIT = { limit: 6, windowMs: 60_000 };
 const CONSOLE_MESSAGE_DAILY_RATE_LIMIT = { limit: 100, windowMs: 86_400_000 };
 const CONSOLE_MESSAGE_GLOBAL_CONCURRENCY = 8;
 const CONSOLE_CODEX_REQUEST_MAX_BYTES = 16 * 1024;
+const RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES = 16 * 1024;
 const CONSOLE_CODEX_WALLET_RATE_LIMIT = { limit: 120, windowMs: 60_000 };
 const CONSOLE_CODEX_GLOBAL_RATE_LIMIT = { limit: 1_200, windowMs: 60_000 };
 const CONSOLE_CODEX_WALLET_MAX_BUCKETS = 2_400;
@@ -435,6 +443,9 @@ export function createMultipassApi({
         const restapResponse = await handleRestap3802Request(request, url, method, context);
         if (restapResponse) return restapResponse;
 
+        const restapNetworkConsoleResponse = await handleRestapNetworkConsoleRequest(request, method, parts, context);
+        if (restapNetworkConsoleResponse) return restapNetworkConsoleResponse;
+
         if (method === 'POST') {
           if (parts[0] === 'api' && parts[1] === 'loopers') {
             return await handleLooperPost(request, parts, context);
@@ -521,6 +532,144 @@ export function createMultipassApi({
     },
   };
 }
+
+async function handleRestapNetworkConsoleRequest(request, method, parts, context) {
+  if (parts[0] !== 'api' || parts[1] !== 'multipass' || parts[2] !== 'console' || parts[3] !== 'restap-network') return null;
+  if (!parts[4]) return errorResponse(404, 'not_found', 'Route not found.');
+  const policyRoute = parts[5] === 'policy' && parts.length === 6;
+  const intentsRoute = parts[5] === 'intents' && parts.length === 6;
+  const intentRoute = parts[5] === 'intents' && parts[6] && parts.length === 7;
+  const stopRoute = parts[5] === 'stop' && parts.length === 6;
+  if (!policyRoute && !intentsRoute && !intentRoute && !stopRoute) return errorResponse(404, 'not_found', 'Route not found.');
+
+  const service = context.restapNetworkService;
+  const policyEnabled = service?.status?.enabled === true && service.status.gates?.policy === true;
+  const initiationEnabled = policyEnabled && service.status.gates?.initiation === true;
+  if (!policyEnabled || ((intentsRoute || intentRoute) && !initiationEnabled)) return errorResponse(404, 'not_found', 'Route not found.');
+  const tokenId = normalizeRestapConsoleTokenId(parts[4]);
+  const mutation = method === 'PUT' || method === 'POST' || method === 'DELETE';
+  const session = requireConsoleSession(request, context, { requireCsrf: mutation });
+  const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
+
+  try {
+    if (policyRoute && method === 'GET') {
+      requireServiceMethod(service, 'getPolicy');
+      return jsonResponse(projectRestapNetworkPolicy(await service.getPolicy({ tokenId, identity }), tokenId));
+    }
+    if (policyRoute && method === 'PUT') {
+      requireServiceMethod(service, 'putPolicy');
+      const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
+      const input = normalizeRestapNetworkPolicyInput(body, { selfTokenId: tokenId });
+      return jsonResponse(projectRestapNetworkPolicy(await service.putPolicy({ tokenId, identity, input }), tokenId));
+    }
+    if (intentsRoute && method === 'POST') {
+      requireServiceMethod(service, 'createIntent');
+      const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
+      const input = normalizeRestapNetworkIntentInput(body, { selfTokenId: tokenId });
+      return jsonResponse({ schema_version: '0.1.0', token_id: tokenId, intent: projectRestapNetworkIntent(await service.createIntent({ tokenId, identity, input })) }, 201);
+    }
+    if (intentsRoute && method === 'GET') {
+      requireServiceMethod(service, 'listIntents');
+      const values = await service.listIntents({ tokenId, identity });
+      if (!Array.isArray(values) || values.length > 256) throw new Error('invalid service response');
+      return jsonResponse({ schema_version: '0.1.0', token_id: tokenId, intents: values.map(projectRestapNetworkIntent) });
+    }
+    if (intentRoute && method === 'DELETE') {
+      requireServiceMethod(service, 'deleteIntent');
+      const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
+      const input = normalizeRestapNetworkIntentCancel(body);
+      const result = await service.deleteIntent({ tokenId, intentId: normalizeRestapConsoleIntentId(parts[6]), identity, input });
+      return jsonResponse({ schema_version: '0.1.0', token_id: tokenId, intent: projectRestapNetworkIntent(result) });
+    }
+    if (stopRoute && method === 'POST') {
+      requireServiceMethod(service, 'stop');
+      const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
+      const input = normalizeRestapNetworkStopInput(body);
+      return jsonResponse(projectRestapNetworkPolicy(await service.stop({ tokenId, identity, input }), tokenId));
+    }
+    return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  } catch (error) {
+    if (error instanceof ApiInputError || error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) throw error;
+    if (error instanceof TypeError) return errorResponse(400, 'invalid_request', 'RESTAP network request is invalid.');
+    if (/version|stale|conflict/iu.test(error?.message ?? '')) return errorResponse(409, 'version_conflict', 'RESTAP network state changed. Refresh and retry.');
+    return errorResponse(503, 'restap_network_unavailable', 'RESTAP network controls are temporarily unavailable.');
+  }
+}
+
+function normalizeRestapConsoleTokenId(value) {
+  try {
+    const tokenId = normalizeRestapNetworkTokenId(String(value ?? ''));
+    if (BigInt(tokenId) < 1n || BigInt(tokenId) > 7_777n) throw new TypeError('range');
+    return tokenId;
+  } catch {
+    throw new ApiInputError('invalid_request', 'Provide a canonical Looper token ID.');
+  }
+}
+
+function normalizeRestapConsoleIntentId(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{8,256}$/u.test(value)) throw new ApiInputError('invalid_request', 'Provide a valid intent ID.');
+  return value;
+}
+
+function requireServiceMethod(service, name) {
+  if (typeof service?.[name] !== 'function') throw new Error('service unavailable');
+}
+
+function projectRestapNetworkPolicy(value, tokenId) {
+  const policy = value?.policy ?? value;
+  if (!policy || typeof policy !== 'object') throw new Error('invalid service response');
+  const projected = {
+    policy_version: boundedServiceInteger(policy.policyVersion, 0),
+    custody_generation: boundedServiceInteger(policy.custodyGeneration, 0),
+    network_enabled: boundedServiceBoolean(policy.networkEnabled),
+    inbound_enabled: boundedServiceBoolean(policy.inboundEnabled),
+    autonomous_initiation_enabled: boundedServiceBoolean(policy.autonomousEnabled),
+    daily_initiated_conversation_limit: boundedServiceInteger(policy.initiatedDailyLimit, 0),
+    daily_generated_message_limit: boundedServiceInteger(policy.generatedDailyLimit, 0),
+    per_peer_daily_limit: boundedServiceInteger(policy.peerDailyLimit, 0),
+    topics: projectTokenOrTopicList(policy.topics, false),
+    allow_peer_token_ids: projectTokenOrTopicList(policy.allowTokenIds, true),
+    block_peer_token_ids: projectTokenOrTopicList(policy.blockTokenIds, true),
+    mute_until: policy.muteUntil === null || policy.muteUntil === undefined ? null : new Date(boundedServiceInteger(policy.muteUntil, 0)).toISOString(),
+  };
+  return {
+    schema_version: '0.1.0',
+    token_id: tokenId,
+    policy: projected,
+    lease_status: boundedStatus(value?.leaseStatus ?? 'unavailable', ['active', 'inactive', 'unavailable']),
+    eligibility_status: boundedStatus(value?.eligibilityStatus ?? 'unavailable', ['eligible', 'unavailable']),
+    quota_usage: projectQuotaUsage(value?.quotaUsage),
+    transcripts: { available: false, reason: 'pilot_memory_only' },
+  };
+}
+
+function projectRestapNetworkIntent(value) {
+  if (!value || typeof value !== 'object') throw new Error('invalid service response');
+  return {
+    intent_id: normalizeRestapConsoleIntentId(value.intentId),
+    source: boundedStatus(value.source, ['one_shot', 'daily']),
+    topic: boundedStatus(value.topic, ['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general']),
+    status: boundedStatus(value.status, ['pending', 'leased', 'completed', 'cancelled', 'expired', 'exhausted']),
+    earliest_at: new Date(boundedServiceInteger(value.earliestAt, 0)).toISOString(),
+    expires_at: new Date(boundedServiceInteger(value.expiresAt, 0)).toISOString(),
+    attempt_count: boundedServiceInteger(value.attemptCount, 0),
+    attempt_limit: boundedServiceInteger(value.attemptLimit, 1),
+    next_eligible_at: new Date(boundedServiceInteger(value.nextEligibleAt, 0)).toISOString(),
+  };
+}
+
+function projectQuotaUsage(value) {
+  const quota = value && typeof value === 'object' ? value : {};
+  return {
+    initiated: boundedServiceInteger(quota.initiated ?? 0, 0),
+    generated: boundedServiceInteger(quota.generated ?? 0, 0),
+    cost_units: boundedServiceInteger(quota.costUnits ?? 0, 0),
+  };
+}
+function projectTokenOrTopicList(value, tokens) { if (!Array.isArray(value) || value.length > 256) throw new Error('invalid service response'); return value.map((item) => tokens ? normalizeRestapNetworkTokenId(item) : boundedStatus(item, ['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general'])); }
+function boundedServiceBoolean(value) { if (typeof value !== 'boolean') throw new Error('invalid service response'); return value; }
+function boundedServiceInteger(value, minimum) { if (!Number.isSafeInteger(value) || value < minimum) throw new Error('invalid service response'); return value; }
+function boundedStatus(value, allowed) { if (typeof value !== 'string' || !allowed.includes(value)) throw new Error('invalid service response'); return value; }
 
 async function handleRestap3802Request(request, url, method, context) {
   const discoveryPath = '/api/restap/loopers/3802/.well-known/restap.json';
