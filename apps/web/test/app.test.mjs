@@ -2890,7 +2890,7 @@ test('dedicated Console verifies XMTP registration before the first live room se
   assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Registered and delivered/);
 });
 
-test('dedicated Console auto-loads a remembered Looper without waiting for activated-wallet discovery', async () => {
+test('dedicated Console restores a remembered Looper chat without waiting for activated-wallet discovery', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const writes = captureInnerHtmlWrites(root);
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
@@ -2932,14 +2932,24 @@ test('dedicated Console auto-loads a remembered Looper without waiting for activ
     claimApi: {
       activateConsoleAgent: async ({ tokenId }) => {
         activations.push(tokenId);
-        return { thread: { messages: [] }, memory: {}, proposals: [] };
+        return {
+          thread: {
+            transport: 'xmtp_group',
+            conversationId: 'conversation-812',
+            participants: [{ tokenId: '812', displayName: 'Looper #812' }],
+            messages: [{ role: 'agent', text: 'Restored remembered room.', transport: 'xmtp_group' }],
+          },
+          memory: {},
+          proposals: [],
+        };
       },
     },
   }).start();
   await flushAsyncEvents(30);
 
-  assert.deepEqual(activations, []);
+  assert.deepEqual(activations, ['812']);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '812');
+  assert.match(root.querySelector('.console-agent-thread-panel')?.textContent ?? '', /Restored remembered room/);
   assert.equal(signCount, 1);
   assert.equal(discoveryAborted, true);
   assert.deepEqual(walletCalls.map(([name]) => name), ['select']);

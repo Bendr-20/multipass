@@ -1337,6 +1337,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       }
       const participantAgentIds = resolveConsoleParticipantAgentIds(agents, state.consoleParticipantAgentIds, selectedAgentId);
       const selectionChanged = selectedAgentId !== state.consoleSelectedAgentId;
+      const restoreRememberedRoom = Boolean(
+        rememberedAgentId
+        && selectedAgentId === rememberedAgentId
+        && !preservedAgentId,
+      );
       state = {
         ...state,
         walletSnapshot,
@@ -1361,6 +1366,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           ignoreWalletWork: selectionChanged && !preservedAgentId,
           useDefaultWorkspace: true,
         });
+        if (restoreRememberedRoom) await activateSelectedConsoleAgent();
       } else {
         render(root, state, handlers);
         if (focusOnComplete && !selectedAgentId) focusConsoleGalleryHeading();
