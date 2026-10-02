@@ -45,6 +45,15 @@ const LOOPERS_READ_ABI = [
     outputs: [{ type: 'uint256' }],
   },
 ];
+const LOOPERS_TRANSFER_EVENT = {
+  type: 'event',
+  name: 'Transfer',
+  inputs: [
+    { indexed: true, name: 'from', type: 'address' },
+    { indexed: true, name: 'to', type: 'address' },
+    { indexed: true, name: 'tokenId', type: 'uint256' },
+  ],
+};
 const ADAPTER_READ_ABI = [
   {
     type: 'function',
@@ -280,6 +289,96 @@ export async function authorizeLooperControl({
     erc8004AgentId: BigInt(agentId).toString(),
     controllerVerified: true,
   };
+}
+
+export async function readLooperTransferEvents({
+  publicClient,
+  tokenId,
+  fromBlock,
+  toBlock,
+  contract = LOOPERS_MAINNET_CONTRACT,
+  cap = 1_000,
+} = {}) {
+  if (typeof publicClient?.getLogs !== 'function') throw new TypeError('A Base public client is required.');
+  const normalizedTokenId = normalizeTokenId(tokenId);
+  const start = normalizeBlockNumber(fromBlock, 'fromBlock');
+  const end = normalizeBlockNumber(toBlock, 'toBlock');
+  if (end < start) throw new TypeError('Transfer block range is invalid.');
+  if (end - start + 1 > 2_000) throw new TypeError('Transfer block span exceeds 2000 blocks.');
+  if (!Number.isSafeInteger(cap) || cap < 1 || cap > 10_000) throw new TypeError('Transfer evidence cap is invalid.');
+  const collection = getAddress(contract);
+  const logs = await publicClient.getLogs({
+    address: collection,
+    event: LOOPERS_TRANSFER_EVENT,
+    args: { tokenId: normalizedTokenId },
+    fromBlock: BigInt(start),
+    toBlock: BigInt(end),
+    strict: true,
+  });
+  if (!Array.isArray(logs)) throw new Error('Looper Transfer evidence is malformed.');
+  if (logs.length > cap) throw new Error('Looper Transfer evidence cap exceeded.');
+  return logs.map((log) => {
+    try {
+      if (log.removed !== false || getAddress(log.address) !== collection || BigInt(log.args?.tokenId) !== normalizedTokenId) throw new Error('mismatch');
+      const blockNumber = normalizeBlockNumber(log.blockNumber, 'Transfer blockNumber');
+      if (blockNumber < start || blockNumber > end) throw new Error('range');
+      return Object.freeze({
+        blockNumber,
+        blockHash: normalizeEvidenceHash(log.blockHash),
+        transactionHash: normalizeEvidenceHash(log.transactionHash),
+        transactionIndex: normalizeBlockNumber(log.transactionIndex, 'Transfer transactionIndex'),
+        logIndex: normalizeBlockNumber(log.logIndex, 'Transfer logIndex'),
+        from: getAddress(log.args.from),
+        to: getAddress(log.args.to),
+        tokenId: normalizedTokenId.toString(),
+      });
+    } catch {
+      throw new Error('Looper Transfer evidence is malformed or mismatched.');
+    }
+  }).sort((left, right) => left.blockNumber - right.blockNumber || left.transactionIndex - right.transactionIndex || left.logIndex - right.logIndex);
+}
+
+export async function readLooperControllerEvidence({
+  publicClient,
+  tokenId,
+  controller,
+  blockNumber,
+  contract = LOOPERS_MAINNET_CONTRACT,
+  adapter = LOOPERS_MAINNET_ADAPTER,
+} = {}) {
+  if (typeof publicClient?.readContract !== 'function') throw new TypeError('A Base public client is required.');
+  const normalizedTokenId = normalizeTokenId(tokenId);
+  const normalizedController = normalizeAddress(controller);
+  const normalizedBlock = normalizeBlockNumber(blockNumber, 'blockNumber');
+  const erc8004AgentId = BigInt(await publicClient.readContract({
+    address: getAddress(contract),
+    abi: LOOPERS_READ_ABI,
+    functionName: 'erc8004AgentIdByLooper',
+    args: [normalizedTokenId],
+    blockNumber: BigInt(normalizedBlock),
+  }));
+  if (erc8004AgentId <= 0n) throw new Error('Looper controller evidence has no canonical ERC-8004 identity.');
+  const verified = await publicClient.readContract({
+    address: getAddress(adapter),
+    abi: ADAPTER_READ_ABI,
+    functionName: 'isController',
+    args: [erc8004AgentId, normalizedController],
+    blockNumber: BigInt(normalizedBlock),
+  });
+  if (verified !== true) throw new Error('Looper controller evidence is not verified.');
+  return Object.freeze({ tokenId: normalizedTokenId.toString(), erc8004AgentId: erc8004AgentId.toString(), controller: normalizedController, verified: true, blockNumber: normalizedBlock });
+}
+
+function normalizeBlockNumber(value, label) {
+  const number = typeof value === 'bigint' ? Number(value) : Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new TypeError(label + ' must be a non-negative safe integer.');
+  return number;
+}
+
+function normalizeEvidenceHash(value) {
+  const hash = String(value ?? '').toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/u.test(hash)) throw new TypeError('Evidence hash is invalid.');
+  return hash;
 }
 
 async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expectedBalance, totalMinted, ownerChunkSize }) {

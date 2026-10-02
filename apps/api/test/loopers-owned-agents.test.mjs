@@ -361,3 +361,42 @@ test('GET /api/loopers/owned enriches only the authorized resolved roster with c
   assert.equal(body.agents[0].credScore, 40);
   assert.equal(body.agents[0].credLabel, 'CRED 40 · MARGINAL');
 });
+
+
+test('bounded custody client reads exact finalized Transfer logs and controller evidence', async () => {
+  const { readLooperTransferEvents, readLooperControllerEvidence } = await import('../src/loopers-owned-agents.js');
+  const calls = [];
+  const publicClient = {
+    async getLogs(request) {
+      calls.push({ kind: 'logs', request });
+      return [{ address: request.address, blockNumber: 100n, blockHash: '0x' + 'aa'.repeat(32), transactionHash: '0x' + 'bb'.repeat(32), transactionIndex: 2, logIndex: 3, removed: false, args: { from: OTHER_WALLET, to: WALLET, tokenId: 617n } }];
+    },
+    async readContract(request) {
+      calls.push({ kind: 'read', request });
+      if (request.functionName === 'erc8004AgentIdByLooper') return 87069n;
+      if (request.functionName === 'isController') return true;
+      throw new Error('unexpected read');
+    },
+  };
+  const transfers = await readLooperTransferEvents({ publicClient, tokenId: '617', fromBlock: 90, toBlock: 100 });
+  assert.deepEqual(transfers, [{ blockNumber: 100, blockHash: '0x' + 'aa'.repeat(32), transactionHash: '0x' + 'bb'.repeat(32), transactionIndex: 2, logIndex: 3, from: OTHER_WALLET, to: WALLET, tokenId: '617' }]);
+  const controller = await readLooperControllerEvidence({ publicClient, tokenId: '617', controller: WALLET, blockNumber: 100 });
+  assert.deepEqual(controller, { tokenId: '617', erc8004AgentId: '87069', controller: WALLET, verified: true, blockNumber: 100 });
+  assert.equal(calls[0].request.fromBlock, 90n);
+  assert.equal(calls[0].request.toBlock, 100n);
+  assert.equal(calls[1].request.blockNumber, 100n);
+  assert.equal(calls[2].request.blockNumber, 100n);
+});
+
+test('bounded custody client rejects removed, malformed, wrong-token, excessive and unverified evidence', async () => {
+  const { readLooperTransferEvents, readLooperControllerEvidence } = await import('../src/loopers-owned-agents.js');
+  const baseLog = { address: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', blockNumber: 100n, blockHash: '0x' + 'aa'.repeat(32), transactionHash: '0x' + 'bb'.repeat(32), transactionIndex: 0, logIndex: 0, removed: false, args: { from: OTHER_WALLET, to: WALLET, tokenId: 617n } };
+  for (const log of [{ ...baseLog, removed: true }, { ...baseLog, args: { ...baseLog.args, tokenId: 618n } }, { ...baseLog, blockHash: null }]) {
+    await assert.rejects(readLooperTransferEvents({ publicClient: { getLogs: async () => [log] }, tokenId: '617', fromBlock: 1, toBlock: 100 }), /transfer evidence/i);
+  }
+  await assert.rejects(readLooperTransferEvents({ publicClient: { getLogs: async () => Array.from({ length: 1001 }, () => baseLog) }, tokenId: '617', fromBlock: 1, toBlock: 100, cap: 1000 }), /cap/i);
+  let oversizedCalls = 0;
+  await assert.rejects(readLooperTransferEvents({ publicClient: { getLogs: async () => { oversizedCalls += 1; return []; } }, tokenId: '617', fromBlock: 1, toBlock: 2_001 }), /block span|range/i);
+  assert.equal(oversizedCalls, 0);
+  await assert.rejects(readLooperControllerEvidence({ publicClient: { readContract: async ({ functionName }) => functionName === 'erc8004AgentIdByLooper' ? 87069n : false }, tokenId: '617', controller: WALLET, blockNumber: 100 }), /not verified/i);
+});
