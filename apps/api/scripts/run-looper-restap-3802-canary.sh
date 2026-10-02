@@ -146,7 +146,7 @@ verified_stop() {
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || fail "canary stop failed" 70
   for _ in $(seq 1 80); do
     if ! process_live "$pid"; then
-      rm -f -- "$(meta_file owner-auth.json)" "$(meta_file pid)" "$(meta_file starttime)" "$(meta_file release)" "$(meta_file port)" "$(meta_file policy)" "$(meta_file database)" "$(meta_file command.sha256)"
+      rm -f -- "$(meta_file owner-auth.json)" "$(meta_file smoke.pid)" "$(meta_file pid)" "$(meta_file starttime)" "$(meta_file release)" "$(meta_file port)" "$(meta_file policy)" "$(meta_file database)" "$(meta_file command.sha256)"
       printf 'canary=stopped pid=%s port=%s auth-state=removed\n' "$pid" "$port"
       return 0
     fi
@@ -213,14 +213,22 @@ pid=$!
 cleanup_start() {
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
-  rm -f -- "$(meta_file pid)" "$(meta_file starttime)" "$(meta_file release)" "$(meta_file port)" "$(meta_file policy)" "$(meta_file database)" "$(meta_file command.sha256)"
+  rm -f -- "$(meta_file smoke.pid)" "$(meta_file pid)" "$(meta_file starttime)" "$(meta_file release)" "$(meta_file port)" "$(meta_file policy)" "$(meta_file database)" "$(meta_file command.sha256)"
 }
 trap 'cleanup_start; exit 70' ERR HUP INT TERM
 for _ in $(seq 1 100); do [[ -r "/proc/$pid/stat" ]] && break; sleep 0.02; done
 process_live "$pid" || { cat "$(meta_file stderr.log)" >&2; cleanup_start; fail "canary failed to start" 70; }
-write_meta() { local name=$1 value=$2 tmp; tmp=$(meta_file ".$name.tmp.$$"); printf '%s
+write_meta() { local name=$1 value=$2 tmp; tmp=$(meta_file ".$name.tmp.$"); printf '%s
 ' "$value" > "$tmp"; chmod 600 "$tmp"; mv -f -- "$tmp" "$(meta_file "$name")"; }
+write_smoke_pid() {
+  local tmp; tmp=$(meta_file ".smoke.pid.tmp.$")
+  printf '%s
+' "$pid" > "$tmp"; chmod 600 "$tmp"
+  [[ -z "$runtime_user" ]] || chown "$runtime_user:$runtime_user" "$tmp"
+  mv -f -- "$tmp" "$(meta_file smoke.pid)"
+}
 write_meta pid "$pid"
+write_smoke_pid
 write_meta starttime "$(awk '{print $22}' "/proc/$pid/stat")"
 write_meta release "$release_real"
 write_meta port "$port"

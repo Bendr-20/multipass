@@ -70,6 +70,7 @@ test('starts an unrouted loopback canary with exact release and stops only after
   assert.equal(started.code, 0, started.stderr);
   assert.match(started.stdout, new RegExp('canary=ready .*port=' + f.port + ' gates=none'));
   assert.equal((await stat(join(f.state, 'pid'))).isFile(), true);
+  assert.equal((await stat(join(f.state, 'smoke.pid'))).mode & 0o777, 0o600);
   assert.equal((await stat(join(f.state, 'stdout.log'))).isFile(), true);
   assert.equal((await stat(join(f.state, 'stderr.log'))).isFile(), true);
   const env = await readFile(join(f.state, 'gates.state'), 'utf8');
@@ -146,7 +147,7 @@ test('startup failure removes stale identity metadata and leaves copied inputs',
   await chmod(server, 0o444);
   const result = await run(base(f));
   assert.notEqual(result.code, 0);
-  for (const name of ['pid', 'starttime', 'release', 'port', 'policy', 'database', 'command.sha256']) {
+  for (const name of ['smoke.pid', 'pid', 'starttime', 'release', 'port', 'policy', 'database', 'command.sha256']) {
     await assert.rejects(stat(join(f.state, name)), { code: 'ENOENT' });
   }
   assert.equal((await stat(f.database)).isFile(), true);

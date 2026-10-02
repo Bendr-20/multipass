@@ -410,7 +410,7 @@ async function readProof(path, baseUrl) {
 }
 
 async function readSiblingPid(path) {
-  const pidPath = join(dirname(path), 'pid');
+  const pidPath = join(dirname(path), 'smoke.pid');
   const text = (await readProtectedText(pidPath, 32, { exactMode: false, allowedUids: [process.getuid(), 0] })).trim();
   if (!/^[1-9]\d*$/u.test(text)) fail();
   const pid = Number(text);

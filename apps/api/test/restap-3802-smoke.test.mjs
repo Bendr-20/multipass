@@ -181,8 +181,8 @@ test('remote news-write accepts once, rejects replay, persists bounded proof mod
 test('loopback news-read accepts only signature-derived same-process owner state and exact write proof', async (t) => {
   const account = privateKeyToAccount(KEY);
   const root = await mkdtemp(join(tmpdir(), 'restap-owner-smoke-'));
-  await writeFile(join(root, 'pid'), String(process.pid) + '\n', { mode: 0o644 });
-  await chmod(join(root, 'pid'), 0o644);
+  await writeFile(join(root, 'smoke.pid'), String(process.pid) + '\n', { mode: 0o600 });
+  await chmod(join(root, 'smoke.pid'), 0o600);
   const challengePath = join(root, 'challenge.json');
   const signaturePath = join(root, 'signature.txt');
   const ownerState = join(root, 'owner-auth.json');
