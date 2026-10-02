@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
 import { createMultipassConsoleSnapshot, normalizeConsoleCred, renderMultipassConsole } from '../src/multipass-console.js';
+
+test('production entrypoint leaves wallet mutation controls enabled', async () => {
+  const [mainSource, walletSource] = await Promise.all([
+    readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/looper-agent-wallet.js', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(mainSource, /looperWalletSecurityPaused|LOOPER_WALLET_SECURITY_PAUSED/);
+  assert.doesNotMatch(walletSource, /LOOPER_WALLET_SECURITY_PAUSED[ \t]*=[ \t]*true/);
+});
 
 function sampleData() {
   return {
