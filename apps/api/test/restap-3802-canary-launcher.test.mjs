@@ -59,6 +59,8 @@ test('launcher defaults all RESTAP gates off and contains no mutation/auth boots
   assert.match(source, /runtime_uid=\$\(id -u ubuntu\)/u);
   assert.match(source, /stat -c '%u'.*database.*runtime_uid/su);
   assert.match(source, /8#022.*policy must be protected/su);
+  assert.match(source, /setpriv.*--reuid.*--regid.*--init-groups/su);
+  assert.doesNotMatch(source, /runner=\(\/usr\/sbin\/runuser/u);
 });
 
 test('starts an unrouted loopback canary with exact release and stops only after verified identity', async (t) => {

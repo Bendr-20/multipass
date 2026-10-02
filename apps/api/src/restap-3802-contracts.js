@@ -292,7 +292,7 @@ function normalizeErc8004(value) {
 }
 
 function buildExternalBaseUrl(value) {
-  const url = parseHttpsUrl(value, 'RESTAP public base');
+  const url = parsePublicBaseUrl(value);
   if (url.search || url.hash || url.username || url.password) {
     throw new TypeError('RESTAP public base must not include credentials, query, or fragment.');
   }
@@ -303,6 +303,19 @@ function buildExternalBaseUrl(value) {
 
 function normalizeHttpsUrl(value, label) {
   return parseHttpsUrl(value, label).toString().replace(/\/$/u, '');
+}
+
+function parsePublicBaseUrl(value) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 2_048) {
+    throw new TypeError('RESTAP public base must be an HTTPS URL or HTTP loopback URL.');
+  }
+  let url;
+  try { url = new URL(value); } catch { throw new TypeError('RESTAP public base must be an HTTPS URL or HTTP loopback URL.'); }
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(url.hostname);
+  if (!url.hostname || url.username || url.password || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
+    throw new TypeError('RESTAP public base must be an HTTPS URL or HTTP loopback URL.');
+  }
+  return url;
 }
 
 function parseHttpsUrl(value, label) {

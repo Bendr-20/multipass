@@ -42,7 +42,7 @@ artifact_mode=$(stat -c '%a' -- "$artifact")
 
 runtime_uid=$EUID
 runtime_user=
-if ((EUID == 0)) && command -v runuser >/dev/null 2>&1 && id ubuntu >/dev/null 2>&1; then
+if ((EUID == 0)) && command -v setpriv >/dev/null 2>&1 && id ubuntu >/dev/null 2>&1; then
   runtime_user=ubuntu
   runtime_uid=$(id -u ubuntu)
 fi
@@ -205,7 +205,7 @@ fi
 
 runner=(/usr/bin/node apps/api/src/server.js --host 127.0.0.1 --port "$port" --database "$database_real")
 if [[ -n "$runtime_user" ]]; then
-  runner=(/usr/sbin/runuser -u "$runtime_user" --preserve-environment -- "${runner[@]}")
+  runner=(/usr/bin/setpriv --reuid "$runtime_user" --regid "$runtime_user" --init-groups -- "${runner[@]}")
 fi
 cd "$release_real"
 setsid "${runner[@]}" >"$(meta_file stdout.log)" 2>"$(meta_file stderr.log)" < /dev/null &

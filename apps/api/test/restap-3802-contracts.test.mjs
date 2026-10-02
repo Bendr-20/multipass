@@ -126,6 +126,12 @@ test('builds exact #3802 discovery from public base with Codex-only canonical id
   assertRecursivelyFrozen(discovery);
 });
 
+test('discovery permits exact HTTP loopback base only for unrouted canary', () => {
+  const discovery = buildDiscovery({ publicBaseUrl: 'http://127.0.0.1:8794' });
+  assert.equal(discovery.agent.x_helixa.base_url, 'http://127.0.0.1:8794/api/restap/loopers/3802');
+  assert.throws(() => buildDiscovery({ publicBaseUrl: 'http://192.0.2.1:8794' }), /https|loopback/i);
+});
+
 test('discovery rejects alternate tokens, policy identity override, unsafe bases, and unsupported extension fields', () => {
   assert.throws(() => buildDiscovery({ codexProfile: { ...codexProfile, identity: { ...codexProfile.identity, tokenId: 3801 } } }), /3802/i);
   assert.throws(() => buildDiscovery({ ownerProfile: { ...ownerProfile, canonicalName: 'Owner override' } }), /unknown|canonical/i);
