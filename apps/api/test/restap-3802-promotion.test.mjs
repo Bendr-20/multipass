@@ -120,6 +120,13 @@ test('rehearsal accepts the inspected database path from the base unit', async (
   assert.equal(await readFile(f.envFile, 'utf8'), 'UNRELATED_SECRET=keep-me\nBANKR_API_KEY=protected-existing-key\n');
 });
 
+test('rehearsal restores a database that predates RESTAP tables', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  const db = new DatabaseSync(f.database); db.exec('DROP TABLE restap_news_items; DROP TABLE restap_news_nonces;'); db.close();
+  const result = await run(args('rehearsal', 'discovery', f), f);
+  assert.equal(result.code, 0, result.stderr);
+});
+
 test('first rehearsal restores an absent managed drop-in', async (t) => {
   const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
   await rm(f.dropin);

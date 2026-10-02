@@ -95,7 +95,7 @@ record_counts() {
   /usr/bin/node -e 'const {DatabaseSync}=require("node:sqlite"),fs=require("node:fs");const db=new DatabaseSync(process.argv[1],{readOnly:true});const out={};for(const n of ["restap_news_items","restap_news_nonces"]){const ok=db.prepare("SELECT 1 FROM sqlite_master WHERE type=? AND name=?").get("table",n);out[n]=ok?Number(db.prepare("SELECT count(*) n FROM "+n).get().n):0}db.close();fs.writeFileSync(process.argv[2],JSON.stringify(out)+"\n",{mode:0o600})' "$database" "$1"
 }
 verify_counts_retained() {
-  /usr/bin/node -e 'const {DatabaseSync}=require("node:sqlite"),fs=require("node:fs");const before=JSON.parse(fs.readFileSync(process.argv[2]));const db=new DatabaseSync(process.argv[1],{readOnly:true});for(const [n,v] of Object.entries(before)){const row=db.prepare("SELECT count(*) n FROM "+n).get();if(Number(row.n)<Number(v))process.exit(1)}db.close()' "$database" "$backup_root/prior-counts.json"
+  /usr/bin/node -e 'const {DatabaseSync}=require("node:sqlite"),fs=require("node:fs");const before=JSON.parse(fs.readFileSync(process.argv[2]));const db=new DatabaseSync(process.argv[1],{readOnly:true});for(const [n,v] of Object.entries(before)){if(!["restap_news_items","restap_news_nonces"].includes(n))process.exit(1);const exists=db.prepare("SELECT 1 FROM sqlite_master WHERE type=? AND name=?").get("table",n);if(!exists){if(Number(v)!==0)process.exit(1);continue}const row=db.prepare("SELECT count(*) n FROM "+n).get();if(Number(row.n)<Number(v))process.exit(1)}db.close()' "$database" "$backup_root/prior-counts.json"
 }
 
 rollback_armed=false
