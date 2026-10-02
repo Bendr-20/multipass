@@ -34,6 +34,12 @@ function createFactoryHarness(events = []) {
   const personaLoader = async () => persona;
   const llmClient = { provider: 'fake_bankr' };
   const readSkillExecutor = { execute: async () => ({ skill: 'helixa', text: 'profile' }) };
+  const activationLeases = {
+    loadCandidates() { events.push('leases.loadCandidates'); return [{ status: 'candidate' }]; },
+    renew(input) { calls.renew = input; events.push('leases.renew'); return null; },
+    issue(input) { calls.issue = input; events.push('leases.issue'); return { leaseId: 'browser-secret', custodyGeneration: 2, expiresAt: Date.parse('2026-10-03T03:00:00.000Z') }; },
+    deactivate(input) { calls.deactivate = input; return { deactivated: 1 }; },
+  };
   const calls = {};
 
   return {
@@ -51,6 +57,7 @@ function createFactoryHarness(events = []) {
       personaLoader,
       llmClient,
       readSkillExecutor,
+      activationLeases,
     },
     calls,
     factories: {
@@ -74,9 +81,15 @@ function createFactoryHarness(events = []) {
         calls.authorizeLooperControl = input;
         return Promise.resolve({ controllerVerified: true });
       },
-      createLooperRuntimeRegistry() {
+      createLooperRuntimeRegistry(input) {
         count('runtimeRegistry');
+        calls.runtimeRegistry = input;
         return runtimeRegistry;
+      },
+      createRestapNetworkActivationLeaseService(input) {
+        count('activationLeases');
+        calls.activationLeases = input;
+        return activationLeases;
       },
       createSibylMemoryStore() {
         count('memoryClient');
@@ -163,6 +176,32 @@ test('enabled production bootstrap creates one shared Console/XMTP object graph'
   assert.equal(countOf(harness, 'authorizeLooperControl'), 1);
   assert.strictEqual(harness.calls.authorizeLooperControl.publicClients, harness.objects.publicClients);
   assert.deepEqual(authorized.persona, harness.objects.persona);
+});
+
+test('production bootstrap loads leases as candidates and binds runtime deactivation to fresh custody', async () => {
+  const events = [];
+  const harness = createFactoryHarness(events);
+  const custody = { tokenId: '617', owner: '0x1234567890abcdef1234567890abcdef12345678', status: 'ready' };
+  const reconciler = {
+    async reconcileToken(input) { events.push('custody.reconcile'); assert.deepEqual(input, { tokenId: '617' }); return { eligible: true }; },
+    getEpochSnapshot(input) { events.push('custody.snapshot'); assert.deepEqual(input, { tokenId: '617' }); return custody; },
+  };
+  const store = { id: 'network-store' };
+  const bootstrap = await createConsoleProductionBootstrap({
+    restapNetworkStore: store, restapNetworkCustodyReconciler: reconciler, restapNetworkPolicyGeneration: 4,
+  }, harness.factories);
+  assert.equal(countOf(harness, 'activationLeases'), 1);
+  assert.strictEqual(harness.calls.activationLeases.store, store);
+  assert.deepEqual(bootstrap.activationLeaseCandidates, [{ status: 'candidate' }]);
+  assert.strictEqual(bootstrap.activationLeases, harness.objects.activationLeases);
+  const projected = await harness.calls.runtimeRegistry.onNetworkActivate({ identity: { tokenId: '617' }, wallet: custody.owner });
+  assert.deepEqual(projected, { status: 'active', custodyGeneration: 2, expiresAt: '2026-10-03T03:00:00.000Z' });
+  assert.equal(JSON.stringify(projected).includes('browser-secret'), false);
+  assert.deepEqual(harness.calls.renew, { custody, expectedPolicyGeneration: 4 });
+  assert.deepEqual(harness.calls.issue, { custody, expectedPolicyGeneration: 4 });
+  await harness.calls.runtimeRegistry.onDeactivate({ identity: { tokenId: '617' } });
+  assert.deepEqual(events, ['leases.loadCandidates', 'custody.reconcile', 'custody.snapshot', 'leases.renew', 'leases.issue', 'custody.reconcile', 'custody.snapshot']);
+  assert.deepEqual(harness.calls.deactivate, { custody, expectedPolicyGeneration: 4 });
 });
 
 test('production bootstrap stays XMTP-disabled by default and starts no Node client or worker', async () => {

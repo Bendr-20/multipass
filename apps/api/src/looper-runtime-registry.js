@@ -1,4 +1,6 @@
-export function createLooperRuntimeRegistry({ now = () => new Date().toISOString() } = {}) {
+export function createLooperRuntimeRegistry({ now = () => new Date().toISOString(), onDeactivate = null, onNetworkActivate = null } = {}) {
+  if (onDeactivate !== null && typeof onDeactivate !== 'function') throw new TypeError('Looper runtime deactivation hook must be a function.');
+  if (onNetworkActivate !== null && typeof onNetworkActivate !== 'function') throw new TypeError('Looper network activation hook must be a function.');
   const records = new Map();
   const keysByConversationId = new Map();
   return {
@@ -32,6 +34,24 @@ export function createLooperRuntimeRegistry({ now = () => new Date().toISOString
       };
       records.set(key, record);
       return structuredClone(record);
+    },
+    async refreshNetworkLease({ identity, wallet } = {}) {
+      const normalized = normalizeIdentity(identity);
+      const record = records.get(createLooperRuntimeKey(normalized));
+      if (!record || record.identity.owner !== normalized.owner || record.status !== 'active') throw new Error('An active Looper runtime is required.');
+      if (!onNetworkActivate) return null;
+      return onNetworkActivate({ identity: normalized, wallet: String(wallet ?? '').toLowerCase() });
+    },
+    async deactivate({ identity } = {}) {
+      const normalized = normalizeIdentity(identity);
+      const key = createLooperRuntimeKey(normalized);
+      const record = records.get(key);
+      if (!record || record.identity.owner !== normalized.owner || record.status !== 'active') return null;
+      await onDeactivate?.({ identity: normalized });
+      if (record.conversationId) keysByConversationId.delete(record.conversationId);
+      const updated = { ...record, status: 'inactive', updatedAt: String(now()) };
+      records.set(key, updated);
+      return structuredClone(updated);
     },
     get(identity) {
       const normalized = normalizeIdentity(identity);

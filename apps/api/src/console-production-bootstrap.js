@@ -8,6 +8,7 @@ import {
 } from './loopers-owned-agents.js';
 import { createLooperRuntimeRegistry } from './looper-runtime-registry.js';
 import { createLooperPersonaLoader } from './looper-persona.js';
+import { createRestapNetworkActivationLeaseService } from './restap-network/activation-leases.js';
 import { createSibylMemoryStore } from './sibyl-memory/index.js';
 import {
   createDeferredXmtpAgentClient,
@@ -24,6 +25,7 @@ const DEFAULT_FACTORIES = {
   createDeferredXmtpAgentClient,
   createLooperRuntimeRegistry,
   createLooperPersonaLoader,
+  createRestapNetworkActivationLeaseService,
   createLoopersOwnedAgentLoader,
   createLoopersPublicClients,
   createNodeXmtpAgentClient,
@@ -62,7 +64,41 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
     const persona = await personaLoader({ tokenId: identity.tokenId });
     return persona ? { ...identity, persona } : identity;
   };
-  const runtimeRegistry = factories.createLooperRuntimeRegistry();
+  const activationLeases = options.restapNetworkActivationLeases ?? (options.restapNetworkStore
+    ? factories.createRestapNetworkActivationLeaseService({
+      store: options.restapNetworkStore,
+      getPolicyGeneration: options.restapNetworkPolicyGenerationLoader ?? (() => 0),
+    })
+    : null);
+  const activationLeaseCandidates = activationLeases?.loadCandidates() ?? [];
+  const runtimeRegistry = factories.createLooperRuntimeRegistry({
+    onNetworkActivate: activationLeases && options.restapNetworkCustodyReconciler
+      ? async ({ identity, wallet }) => {
+        const result = await options.restapNetworkCustodyReconciler.reconcileToken({ tokenId: identity.tokenId });
+        if (!result?.eligible) return Object.freeze({ status: 'unavailable' });
+        const custody = options.restapNetworkCustodyReconciler.getEpochSnapshot({ tokenId: identity.tokenId });
+        if (!custody || custody.status !== 'ready' || custody.tokenId !== String(identity.tokenId) || custody.owner.toLowerCase() !== wallet) {
+          return Object.freeze({ status: 'unavailable' });
+        }
+        const expectedPolicyGeneration = Number(options.restapNetworkPolicyGeneration ?? 0);
+        const lease = activationLeases.renew({ custody, expectedPolicyGeneration })
+          ?? activationLeases.issue({ custody, expectedPolicyGeneration });
+        return Object.freeze({
+          status: 'active',
+          custodyGeneration: lease.custodyGeneration,
+          expiresAt: new Date(lease.expiresAt).toISOString(),
+        });
+      }
+      : null,
+    onDeactivate: activationLeases && options.restapNetworkCustodyReconciler
+      ? async ({ identity }) => {
+        const result = await options.restapNetworkCustodyReconciler.reconcileToken({ tokenId: identity.tokenId });
+        if (!result?.eligible) throw new Error('RESTAP network custody is unavailable.');
+        const custody = options.restapNetworkCustodyReconciler.getEpochSnapshot({ tokenId: identity.tokenId });
+        activationLeases.deactivate({ custody, expectedPolicyGeneration: Number(options.restapNetworkPolicyGeneration ?? 0) });
+      }
+      : null,
+  });
   const memoryClient = factories.createSibylMemoryStore();
   const llmClient = options.consoleAgentBankrLlmEnabled === true
     ? factories.createBankrLlmClient({
@@ -148,6 +184,9 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
     ownedAgentLoader,
     authorizeLooper,
     runtimeRegistry,
+    activationLeases,
+    activationLeaseCandidates,
+    restapNetworkCustodyReconciler: options.restapNetworkCustodyReconciler ?? null,
     memoryClient,
     nodeClient,
     publishingClient,
