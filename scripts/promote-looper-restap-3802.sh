@@ -55,6 +55,15 @@ load_service_endpoint() {
   parsed=$(/usr/bin/node -e 'const value=process.argv[1];const host=/(?:^|\s)HOST=([A-Za-z0-9.-]+)(?:\s|$)/u.exec(value)?.[1];const port=/(?:^|\s)PORT=([0-9]+)(?:\s|$)/u.exec(value)?.[1];const database=/(?:^|\s)MULTIPASS_DB_PATH=([^\s"]+)(?:\s|$)/u.exec(value)?.[1];if(host!=="127.0.0.1"||!port||Number(port)<1024||Number(port)>65535||!database)process.exit(1);process.stdout.write(host+" "+port+" "+database)' "$service_environment") || { echo "service endpoint drift" >&2; exit 65; }
   read -r service_host service_port service_database <<<"$parsed"
 }
+wait_for_http() {
+  local url=$1
+  for _ in $(seq 1 120); do
+    if curl -fsS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1; then return 0; fi
+    sleep 0.1
+  done
+  echo "service readiness timeout" >&2
+  return 1
+}
 
 inspect() {
   [[ $(service_prop FragmentPath) == "$fragment" ]] || { echo "service fragment drift" >&2; exit 65; }
@@ -103,7 +112,7 @@ rollback() {
   [[ $(service_prop WorkingDirectory) == "$(cat "$backup_root/prior-cwd")" ]]
   [[ $(service_prop MainPID) =~ ^[1-9][0-9]*$ ]]
   load_service_endpoint
-  curl -fsS --max-time 5 "http://$service_host:$service_port/multipass/agents" >/dev/null
+  wait_for_http "http://$service_host:$service_port/multipass/agents"
   [[ $(hash_tree "$static_root") == "$(cat "$backup_root/prior-static.sha256")" ]]
   verify_counts_retained
   write_json rollback.json verified true phase "$phase" priorPid "$(cat "$backup_root/prior-pid")" restoredPid "$(service_prop MainPID)"
@@ -178,7 +187,7 @@ systemctl restart "$unit"
 new_cwd=$(service_prop WorkingDirectory); new_pid=$(service_prop MainPID); new_restarts=$(service_prop NRestarts)
 [[ "$new_cwd" == "$release" && "$new_pid" =~ ^[1-9][0-9]*$ && "$new_pid" != "$prior_pid" && "$new_restarts" == 0 ]] || { echo "post-restart service verification failed" >&2; exit 70; }
 write_json restart.json phase "$phase" verified true priorPid "$prior_pid" currentPid "$new_pid" restartCount "$new_restarts"
-curl -fsS --max-time 5 "http://$service_host:$service_port/api/restap/loopers/3802/.well-known/restap.json" >/dev/null
+wait_for_http "http://$service_host:$service_port/api/restap/loopers/3802/.well-known/restap.json"
 [[ $(hash_tree "$static_root") == $(hash_tree "$release/apps/web/dist") ]] || { echo "static verification failed" >&2; exit 70; }
 write_json health.json phase "$phase" verified true
 if [[ "$mode" == rehearsal ]]; then rollback; printf 'rehearsal-restored=verified phase=%s

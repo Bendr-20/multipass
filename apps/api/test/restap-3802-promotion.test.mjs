@@ -43,7 +43,10 @@ async function fixture() {
 const fs=require("node:fs");const p=process.env.RESTAP_PROMOTION_STATE_FILE;let s=JSON.parse(fs.readFileSync(p));const a=process.argv.slice(2);if(a[0]==="show"){const prop=a[a.indexOf("-p")+1];const m={WorkingDirectory:s.cwd,MainPID:String(s.pid),NRestarts:String(s.restarts),FragmentPath:s.fragment,DropInPaths:fs.existsSync(s.dropin)?s.dropin:"",ActiveState:"active",Environment:"HOST="+s.host+" PORT="+s.port+" MULTIPASS_DB_PATH="+s.database};process.stdout.write((m[prop]||"")+"\\n");}else if(a[0]==="cat"){process.stdout.write(fs.readFileSync(s.fragment));if(fs.existsSync(s.dropin))process.stdout.write(fs.readFileSync(s.dropin));}else if(a[0]==="restart"){const d=fs.existsSync(s.dropin)?fs.readFileSync(s.dropin,"utf8"):"";const x=[...d.matchAll(/^WorkingDirectory=(.+)$/gm)].at(-1);s.cwd=x?x[1]:s.baseCwd;s.pid+=1;s.restarts=0;fs.writeFileSync(p,JSON.stringify(s)+"\\n");}else if(a[0]==="daemon-reload"){}else process.exit(2);`;
   await writeFile(join(bin, 'systemctl'), systemctl, { mode: 0o755 }); await chmod(join(bin, 'systemctl'), 0o755);
   await writeFile(join(bin, 'curl'), `#!/usr/bin/env bash
+url=$(printf '%s\\n' "$@" | tail -1)
+prior=$(grep -Fc -- "$url" "$RESTAP_PROMOTION_CURL_LOG" 2>/dev/null || true)
 printf '%s\\n' "$*" >> "$RESTAP_PROMOTION_CURL_LOG"
+if [[ -n "$RESTAP_PROMOTION_CURL_FAIL_FIRST_PER_URL" && "$prior" -lt "$RESTAP_PROMOTION_CURL_FAIL_FIRST_PER_URL" ]]; then exit 7; fi
 printf '{"ok":true}\\n'
 `, { mode: 0o755 }); await chmod(join(bin, 'curl'), 0o755);
   return { root, release, current, staticRoot, backup, proof, etc, bin, artifact, policy, database, serviceState, curlLog, fragment, dropin, envFile, nginx };
@@ -89,6 +92,15 @@ test('rehearsal uses the inspected loopback service endpoint', async (t) => {
   assert.ok(curls.includes('http://127.0.0.1:8792/api/restap/loopers/3802/.well-known/restap.json'));
   assert.ok(curls.includes('http://127.0.0.1:8792/multipass/agents'));
   assert.ok(!curls.includes('127.0.0.1:3000'));
+});
+
+test('rehearsal waits for candidate and restored service readiness', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  const result = await run(args('rehearsal', 'discovery', f), f, { RESTAP_PROMOTION_CURL_FAIL_FIRST_PER_URL: '2' });
+  assert.equal(result.code, 0, result.stderr);
+  const curls = await readFile(f.curlLog, 'utf8');
+  assert.ok(curls.split('http://127.0.0.1:8792/api/restap/loopers/3802/.well-known/restap.json').length >= 4);
+  assert.ok(curls.split('http://127.0.0.1:8792/multipass/agents').length >= 4);
 });
 
 test('rehearsal accepts an nginx parent root mapped by the static route', async (t) => {
