@@ -34,7 +34,9 @@ fragment="$etc_root/systemd/system/$unit"
 dropin="$etc_root/systemd/system/$unit.d/30-restap-3802.conf"
 env_file="$etc_root/default/multipass-api-xmtp-holder-proof"
 nginx_file="$etc_root/nginx/sites-enabled/helixa.xyz"
-for file in "$fragment" "$dropin" "$env_file" "$nginx_file"; do exact_file "$file" || { echo "configuration path drift" >&2; exit 65; }; done
+for file in "$fragment" "$env_file" "$nginx_file"; do exact_file "$file" || { echo "configuration path drift" >&2; exit 65; }; done
+dropin_existed=false
+if [[ -e "$dropin" ]]; then exact_file "$dropin" || { echo "configuration path drift" >&2; exit 65; }; dropin_existed=true; fi
 
 hash_tree() {
   (cd "$1" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum) | sha256sum | awk '{print $1}'
@@ -47,10 +49,16 @@ write_json() {
   chmod 600 "$tmp"; mv -f -- "$tmp" "$target"
 }
 service_prop() { systemctl show "$unit" -p "$1" --value; }
+load_service_endpoint() {
+  local service_environment parsed
+  service_environment=$(service_prop Environment)
+  parsed=$(/usr/bin/node -e 'const value=process.argv[1];const host=/(?:^|\s)HOST=([A-Za-z0-9.-]+)(?:\s|$)/u.exec(value)?.[1];const port=/(?:^|\s)PORT=([0-9]+)(?:\s|$)/u.exec(value)?.[1];if(host!=="127.0.0.1"||!port||Number(port)<1024||Number(port)>65535)process.exit(1);process.stdout.write(host+" "+port)' "$service_environment") || { echo "service endpoint drift" >&2; exit 65; }
+  read -r service_host service_port <<<"$parsed"
+}
 
 inspect() {
   [[ $(service_prop FragmentPath) == "$fragment" ]] || { echo "service fragment drift" >&2; exit 65; }
-  [[ $(service_prop DropInPaths) == *"$dropin"* ]] || { echo "service drop-in drift" >&2; exit 65; }
+  if [[ "$dropin_existed" == true ]]; then [[ $(service_prop DropInPaths) == *"$dropin"* ]] || { echo "service drop-in drift" >&2; exit 65; }; fi
   [[ $(service_prop ActiveState) == active ]] || { echo "service state drift" >&2; exit 65; }
   prior_cwd=$(service_prop WorkingDirectory); prior_pid=$(service_prop MainPID); prior_restarts=$(service_prop NRestarts)
   exact_dir "$prior_cwd" || { echo "working directory drift" >&2; exit 65; }
@@ -63,6 +71,7 @@ inspect() {
   grep -Eq 'location[[:space:]]+/api/' "$nginx_file" || { echo "nginx API route drift" >&2; exit 65; }
   grep -Fq "root $static_root" "$nginx_file" || { echo "nginx static root drift" >&2; exit 65; }
   systemctl cat "$unit" >/dev/null
+  load_service_endpoint
 }
 
 backup_database() {
@@ -80,7 +89,7 @@ verify_counts_retained() {
 rollback_armed=false
 rollback() {
   set +e
-  cp -f -- "$backup_root/dropin.conf" "$dropin"
+  if [[ -f "$backup_root/dropin.absent" ]]; then rm -f -- "$dropin"; else cp -f -- "$backup_root/dropin.conf" "$dropin"; fi
   cp -f -- "$backup_root/environment" "$env_file"
   chmod "$(cat "$backup_root/environment.mode")" "$env_file"
   find "$static_root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -90,7 +99,8 @@ rollback() {
   set -e
   [[ $(service_prop WorkingDirectory) == "$(cat "$backup_root/prior-cwd")" ]]
   [[ $(service_prop MainPID) =~ ^[1-9][0-9]*$ ]]
-  curl -fsS --max-time 5 http://127.0.0.1:3000/api/health >/dev/null
+  load_service_endpoint
+  curl -fsS --max-time 5 "http://$service_host:$service_port/multipass/agents" >/dev/null
   [[ $(hash_tree "$static_root") == "$(cat "$backup_root/prior-static.sha256")" ]]
   verify_counts_retained
   write_json rollback.json verified true phase "$phase" priorPid "$(cat "$backup_root/prior-pid")" restoredPid "$(service_prop MainPID)"
@@ -103,23 +113,24 @@ trap '[[ "$rollback_armed" != true ]] || rollback; exit 130' INT
 trap '[[ "$rollback_armed" != true ]] || rollback; exit 143' TERM
 
 if [[ "$mode" == rollback ]]; then
-  for f in dropin.conf environment environment.mode prior-cwd prior-pid prior-static.sha256 prior-counts.json; do [[ -f "$backup_root/$f" && ! -L "$backup_root/$f" ]] || { echo "verified backup is incomplete" >&2; exit 65; }; done
+  for f in environment environment.mode prior-cwd prior-pid prior-static.sha256 prior-counts.json; do [[ -f "$backup_root/$f" && ! -L "$backup_root/$f" ]] || { echo "verified backup is incomplete" >&2; exit 65; }; done
+  if [[ -f "$backup_root/dropin.conf" && ! -L "$backup_root/dropin.conf" ]]; then [[ ! -e "$backup_root/dropin.absent" ]] || { echo "verified backup is ambiguous" >&2; exit 65; }; elif [[ -f "$backup_root/dropin.absent" && ! -L "$backup_root/dropin.absent" ]]; then :; else echo "verified backup is incomplete" >&2; exit 65; fi
   rollback
   exit 0
 fi
 
 inspect
-config_hash=$(hash_files "$fragment" "$dropin" "$env_file" "$nginx_file")
+if [[ "$dropin_existed" == true ]]; then config_hash=$(hash_files "$fragment" "$dropin" "$env_file" "$nginx_file"); else config_hash=$(hash_files "$fragment" "$env_file" "$nginx_file"); fi
 release_hash=$(hash_tree "$release")
 static_hash=$(hash_tree "$static_root")
 database_hash=$(sha256sum "$database" | awk '{print $1}')
 artifact_hash=$(sha256sum "$artifact" | awk '{print $1}')
 policy_hash=$(sha256sum "$policy" | awk '{print $1}')
-write_json preflight.json phase "$phase" unit "$unit" configHash "$config_hash" releaseHash "$release_hash" staticHash "$static_hash" databaseHash "$database_hash" artifactHash "$artifact_hash" policyHash "$policy_hash" priorPid "$prior_pid" priorRestarts "$prior_restarts"
+write_json preflight.json phase "$phase" unit "$unit" configHash "$config_hash" releaseHash "$release_hash" staticHash "$static_hash" databaseHash "$database_hash" artifactHash "$artifact_hash" policyHash "$policy_hash" priorPid "$prior_pid" priorRestarts "$prior_restarts" dropinExisted "$dropin_existed" serviceBase "http://$service_host:$service_port"
 
 rm -rf -- "$backup_root/static"; mkdir -m 700 -- "$backup_root/static"
 cp -a -- "$static_root/." "$backup_root/static/"
-cp -f -- "$dropin" "$backup_root/dropin.conf"
+if [[ "$dropin_existed" == true ]]; then cp -f -- "$dropin" "$backup_root/dropin.conf"; else printf 'absent\n' > "$backup_root/dropin.absent"; chmod 600 "$backup_root/dropin.absent"; fi
 cp -f -- "$env_file" "$backup_root/environment"; chmod 600 "$backup_root/environment"
 stat -c '%a' "$env_file" > "$backup_root/environment.mode"
 printf '%s
@@ -143,7 +154,7 @@ case "$phase" in
   news-read) discovery=true; talk=true; news_write=true; news_read=true ;;
 esac
 /usr/bin/node - "$dropin" "$release" "$env_file" <<'NODE'
-const fs=require('node:fs'); const [path,release,envFile]=process.argv.slice(2); let text=fs.readFileSync(path,'utf8');
+const fs=require('node:fs'); const [path,release,envFile]=process.argv.slice(2); let text=fs.existsSync(path)?fs.readFileSync(path,'utf8'):'';
 text=text.split(/\n/u).filter((line)=>!/^WorkingDirectory=/u.test(line)&&!/^EnvironmentFile=/u.test(line)).join('\n').replace(/\n*$/u,'\n');
 text+='[Service]\nWorkingDirectory='+release+'\nEnvironmentFile='+envFile+'\n';
 const tmp=path+'.tmp.'+process.pid; fs.writeFileSync(tmp,text,{mode:0o644}); fs.renameSync(tmp,path);
@@ -164,7 +175,7 @@ systemctl restart "$unit"
 new_cwd=$(service_prop WorkingDirectory); new_pid=$(service_prop MainPID); new_restarts=$(service_prop NRestarts)
 [[ "$new_cwd" == "$release" && "$new_pid" =~ ^[1-9][0-9]*$ && "$new_pid" != "$prior_pid" && "$new_restarts" == 0 ]] || { echo "post-restart service verification failed" >&2; exit 70; }
 write_json restart.json phase "$phase" verified true priorPid "$prior_pid" currentPid "$new_pid" restartCount "$new_restarts"
-curl -fsS --max-time 5 "http://127.0.0.1:3000/api/restap/loopers/3802/.well-known/restap.json" >/dev/null
+curl -fsS --max-time 5 "http://$service_host:$service_port/api/restap/loopers/3802/.well-known/restap.json" >/dev/null
 [[ $(hash_tree "$static_root") == $(hash_tree "$release/apps/web/dist") ]] || { echo "static verification failed" >&2; exit 70; }
 write_json health.json phase "$phase" verified true
 if [[ "$mode" == rehearsal ]]; then rollback; printf 'rehearsal-restored=verified phase=%s

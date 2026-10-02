@@ -13,7 +13,7 @@ const UNIT = 'multipass-api-xmtp-holder-proof.service';
 
 async function run(args, f, extra = {}) {
   try {
-    const result = await execFileAsync('bash', [SCRIPT, ...args], { env: { ...process.env, PATH: f.bin + ':' + process.env.PATH, RESTAP_PROMOTION_ETC_ROOT: f.etc, RESTAP_PROMOTION_STATE_FILE: f.serviceState, ...extra }, timeout: 20_000 });
+    const result = await execFileAsync('bash', [SCRIPT, ...args], { env: { ...process.env, PATH: f.bin + ':' + process.env.PATH, RESTAP_PROMOTION_ETC_ROOT: f.etc, RESTAP_PROMOTION_STATE_FILE: f.serviceState, RESTAP_PROMOTION_CURL_LOG: f.curlLog, ...extra }, timeout: 20_000 });
     return { code: 0, ...result };
   } catch (error) { return { code: error.code ?? 1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' }; }
 }
@@ -38,14 +38,15 @@ async function fixture() {
   await writeFile(dropin, `[Service]\nWorkingDirectory=${current}\nEnvironment=UNRELATED_DROPIN=keep\n`);
   await writeFile(envFile, `UNRELATED_SECRET=keep-me\nMULTIPASS_DB_PATH=${database}\nBANKR_API_KEY=protected-existing-key\n`, { mode: 0o600 }); await chmod(envFile, 0o600);
   await writeFile(nginx, 'server { root ' + staticRoot + '; location /api/ { proxy_pass http://127.0.0.1:3000; } }\n');
-  const serviceState = join(root, 'service.state'); await writeFile(serviceState, JSON.stringify({ cwd: current, pid: 1001, restarts: 0, fragment, dropin }) + '\n');
+  const serviceState = join(root, 'service.state'); const curlLog = join(root, 'curl.log'); await writeFile(serviceState, JSON.stringify({ cwd: current, baseCwd: current, pid: 1001, restarts: 0, fragment, dropin, host: '127.0.0.1', port: 8792 }) + '\n');
   const systemctl = `#!/usr/bin/env node
-const fs=require("node:fs");const p=process.env.RESTAP_PROMOTION_STATE_FILE;let s=JSON.parse(fs.readFileSync(p));const a=process.argv.slice(2);if(a[0]==="show"){const prop=a[a.indexOf("-p")+1];const m={WorkingDirectory:s.cwd,MainPID:String(s.pid),NRestarts:String(s.restarts),FragmentPath:s.fragment,DropInPaths:s.dropin,ActiveState:"active"};process.stdout.write((m[prop]||"")+"\\n");}else if(a[0]==="cat"){process.stdout.write(fs.readFileSync(s.fragment));process.stdout.write(fs.readFileSync(s.dropin));}else if(a[0]==="restart"){const d=fs.readFileSync(s.dropin,"utf8");const x=[...d.matchAll(/^WorkingDirectory=(.+)$/gm)].at(-1);if(x)s.cwd=x[1];s.pid+=1;s.restarts=0;fs.writeFileSync(p,JSON.stringify(s)+"\\n");}else if(a[0]==="daemon-reload"){}else process.exit(2);`;
+const fs=require("node:fs");const p=process.env.RESTAP_PROMOTION_STATE_FILE;let s=JSON.parse(fs.readFileSync(p));const a=process.argv.slice(2);if(a[0]==="show"){const prop=a[a.indexOf("-p")+1];const m={WorkingDirectory:s.cwd,MainPID:String(s.pid),NRestarts:String(s.restarts),FragmentPath:s.fragment,DropInPaths:fs.existsSync(s.dropin)?s.dropin:"",ActiveState:"active",Environment:"HOST="+s.host+" PORT="+s.port};process.stdout.write((m[prop]||"")+"\\n");}else if(a[0]==="cat"){process.stdout.write(fs.readFileSync(s.fragment));if(fs.existsSync(s.dropin))process.stdout.write(fs.readFileSync(s.dropin));}else if(a[0]==="restart"){const d=fs.existsSync(s.dropin)?fs.readFileSync(s.dropin,"utf8"):"";const x=[...d.matchAll(/^WorkingDirectory=(.+)$/gm)].at(-1);s.cwd=x?x[1]:s.baseCwd;s.pid+=1;s.restarts=0;fs.writeFileSync(p,JSON.stringify(s)+"\\n");}else if(a[0]==="daemon-reload"){}else process.exit(2);`;
   await writeFile(join(bin, 'systemctl'), systemctl, { mode: 0o755 }); await chmod(join(bin, 'systemctl'), 0o755);
   await writeFile(join(bin, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$RESTAP_PROMOTION_CURL_LOG"
 printf '{"ok":true}\\n'
 `, { mode: 0o755 }); await chmod(join(bin, 'curl'), 0o755);
-  return { root, release, current, staticRoot, backup, proof, etc, bin, artifact, policy, database, serviceState, fragment, dropin, envFile, nginx };
+  return { root, release, current, staticRoot, backup, proof, etc, bin, artifact, policy, database, serviceState, curlLog, fragment, dropin, envFile, nginx };
 }
 
 function args(mode, phase, f) { return ['--' + mode, '--phase', phase, '--release', f.release, '--artifact', f.artifact, '--policy', f.policy, '--database', f.database, '--unit', UNIT, '--static-root', f.staticRoot, '--backup-root', f.backup, '--proof-root', f.proof]; }
@@ -78,6 +79,25 @@ test('rehearsal mutates cumulatively then verifies rollback and preserves unrela
   const db = new DatabaseSync(f.database, { readOnly: true });
   assert.equal(db.prepare('SELECT count(*) AS n FROM restap_news_items').get().n, 1); assert.equal(db.prepare('SELECT count(*) AS n FROM restap_news_nonces').get().n, 1); db.close();
   assert.equal(JSON.parse(await readFile(join(f.proof, 'rollback.json'), 'utf8')).verified, true);
+});
+
+test('rehearsal uses the inspected loopback service endpoint', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  const result = await run(args('rehearsal', 'discovery', f), f);
+  assert.equal(result.code, 0, result.stderr);
+  const curls = await readFile(f.curlLog, 'utf8');
+  assert.ok(curls.includes('http://127.0.0.1:8792/api/restap/loopers/3802/.well-known/restap.json'));
+  assert.ok(curls.includes('http://127.0.0.1:8792/multipass/agents'));
+  assert.ok(!curls.includes('127.0.0.1:3000'));
+});
+
+test('first rehearsal restores an absent managed drop-in', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  await rm(f.dropin);
+  const result = await run(args('rehearsal', 'discovery', f), f);
+  assert.equal(result.code, 0, result.stderr);
+  await assert.rejects(readFile(f.dropin, 'utf8'), { code: 'ENOENT' });
+  assert.equal(JSON.parse(await readFile(f.serviceState, 'utf8')).cwd, f.current);
 });
 
 test('promote leaves exact cumulative phase gates and rollback restores prior release', async (t) => {
