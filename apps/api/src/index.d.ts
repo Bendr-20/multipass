@@ -102,6 +102,7 @@ export interface MultipassApiOptions {
     getThread?(input?: Record<string, unknown>): Promise<unknown> | unknown;
   };
   looperCodexRuntime?: LooperCodexRuntime;
+  restapNetworkService?: { status: { enabled: boolean; gates: Record<string, boolean>; transcriptCapability: 'unavailable' }; close(): Promise<void> } | null;
   logger?: MultipassLogger;
   consoleCodexWalletRateLimit?: { limit: number; windowMs: number };
   consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };

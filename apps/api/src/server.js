@@ -23,6 +23,7 @@ import { createRestapNewsStore } from './restap-news-store.js';
 import { createRestapPublicSessionStore } from './restap-public-sessions.js';
 import { createBankrRestapInferenceClient, createRestapPublicTalkRuntime } from './restap-public-talk.js';
 import { loadRestapNetworkFileSigner } from './restap-network/grants.js';
+import { hasRestapNetworkEnvironment, parseRestapNetworkServiceConfig, startRestapNetworkService } from './restap-network/service.js';
 
 const DEFAULT_FIXTURE = 'generic';
 const DEFAULT_HOST = '127.0.0.1';
@@ -100,6 +101,7 @@ export function parseServerOptions(argv = [], env = process.env) {
       concurrency: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_CONCURRENCY, DEFAULT_RESTAP_TALK_LIMITS.concurrency, 'MULTIPASS_RESTAP_TALK_CONCURRENCY', 16),
     },
   };
+  if (hasRestapNetworkEnvironment(env)) options.restapNetworkServiceConfig = parseRestapNetworkServiceConfig(env);
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -170,6 +172,7 @@ export async function startServer(options = {}) {
     restapTrustLoopbackProxy: options.restapTrustLoopbackProxy === true,
     restapNetworkSignerFile: options.restapNetworkSignerFile ?? null,
     restapNetworkSignerRequired: options.restapNetworkSignerRequired === true,
+    restapNetworkServiceConfig: options.restapNetworkServiceConfig ?? parseRestapNetworkServiceConfig({}),
     restap3802PolicyPath: options.restap3802PolicyPath ?? null,
     restapTalkModel: parseOptionalBoundedString(options.restapTalkModel, 'restapTalkModel', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(options.restapTalkTimeoutMs, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'restapTalkTimeoutMs', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -209,6 +212,7 @@ export async function startServer(options = {}) {
   const restapNewsStoreFactory = options.restapNewsStoreFactory ?? createRestapNewsStore;
   const restapNewsAuthenticatorFactory = options.restapNewsAuthenticatorFactory ?? createRestapNewsAuthenticator;
   const restapNetworkSignerLoader = options.restapNetworkSignerLoader ?? loadRestapNetworkFileSigner;
+  const restapNetworkServiceFactory = options.restapNetworkServiceFactory ?? startRestapNetworkService;
   let api;
   let listeningUrl;
   let apiBaseUrl = parsed.publicBaseUrl ?? (parsed.port === 0 ? null : `http://${parsed.host}:${parsed.port}`);
@@ -217,6 +221,7 @@ export async function startServer(options = {}) {
   let restapPublicSessions;
   let restapNewsStore;
   let restapNetworkSigner;
+  let restapNetworkService;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -270,7 +275,16 @@ export async function startServer(options = {}) {
       rssDeltaBytes: process.memoryUsage().rss - codexStartingRss,
     });
 
+    restapNetworkService = options.restapNetworkService ?? await restapNetworkServiceFactory({
+      config: parsed.restapNetworkServiceConfig,
+      dependencies: parsed.restapNetworkServiceConfig.gates.foundation
+        ? { ...(options.restapNetworkDependencies ?? {}), codexRuntime: options.restapNetworkDependencies?.codexRuntime ?? looperCodexRuntime }
+        : {},
+    });
+    if (!restapNetworkService || typeof restapNetworkService.close !== 'function') throw new Error('RESTAP network service is unavailable.');
+
     const consoleBootstrapOptions = { ...parsed };
+    delete consoleBootstrapOptions.restapNetworkServiceConfig;
     delete consoleBootstrapOptions.restapNetworkSignerFile;
     delete consoleBootstrapOptions.restapNetworkSignerRequired;
     consoleBootstrap = await consoleBootstrapFactory({
@@ -423,6 +437,7 @@ export async function startServer(options = {}) {
       consoleXmtpClient: consoleBootstrap.publishingClient,
       consoleAgentRuntime: consoleBootstrap.runtime,
       looperCodexRuntime,
+      restapNetworkService,
       restapDiscoveryEnabled: parsed.restapDiscoveryEnabled,
       restapTalkEnabled: parsed.restapTalkEnabled,
       restap3802Policy,
@@ -453,6 +468,7 @@ export async function startServer(options = {}) {
       nodeServer,
       restapPublicSessions,
       restapNewsStore,
+      restapNetworkService,
       savedRecords,
       ownsSavedRecords,
       looperNameStore,
@@ -474,6 +490,7 @@ export async function startServer(options = {}) {
     loopersAllowlistPath: parsed.loopersAllowlistPath,
     loopersAllowlistSnapshotPath: parsed.loopersAllowlistSnapshotPath,
     console: consoleBootstrap,
+    restapNetwork: restapNetworkService,
     server: nodeServer,
     close() {
       if (!closePromise) {
@@ -482,6 +499,7 @@ export async function startServer(options = {}) {
           nodeServer,
           restapPublicSessions,
           restapNewsStore,
+          restapNetworkService,
           savedRecords,
           ownsSavedRecords,
           looperNameStore,
@@ -493,9 +511,10 @@ export async function startServer(options = {}) {
   };
 }
 
-async function closeServerResources({ consoleBootstrap, nodeServer, restapPublicSessions, restapNewsStore, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
+async function closeServerResources({ consoleBootstrap, nodeServer, restapPublicSessions, restapNewsStore, restapNetworkService, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
   const errors = [];
   for (const close of [
+    () => restapNetworkService?.close?.(),
     () => consoleBootstrap?.stopWorker?.(),
     () => closeHttpServer(nodeServer),
     () => restapPublicSessions?.close?.(),

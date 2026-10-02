@@ -1130,6 +1130,23 @@ test('parseServerOptions keeps every RESTAP surface false by default and strictl
   ]) assert.throws(() => parseServerOptions([], { [name]: value }), new RegExp(name));
 });
 
+test('network gate environment parses strict closed service configuration', () => {
+  const options = parseServerOptions([], {
+    MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
+    MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED: '1',
+    MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: '/srv/restap-network.sqlite',
+    MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32),
+    MULTIPASS_RESTAP_NETWORK_DAILY_COST_LIMIT: '100',
+    MULTIPASS_RESTAP_NETWORK_TOPICS: 'general',
+    MULTIPASS_RESTAP_NETWORK_CADENCES: 'once',
+  });
+  assert.equal(options.restapNetworkServiceConfig.gates.foundation, true);
+  assert.equal(options.restapNetworkServiceConfig.gates.policy, true);
+  assert.equal(options.restapNetworkServiceConfig.gates.discovery, false);
+  assert.equal(options.restapNetworkServiceConfig.databasePath, '/srv/restap-network.sqlite');
+  assert.throws(() => parseServerOptions([], { MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'yes' }), /exact boolean/i);
+});
+
 test('all RESTAP gates false create no RESTAP policy, database, sessions, or inference dependency', async () => {
   const calls = [];
   const server = await startServer({
@@ -1141,6 +1158,23 @@ test('all RESTAP gates false create no RESTAP policy, database, sessions, or inf
     restapNewsStoreFactory: () => { calls.push('news'); throw new Error('must not create'); },
   });
   try { assert.deepEqual(calls, []); } finally { await server.close(); }
+});
+
+test('server composes and closes exactly one gated network service', async () => {
+  const calls = [];
+  const restapNetworkService = { status: { enabled: false, gates: {}, transcriptCapability: 'unavailable' }, async close() { calls.push('network:close'); } };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, logger: { info() {}, warn() {} },
+    restapNetworkServiceFactory: async ({ config, dependencies }) => {
+      calls.push('network:start');
+      assert.equal(config.gates.foundation, false);
+      assert.deepEqual(dependencies, {});
+      return restapNetworkService;
+    },
+  });
+  assert.equal(server.restapNetwork, restapNetworkService);
+  await server.close();
+  assert.deepEqual(calls, ['network:start', 'network:close']);
 });
 
 test('RESTAP startup performs an uncached authority/Codex warm-check, injects isolated resources, listens last, and logs only safe gate metadata', async () => {

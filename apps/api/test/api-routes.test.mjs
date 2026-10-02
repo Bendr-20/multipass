@@ -2488,6 +2488,23 @@ test('manual review creates pending claim without session and approved manager m
 });
 
 
+test('guessed RESTAP network relay paths are never public routes', async () => {
+  const api = makeApi();
+  for (const path of [
+    '/api/restap-network',
+    '/api/restap/network/opening',
+    '/api/internal/restap-network/reply',
+    '/api/restap/loopers/1/network',
+    '/.well-known/restap-network.json',
+  ]) {
+    for (const method of ['GET', 'POST']) {
+      const response = await api.handleRequest(new Request('https://multipass.example.test' + path, { method, ...(method === 'POST' ? { headers: { 'content-type': 'application/json' }, body: '{}' } : {}) }));
+      assert.equal(response.status, 404, method + ' ' + path);
+      assert.equal((await response.json()).error.code, 'not_found');
+    }
+  }
+});
+
 test('public x401 manifest exposes proof challenge metadata without private credentials or partnership claims', async () => {
   const api = makeCustomApi({ fragments: [publicFragment, privateFragment, x401ProofFragment] });
   const response = await api.handleRequest(new Request('https://multipass.example.test/api/multipass/bendr-2/x401'));

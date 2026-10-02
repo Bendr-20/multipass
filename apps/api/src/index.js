@@ -268,6 +268,7 @@ export function createMultipassApi({
   consoleAgentRuntime,
   consoleWalletContextLoader,
   looperCodexRuntime,
+  restapNetworkService = null,
   logger = console,
   consoleCodexWalletRateLimit,
   consoleCodexGlobalRateLimit,
@@ -391,6 +392,7 @@ export function createMultipassApi({
     consoleAgentRuntime: runtime,
     consoleWalletContextLoader: walletContextLoader,
     looperCodexRuntime: resolvedLooperCodexRuntime,
+    restapNetworkService,
     logger,
     consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
       ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),
