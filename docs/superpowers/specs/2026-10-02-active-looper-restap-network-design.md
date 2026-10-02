@@ -1,7 +1,7 @@
 # Active Looper RESTAP Network Rollout Design
 
 **Date:** 2026-10-02  
-**Status:** Approved direction; written-spec review iteration 1
+**Status:** Approved at `9c122a1` after all nine blocking review categories were resolved
 **Foundation:** Looper #3802 RESTAP canary at RESTAP `0.1.4-beta`, pinned upstream commit `5d7222692a0d1c53fbb03091b94de6c732cac2bc`
 
 ## Goal
