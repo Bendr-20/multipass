@@ -2,6 +2,7 @@ import { renderConsoleAgentThread } from './console-agent-thread.js';
 import { normalizeConsoleCodexState, renderConsoleCodexWorkspace } from './console-codex.js';
 import { createConsoleAgentGalleryModel } from './console-agent-gallery.js';
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
+import { createInitialConsoleRestapNetworkState, renderConsoleRestapNetworkPanel } from './console-restap-network.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
@@ -140,6 +141,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
       status: 'unavailable',
       selectedTokenId: activeAgent?.tokenId ?? null,
     }),
+    restapNetwork: createConsoleRestapNetworkSnapshot(state.consoleRestapNetwork, activeAgent?.tokenId),
     rosterDrawers: {
       mainOpen: Boolean(state.consoleMainRosterOpen),
       sidebarOpen: Boolean(state.consoleSidebarRosterOpen),
@@ -238,6 +240,23 @@ export function renderMultipassConsole(snapshot = {}) {
   `;
 }
 
+function createConsoleRestapNetworkSnapshot(networkState, tokenId) {
+  const selectedTokenId = String(tokenId ?? '').trim();
+  if (networkState?.selectedTokenId === selectedTokenId) return networkState;
+  if (!selectedTokenId) return createInitialConsoleRestapNetworkState();
+  if (!/^[1-9][0-9]*$/u.test(selectedTokenId) || BigInt(selectedTokenId) > 7_777n) {
+    return Object.freeze({
+      status: 'unavailable',
+      selectedTokenId,
+      requestId: 0,
+      policy: null,
+      intents: Object.freeze([]),
+      error: 'RESTAP network controls are unavailable for this Looper.',
+    });
+  }
+  return createInitialConsoleRestapNetworkState(selectedTokenId);
+}
+
 function renderConsolePrimaryWorkspace(snapshot = {}) {
   const session = snapshot.session ?? {};
   const wallet = session.wallet ?? {};
@@ -261,7 +280,7 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   } else if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
     workspace = renderConsoleWalletWorkspace(snapshot.identityCard);
   } else if (snapshot.workspaceView === 'multipass') {
-    workspace = renderIdentityCard(snapshot.identityCard);
+    workspace = renderIdentityCard(snapshot.identityCard) + renderConsoleRestapNetworkPanel(snapshot.restapNetwork);
   } else {
     workspace = shouldGateConsoleChat(snapshot.agentThread)
       ? renderConsoleActivationGate(snapshot)

@@ -5,6 +5,25 @@ import test from 'node:test';
 
 import { createMultipassConsoleSnapshot, normalizeConsoleCred, renderMultipassConsole } from '../src/multipass-console.js';
 
+test('Multipass workspace renders isolated RESTAP owner controls for the selected Looper', () => {
+  const [agent] = sampleAgents();
+  const snapshot = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: '1', consoleWorkspaceView: 'multipass',
+      consoleRestapNetwork: { status: 'unavailable', selectedTokenId: '1', requestId: 1, policy: null, intents: [], error: 'RESTAP network controls are unavailable for this Looper.' },
+    },
+  });
+  const root = render(renderMultipassConsole(snapshot));
+  assert.ok(root.querySelector('.console-restap-network'));
+  assert.match(root.querySelector('.console-restap-network').textContent, /unavailable/i);
+  assert.equal(snapshot.restapNetwork.selectedTokenId, '1');
+  assert.equal(Object.hasOwn(snapshot.agentThread, 'restapNetwork'), false);
+});
+
 test('production entrypoint leaves wallet mutation controls enabled', async () => {
   const [mainSource, walletSource] = await Promise.all([
     readFile(new URL('../src/main.js', import.meta.url), 'utf8'),

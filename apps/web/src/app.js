@@ -45,6 +45,8 @@ import { createLooperWalletRpcClient } from './looper-agent-wallet-rpc.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
 import { createImagePreview, prepareConsoleImage, preparedImageBlob } from './console-image-preparation.js';
 import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
+import { createConsoleRestapNetworkApi } from './console-restap-network-api.js';
+import { beginConsoleRestapNetworkLoad, clearConsoleRestapNetworkSelection, createInitialConsoleRestapNetworkState, failConsoleRestapNetworkLoad, resolveConsoleRestapNetworkLoad } from './console-restap-network.js';
 import { renderRuntimeSubmission } from './runtime-submission.js';
 import { bindToolManager, compactBankrToolImportInput, getPublicTools, mergeToolImportState, mergeToolRefreshState, renderPublicToolsPanel, renderToolRegistryManagerPanel } from './tool-manager.js';
 import { createInjectedWalletClient, createLegacyWalletClient, getWalletErrorMessage, shortenAddress } from './wallet-client.js';
@@ -78,10 +80,11 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
+  const activeRestapNetworkApi = consoleRestapNetworkApi ?? createConsoleRestapNetworkApi({ fetchImpl: fetchImpl ?? globalThis.fetch, apiBase: '' });
   const activeLooperWalletReleaseConfig = looperWalletReleaseConfig ?? {
     implementation: REVIEWED_POLICY_ACCOUNT_IMPLEMENTATION,
     runtimeByteLength: REVIEWED_POLICY_ACCOUNT_RUNTIME_BYTE_LENGTH,
@@ -113,6 +116,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   let consoleReleasedLooperAbortController = null;
+  let consoleRestapNetworkAbortController = null;
   const consoleCodexCache = new Map();
   let consoleCodexArtifactHash = null;
   let preparedConsoleChallenge = null;
@@ -191,6 +195,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
     consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
     consoleCodex: createInitialConsoleCodexState(),
+    consoleRestapNetwork: createInitialConsoleRestapNetworkState(),
     looperAgentWallet: consoleMockState?.looperAgentWallet ?? activeLooperWalletController.getSnapshot(),
     consoleMockMode: consoleMockState?.mode ?? null,
     walletSnapshot: consoleMockState?.walletSnapshot ?? activeWalletClient.getSnapshot(),
@@ -1724,6 +1729,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         activationRetryAvailable: false,
       },
       consoleCodex: createLoadingConsoleCodexState(normalizedTokenId, codexRequestId),
+      consoleRestapNetwork: clearConsoleRestapNetworkSelection(state.consoleRestapNetwork, normalizedTokenId),
     };
     writeLastLooperForWallet({
       storage: consolePreferenceStorage,
@@ -1733,8 +1739,96 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
     const selectionContext = createConsoleAsyncContext(state, normalizedTokenId, activationRequestId);
     void loadSelectedLooperWallet(agent, selectionContext);
+    void loadConsoleRestapNetworkForSelection(normalizedTokenId);
     return loadConsoleCodexForSelection(normalizedTokenId, { requestId: codexRequestId });
   }
+
+  async function loadConsoleRestapNetworkForSelection(tokenId) {
+    const normalizedTokenId = String(tokenId ?? '').trim();
+    if (!normalizedTokenId || normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()) return;
+    consoleRestapNetworkAbortController?.abort();
+    const controller = new AbortController();
+    consoleRestapNetworkAbortController = controller;
+    const requestId = Number(state.consoleRestapNetwork?.requestId ?? 0) + 1;
+    state = { ...state, consoleRestapNetwork: beginConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId: normalizedTokenId, requestId }) };
+    render(root, state, handlers);
+    try {
+      const [policyResponse, intentsResponse] = await Promise.all([
+        activeRestapNetworkApi.getPolicy({ tokenId: normalizedTokenId, signal: controller.signal }),
+        activeRestapNetworkApi.listIntents({ tokenId: normalizedTokenId, signal: controller.signal }),
+      ]);
+      if (controller.signal.aborted || normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()) return;
+      state = { ...state, consoleRestapNetwork: resolveConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId: normalizedTokenId, requestId, policyResponse, intentsResponse }) };
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      state = { ...state, consoleRestapNetwork: failConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId: normalizedTokenId, requestId, error }) };
+    } finally {
+      if (consoleRestapNetworkAbortController === controller) consoleRestapNetworkAbortController = null;
+      render(root, state, handlers);
+    }
+  }
+
+  async function saveConsoleRestapNetworkPolicy(event) {
+    event?.preventDefault?.();
+    const tokenId = state.consoleRestapNetwork?.selectedTokenId;
+    const current = state.consoleRestapNetwork?.policy;
+    if (!tokenId || !current) return;
+    const form = event?.currentTarget;
+    const topics = [...(form?.querySelectorAll?.('[name^="topic:"]:checked') ?? [])].map((input) => input.name.slice(6));
+    const splitTokens = (name) => String(form?.elements?.namedItem?.(name)?.value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+    const value = (name) => form?.elements?.namedItem?.(name);
+    try {
+      await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, policy: {
+        expected_policy_version: current.policyVersion,
+        network_enabled: Boolean(value('network_enabled')?.checked), inbound_enabled: Boolean(value('inbound_enabled')?.checked), autonomous_initiation_enabled: Boolean(value('autonomous_initiation_enabled')?.checked),
+        daily_initiated_conversation_limit: Number(value('daily_initiated_conversation_limit')?.value), daily_generated_message_limit: Number(value('daily_generated_message_limit')?.value), per_peer_daily_limit: Number(value('per_peer_daily_limit')?.value),
+        topics, allow_peer_token_ids: splitTokens('allow_peer_token_ids'), block_peer_token_ids: splitTokens('block_peer_token_ids'), mute_until: value('mute_until')?.value ? new Date(value('mute_until').value).toISOString() : null,
+      } });
+      await loadConsoleRestapNetworkForSelection(tokenId);
+    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+  }
+
+  async function createConsoleRestapNetworkIntent(event) {
+    event?.preventDefault?.();
+    const tokenId = state.consoleRestapNetwork?.selectedTokenId;
+    if (!tokenId) return;
+    const form = event?.currentTarget;
+    const value = (name) => form?.elements?.namedItem?.(name)?.value ?? '';
+    try {
+      await activeRestapNetworkApi.createIntent({ tokenId, csrfToken: state.consoleCsrfToken, intent: {
+        peer_token_ids: String(value('peer_token_ids')).split(',').map((item) => item.trim()).filter(Boolean), topic: String(value('topic')), cadence: String(value('cadence')), run_at: new Date(value('run_at')).toISOString(), idempotency_key: 'console-intent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14),
+      } });
+      await loadConsoleRestapNetworkForSelection(tokenId);
+    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+  }
+
+  async function cancelConsoleRestapNetworkIntent(event) {
+    const button = event?.currentTarget;
+    const tokenId = state.consoleRestapNetwork?.selectedTokenId;
+    if (!tokenId) return;
+    try {
+      await activeRestapNetworkApi.deleteIntent({ tokenId, csrfToken: state.consoleCsrfToken, intentId: button?.dataset?.intentId, expectedPolicyVersion: Number(button?.dataset?.expectedPolicyVersion) });
+      await loadConsoleRestapNetworkForSelection(tokenId);
+    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+  }
+
+  async function stopConsoleRestapNetwork() {
+    const tokenId = state.consoleRestapNetwork?.selectedTokenId;
+    const policyVersion = state.consoleRestapNetwork?.policy?.policyVersion;
+    if (!tokenId || !Number.isSafeInteger(policyVersion)) return;
+    if (globalThis.confirm?.('This opts the Looper out, revokes its network lease, and cancels pending work. Ordinary Console chat and onchain ownership are unchanged.') !== true) return;
+    try {
+      await activeRestapNetworkApi.stop({ tokenId, csrfToken: state.consoleCsrfToken, expectedPolicyVersion: policyVersion });
+      await loadConsoleRestapNetworkForSelection(tokenId);
+    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+  }
+
+  function setConsoleRestapNetworkError(tokenId, error) {
+    state = { ...state, consoleRestapNetwork: failConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId, requestId: state.consoleRestapNetwork.requestId, error }) };
+    render(root, state, handlers);
+  }
+
+  async function retryConsoleRestapNetwork() { return loadConsoleRestapNetworkForSelection(state.consoleSelectedAgentId); }
 
   async function retryConsoleCodex() {
     const tokenId = String(state.consoleSelectedAgentId ?? '').trim();
@@ -1912,6 +2006,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function resetConsoleSession() {
     abortConsoleReleasedLooperDiscovery();
+    consoleRestapNetworkAbortController?.abort();
+    consoleRestapNetworkAbortController = null;
     clearConsoleImagePreview();
     consoleCodexCache.clear();
     consoleCodexArtifactHash = null;
@@ -1930,6 +2026,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
       consoleCodexRequestId: Number(state.consoleCodexRequestId ?? 0) + 1,
       consoleCodex: createInitialConsoleCodexState(),
+      consoleRestapNetwork: createInitialConsoleRestapNetworkState(state.consoleSelectedAgentId),
       consoleAgentThread: {
         ...createInitialConsoleAgentThreadState(),
         status: 'idle',
@@ -2495,7 +2592,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, saveConsoleRestapNetworkPolicy, createConsoleRestapNetworkIntent, cancelConsoleRestapNetworkIntent, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
@@ -5030,6 +5127,11 @@ function bindProductHomeEvents(root, handlers, state) {
   });
   root.querySelector('[data-action="retry-console-agent-activation"]')?.addEventListener('click', () => handlers.retryConsoleAgentActivation?.());
   root.querySelector('[data-action="retry-console-codex"]')?.addEventListener('click', () => handlers.retryConsoleCodex?.());
+  root.querySelector('[data-restap-network-policy]')?.addEventListener('submit', (event) => handlers.saveConsoleRestapNetworkPolicy?.(event));
+  root.querySelector('[data-restap-network-intent]')?.addEventListener('submit', (event) => handlers.createConsoleRestapNetworkIntent?.(event));
+  root.querySelectorAll('[data-action="cancel-restap-network-intent"]').forEach((button) => button.addEventListener('click', (event) => handlers.cancelConsoleRestapNetworkIntent?.(event)));
+  root.querySelector('[data-action="stop-restap-network"]')?.addEventListener('click', () => handlers.stopConsoleRestapNetwork?.());
+  root.querySelector('[data-action="refresh-restap-network"]')?.addEventListener('click', () => handlers.retryConsoleRestapNetwork?.());
   root.querySelector('[data-action="activate-selected-console-agent"]')?.addEventListener('click', () => handlers.activateSelectedConsoleAgent?.());
   root.querySelectorAll('[data-action="activate-console-room"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.activateConsoleRoom?.(event));

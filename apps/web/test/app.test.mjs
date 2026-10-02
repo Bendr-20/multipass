@@ -11,6 +11,17 @@ import { isSafeMultipassSharePath } from '../src/save-panel.js';
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
 const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
 
+test('Console RESTAP network integration aborts stale selection reads and binds owner actions', () => {
+  const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(source, /consoleRestapNetworkAbortController\?\.abort\(\)/);
+  assert.match(source, /clearConsoleRestapNetworkSelection/);
+  assert.match(source, /activeRestapNetworkApi\.getPolicy/);
+  assert.match(source, /activeRestapNetworkApi\.listIntents/);
+  assert.match(source, /saveConsoleRestapNetworkPolicy/);
+  assert.match(source, /cancelConsoleRestapNetworkIntent/);
+  assert.match(source, /stopConsoleRestapNetwork/);
+});
+
 test('default Looper wallet controller rechecks the actual wallet provider chain before send', () => {
   const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /getWalletChainId:\s*\(\)\s*=>\s*activeWalletClient\.request\(\{\s*method:\s*['"]eth_chainId['"]\s*\}\)/);
