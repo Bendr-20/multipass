@@ -56,6 +56,7 @@ test('parseServerOptions returns safe defaults', () => {
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
     restapTrustLoopbackProxy: false,
+    restapNetworkSignerFile: null,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -119,6 +120,7 @@ test('CLI flags override environment values', () => {
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
     restapTrustLoopbackProxy: false,
+    restapNetworkSignerFile: null,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -182,6 +184,7 @@ test('parseServerOptions accepts claim management security env', () => {
     restapNewsWriteEnabled: false,
     restapNewsReadEnabled: false,
     restapTrustLoopbackProxy: false,
+    restapNetworkSignerFile: null,
     restap3802PolicyPath: null,
     restapTalkModel: null,
     restapTalkTimeoutMs: 15000,
@@ -1273,5 +1276,52 @@ test('startServer overwrites inbound RESTAP client identity while preserving for
     } });
     assert.equal(seen[0]['x-multipass-client-ip'], '203.0.113.42');
     assert.equal(seen[0]['cf-connecting-ip'], '203.0.113.42');
+  } finally { await server.close(); }
+});
+
+
+test('RESTAP network signer path is reference-only and required startup fails closed before listen', async () => {
+  assert.equal(parseServerOptions([], {}).restapNetworkSignerFile, null);
+  assert.equal(parseServerOptions([], { MULTIPASS_RESTAP_NETWORK_SIGNER_FILE: '/run/secrets/restap-network-signer' }).restapNetworkSignerFile, '/run/secrets/restap-network-signer');
+
+  const events = [];
+  let bootstrapOptions;
+  const base = {
+    fixture: 'generic', host: '127.0.0.1', port: 0, savedRecords: {}, looperNameStore: {},
+    looperCodexRuntime: { available: false, status: { available: false } },
+    logger: { info(event) { events.push(event); }, warn(event) { events.push(event); }, error(event) { events.push(event); } },
+    consoleBootstrapFactory: async (options) => { bootstrapOptions = options; return { ownedAgentLoader: async () => [], publicClients: [], authorizeLooper: async () => ({}), runtimeRegistry: {}, publishingClient: {}, runtime: {}, async stopWorker() {}, async closeClient() {} }; },
+    apiFactory: () => ({ async handleRequest() { return new Response('{}'); } }),
+  };
+
+  let loaderCalls = 0;
+  const inert = await startServer({
+    ...base, restapNetworkSignerFile: '/configured-but-gated-off',
+    restapNetworkSignerLoader: async () => { loaderCalls += 1; throw new Error('must remain gated off'); },
+  });
+  try {
+    assert.equal(loaderCalls, 0);
+    assert.equal('restapNetworkSignerFile' in bootstrapOptions, false);
+    assert.equal('restapNetworkSignerRequired' in bootstrapOptions, false);
+  } finally { await inert.close(); }
+
+  await assert.rejects(startServer({ ...base, restapNetworkSignerRequired: true }), /network signer unavailable/i);
+  await assert.rejects(startServer({
+    ...base, restapNetworkSignerRequired: true, restapNetworkSignerFile: '/unsafe/private-marker',
+    restapNetworkSignerLoader: async () => { loaderCalls += 1; throw new Error('PRIVATE_KEY_SENTINEL'); },
+  }), /network signer unavailable/i);
+  assert.equal(loaderCalls, 1);
+  assert.equal(JSON.stringify(events).includes('PRIVATE_KEY_SENTINEL'), false);
+  assert.equal(JSON.stringify(events).includes('/unsafe/private-marker'), false);
+
+  const signer = Object.freeze({ keyId: 'test-key-000000000000000000000001', async sign() { return Buffer.alloc(64); } });
+  let injected;
+  const server = await startServer({
+    ...base, restapNetworkSignerRequired: true, restapNetworkSigner: signer,
+    apiFactory: (options) => { injected = options.restapNetworkSigner; return { async handleRequest() { return new Response('{}'); } }; },
+  });
+  try {
+    assert.equal(injected, undefined);
+    assert.equal(JSON.stringify(server).includes('sign'), false);
   } finally { await server.close(); }
 });

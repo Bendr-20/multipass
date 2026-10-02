@@ -22,6 +22,7 @@ import { createRestapNewsAuthenticator } from './restap-news-auth.js';
 import { createRestapNewsStore } from './restap-news-store.js';
 import { createRestapPublicSessionStore } from './restap-public-sessions.js';
 import { createBankrRestapInferenceClient, createRestapPublicTalkRuntime } from './restap-public-talk.js';
+import { loadRestapNetworkFileSigner } from './restap-network/grants.js';
 
 const DEFAULT_FIXTURE = 'generic';
 const DEFAULT_HOST = '127.0.0.1';
@@ -88,6 +89,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     restapNewsWriteEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_WRITE_ENABLED, 'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED') ?? false,
     restapNewsReadEnabled: parseStrictBoolean(env.MULTIPASS_RESTAP_NEWS_READ_ENABLED, 'MULTIPASS_RESTAP_NEWS_READ_ENABLED') ?? false,
     restapTrustLoopbackProxy: parseStrictBoolean(env.MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY, 'MULTIPASS_RESTAP_TRUST_LOOPBACK_PROXY') ?? false,
+    restapNetworkSignerFile: env.MULTIPASS_RESTAP_NETWORK_SIGNER_FILE || null,
     restap3802PolicyPath: env.MULTIPASS_RESTAP_3802_POLICY_PATH || env.MULTIPASS_RESTAP_POLICY_PATH || null,
     restapTalkModel: parseOptionalBoundedString(env.MULTIPASS_RESTAP_TALK_MODEL, 'MULTIPASS_RESTAP_TALK_MODEL', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_TIMEOUT_MS, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'MULTIPASS_RESTAP_TALK_TIMEOUT_MS', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -166,6 +168,8 @@ export async function startServer(options = {}) {
     restapNewsWriteEnabled: options.restapNewsWriteEnabled === true,
     restapNewsReadEnabled: options.restapNewsReadEnabled === true,
     restapTrustLoopbackProxy: options.restapTrustLoopbackProxy === true,
+    restapNetworkSignerFile: options.restapNetworkSignerFile ?? null,
+    restapNetworkSignerRequired: options.restapNetworkSignerRequired === true,
     restap3802PolicyPath: options.restap3802PolicyPath ?? null,
     restapTalkModel: parseOptionalBoundedString(options.restapTalkModel, 'restapTalkModel', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(options.restapTalkTimeoutMs, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'restapTalkTimeoutMs', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -204,6 +208,7 @@ export async function startServer(options = {}) {
   const restapPublicTalkRuntimeFactory = options.restapPublicTalkRuntimeFactory ?? createRestapPublicTalkRuntime;
   const restapNewsStoreFactory = options.restapNewsStoreFactory ?? createRestapNewsStore;
   const restapNewsAuthenticatorFactory = options.restapNewsAuthenticatorFactory ?? createRestapNewsAuthenticator;
+  const restapNetworkSignerLoader = options.restapNetworkSignerLoader ?? loadRestapNetworkFileSigner;
   let api;
   let listeningUrl;
   let apiBaseUrl = parsed.publicBaseUrl ?? (parsed.port === 0 ? null : `http://${parsed.host}:${parsed.port}`);
@@ -211,6 +216,7 @@ export async function startServer(options = {}) {
   let looperCodexRuntime;
   let restapPublicSessions;
   let restapNewsStore;
+  let restapNetworkSigner;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -264,10 +270,22 @@ export async function startServer(options = {}) {
       rssDeltaBytes: process.memoryUsage().rss - codexStartingRss,
     });
 
+    const consoleBootstrapOptions = { ...parsed };
+    delete consoleBootstrapOptions.restapNetworkSignerFile;
+    delete consoleBootstrapOptions.restapNetworkSignerRequired;
     consoleBootstrap = await consoleBootstrapFactory({
-      ...parsed,
+      ...consoleBootstrapOptions,
       logger: options.logger ?? console,
     });
+
+    restapNetworkSigner = options.restapNetworkSigner ?? null;
+    if (restapNetworkSigner !== null && !isRestapNetworkSigner(restapNetworkSigner)) throw new Error('RESTAP network signer unavailable.');
+    if (parsed.restapNetworkSignerRequired && restapNetworkSigner === null) {
+      if (!parsed.restapNetworkSignerFile) throw new Error('RESTAP network signer unavailable.');
+      try { restapNetworkSigner = await restapNetworkSignerLoader({ filePath: parsed.restapNetworkSignerFile }); }
+      catch { throw new Error('RESTAP network signer unavailable.'); }
+      if (!isRestapNetworkSigner(restapNetworkSigner)) throw new Error('RESTAP network signer unavailable.');
+    }
 
     const needsRestapPolicy = parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled || parsed.restapNewsWriteEnabled;
     const needsRestapNews = parsed.restapNewsWriteEnabled || parsed.restapNewsReadEnabled;
@@ -616,6 +634,12 @@ function isLoopbackAddress(value) {
   if (isIP(ipv4) !== 4) return false;
   const first = Number(ipv4.split('.')[0]);
   return first === 127;
+}
+
+function isRestapNetworkSigner(value) {
+  return value !== null && typeof value === 'object'
+    && typeof value.keyId === 'string' && /^[A-Za-z0-9_-]{32,128}$/u.test(value.keyId)
+    && typeof value.sign === 'function';
 }
 
 function parsePort(value, fallback, source) {
