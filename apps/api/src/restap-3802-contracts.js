@@ -81,7 +81,7 @@ export function buildRestap3802Discovery({
   const baseUrl = buildExternalBaseUrl(publicBaseUrl);
   const codex = normalizeCodexProfile(codexProfile);
   const owner = normalizeOwnerProfile(ownerProfile);
-  const contactUrl = normalizeHttpsUrl(contact, 'RESTAP contact');
+  const contactUrl = parsePublicBaseUrl(contact).toString().replace(/\/$/u, '');
   const gates = normalizeAvailability(availability);
   const identityReference = erc8004 === undefined ? undefined : normalizeErc8004(erc8004);
 
