@@ -91,6 +91,14 @@ test('rehearsal uses the inspected loopback service endpoint', async (t) => {
   assert.ok(!curls.includes('127.0.0.1:3000'));
 });
 
+test('rehearsal accepts an nginx parent root mapped by the static route', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  const parent = f.staticRoot.slice(0, f.staticRoot.lastIndexOf('/'));
+  await writeFile(f.nginx, 'server { root ' + parent + '; location /api/ { proxy_pass http://127.0.0.1:3000; } location /static/ { try_files $uri =404; } }\n');
+  const result = await run(args('rehearsal', 'discovery', f), f);
+  assert.equal(result.code, 0, result.stderr);
+});
+
 test('rehearsal accepts the inspected database path from the base unit', async (t) => {
   const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
   await writeFile(f.envFile, 'UNRELATED_SECRET=keep-me\nBANKR_API_KEY=protected-existing-key\n', { mode: 0o600 });

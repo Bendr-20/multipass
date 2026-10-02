@@ -69,7 +69,11 @@ inspect() {
     [[ $(grep -Ec '^BANKR_API_KEY=.{16,}$' "$env_file") == 1 ]] || { echo "protected inference environment is unavailable" >&2; exit 65; }
   fi
   grep -Eq 'location[[:space:]]+/api/' "$nginx_file" || { echo "nginx API route drift" >&2; exit 65; }
-  grep -Fq "root $static_root" "$nginx_file" || { echo "nginx static root drift" >&2; exit 65; }
+  local static_parent=${static_root%/*} static_name=${static_root##*/}
+  if grep -Fq "root $static_root" "$nginx_file"; then :
+  elif grep -Fq "root $static_parent" "$nginx_file" && grep -E 'location[[:space:]]' "$nginx_file" | grep -Fq " /$static_name"; then :
+  else echo "nginx static root drift" >&2; exit 65
+  fi
   systemctl cat "$unit" >/dev/null
 }
 
