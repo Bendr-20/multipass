@@ -35,6 +35,9 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ZERO_HASH = `0x${'00'.repeat(32)}`;
 const TOKEN_ID = '617';
 const DELEGATED_OWNER_CODE = `0xef0100${'aa'.repeat(20)}`;
+const COINBASE_SMART_WALLET_CODE = '0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3';
+const COINBASE_SMART_WALLET_IMPLEMENTATION = '0x000100abaad02f1cfc8bbe32bd5a564817339e72';
+const COINBASE_ENTRY_POINT = '0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789';
 
 function memoryStorage() {
   const values = new Map();
@@ -335,6 +338,30 @@ test('canonical EIP-7702 owner completes exact confirmed activation and send pat
   result = await f.controller.submitPrepared(prepared.id, { confirmed: true });
   assert.equal(result.send.state, 'confirmed_attributed');
   assert.equal(result.operatorProfile, 'eip7702');
+});
+
+test('pinned Coinbase smart-wallet owner is writable while drifted profiles fail closed', async () => {
+  const coinbaseEvidence = {
+    operatorCode: COINBASE_SMART_WALLET_CODE,
+    operatorImplementation: COINBASE_SMART_WALLET_IMPLEMENTATION,
+    operatorImplementationRuntimeByteLength: 18002,
+    operatorImplementationRuntimeSha256: '0xa7dba5dc36ffc7d92796b2d17cd61f4e89d7ace44ff953def7e39e444c278bfa',
+    operatorEntryPoint: COINBASE_ENTRY_POINT,
+    operatorEntryPointRuntimeByteLength: 23689,
+    operatorEntryPointRuntimeSha256: '0x009b0281380fb08973d2b8e55936c0d55f5a1d65ddc5713944420e119455620c',
+  };
+  let selected = await controllerFixture({ snapshots: [snapshot(coinbaseEvidence)] })
+    .controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(selected.mode, 'inactive');
+  assert.equal(selected.operatorProfile, 'coinbase_smart_wallet');
+  assert.equal(selected.canTransact, true);
+
+  selected = await controllerFixture({
+    snapshots: [snapshot({ ...coinbaseEvidence, operatorImplementationRuntimeSha256: RUNTIME_HASH })],
+  }).controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  assert.equal(selected.mode, 'read_only');
+  assert.equal(selected.reason, 'unsupported_wallet');
+  assert.equal(selected.canTransact, false);
 });
 
 test('final pre-submit owner-code reclassification invalidates readiness when EOA or EIP-7702 changes to blocked code', async () => {

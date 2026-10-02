@@ -1,5 +1,6 @@
 import {
   decodeEventLog,
+  decodeFunctionData,
   decodeFunctionResult,
   encodeAbiParameters,
   encodeEventTopics,
@@ -57,6 +58,26 @@ const TRANSPORT_LIMITS = Object.freeze({
 });
 const TRACE_LIMITS = Object.freeze({ depth: 32, frames: 2048, children: 256, logs: 512, bytes: 262_144 });
 const EIP1967_IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+export const COINBASE_SMART_WALLET_PROFILE = Object.freeze({
+  proxyRuntime: '0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3',
+  proxyRuntimeByteLength: 61,
+  proxyRuntimeSha256: '0xc5731b62fc7c36236463af8d362688e37c08823abcda35d71ad7d1220eebf578',
+  implementations: Object.freeze([
+    Object.freeze({
+      address: getAddress('0x000100abaad02f1cfc8bbe32bd5a564817339e72'),
+      runtimeByteLength: 18002,
+      runtimeSha256: '0xa7dba5dc36ffc7d92796b2d17cd61f4e89d7ace44ff953def7e39e444c278bfa',
+    }),
+    Object.freeze({
+      address: getAddress('0x00000110dcdedc9581cb5ecb8467282f2926534d'),
+      runtimeByteLength: 17694,
+      runtimeSha256: '0x232b9f0ef7a71b67bafd3a4bacc47e81bc93374e27d3ed37b6eaa66da5000269',
+    }),
+  ]),
+  entryPoint: getAddress('0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789'),
+  entryPointRuntimeByteLength: 23689,
+  entryPointRuntimeSha256: '0x009b0281380fb08973d2b8e55936c0d55f5a1d65ddc5713944420e119455620c',
+});
 const BLOCKSCOUT_TOKEN_KEYS = Object.freeze([
   'address_hash', 'circulating_market_cap', 'decimals', 'exchange_rate', 'holders_count',
   'icon_url', 'name', 'symbol', 'total_supply', 'type', 'volume_24h',
@@ -72,8 +93,27 @@ export function classifyOwnerCode(value) {
   return 'contract';
 }
 
+export function classifyOwnerProfile(evidence = {}) {
+  const codeProfile = classifyOwnerCode(evidence.operatorCode);
+  if (codeProfile !== 'contract') return codeProfile;
+  const profile = COINBASE_SMART_WALLET_PROFILE;
+  const implementation = profile.implementations.find((candidate) => sameAddress(
+    evidence.operatorImplementation, candidate.address,
+  ));
+  if (evidence.operatorCode === profile.proxyRuntime
+    && implementation
+    && evidence.operatorImplementationRuntimeByteLength === implementation.runtimeByteLength
+    && String(evidence.operatorImplementationRuntimeSha256 ?? '').toLowerCase() === implementation.runtimeSha256
+    && sameAddress(evidence.operatorEntryPoint, profile.entryPoint)
+    && evidence.operatorEntryPointRuntimeByteLength === profile.entryPointRuntimeByteLength
+    && String(evidence.operatorEntryPointRuntimeSha256 ?? '').toLowerCase() === profile.entryPointRuntimeSha256) {
+    return 'coinbase_smart_wallet';
+  }
+  return codeProfile;
+}
+
 function writableOwnerProfile(profile) {
-  return profile === 'eoa' || profile === 'eip7702';
+  return profile === 'eoa' || profile === 'eip7702' || profile === 'coinbase_smart_wallet';
 }
 
 export function validateBlockscoutTokenResponse(candidate) {
@@ -120,6 +160,177 @@ export function validateDirectCallTrace(trace) {
   };
   visit(trace, 0);
   return true;
+}
+
+function hashUserOperationV06(operation) {
+  const packedHash = keccak256(encodeAbiParameters([
+    { type: 'address' }, { type: 'uint256' }, { type: 'bytes32' }, { type: 'bytes32' },
+    { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' },
+    { type: 'uint256' }, { type: 'bytes32' },
+  ], [
+    getAddress(operation.sender), BigInt(operation.nonce), keccak256(operation.initCode), keccak256(operation.callData),
+    BigInt(operation.callGasLimit), BigInt(operation.verificationGasLimit), BigInt(operation.preVerificationGas),
+    BigInt(operation.maxFeePerGas), BigInt(operation.maxPriorityFeePerGas), keccak256(operation.paymasterAndData),
+  ]));
+  return keccak256(encodeAbiParameters(
+    [{ type: 'bytes32' }, { type: 'address' }, { type: 'uint256' }],
+    [packedHash, COINBASE_SMART_WALLET_PROFILE.entryPoint, BigInt(BASE_CHAIN_ID)],
+  ));
+}
+
+function decodeExactCoinbaseEnvelope(callData, expectedTransaction) {
+  if (callData.startsWith(REPLAYABLE_COINBASE_EXECUTE_SELECTOR)) {
+    throw new Error('Replayable Coinbase wallet execution is forbidden.');
+  }
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: COINBASE_WALLET_EXECUTION_ABI, data: callData });
+  } catch {
+    throw new Error('Coinbase wallet envelope is not execute or executeBatch.');
+  }
+  const canonical = encodeFunctionData({
+    abi: COINBASE_WALLET_EXECUTION_ABI, functionName: decoded.functionName, args: decoded.args,
+  }).toLowerCase();
+  if (canonical !== callData) throw new Error('Coinbase wallet envelope is noncanonical or has trailing bytes.');
+  let target;
+  let value;
+  let data;
+  if (decoded.functionName === 'execute') {
+    [target, value, data] = decoded.args;
+  } else {
+    const calls = decoded.args[0];
+    if (!Array.isArray(calls) || calls.length !== 1) {
+      throw new Error('Coinbase wallet envelope must contain exactly one Looper call.');
+    }
+    ({ target, value, data } = calls[0]);
+  }
+  if (!sameAddress(target, expectedTransaction.to) || BigInt(value) !== 0n || data !== expectedTransaction.data) {
+    throw new Error('Coinbase wallet envelope does not contain the exact Looper call.');
+  }
+  return { target: getAddress(target), value: '0x0', data };
+}
+
+function requireExactUserOperationEvent(logs, operation, userOpHash) {
+  const matches = logs.filter((log) => log.topics.length === 4
+    && log.topics[0] === USER_OPERATION_EVENT_TOPIC
+    && log.topics[1] === userOpHash
+    && sameAddress(log.address, COINBASE_SMART_WALLET_PROFILE.entryPoint));
+  if (matches.length !== 1) throw new Error('Expected exactly one Coinbase UserOperationEvent.');
+  const decoded = decodeEventLog({
+    abi: USER_OPERATION_EVENT_ABI, topics: matches[0].topics, data: matches[0].data, strict: true,
+  });
+  if (!sameAddress(decoded.args.sender, operation.sender)
+    || decoded.args.userOpHash !== userOpHash
+    || decoded.args.nonce !== BigInt(operation.nonce)
+    || decoded.args.success !== true) {
+    throw new Error('Coinbase UserOperationEvent sender, nonce, hash, or success mismatched.');
+  }
+}
+
+function verifyCoinbaseExecutionTrace(trace, operation, expectedTransaction, receiptLogs) {
+  validateDirectCallTrace(trace);
+  if (String(trace.type ?? 'CALL').toUpperCase() !== 'CALL'
+    || !sameAddress(trace.to, COINBASE_SMART_WALLET_PROFILE.entryPoint)
+    || trace.input !== expectedTransaction.outerInput
+    || canonicalTraceValue(trace.value) !== '0x0'
+    || trace.error) {
+    throw new Error('Coinbase EntryPoint trace root mismatch.');
+  }
+  const walletFrames = [];
+  const walk = (frame) => {
+    if (String(frame.type ?? 'CALL').toUpperCase() === 'CALL'
+      && sameAddress(frame.from, COINBASE_SMART_WALLET_PROFILE.entryPoint)
+      && sameAddress(frame.to, expectedTransaction.from)
+      && frame.input === operation.callData
+      && canonicalTraceValue(frame.value) === '0x0'
+      && !frame.error) walletFrames.push(frame);
+    for (const child of frame.calls ?? []) walk(child);
+  };
+  walk(trace);
+  if (walletFrames.length !== 1) throw new Error('Trace must contain exactly one selected Coinbase wallet execution frame.');
+
+  const targetFrames = [];
+  const inspect = (frame) => {
+    for (const child of frame.calls ?? []) {
+      const type = String(child.type ?? 'CALL').toUpperCase();
+      if (child.error || canonicalTraceValue(child.value) !== '0x0') {
+        throw new Error('Coinbase wallet execution plumbing must be successful and zero-value.');
+      }
+      if (type === 'CALL' && sameAddress(child.from, expectedTransaction.from)
+        && sameAddress(child.to, expectedTransaction.to)
+        && child.input === expectedTransaction.data) {
+        targetFrames.push(child);
+        continue;
+      }
+      if (type !== 'DELEGATECALL'
+        || !sameAddress(child.from, expectedTransaction.from)
+        || !COINBASE_SMART_WALLET_PROFILE.implementations.some((candidate) => sameAddress(child.to, candidate.address))) {
+        throw new Error('Unexpected Coinbase wallet execution plumbing call.');
+      }
+      inspect(child);
+    }
+  };
+  inspect(walletFrames[0]);
+  if (targetFrames.length !== 1) throw new Error('Trace must contain exactly one exact Looper call.');
+  const requiredTopic = sameAddress(expectedTransaction.to, ERC6551_REGISTRY)
+    ? ACCOUNT_CREATED_TOPIC
+    : expectedTransaction.data.startsWith(LOOPER_ACCOUNT_EXECUTE_SELECTOR) ? STATE_UPDATED_TOPIC : null;
+  if (requiredTopic) {
+    const candidates = receiptLogs.filter((log) => sameAddress(log.address, expectedTransaction.to)
+      && log.topics[0] === requiredTopic);
+    if (candidates.length !== 1) throw new Error('Exact Looper receipt event is missing or duplicated.');
+    requireLinkedTraceLog(targetFrames[0].logs, candidates[0], 'Coinbase-wrapped Looper event');
+  }
+  return targetFrames[0];
+}
+
+function decodeExactCoinbaseUserOperation(transaction, expectedTransaction) {
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: ENTRY_POINT_V06_ABI, data: transaction.input });
+  } catch {
+    throw new Error('Coinbase outer transaction is not EntryPoint v0.6 handleOps.');
+  }
+  if (decoded.functionName !== 'handleOps'
+    || encodeFunctionData({ abi: ENTRY_POINT_V06_ABI, functionName: 'handleOps', args: decoded.args }).toLowerCase() !== transaction.input) {
+    throw new Error('Coinbase handleOps encoding is noncanonical or has trailing bytes.');
+  }
+  const selected = decoded.args[0].filter((operation) => sameAddress(operation.sender, expectedTransaction.from));
+  if (selected.length !== 1 || selected[0].initCode !== '0x') {
+    throw new Error('Expected one initialized Coinbase UserOperation for the Looper owner.');
+  }
+  decodeExactCoinbaseEnvelope(selected[0].callData, expectedTransaction);
+  return selected[0];
+}
+
+export function verifyCoinbaseWrappedTransaction({
+  transaction, receipt, expectedTransaction, trace, onchainUserOpHash,
+} = {}) {
+  if (!expectedTransaction
+    || expectedTransaction.chainId !== '0x2105'
+    || expectedTransaction.value !== '0x0'
+    || !safeAddress(expectedTransaction.from)
+    || !safeAddress(expectedTransaction.to)
+    || !sameAddress(transaction?.to, COINBASE_SMART_WALLET_PROFILE.entryPoint)
+    || transaction?.chainId !== '0x2105'
+    || canonicalHexQuantity(transaction?.value, 'wrapped transaction value') !== '0x0'
+    || receipt?.status !== '0x1') {
+    throw new Error('Coinbase wrapped transaction or expected Looper call is malformed.');
+  }
+  const requestedHash = canonicalHash(transaction.hash, 'wrapped transaction hash');
+  if (canonicalHash(receipt.transactionHash, 'wrapped receipt transaction hash') !== requestedHash) {
+    throw new Error('Coinbase wrapped transaction and receipt hashes mismatch.');
+  }
+  requireReceiptCoordinates(transaction, receipt);
+  const operation = decodeExactCoinbaseUserOperation(transaction, expectedTransaction);
+  const userOpHash = hashUserOperationV06(operation);
+  if (canonicalHash(onchainUserOpHash, 'onchain UserOperation hash') !== userOpHash) {
+    throw new Error('Local and onchain Coinbase UserOperation hashes disagree.');
+  }
+  const receiptLogs = normalizeRawReceiptLogs(receipt);
+  requireExactUserOperationEvent(receiptLogs, operation, userOpHash);
+  verifyCoinbaseExecutionTrace(trace, operation, { ...expectedTransaction, outerInput: transaction.input }, receiptLogs);
+  return deepFreeze({ attribution: 'coinbase_erc4337_v06', userOpHash });
 }
 
 export function verifyOperationReceipt({
@@ -231,6 +442,63 @@ const ERC20_TRANSFER_ABI = [{
     { name: 'value', type: 'uint256', indexed: false },
   ],
 }];
+const COINBASE_SMART_WALLET_ABI = [{
+  type: 'function', name: 'entryPoint', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }],
+}];
+const USER_OPERATION_COMPONENTS = Object.freeze([
+  { name: 'sender', type: 'address' },
+  { name: 'nonce', type: 'uint256' },
+  { name: 'initCode', type: 'bytes' },
+  { name: 'callData', type: 'bytes' },
+  { name: 'callGasLimit', type: 'uint256' },
+  { name: 'verificationGasLimit', type: 'uint256' },
+  { name: 'preVerificationGas', type: 'uint256' },
+  { name: 'maxFeePerGas', type: 'uint256' },
+  { name: 'maxPriorityFeePerGas', type: 'uint256' },
+  { name: 'paymasterAndData', type: 'bytes' },
+  { name: 'signature', type: 'bytes' },
+]);
+const ENTRY_POINT_V06_ABI = Object.freeze([
+  {
+    type: 'function', name: 'handleOps', stateMutability: 'nonpayable',
+    inputs: [{ name: 'ops', type: 'tuple[]', components: USER_OPERATION_COMPONENTS }, { name: 'beneficiary', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function', name: 'getUserOpHash', stateMutability: 'view',
+    inputs: [{ name: 'userOp', type: 'tuple', components: USER_OPERATION_COMPONENTS }],
+    outputs: [{ type: 'bytes32' }],
+  },
+]);
+const COINBASE_WALLET_EXECUTION_ABI = Object.freeze([
+  {
+    type: 'function', name: 'execute', stateMutability: 'payable',
+    inputs: [{ name: 'target', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' }],
+    outputs: [],
+  },
+  {
+    type: 'function', name: 'executeBatch', stateMutability: 'payable',
+    inputs: [{ name: 'calls', type: 'tuple[]', components: [
+      { name: 'target', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' },
+    ] }],
+    outputs: [],
+  },
+]);
+const USER_OPERATION_EVENT_ABI = [{
+  type: 'event', name: 'UserOperationEvent',
+  inputs: [
+    { name: 'userOpHash', type: 'bytes32', indexed: true },
+    { name: 'sender', type: 'address', indexed: true },
+    { name: 'paymaster', type: 'address', indexed: true },
+    { name: 'nonce', type: 'uint256', indexed: false },
+    { name: 'success', type: 'bool', indexed: false },
+    { name: 'actualGasCost', type: 'uint256', indexed: false },
+    { name: 'actualGasUsed', type: 'uint256', indexed: false },
+  ],
+}];
+const USER_OPERATION_EVENT_TOPIC = encodeEventTopics({ abi: USER_OPERATION_EVENT_ABI, eventName: 'UserOperationEvent' })[0];
+const REPLAYABLE_COINBASE_EXECUTE_SELECTOR = '0x2c2abd1e';
+const LOOPER_ACCOUNT_EXECUTE_SELECTOR = '0x51945447';
 const ACCOUNT_CREATED_TOPIC = encodeEventTopics({ abi: ACCOUNT_CREATED_ABI, eventName: 'AccountCreated' })[0];
 const STATE_UPDATED_TOPIC = encodeEventTopics({ abi: STATE_UPDATED_ABI, eventName: 'StateUpdated' })[0];
 const ERC20_TRANSFER_TOPIC = encodeEventTopics({ abi: ERC20_TRANSFER_ABI, eventName: 'Transfer' })[0];
@@ -375,8 +643,17 @@ function requireLinkedTraceLog(frameLogs, receiptLog, label) {
   requireDenseArray(frameLogs, `${label} trace logs`);
   const matches = frameLogs.filter((log) => {
     requirePlainObject(log, `${label} trace log`);
-    return Number.isInteger(log.index)
-      && log.index === receiptLog.receiptArrayIndex
+    let receiptArrayIndex = null;
+    if (Number.isInteger(log.index) && log.index >= 0) receiptArrayIndex = log.index;
+    else {
+      try {
+        const parsed = BigInt(canonicalHexQuantity(log.index, `${label} trace log index`));
+        if (parsed <= BigInt(Number.MAX_SAFE_INTEGER)) receiptArrayIndex = Number(parsed);
+      } catch {
+        receiptArrayIndex = null;
+      }
+    }
+    return receiptArrayIndex === receiptLog.receiptArrayIndex
       && sameAddress(log.address, receiptLog.address)
       && stableJson(log.topics) === stableJson(receiptLog.topics)
       && log.data === receiptLog.data;
@@ -457,7 +734,7 @@ export function createLooperWalletRpcClient({
     return { ...snapshots[0], refreshedAt: new Date().toISOString() };
   }
 
-  async function readReceipt({ hash }) {
+  async function readReceipt({ hash, transaction: expectedTransaction = null }) {
     const requestedHash = canonicalHash(hash, 'requested transaction hash');
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const evidence = await Promise.all(CONSOLE_RPC_ORIGINS.map(async (origin) => {
@@ -466,11 +743,62 @@ export function createLooperWalletRpcClient({
           activeRequest({ origin, method: 'eth_getTransactionByHash', params: [requestedHash] }),
         ]);
         if (!receipt || !transaction) return null;
-        return normalizeReceipt(receipt, transaction, requestedHash);
+        return { receipt, transaction, normalized: normalizeReceipt(receipt, transaction, requestedHash) };
       }));
       if (evidence.every(Boolean)) {
-        requireAgreement(evidence, 'Base transaction receipts disagree.');
-        return evidence[0];
+        requireAgreement(evidence.map((item) => item.normalized), 'Base transaction receipts disagree.');
+        const normalized = evidence[0].normalized;
+        if (!expectedTransaction || stableJson(normalized.transaction) === stableJson(expectedTransaction)) {
+          return normalized;
+        }
+        const wrappedEvidence = evidence.map((item) => normalizeWrappedReceiptEvidence(
+          item.receipt, item.transaction, requestedHash,
+        ));
+        requireAgreement(wrappedEvidence, 'Base wrapped transaction and raw receipt evidence disagree.');
+        const rawTransaction = evidence[0].transaction;
+        const rawReceipt = evidence[0].receipt;
+        const operation = decodeExactCoinbaseUserOperation(rawTransaction, expectedTransaction);
+        const blockTag = rawReceipt.blockNumber;
+        const userOpHashes = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => {
+          const before = await activeRequest({ origin, method: 'eth_getBlockByNumber', params: [blockTag, false] });
+          if (canonicalHash(before?.hash, 'UserOperation before block hash') !== rawReceipt.blockHash) {
+            throw new Error('Base UserOperation receipt block drifted before hash verification.');
+          }
+          const result = await callContract({
+            request: activeRequest,
+            origin,
+            blockRef: blockTag,
+            address: COINBASE_SMART_WALLET_PROFILE.entryPoint,
+            abi: ENTRY_POINT_V06_ABI,
+            functionName: 'getUserOpHash',
+            args: [operation],
+          });
+          const after = await activeRequest({ origin, method: 'eth_getBlockByNumber', params: [blockTag, false] });
+          if (canonicalHash(after?.hash, 'UserOperation after block hash') !== rawReceipt.blockHash) {
+            throw new Error('Base UserOperation receipt block drifted after hash verification.');
+          }
+          return result;
+        }));
+        requireAgreement(userOpHashes, 'Base EntryPoint UserOperation hashes disagree.');
+        const trace = await activeRequest({
+          origin: BASE_RPC_ORIGINS[1],
+          method: 'debug_traceTransaction',
+          params: [requestedHash, TRACE_OPTIONS],
+        });
+        const attribution = verifyCoinbaseWrappedTransaction({
+          transaction: rawTransaction,
+          receipt: rawReceipt,
+          expectedTransaction,
+          trace,
+          onchainUserOpHash: userOpHashes[0],
+        });
+        return deepFreeze({
+          ...normalized,
+          transaction: structuredClone(expectedTransaction),
+          outerTransaction: normalized.transaction,
+          attribution: attribution.attribution,
+          userOpHash: attribution.userOpHash,
+        });
       }
       await wait(2000);
     }
@@ -559,6 +887,35 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   const normalizedCollectionRegistry = getAddress(collectionRegistry);
   const normalizedCollectionImplementation = getAddress(collectionImplementation);
   const normalizedLegacyAccount = getAddress(legacyAccount);
+  const normalizedOperatorCode = canonicalCode(operatorCode, 'operator runtime', { allowEmpty: true });
+  let operatorImplementation = null;
+  let operatorImplementationRuntimeByteLength = null;
+  let operatorImplementationRuntimeSha256 = null;
+  let operatorEntryPoint = null;
+  let operatorEntryPointRuntimeByteLength = null;
+  let operatorEntryPointRuntimeSha256 = null;
+  if (normalizedOperatorCode === COINBASE_SMART_WALLET_PROFILE.proxyRuntime) {
+    const rawImplementationSlot = canonicalHash(await request({
+      origin, method: 'eth_getStorageAt', params: [expectedOwner, EIP1967_IMPLEMENTATION_SLOT, anchor.blockRef],
+    }), 'operator implementation slot');
+    if (!/^0x0{24}[0-9a-f]{40}$/.test(rawImplementationSlot)) {
+      throw new Error('Base operator implementation slot is malformed.');
+    }
+    operatorImplementation = getAddress(`0x${rawImplementationSlot.slice(-40)}`);
+    const [rawImplementationCode, entryPoint] = await Promise.all([
+      request({ origin, method: 'eth_getCode', params: [operatorImplementation, anchor.blockRef] }),
+      call(expectedOwner, COINBASE_SMART_WALLET_ABI, 'entryPoint'),
+    ]);
+    const implementationCode = canonicalCode(rawImplementationCode, 'operator implementation runtime');
+    operatorImplementationRuntimeByteLength = codeByteLength(implementationCode);
+    operatorImplementationRuntimeSha256 = sha256(implementationCode);
+    operatorEntryPoint = getAddress(entryPoint);
+    const entryPointCode = canonicalCode(await request({
+      origin, method: 'eth_getCode', params: [operatorEntryPoint, anchor.blockRef],
+    }), 'operator EntryPoint runtime');
+    operatorEntryPointRuntimeByteLength = codeByteLength(entryPointCode);
+    operatorEntryPointRuntimeSha256 = sha256(entryPointCode);
+  }
   let legacyRegistryAccount = null;
   if (sameAddress(normalizedCollectionRegistry, ERC6551_REGISTRY)) {
     legacyRegistryAccount = getAddress(await call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
@@ -739,7 +1096,13 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     account: normalizedAccount,
     collectionAccount: normalizedAccount,
     registryAccount,
-    operatorCode: canonicalCode(operatorCode, 'operator runtime', { allowEmpty: true }),
+    operatorCode: normalizedOperatorCode,
+    operatorImplementation,
+    operatorImplementationRuntimeByteLength,
+    operatorImplementationRuntimeSha256,
+    operatorEntryPoint,
+    operatorEntryPointRuntimeByteLength,
+    operatorEntryPointRuntimeSha256,
     accountCode,
     accountRuntimeSha256,
     accountCodeMatches,
@@ -861,6 +1224,35 @@ function normalizeReceipt(receipt, transaction, requestedHash) {
     transaction: normalizedTransaction,
     logs,
   };
+}
+
+function normalizeWrappedReceiptEvidence(receipt, transaction, requestedHash) {
+  if (canonicalHash(transaction?.hash, 'wrapped transaction hash') !== requestedHash
+    || canonicalHash(receipt?.transactionHash, 'wrapped receipt transaction hash') !== requestedHash) {
+    throw new Error('Base wrapped transaction hash evidence does not match the requested hash.');
+  }
+  requireReceiptCoordinates(transaction, receipt);
+  return deepFreeze({
+    transaction: {
+      hash: requestedHash,
+      chainId: canonicalHexQuantity(transaction.chainId, 'wrapped transaction chain ID'),
+      from: getAddress(transaction.from),
+      to: getAddress(transaction.to),
+      value: canonicalHexQuantity(transaction.value, 'wrapped transaction value'),
+      input: canonicalCode(transaction.input ?? '0x', 'wrapped transaction input', { allowEmpty: true }),
+      blockNumber: canonicalHexQuantity(transaction.blockNumber, 'wrapped transaction block number'),
+      blockHash: canonicalHash(transaction.blockHash, 'wrapped transaction block hash'),
+      transactionIndex: canonicalHexQuantity(transaction.transactionIndex, 'wrapped transaction index'),
+    },
+    receipt: {
+      status: receipt.status,
+      transactionHash: requestedHash,
+      blockNumber: canonicalHexQuantity(receipt.blockNumber, 'wrapped receipt block number'),
+      blockHash: canonicalHash(receipt.blockHash, 'wrapped receipt block hash'),
+      transactionIndex: canonicalHexQuantity(receipt.transactionIndex, 'wrapped receipt transaction index'),
+      logs: normalizeRawReceiptLogs(receipt),
+    },
+  });
 }
 
 function canonicalHexQuantity(value, label) {

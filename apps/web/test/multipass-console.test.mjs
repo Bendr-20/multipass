@@ -154,6 +154,14 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.match(root.querySelector('.console-wallet-workspace')?.textContent ?? '', /Bendr 2\.0/i);
   assert.equal(snapshot.identityCard.agentWallet.mode, 'active');
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
+
+  const coinbaseSnapshot = structuredClone(snapshot);
+  coinbaseSnapshot.identityCard.agentWallet.operatorProfile = 'coinbase_smart_wallet';
+  const coinbaseRoot = render(renderMultipassConsole(coinbaseSnapshot));
+  assert.equal(
+    coinbaseRoot.querySelector('[data-wallet-truth="owner-signer"] strong')?.textContent,
+    'Coinbase Smart Wallet',
+  );
 });
 
 test('mobile Console exposes a portrait agent switcher and four mutually exclusive workspaces', () => {
