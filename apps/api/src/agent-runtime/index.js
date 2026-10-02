@@ -866,7 +866,8 @@ function normalizeRuntimeCodexContext(value, tokenId) {
     'schemaVersion', 'artifactHash', 'codexVersion', 'identity', 'interpretation',
     'traits', 'versions', 'evidence',
   ]);
-  assertCodexObject(value.identity, ['tokenId', 'canonicalName']);
+  assertCodexObject(value.identity, ['tokenId', 'canonicalName', 'image']);
+  assertCodexObject(value.identity.image, ['url', 'id']);
   if (String(value.identity.tokenId) !== String(tokenId)) {
     throw new TypeError('codexContext identity does not match the selected Looper.');
   }
@@ -885,6 +886,7 @@ function normalizeRuntimeCodexContext(value, tokenId) {
     identity: {
       tokenId: String(value.identity.tokenId),
       canonicalName: codexText(value.identity.canonicalName),
+      image: normalizeCodexImage(value.identity.image),
     },
     interpretation: {
       primaryClass: codexText(value.interpretation.primaryClass),
@@ -937,6 +939,22 @@ function codexHash(value) {
   const hash = codexText(value);
   if (!/^[a-f0-9]{64}$/u.test(hash)) throw new TypeError('codexContext artifact hash is invalid.');
   return hash;
+}
+
+function normalizeCodexImage(value) {
+  const url = codexText(value.url);
+  const id = codexText(value.id);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new TypeError('codexContext image is invalid.');
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash
+    || !/^[A-Za-z0-9_-]{1,128}$/u.test(id)) {
+    throw new TypeError('codexContext image is invalid.');
+  }
+  return { url, id };
 }
 
 function normalizeCodexLabel(value) {

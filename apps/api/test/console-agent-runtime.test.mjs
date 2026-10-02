@@ -146,7 +146,14 @@ test('Codex context is revalidated, frozen, and grounded in the Bankr prompt wit
     schemaVersion: '1.0.0',
     artifactHash: 'a'.repeat(64),
     codexVersion: 'looper-trait-personality-matrix-v03',
-    identity: { tokenId: '1234', canonicalName: 'Codex Looper #1234' },
+    identity: {
+      tokenId: '1234',
+      canonicalName: 'Codex Looper #1234',
+      image: {
+        url: 'https://turbo-gateway.com/ipfs/codex-looper-1234',
+        id: 'codex_image_1234',
+      },
+    },
     interpretation: {
       primaryClass: 'Researcher',
       secondaryClass: 'Signal Analyst',
@@ -211,6 +218,7 @@ test('Codex context is revalidated, frozen, and grounded in the Bankr prompt wit
   assert.deepEqual(result.profile.codexContext, codexContext);
   assert.notEqual(result.profile.codexContext, codexContext);
   assert.equal(Object.isFrozen(result.profile.codexContext), true);
+  assert.equal(Object.isFrozen(result.profile.codexContext.identity.image), true);
   assert.equal(Object.isFrozen(result.profile.codexContext.interpretation.recommendedSkills), true);
   const prompt = requestBody.messages[0].content;
   assert.match(prompt, /verified Looper Codex data/i);
@@ -223,6 +231,18 @@ test('Codex context is revalidated, frozen, and grounded in the Bankr prompt wit
   assert.match(prompt, /do not invent.*collection facts/i);
   assert.doesNotMatch(prompt, new RegExp(WALLET, 'i'));
   assert.doesNotMatch(prompt, new RegExp('/srv/private/codex\.json|private posting list|entire private artifact|"enabled"', 'i'));
+  await assert.rejects(runtime.handleMessage({
+    wallet: WALLET,
+    canonicalIdentity,
+    message: 'Who are you?',
+    codexContext: {
+      ...codexContext,
+      identity: {
+        ...codexContext.identity,
+        image: { ...codexContext.identity.image, url: 'http://unsafe.test/image' },
+      },
+    },
+  }), /codexContext image is invalid/i);
 });
 
 test('Codex runtime boundary rejects projections with operational or unbounded fields', async () => {
