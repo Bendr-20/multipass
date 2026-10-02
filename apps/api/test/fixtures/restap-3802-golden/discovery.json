@@ -1,0 +1,86 @@
+{
+  "request": {
+    "method": "GET",
+    "route": "/api/restap/loopers/3802/.well-known/restap.json"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=60"
+    },
+    "body": {
+      "restap_version": "0.1.4-beta",
+      "agent": {
+        "name": "Looper #3802",
+        "contact": "https://helixa.xyz",
+        "x_helixa": {
+          "base_url": "https://helixa.xyz/multipass-api/api/restap/loopers/3802",
+          "canonical_image": "https://helixa.xyz/3802.png",
+          "display_name": "Q Looper",
+          "public_conversation_enabled": true,
+          "biography": "bio",
+          "mission": "mission",
+          "voice_presentation": "direct",
+          "codex": {
+            "schema_version": "1.0.0",
+            "artifact_hash": "5a776e6c2cacb211dedbbec7837416be46775f9e46a1a4cda4b3a96c70262f24",
+            "version": "v1"
+          }
+        }
+      },
+      "capabilities": [
+        {
+          "id": "talk",
+          "title": "Talk to Looper #3802",
+          "method": "POST",
+          "endpoint": "/talk",
+          "x_helixa": {
+            "available": true,
+            "authentication": "none",
+            "content_types": ["application/json"],
+            "output_formats": ["application/json"],
+            "sessions": { "supported": true },
+            "request_body_bytes": 8192,
+            "limits": {
+              "per_ip_per_minute": 20,
+              "per_session_per_minute": 10,
+              "global_concurrency": 4,
+              "global_per_day": 10000
+            }
+          }
+        },
+        {
+          "id": "news-write",
+          "title": "Submit passive news to Looper #3802",
+          "method": "POST",
+          "endpoint": "/news",
+          "x_helixa": {
+            "available": false,
+            "authentication": "restap-signature-v1",
+            "content_types": ["application/json"],
+            "output_formats": ["application/json"],
+            "sessions": { "supported": false },
+            "request_body_bytes": 16384,
+            "limits": { "page_default": 20, "page_max": 50 }
+          }
+        },
+        {
+          "id": "news-read",
+          "title": "Read Looper #3802 news as its current owner",
+          "method": "GET",
+          "endpoint": "/news",
+          "x_helixa": {
+            "available": false,
+            "authentication": "console-session-current-owner",
+            "content_types": ["application/json"],
+            "output_formats": ["application/json"],
+            "sessions": { "supported": false },
+            "request_body_bytes": 0,
+            "limits": { "page_default": 20, "page_max": 50 }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "route": "/api/restap/loopers/3802/news",
+    "headers": {
+      "content-type": "application/json",
+      "x-restap-nonce": "fixture-news-nonce"
+    },
+    "body": {
+      "type": "agent.update",
+      "message": "golden news"
+    }
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": null
+    },
+    "body": {
+      "x_helixa_accepted": true,
+      "x_helixa_item_id": "fixture-item-7",
+      "x_helixa_received_at": "2026-10-01T20:00:00.000Z"
+    }
+  }
+}

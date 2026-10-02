@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { buildRestap3802Discovery } from '../src/restap-3802-contracts.js';
@@ -12,6 +13,99 @@ const DISCOVERY = buildRestap3802Discovery({ publicBaseUrl: 'https://helixa.xyz/
 function api(overrides = {}) { const calls = []; const policyCalls = []; const instance = createMultipassApi({ store: createMemoryStore(), baseUrl: 'https://helixa.xyz/multipass-api', restapDiscoveryEnabled: false, restapTalkEnabled: false, restap3802Policy: { async authorize(input) { policyCalls.push(input); return { discovery: DISCOVERY, publicProjection: PUBLIC }; } }, restapTalkRuntime: { async talk(input) { calls.push(input); return { reply: 'public reply', session_id: input.sessionId ?? SESSION }; } }, logger: { info() {}, warn() {} }, ...overrides }); return { instance, calls, policyCalls }; }
 async function json(response) { return JSON.parse(await response.text()); }
 function request(path, { method = 'GET', body, headers = {} } = {}) { return new Request('https://helixa.xyz' + path, { method, headers, ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }) }); }
+
+const GOLDEN_FIXTURE_DIRECTORY = new URL('./fixtures/restap-3802-golden/', import.meta.url);
+const FIXTURE_TIMESTAMP = Date.parse('2026-10-01T20:00:00.000Z');
+
+async function loadGoldenFixture(name) {
+  return JSON.parse(await readFile(new URL(name, GOLDEN_FIXTURE_DIRECTORY), 'utf8'));
+}
+
+async function withFixtureClock(clock, operation) {
+  const originalNow = Date.now;
+  Date.now = clock;
+  try { return await operation(); }
+  finally { Date.now = originalNow; }
+}
+
+async function assertGoldenResponse(instance, fixture) {
+  const response = await instance.handleRequest(request(fixture.request.route, {
+    method: fixture.request.method,
+    headers: fixture.request.headers,
+    ...(fixture.request.body === undefined ? {} : { body: fixture.request.body }),
+  }));
+  assert.equal(response.status, fixture.response.status);
+  assert.equal(response.headers.get('content-type'), fixture.response.headers['content-type']);
+  assert.equal(response.headers.get('cache-control'), fixture.response.headers['cache-control']);
+  assert.equal(await response.text(), JSON.stringify(fixture.response.body));
+}
+
+test('successful #3802 routes remain byte-equivalent to deterministic golden responses', async () => {
+  const [discovery, talk, newsWrite, newsRead] = await Promise.all([
+    loadGoldenFixture('discovery.json'),
+    loadGoldenFixture('talk-success.json'),
+    loadGoldenFixture('news-write-success.json'),
+    loadGoldenFixture('news-read-success.json'),
+  ]);
+  const generators = Object.freeze({
+    clock: () => FIXTURE_TIMESTAMP,
+    sessionId: () => SESSION,
+    nonce: () => 'fixture-news-nonce',
+  });
+  const { instance } = api({
+    restapDiscoveryEnabled: true,
+    restapTalkEnabled: true,
+    restapNewsWriteEnabled: true,
+    restapNewsReadEnabled: true,
+    restapRateLimitNow: generators.clock,
+    restapTalkRuntime: { async talk() { return { reply: 'public reply', session_id: generators.sessionId() }; } },
+    restapNewsAuthenticator: {
+      async authenticate(input) {
+        assert.equal(input.headers.get('x-restap-nonce'), generators.nonce());
+        return {
+          senderId: 'agent.one',
+          verifiedSigner: '0x1111111111111111111111111111111111111111',
+          canonicalBody: JSON.stringify(input.body),
+          bodyHash: 'a'.repeat(64),
+          receivedAt: new Date(generators.clock()).toISOString(),
+          correlationId: null,
+          nonceHash: generators.nonce(),
+          replayExpiresAt: new Date(generators.clock() + 300_000).toISOString(),
+        };
+      },
+    },
+    restapNewsStore: {
+      accept(input) { return { itemId: 'fixture-item-7', receivedAt: input.receivedAt }; },
+      list() {
+        return {
+          items: [{ canonicalBody: { type: 'agent.update', message: 'golden news', data: { sequence: 1 } } }],
+          nextCursor: 'fixture-cursor',
+        };
+      },
+    },
+    consoleAuthStore: {
+      validateSession({ sessionId, requireCsrf }) {
+        assert.equal(sessionId, 'fixture-session');
+        assert.equal(requireCsrf, false);
+        return { wallet: '0x1111111111111111111111111111111111111111' };
+      },
+    },
+    loopersAuthorizer: async (input) => ({
+      chainId: 8453,
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      tokenId: '3802',
+      owner: input.wallet,
+      erc8004AgentId: '1',
+      controllerVerified: true,
+    }),
+  });
+
+  await withFixtureClock(generators.clock, async () => {
+    for (const fixture of [discovery, talk, newsWrite, newsRead]) {
+      await assertGoldenResponse(instance, fixture);
+    }
+  });
+});
 
 test('disabled RESTAP gates are ordinary 404s and remain independent', async () => {
   const off = api();

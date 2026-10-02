@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "route": "/api/restap/loopers/3802/news?limit=1",
+    "headers": { "cookie": "multipass_console=fixture-session" }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": null
+    },
+    "body": {
+      "items": [
+        {
+          "type": "agent.update",
+          "message": "golden news",
+          "data": { "sequence": 1 }
+        }
+      ],
+      "timestamp": 1790884800000,
+      "x_helixa_next_cursor": "fixture-cursor"
+    }
+  }
+}
