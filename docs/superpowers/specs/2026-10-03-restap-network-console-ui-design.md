@@ -22,14 +22,20 @@ Add a fifth Console workspace destination for the selected Looper:
 
 The button label is **Network** and its secondary label is **RESTAP**. It appears in both desktop and mobile workspace navigation. It opens a dedicated Network workspace; the RESTAP panel is removed from beneath the Multipass identity panel. Multipass remains focused on identity and Looper management.
 
-The Network button displays a small accessible status indicator derived only from the existing selected-Looper RESTAP state:
+The Network button displays a small accessible status indicator derived only from the existing selected-Looper RESTAP state. The mapping is total and uses this precedence:
 
-- **Locked:** network controls are unavailable in the current rollout phase.
-- **Ready:** the Looper is eligible and has an active lease, but network participation is off.
-- **Active:** the Looper is opted in.
-- **Paused:** the Looper has network configuration but cannot currently participate because its lease or eligibility is unavailable.
+1. No selected Looper: button disabled, **Select Looper**.
+2. `idle` or `loading` with a selected Looper: **Checking**.
+3. `saving` or any local mutation in flight: **Updating**.
+4. `conflict`: **Review**.
+5. `error`: **Error**.
+6. `unavailable` or no normalized policy: **Unavailable**.
+7. Settled policy with `networkEnabled=true`, `eligibilityStatus=eligible`, and `leaseStatus=active`: **Active**.
+8. Settled policy with `networkEnabled=true` and either authority status not usable: **Paused**.
+9. Settled policy with `networkEnabled=false`, `eligibilityStatus=eligible`, and `leaseStatus=active`: **Ready**.
+10. Every other settled policy combination: **Locked**.
 
-Color is never the only status signal. The visible text and an accessible label carry the same meaning.
+This ordering makes transient and exceptional states override the last settled policy. Color is never the only status signal. The visible text and accessible label carry the same meaning, including Checking, Updating, Review, Error, and Unavailable.
 
 Switching Loopers clears the previous Looper's RESTAP projection and loads the new Looper's state using the existing request-ID isolation. No RESTAP state appears in Chat, Codex, Wallet, or Multipass content.
 
@@ -43,7 +49,7 @@ The top of the workspace identifies the selected Looper and answers three questi
 - Is its activation lease active?
 - What has it used today?
 
-Eligibility, lease, and usage appear as compact status cards. Rollout-locked state uses a calm explanatory banner: **Foundation installed · participation unavailable**. It must not present policy controls as actionable while the server rejects policy access.
+Eligibility, lease, and usage appear as compact status cards. An unavailable response uses neutral copy: **Network participation is unavailable**. A 404 or 503 does not prove why the surface is unavailable and must never claim that foundation installation succeeded. Operator release evidence, not the owner UI, proves installation. The unavailable workspace exposes no policy or intent controls.
 
 ### 2. Network permissions
 
@@ -95,20 +101,15 @@ The durable intent ID remains an internal action attribute and is never displaye
 
 ### 7. Privacy and emergency controls
 
-A calm informational banner states that pilot conversation text stays in memory and transcripts are unavailable. It must not imply that provider processing or durable non-content accounting is absent.
+A calm informational banner states: **Pilot conversations are processed by the model provider but are not stored as transcripts by Helixa. Active text is held in process memory for the live conversation; Helixa retains bounded non-content accounting such as status, timestamps, keyed hashes, and usage.** Acceptance coverage must preserve all three distinctions: provider processing occurs, Helixa transcript persistence does not, and bounded non-content records remain durable.
 
 The emergency stop sits in a collapsed **Danger zone** at the bottom. Expanding it reveals the existing exact stop boundary and **Stop network participation** button. Stop still requires the current policy version and the existing confirmation step. Ordinary Console chat and onchain ownership remain unchanged.
 
 ## Responsive behavior
 
-Desktop uses a two-column command-center layout:
+The canonical DOM, screen-reader, and keyboard-focus order is the mobile sequence below. Desktop uses CSS grid areas to place that same DOM into a two-column command-center layout without CSS `order`, duplicated controls, or a visual order that changes the meaning of sequential navigation. Readiness and the danger zone span both columns; other sections fill the columns while preserving canonical focus progression.
 
-- left: permissions, limits, topics, advanced controls;
-- right: plan an introduction, scheduled work, privacy note;
-- readiness spans both columns;
-- danger zone spans both columns at the bottom.
-
-At narrow widths, the workspace becomes one vertical flow in this order:
+At narrow widths, the workspace displays the canonical sequence directly:
 
 1. readiness;
 2. permissions;
@@ -127,27 +128,32 @@ All controls have at least a 44px touch target. No horizontal scrolling is permi
 - Switches keep native checkbox semantics and receive visible labels and descriptions.
 - Topic chips remain native form controls, visually styled rather than replaced with inaccessible click targets.
 - Expandable sections use native details/summary or equivalent correct expanded-state semantics.
-- Loading, save success, conflicts, unavailable states, and errors use appropriate live/status regions without stealing focus.
+- Loading, save success, unavailable states, and ordinary errors use appropriate live/status regions without stealing focus.
+- Activating Network from workspace navigation leaves focus on the active Network button; the Network heading is the next logical focus target.
+- A rerender restores focus to the triggering logical action when it still exists. If cancel or stop removes that action, focus moves to the nearest surviving Scheduled work or Network heading. A conflict focuses its bounded conflict alert and places Refresh next in tab order. After a successful refresh replaces the button, focus moves to the Network heading.
 - Every interactive state has a visible focus style and sufficient contrast against the existing dark Console palette.
 - Reduced-motion preferences disable nonessential transitions.
 
 ## Data flow and boundaries
 
-This redesign reuses the existing RESTAP Console state, strict response normalization, authenticated API client, form field names, event actions, policy version checks, stale-response rejection, and selection isolation.
+This redesign reuses the existing RESTAP Console normalized projection, authenticated API client, form field names, event actions, policy version checks, stale-response rejection, and selection isolation. It adds bounded, process-local UI state keyed to the selected token and request generation: policy draft, intent draft, one active mutation kind, and one bounded status message. This transient state is never persisted and is cleared on Looper change, logout, or session invalidation.
 
-The UI may transform canonical values only for display. Form submission must continue producing the exact current policy, intent, cancel, and stop request bodies. No grant, lease ID, wallet value, operation ID, private policy, message content, or transcript state enters the DOM, browser storage, or response projection.
+Only one RESTAP mutation may be in flight for the selected Looper. Save, plan, cancel, and stop disable every RESTAP mutation trigger until their request settles. Policy and intent drafts remain visible after an ordinary failure. Successful policy save replaces the canonical projection from the server and resets its draft. Successful planning clears the intent draft. Cancel disables only after the global mutation lock is acquired and removes the card only from the returned normalized state. Stop clears drafts when the stopped projection returns. A policy conflict keeps the stale draft visible, disables another save, announces the conflict, and requires Refresh; successful Refresh replaces the projection and intentionally resets that stale draft. Repeat clicks during an in-flight action produce no request and no new idempotency key.
 
-No backend schema or route change is required. If implementation reveals that a desired visual status cannot be derived from the existing normalized state, the UI must use a conservative generic state rather than widening the API.
+The UI may transform canonical values only for display. Form submission must continue producing the exact current policy, intent, cancel, and stop request bodies. The authenticated current owner's projected policy may populate the form; the selected wallet label may remain in the existing Console shell; and an intent ID may remain only as the existing non-visible cancellation action attribute. The Network workspace must not render relay grants, signatures, cookies, activation IDs, lease IDs, operation IDs, other owners' policy, message bodies, transcript content, or wallet secrets. It adds no browser storage.
+
+No backend schema or route change is required. If implementation reveals that a desired visual status cannot be derived from the existing normalized state, the UI uses a conservative generic state rather than widening the API.
 
 ## Error handling
 
 - Loading uses a structured skeleton within the Network workspace rather than raw text.
-- A rollout-locked 404/503 uses the locked presentation and exposes no controls.
-- Other load errors show a bounded retry action.
-- A 409 policy conflict retains the visible projection, announces that state changed, and provides Refresh before another save.
-- Save and intent errors preserve entered values where safe and use bounded copy; raw server errors are never displayed.
-- Switching Loopers aborts or ignores stale requests and immediately clears the previous owner's projection.
-- Stop and cancel retain their existing confirmation and state rules.
+- A 404 or 503 uses neutral **Unavailable** presentation, makes no claim about cause, and exposes no controls.
+- Other load errors show bounded **Error** copy and a retry action.
+- A 409 policy conflict retains the visible canonical projection and stale draft, announces that state changed, blocks another save, and provides Refresh.
+- Save and intent errors preserve their process-local drafts and use bounded copy; raw server errors are never displayed.
+- Save, plan, cancel, and stop use the transient mutation rules defined above, including one in-flight mutation, repeat suppression, and deterministic focus restoration.
+- Switching Loopers aborts or ignores stale requests and immediately clears the previous owner's projection and all transient drafts.
+- Stop and cancel retain their existing confirmation and authority rules.
 
 ## Testing and acceptance
 
@@ -155,14 +161,15 @@ No backend schema or route change is required. If implementation reveals that a 
 
 - Network is a fifth desktop and mobile workspace destination.
 - Multipass no longer renders the RESTAP owner panel.
-- Navigation status maps correctly to locked, ready, active, and paused using existing normalized state.
-- Workspace switching and Looper switching cannot leak another Looper's projection.
+- Navigation status covers every precedence row and every normalized eligibility, lease, and network-enabled combination, including Checking, Updating, Review, Error, Unavailable, Locked, Ready, Active, and Paused labels.
+- Workspace switching and Looper switching cannot leak another Looper's canonical projection or transient draft.
 - Every existing field and action remains present with the exact request contract.
 - Advanced controls preserve values while collapsed.
 - Limits enforce current maxima.
 - Topic chips submit canonical values.
+- Save, plan, cancel, and stop allow only one in-flight mutation, suppress repeat requests and new idempotency keys, retain or clear drafts as specified, and restore focus deterministically.
 - Conflict, unavailable, error, saving, empty, scheduled, and danger-zone states render correctly.
-- Keyboard navigation, labels, expanded states, and live regions are covered.
+- Canonical DOM order, keyboard navigation, focus restoration, labels, expanded states, and live regions are covered.
 
 ### Browser proof
 
@@ -172,7 +179,8 @@ Capture and inspect authenticated sample-state renders at desktop and mobile wid
 - readable hierarchy and touch targets;
 - visible focus states;
 - selected Looper identity and network state match;
-- no private content, grant, raw wallet, or internal ID appears;
+- no relay secret, other-owner policy, message/transcript content, operation ID, activation ID, lease ID, or wallet secret appears; the existing non-visible intent cancellation attribute is permitted;
+- privacy copy explicitly distinguishes provider processing, no Helixa transcript persistence, and durable bounded non-content accounting;
 - Network and Multipass are separate destinations;
 - locked rollout state cannot mutate policy;
 - save, plan, cancel, conflict refresh, and stop confirmation interactions bind to their existing handlers.
