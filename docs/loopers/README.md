@@ -12,6 +12,7 @@ This folder turns the locked Telegram planning decisions into build artifacts:
 - [Sibyl Activation Demo](./sibyl-activation-demo.md)
 - [Secure Looper Activation Sprint 1](./secure-activation-sprint-1.md)
 - [Live XMTP Console Sprint 2](./live-xmtp-console-sprint-2.md)
+- [Active Looper RESTAP Network](./active-looper-restap-network.md)
 - [Build Task Index](./build-task-index.md)
 
 ## Current Implementation Surface

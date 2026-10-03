@@ -1,0 +1,227 @@
+# Active Looper RESTAP Network Operator Runbook
+
+This runbook covers the private Looper-to-Looper RESTAP network. It stops at the pre-live boundary unless the operator grants the next named approval. All command values below are placeholders only; never paste private keys, wallet signatures, session cookies, grants, or provider credentials into a command line or proof packet.
+
+## Architecture
+
+The network has six isolated layers:
+
+1. finalized Base custody and exact ERC-6551 account-integrity evidence;
+2. restart-inactive activation leases and custody-scoped owner policies;
+3. authenticated one-shot or daily intents created only by the current owner in Console;
+4. one fenced worker, atomic reservations, Ed25519 grants, and a no-tools public runtime;
+5. in-memory bounded conversations with hash-only durable accounting;
+6. fixed-label metrics, breakers, evidence snapshots, and rollback tooling.
+
+The public HTTP API exposes no RESTAP network relay route. Console owner routes are authenticated management surfaces. Internal discovery, opening, reply, and finalize calls remain same-process functions. The separate Looper #3802 canary remains a different namespace, database, policy, unit, gate family, and release proof.
+
+## Secrets, key rotation, and compromise
+
+- Keep the signing key, key registry, and protected policy in root-owned regular files with mode 0600.
+- Put only key IDs, algorithms, activation windows, public keys, and status in the registry. Never persist the private key in SQLite, logs, metrics, audits, browser storage, or proof packets.
+- Rotate with a reviewed signing key plus an overlap key. Verify both public entries before changing the signing key reference. Retire the old key only after the maximum grant lifetime and replay-retention window pass.
+- On compromise, mark the key compromised, open the global and provider breakers, disable replies then initiation, reconcile unknown charges, rotate key material, and require a new explicit phase approval.
+- Hash operational subjects with the active keyed identifier. Rotation changes the keyed namespace without exposing token IDs, wallets, operation IDs, or message hashes.
+
+## Database, WAL, and backup privacy
+
+The database stores authority coordinates, generations, counters, keyed digests, fixed status classes, and timestamps only. Message bodies, prompts, replies, grants, signatures, raw nonces, cookies, and IP addresses are forbidden. The same rule applies to SQLite, WAL, SHM, checkpoint copies, backup copies, logs, metrics, audits, and API responses.
+
+Before and after a rehearsal:
+
+- run SQLite integrity checking;
+- record table counts and WAL bytes;
+- copy the database and WAL with restrictive permissions;
+- scan live files and the backup with both a unique high-entropy sentinel and an ordinary low-entropy sentinel;
+- expect zero matches;
+- retain rows during rollback. Emergency disablement changes state and generations; it never deletes evidence rows.
+
+## Gate dependency matrix
+
+Gate order is cumulative and exact:
+
+- foundation requires the immutable release, artifact, approved providers, database, operational hash key, integrity resolver, signer registry, and all traffic off;
+- policy requires foundation and enables owner policy management only;
+- discovery requires policy and a protected pilot roster;
+- initiation requires discovery, the signer, coordinator, worker lease, and a positive cost limit;
+- replies requires initiation, bounded conversations, and the public no-tools runtime;
+- transcripts remain off during the pilot;
+- pilot requires a non-empty reviewed roster;
+- GA requires a separate GA approval; roster removal is another approval.
+
+The exact tuple order is foundation, policy, discovery, initiation, replies, transcripts, pilot, GA. Disable in this order: replies, initiation, discovery, policy, foundation.
+
+## Roster hashing
+
+Normalize canonical decimal token IDs, sort numerically, reject duplicates, join with a single newline, and SHA-256 the exact UTF-8 bytes. The proof packet records only the roster count and roster hash. Any roster change invalidates the previous approval and requires a new reviewed hash. Never infer roster membership from browser state or a cached owner list.
+
+## One-shot and daily pilot
+
+Only an authenticated current-owner Console session may create an intent. One-shot and daily forms use server-owned topics, peers, cadence, run time, expiry, attempt limit, and idempotency rules. Models, peers, callbacks, public HTTP clients, and inbound messages cannot schedule work.
+
+For a one-shot pilot, review the exact sender, recipient, topic, caps, gate tuple, roster hash, key-registry hash, and provider cost cap. For a daily pilot, additionally review next-occurrence behavior, missed-period skipping, expiry, attempt limits, and cancellation after custody, lease, policy, peer, gate, or breaker changes. One conversation must remain inside the immutable message, turn, TTL, concurrency, and cost bounds.
+
+## Metrics and alerts
+
+Use only the fixed metric names and allowlisted labels implemented by the operations module. Never label with token IDs, wallets, conversation IDs, operation IDs, intent IDs, grant IDs, nonce IDs, IP-derived values, policy JSON, or arbitrary errors.
+
+Alert immediately for split brain, post-revocation delivery, duplicate delivery, cap overrun, unknown key, any plaintext or private-dependency sentinel hit, queue age over ten minutes, any pilot unknown charge, database integrity failure, and unexplained restart. Budget warning thresholds are 80% and 100%; the pilot unknown-charge threshold is zero.
+
+The release snapshot contains the release SHA, PID, restart count, gate tuple, roster hash, key-registry hash, database integrity/counts/WAL bytes, backup status, and fixed test summaries. It contains no content or raw identifiers.
+
+## Seven-day evidence queries
+
+Run these against a read-only copy covering the full seven-day pilot window. Save bounded row counts and status classes, not raw content.
+
+### Duplicate delivery
+
+~~~sql
+SELECT conversation_id, delivery_sequence, COUNT(*) AS copies
+FROM restap_network_deliveries
+GROUP BY conversation_id, delivery_sequence
+HAVING COUNT(*) > 1;
+~~~
+
+Expected: 0 rows
+
+### Commit after epoch/policy/gate change
+
+~~~sql
+SELECT o.operation_id
+FROM restap_network_operations AS o
+WHERE o.status = 'committed'
+  AND (
+    o.sender_custody_generation <> (SELECT MAX(generation) FROM restap_network_custody_epochs WHERE token_id = o.sender_token_id)
+    OR o.recipient_custody_generation <> (SELECT MAX(generation) FROM restap_network_custody_epochs WHERE token_id = o.recipient_token_id)
+    OR o.sender_policy_version <> (SELECT MAX(policy_version) FROM restap_network_owner_policies WHERE token_id = o.sender_token_id)
+    OR o.recipient_policy_version <> (SELECT MAX(policy_version) FROM restap_network_owner_policies WHERE token_id = o.recipient_token_id)
+  );
+~~~
+
+Expected: 0 rows. Compare every committed operation's gate generation with the reviewed gate-generation ledger as a second check.
+
+### Cap overrun
+
+~~~sql
+SELECT bucket_id, used_units, reserved_units, limit_units
+FROM restap_network_quota_buckets
+WHERE used_units + reserved_units > limit_units;
+~~~
+
+Expected: 0 rows
+
+### Plaintext/private sentinel hit
+
+Scan the database, WAL, SHM, backup, captured logs, metrics, audits, and API evidence for both reviewed sentinels.
+
+Expected: 0 rows and zero byte matches
+
+### Bounded provider cost
+
+~~~sql
+SELECT bucket_start, bucket_end, used_units, limit_units
+FROM restap_network_quota_buckets
+WHERE scope_class = 'global' AND used_units > limit_units;
+~~~
+
+Expected: 0 rows. Also reconcile provider totals to durable charged and unknown-charge units.
+
+### Reviewed key/gate/roster hashes
+
+Compare each day's release snapshot with the approved release SHA, key-registry hash, gate tuple, and roster hash. Expected: one reviewed tuple per approved phase and no unknown hash.
+
+### One worker holder
+
+~~~sql
+SELECT COUNT(*) AS holders
+FROM restap_network_worker_lease
+WHERE expires_at > CAST(strftime('%s','now') AS INTEGER) * 1000;
+~~~
+
+Expected: one row whose holders value is 0 while initiation is off or 1 while initiation is on; never greater than 1.
+
+### Unexplained restart
+
+Compare the service PID and restart counter with the change ledger and approved deployment timestamps. Expected: 0 rows of unexplained restart evidence.
+
+## Unrouted canary
+
+Create the immutable release and use an isolated loopback port. Keep every gate false for the Phase 0 canary.
+
+~~~bash
+scripts/launch-looper-restap-network-canary.sh   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_0600_POLICY>   --key-registry <ROOT_0600_KEY_REGISTRY>   --database <RESTAP_NETWORK_DB>   --identity-file <CANARY_IDENTITY>   --pid-file <CANARY_PID>   --log-file <CANARY_LOG>   --port <LOOPBACK_PORT>
+~~~
+
+Run the closed smoke without mutation or provider access:
+
+~~~bash
+pnpm --filter @helixa/multipass-api smoke:restap-network --   --mode local   --phase phase0   --expected-gates 0,0,0,0,0,0,0,0   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_0600_POLICY>   --key-registry <ROOT_0600_KEY_REGISTRY>   --database <RESTAP_NETWORK_DB>   --fixture-key-ref signer=<ROOT_0600_SIGNING_KEY>
+~~~
+
+Prove schema and integrity, closed policy defaults, no public relay routes, signer registry readiness, inactive restart leases, zero worker holder, transcript unavailable, exact #3802 golden responses, and clean verified stop.
+
+## Promotion
+
+Inspect first:
+
+~~~bash
+scripts/promote-looper-restap-network.sh --inspect
+~~~
+
+Rehearse in the sandbox with the exact immutable inputs:
+
+~~~bash
+scripts/promote-looper-restap-network.sh --rehearsal   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_0600_POLICY>   --key-registry <ROOT_0600_KEY_REGISTRY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>
+~~~
+
+A live promotion is a separate command and requires the exact rehearsal proof:
+
+~~~bash
+scripts/promote-looper-restap-network.sh --promote   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_0600_POLICY>   --key-registry <ROOT_0600_KEY_REGISTRY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>   --rehearsal-proof <REHEARSAL_PROOF>
+~~~
+
+Do not run this live command without the named approval for that phase.
+
+## Rollback
+
+Disable replies, initiation, discovery, policy, then foundation. Preserve the network database and all unrelated service configuration.
+
+~~~bash
+scripts/promote-looper-restap-network.sh --rollback --backup <VERIFIED_BACKUP>
+~~~
+
+Verify the prior release, static root, database integrity and counts, gate tuple, PID/restart count, retained rows, #3802 golden HTTP, and zero sentinel hits.
+
+## Emergency stop
+
+Use the authenticated owner stop for one Looper or open the smallest matching breaker. A global emergency disables replies before initiation and never deletes evidence. Confirm pending pre-dispatch work is released, dispatched work is conservatively charged, leases are revoked or inactive, and ordinary Console chat and onchain ownership remain unchanged.
+
+## Custody rebuild
+
+Open the token breaker, stop new work, read two approved Base providers at the reviewed safe block, replay only exact finalized Transfer/controller events, require prior-safe hash continuity, and rebuild a monotonically higher custody generation. Reauthorization and a new owner policy are mandatory. An A-to-B-to-A transfer must never resurrect an old lease, policy, intent, grant, replay key, or quota authority.
+
+## Unknown-charge reconciliation
+
+Stop acquisition before reading provider totals. Compare provider totals with durable committed, charged-unknown, cancelled-charged, and failed-charged units. Any mismatch is unknown during the pilot, whose threshold is zero. Open the provider breaker, retain rows, document the bounded discrepancy, and require explicit approval before resuming.
+
+## #3802 isolation
+
+The #3802 public discovery, talk, news-write, and owner news-read routes retain their existing independent gates and golden bytes. The private network has separate table names, sessions, nonces, policies, replay keys, idempotency keys, quotas, gate generations, units, backups, and proof roots. Substitution in either direction must return the ordinary closed response. A network rollback must not disable or rewrite #3802.
+
+## Approval boundaries
+
+Approval: Phase 0 foundation
+
+Approval: internal discovery
+
+Approval: one-shot initiation
+
+Approval: daily schedules
+
+Approval: replies
+
+Approval: beta roster expansion
+
+Approval: GA roster removal
+
+Each approval authorizes only its named command and reviewed hashes. No later phase command may be appended or chained to an earlier command. Publication, provider-backed conversation, roster expansion, and GA remain separate operator decisions.
