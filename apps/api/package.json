@@ -27,6 +27,7 @@
   "scripts": {
     "start": "node src/server.js",
     "smoke:restap-3802": "node scripts/smoke-looper-restap-3802.mjs",
+    "smoke:restap-network": "node scripts/smoke-looper-restap-network.mjs",
     "loopers:activity-bot": "node scripts/run-loopers-activity-bot.js",
     "loopers:sales-bot": "node scripts/run-loopers-sales-bot.js",
     "xmtp:worker": "node src/xmtp-worker/run.js",
