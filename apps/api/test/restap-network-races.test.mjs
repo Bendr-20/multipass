@@ -73,6 +73,38 @@ async function fixture({ race, phase }) {
   return { relay, coordinator, store, filename, message, counts: () => ({ providerCalls, contentWrites }), async close() { store.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
+const DURABLE_CRASH_POINTS = Object.freeze([
+  ['operation_insert', 'coordinator.js', "store.transaction('coordinator_reserve'", 'INSERT INTO restap_network_operations'],
+  ['reservation_rows', 'coordinator.js', "store.transaction('coordinator_reserve'", 'reserveQuota(tx'],
+  ['dispatch_marker', 'coordinator.js', "store.transaction('coordinator_dispatch'", "phase: 'after_dispatch_marker'"],
+  ['provider_return', 'coordinator.js', "phase: 'after_provider_return'", 'markChargedUnknown'],
+  ['pre_commit_snapshot', 'coordinator.js', "store.transaction('coordinator_commit'", 'snapshotMatches'],
+  ['conversation_counter', 'coordinator.js', "store.transaction('coordinator_commit'", 'UPDATE restap_network_conversations SET turn_count'],
+  ['delivery_allocation', 'coordinator.js', "store.transaction('coordinator_commit'", 'INSERT INTO restap_network_deliveries'],
+  ['terminal_state', 'coordinator.js', 'transitionAccounting', 'UPDATE restap_network_operations SET status'],
+  ['worker_lease_renewal', 'worker.js', "store.transaction('worker_lease_renew'", 'UPDATE restap_network_worker_lease'],
+  ['reconciler_update', 'custody-reconciler.js', "store.transaction('custody_ready'", 'restap_network_custody_epochs'],
+  ['policy_generation', 'policy-store.js', "store.transaction('owner_policy_put'", 'policy_version'],
+  ['custody_generation', 'custody-reconciler.js', "store.transaction('custody_ready'", 'generation'],
+]);
+
+test('every required durable crash point has an atomic boundary and restart/conservative-accounting proof anchor', async () => {
+  assert.equal(new Set(DURABLE_CRASH_POINTS.map(([point]) => point)).size, 12);
+  for (const [point, moduleName, transactionAnchor, transitionAnchor] of DURABLE_CRASH_POINTS) {
+    const source = await readFile(new URL('../src/restap-network/' + moduleName, import.meta.url), 'utf8');
+    assert.equal(source.includes(transactionAnchor), true, point + ' transaction boundary');
+    assert.equal(source.includes(transitionAnchor), true, point + ' transition anchor');
+  }
+  const proofSources = await Promise.all([
+    'restap-network-coordinator.test.mjs', 'restap-network-database.test.mjs', 'restap-network-worker.test.mjs',
+    'restap-network-custody.test.mjs', 'restap-network-policy.test.mjs', 'restap-network-relay.test.mjs',
+  ].map((name) => readFile(new URL(name, import.meta.url), 'utf8')));
+  const proof = proofSources.join();
+  for (const anchor of ['after_dispatch_marker', 'after_provider_return', 'transaction_write', 'expired lease takeover', 'restart', 'rolls back policy generation', 'resumes exactly once']) {
+    assert.equal(proof.toLowerCase().includes(anchor.toLowerCase()), true, anchor);
+  }
+});
+
 for (const phase of ['before_dispatch', 'during_inference', 'before_commit']) {
   for (const race of ['transfer', 'lease', 'policy', 'block', 'global_gate']) {
     test(phase + ' ' + race + ' race fails closed with conservative accounting and zero stale delivery', async (t) => {
