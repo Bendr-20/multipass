@@ -1,5 +1,8 @@
 const TOPICS = Object.freeze(['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general']);
 const STATUSES = new Set(['idle', 'loading', 'ready', 'saving', 'error', 'conflict', 'unavailable']);
+const POLICY_RESPONSE_KEYS = Object.freeze(['schema_version', 'token_id', 'policy', 'lease_status', 'eligibility_status', 'quota_usage', 'transcripts']);
+const POLICY_KEYS = Object.freeze(['policy_version', 'custody_generation', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
+const INTENT_KEYS = Object.freeze(['intent_id', 'source', 'topic', 'status', 'earliest_at', 'expires_at', 'attempt_count', 'attempt_limit', 'next_eligible_at']);
 
 export const RESTAP_NETWORK_STOP_CONFIRMATION = 'Stop RESTAP network participation? This opts this Looper out, revokes its network lease, and cancels pending network work. It does not change onchain ownership or ordinary Console chat.';
 
@@ -13,7 +16,7 @@ export function beginConsoleRestapNetworkLoad(state, { tokenId, requestId }) {
 
 export function resolveConsoleRestapNetworkLoad(state, { tokenId, requestId, policyResponse, intentsResponse }) {
   if (!isCurrent(state, tokenId, requestId)) return state;
-  return Object.freeze({ status: 'ready', selectedTokenId: token(tokenId), requestId: integer(requestId, 0), policy: normalizeConsoleRestapNetworkPolicy(policyResponse, tokenId), intents: normalizeIntents(intentsResponse?.intents ?? [], tokenId), error: null });
+  return Object.freeze({ status: 'ready', selectedTokenId: token(tokenId), requestId: integer(requestId, 0), policy: normalizeConsoleRestapNetworkPolicy(policyResponse, tokenId), intents: normalizeIntents(intentsResponse, tokenId), error: null });
 }
 
 export function failConsoleRestapNetworkLoad(state, { tokenId, requestId, error }) {
@@ -30,9 +33,13 @@ export function clearConsoleRestapNetworkSelection(state, tokenId = null) {
 }
 
 export function normalizeConsoleRestapNetworkPolicy(value, expectedTokenId) {
-  if (!value || typeof value !== 'object' || value.token_id !== token(expectedTokenId)) throw new TypeError('RESTAP network policy response is invalid.');
+  exactResponseObject(value, POLICY_RESPONSE_KEYS, 'RESTAP network policy response');
+  if (value.schema_version !== '0.1.0' || value.token_id !== token(expectedTokenId)) throw new TypeError('RESTAP network policy response is invalid.');
   const p = value.policy;
-  if (!p || typeof p !== 'object' || value.transcripts?.available !== false || value.transcripts?.reason !== 'pilot_memory_only') throw new TypeError('RESTAP network policy response is invalid.');
+  exactResponseObject(p, POLICY_KEYS, 'RESTAP network policy response');
+  exactResponseObject(value.quota_usage, ['initiated', 'generated', 'cost_units'], 'RESTAP quota response');
+  exactResponseObject(value.transcripts, ['available', 'reason'], 'RESTAP transcript response');
+  if (value.transcripts.available !== false || value.transcripts.reason !== 'pilot_memory_only') throw new TypeError('RESTAP network policy response is invalid.');
   return deepFreeze({
     tokenId: value.token_id,
     policyVersion: integer(p.policy_version, 0), custodyGeneration: integer(p.custody_generation, 0),
@@ -75,7 +82,16 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
 }
 
 function renderIntents(intents, policyVersion) { if (!Array.isArray(intents) || !intents.length) return '<p>No scheduled RESTAP work.</p>'; return '<ul>' + intents.map((item) => '<li><strong>' + escapeHtml(item.topic) + '</strong> · ' + escapeHtml(item.source) + ' · ' + escapeHtml(item.status) + ' <time>' + escapeHtml(item.nextEligibleAt) + '</time>' + (['pending', 'leased'].includes(item.status) ? ' <button type="button" data-action="cancel-restap-network-intent" data-intent-id="' + escapeHtml(item.intentId) + '" data-expected-policy-version="' + policyVersion + '">Cancel</button>' : '') + '</li>').join('') + '</ul>'; }
-function normalizeIntents(values, tokenId) { if (!Array.isArray(values) || values.length > 256) throw new TypeError('RESTAP intents response is invalid.'); return Object.freeze(values.map((value) => { if (!value || typeof value !== 'object') throw new TypeError('RESTAP intent is invalid.'); return Object.freeze({ tokenId: token(tokenId), intentId: identifier(value.intent_id), source: closed(value.source, ['one_shot', 'daily']), topic: closed(value.topic, TOPICS), status: closed(value.status, ['pending', 'leased', 'completed', 'cancelled', 'expired', 'exhausted']), earliestAt: canonicalTime(value.earliest_at), expiresAt: canonicalTime(value.expires_at), nextEligibleAt: canonicalTime(value.next_eligible_at), attemptCount: integer(value.attempt_count, 0), attemptLimit: integer(value.attempt_limit, 1) }); })); }
+function normalizeIntents(response, tokenId) {
+  exactResponseObject(response, ['schema_version', 'token_id', 'intents'], 'RESTAP intents response');
+  const expectedTokenId = token(tokenId);
+  if (response.schema_version !== '0.1.0' || response.token_id !== expectedTokenId || !Array.isArray(response.intents) || response.intents.length > 256) throw new TypeError('RESTAP intents response is invalid.');
+  return Object.freeze(response.intents.map((value) => {
+    exactResponseObject(value, INTENT_KEYS, 'RESTAP intent');
+    return Object.freeze({ tokenId: expectedTokenId, intentId: identifier(value.intent_id), source: closed(value.source, ['one_shot', 'daily']), topic: closed(value.topic, TOPICS), status: closed(value.status, ['pending', 'leased', 'completed', 'cancelled', 'expired', 'exhausted']), earliestAt: canonicalTime(value.earliest_at), expiresAt: canonicalTime(value.expires_at), nextEligibleAt: canonicalTime(value.next_eligible_at), attemptCount: integer(value.attempt_count, 0), attemptLimit: integer(value.attempt_limit, 1) });
+  }));
+}
+function exactResponseObject(value, keys, label) { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError(label + ' is invalid.'); const actual = Reflect.ownKeys(value); const allowed = new Set(keys); if (actual.length !== keys.length) throw new TypeError(label + ' is invalid.'); for (const key of actual) { if (typeof key !== 'string' || !allowed.has(key)) throw new TypeError(label + ' is invalid.'); const descriptor = Object.getOwnPropertyDescriptor(value, key); if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.enumerable !== true) throw new TypeError(label + ' is invalid.'); } for (const key of keys) if (!Object.hasOwn(value, key)) throw new TypeError(label + ' is invalid.'); }
 function isCurrent(state, tokenId, requestId) { return state?.selectedTokenId === token(tokenId) && state?.requestId === integer(requestId, 0); }
 function checkbox(name, label, checked) { return '<label><input type="checkbox" name="' + escapeHtml(name) + '"' + (checked ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>'; }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/gu, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]); }

@@ -2,6 +2,9 @@ const TOPICS = Object.freeze(['collection-lore', 'trait-discussion', 'market-obs
 const CADENCES = Object.freeze(['once', 'daily']);
 const POLICY_KEYS = Object.freeze(['expected_policy_version', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
 const INTENT_KEYS = Object.freeze(['peer_token_ids', 'topic', 'cadence', 'run_at', 'idempotency_key']);
+const POLICY_RESPONSE_KEYS = Object.freeze(['schema_version', 'token_id', 'policy', 'lease_status', 'eligibility_status', 'quota_usage', 'transcripts']);
+const PROJECTED_POLICY_KEYS = Object.freeze(['policy_version', 'custody_generation', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
+const PROJECTED_INTENT_KEYS = Object.freeze(['intent_id', 'source', 'topic', 'status', 'earliest_at', 'expires_at', 'attempt_count', 'attempt_limit', 'next_eligible_at']);
 
 export class ConsoleRestapNetworkApiError extends Error {
   constructor({ status, code }) {
@@ -17,44 +20,104 @@ export function createConsoleRestapNetworkApi({ fetchImpl, apiBase = '' } = {}) 
   if (typeof activeFetch !== 'function') throw new TypeError('fetchImpl must be a function.');
   const base = String(apiBase ?? '').replace(/\/$/u, '');
 
-  async function call(path, { method = 'GET', csrfToken = null, body, signal } = {}) {
+  async function call(path, { method = 'GET', csrfToken = null, body, signal, validate } = {}) {
     const headers = { accept: 'application/json' };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (csrfToken !== null) headers['x-csrf-token'] = boundedText(csrfToken, 'csrfToken', 512);
-    const response = await activeFetch(base + path, { method, credentials: 'include', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), ...(signal ? { signal } : {}) });
+    let response;
+    try {
+      response = await activeFetch(base + path, { method, credentials: 'include', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), ...(signal ? { signal } : {}) });
+    } catch {
+      throw new ConsoleRestapNetworkApiError({ status: 0, code: 'restap_network_unavailable' });
+    }
     let payload = null;
     try { payload = await response.json(); } catch {}
     if (!response.ok) throw new ConsoleRestapNetworkApiError({ status: response.status, code: payload?.error?.code });
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new ConsoleRestapNetworkApiError({ status: 503, code: 'invalid_response' });
-    return payload;
+    if (!validate) return payload;
+    try { return validate(payload); } catch { throw new ConsoleRestapNetworkApiError({ status: 503, code: 'invalid_response' }); }
   }
 
   return Object.freeze({
     getPolicy(input) {
       exactObject(input, ['signal', 'tokenId'], 'get policy', new Set(['signal']));
-      return call(path(input.tokenId, 'policy'), { signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'policy'), { signal: input.signal, validate: (payload) => validatePolicyResponse(payload, tokenId) });
     },
     putPolicy(input) {
       exactObject(input, ['csrfToken', 'policy', 'signal', 'tokenId'], 'put policy', new Set(['signal']));
-      return call(path(input.tokenId, 'policy'), { method: 'PUT', csrfToken: input.csrfToken, body: normalizePolicy(input.policy), signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'policy'), { method: 'PUT', csrfToken: input.csrfToken, body: normalizePolicy(input.policy), signal: input.signal, validate: (payload) => validatePolicyResponse(payload, tokenId) });
     },
     createIntent(input) {
       exactObject(input, ['csrfToken', 'intent', 'signal', 'tokenId'], 'create intent', new Set(['signal']));
-      return call(path(input.tokenId, 'intents'), { method: 'POST', csrfToken: input.csrfToken, body: normalizeIntent(input.intent), signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'intents'), { method: 'POST', csrfToken: input.csrfToken, body: normalizeIntent(input.intent), signal: input.signal, validate: (payload) => validateIntentResponse(payload, tokenId, false) });
     },
     listIntents(input) {
       exactObject(input, ['signal', 'tokenId'], 'list intents', new Set(['signal']));
-      return call(path(input.tokenId, 'intents'), { signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'intents'), { signal: input.signal, validate: (payload) => validateIntentResponse(payload, tokenId, true) });
     },
     deleteIntent(input) {
       exactObject(input, ['csrfToken', 'expectedPolicyVersion', 'intentId', 'signal', 'tokenId'], 'delete intent', new Set(['signal']));
-      return call(path(input.tokenId, 'intents/' + encodeURIComponent(identifier(input.intentId, 'intentId'))), { method: 'DELETE', csrfToken: input.csrfToken, body: { expected_policy_version: version(input.expectedPolicyVersion) }, signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'intents/' + encodeURIComponent(identifier(input.intentId, 'intentId'))), { method: 'DELETE', csrfToken: input.csrfToken, body: { expected_policy_version: version(input.expectedPolicyVersion) }, signal: input.signal, validate: (payload) => validateIntentResponse(payload, tokenId, false) });
     },
     stop(input) {
       exactObject(input, ['csrfToken', 'expectedPolicyVersion', 'signal', 'tokenId'], 'stop', new Set(['signal']));
-      return call(path(input.tokenId, 'stop'), { method: 'POST', csrfToken: input.csrfToken, body: { expected_policy_version: version(input.expectedPolicyVersion) }, signal: input.signal });
+      const tokenId = token(input.tokenId);
+      return call(path(tokenId, 'stop'), { method: 'POST', csrfToken: input.csrfToken, body: { expected_policy_version: version(input.expectedPolicyVersion) }, signal: input.signal, validate: (payload) => validatePolicyResponse(payload, tokenId) });
     },
   });
+}
+
+function validatePolicyResponse(value, expectedTokenId) {
+  exactObject(value, POLICY_RESPONSE_KEYS, 'policy response');
+  if (value.schema_version !== '0.1.0' || token(value.token_id) !== expectedTokenId) throw new TypeError('policy response is invalid.');
+  exactObject(value.policy, PROJECTED_POLICY_KEYS, 'projected policy');
+  for (const key of ['network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled']) if (typeof value.policy[key] !== 'boolean') throw new TypeError('projected policy is invalid.');
+  version(value.policy.policy_version);
+  version(value.policy.custody_generation);
+  integer(value.policy.daily_initiated_conversation_limit, 0, 10);
+  integer(value.policy.daily_generated_message_limit, 0, 30);
+  integer(value.policy.per_peer_daily_limit, 0, 5);
+  closedArray(value.policy.topics, TOPICS, 'topics');
+  tokenArray(value.policy.allow_peer_token_ids);
+  tokenArray(value.policy.block_peer_token_ids);
+  if (value.policy.mute_until !== null) canonicalTime(value.policy.mute_until);
+  closed(value.lease_status, ['active', 'inactive', 'unavailable'], 'lease status');
+  closed(value.eligibility_status, ['eligible', 'unavailable'], 'eligibility status');
+  exactObject(value.quota_usage, ['initiated', 'generated', 'cost_units'], 'quota usage');
+  integer(value.quota_usage.initiated, 0, Number.MAX_SAFE_INTEGER);
+  integer(value.quota_usage.generated, 0, Number.MAX_SAFE_INTEGER);
+  integer(value.quota_usage.cost_units, 0, Number.MAX_SAFE_INTEGER);
+  exactObject(value.transcripts, ['available', 'reason'], 'transcripts');
+  if (value.transcripts.available !== false || value.transcripts.reason !== 'pilot_memory_only') throw new TypeError('transcripts are invalid.');
+  return value;
+}
+
+function validateIntentResponse(value, expectedTokenId, list) {
+  exactObject(value, ['schema_version', 'token_id', list ? 'intents' : 'intent'], 'intent response');
+  if (value.schema_version !== '0.1.0' || token(value.token_id) !== expectedTokenId) throw new TypeError('intent response is invalid.');
+  if (list) {
+    if (!Array.isArray(value.intents) || value.intents.length > 256) throw new TypeError('intent response is invalid.');
+    for (const intent of value.intents) validateProjectedIntent(intent);
+  } else validateProjectedIntent(value.intent);
+  return value;
+}
+
+function validateProjectedIntent(value) {
+  exactObject(value, PROJECTED_INTENT_KEYS, 'projected intent');
+  identifier(value.intent_id, 'intent_id');
+  closed(value.source, ['one_shot', 'daily'], 'source');
+  closed(value.topic, TOPICS, 'topic');
+  closed(value.status, ['pending', 'leased', 'completed', 'cancelled', 'expired', 'exhausted'], 'status');
+  canonicalTime(value.earliest_at);
+  canonicalTime(value.expires_at);
+  canonicalTime(value.next_eligible_at);
+  integer(value.attempt_count, 0, Number.MAX_SAFE_INTEGER);
+  integer(value.attempt_limit, 1, Number.MAX_SAFE_INTEGER);
 }
 
 function path(tokenId, suffix) { return '/api/multipass/console/restap-network/' + encodeURIComponent(token(tokenId)) + '/' + suffix; }

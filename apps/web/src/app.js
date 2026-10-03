@@ -117,6 +117,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileInFlight = new Map();
   let consoleReleasedLooperAbortController = null;
   let consoleRestapNetworkAbortController = null;
+  let consoleRestapNetworkMutationAbortController = null;
   const consoleCodexCache = new Map();
   let consoleCodexArtifactHash = null;
   let preparedConsoleChallenge = null;
@@ -131,6 +132,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleImagePreview?.clear();
   };
   const clearConsoleSessionStateWithPreview = (currentState, options) => {
+    consoleRestapNetworkAbortController?.abort();
+    consoleRestapNetworkAbortController = null;
+    consoleRestapNetworkMutationAbortController?.abort();
+    consoleRestapNetworkMutationAbortController = null;
     clearConsoleImagePreview();
     consoleCodexCache.clear();
     consoleCodexArtifactHash = null;
@@ -1700,6 +1705,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       normalizedTokenId,
     );
     const selectionChanged = normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim();
+    if (selectionChanged) {
+      consoleRestapNetworkAbortController?.abort();
+      consoleRestapNetworkAbortController = null;
+      consoleRestapNetworkMutationAbortController?.abort();
+      consoleRestapNetworkMutationAbortController = null;
+    }
     const activationRequestId = state.consoleActivationRequestId + 1;
     const codexRequestId = state.consoleCodexRequestId + 1;
     if (resetSelection && selectionChanged) clearConsoleImagePreview();
@@ -1777,15 +1788,14 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const topics = [...(form?.querySelectorAll?.('[name^="topic:"]:checked') ?? [])].map((input) => input.name.slice(6));
     const splitTokens = (name) => String(form?.elements?.namedItem?.(name)?.value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
     const value = (name) => form?.elements?.namedItem?.(name);
-    try {
-      await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, policy: {
+    return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
+      await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, signal, policy: {
         expected_policy_version: current.policyVersion,
         network_enabled: Boolean(value('network_enabled')?.checked), inbound_enabled: Boolean(value('inbound_enabled')?.checked), autonomous_initiation_enabled: Boolean(value('autonomous_initiation_enabled')?.checked),
         daily_initiated_conversation_limit: Number(value('daily_initiated_conversation_limit')?.value), daily_generated_message_limit: Number(value('daily_generated_message_limit')?.value), per_peer_daily_limit: Number(value('per_peer_daily_limit')?.value),
         topics, allow_peer_token_ids: splitTokens('allow_peer_token_ids'), block_peer_token_ids: splitTokens('block_peer_token_ids'), mute_until: value('mute_until')?.value ? new Date(value('mute_until').value).toISOString() : null,
       } });
-      await loadConsoleRestapNetworkForSelection(tokenId);
-    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+    });
   }
 
   async function createConsoleRestapNetworkIntent(event) {
@@ -1794,22 +1804,20 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     if (!tokenId) return;
     const form = event?.currentTarget;
     const value = (name) => form?.elements?.namedItem?.(name)?.value ?? '';
-    try {
-      await activeRestapNetworkApi.createIntent({ tokenId, csrfToken: state.consoleCsrfToken, intent: {
+    return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
+      await activeRestapNetworkApi.createIntent({ tokenId, csrfToken: state.consoleCsrfToken, signal, intent: {
         peer_token_ids: String(value('peer_token_ids')).split(',').map((item) => item.trim()).filter(Boolean), topic: String(value('topic')), cadence: String(value('cadence')), run_at: new Date(value('run_at')).toISOString(), idempotency_key: 'console-intent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14),
       } });
-      await loadConsoleRestapNetworkForSelection(tokenId);
-    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+    });
   }
 
   async function cancelConsoleRestapNetworkIntent(event) {
     const button = event?.currentTarget;
     const tokenId = state.consoleRestapNetwork?.selectedTokenId;
     if (!tokenId) return;
-    try {
-      await activeRestapNetworkApi.deleteIntent({ tokenId, csrfToken: state.consoleCsrfToken, intentId: button?.dataset?.intentId, expectedPolicyVersion: Number(button?.dataset?.expectedPolicyVersion) });
-      await loadConsoleRestapNetworkForSelection(tokenId);
-    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+    return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
+      await activeRestapNetworkApi.deleteIntent({ tokenId, csrfToken: state.consoleCsrfToken, signal, intentId: button?.dataset?.intentId, expectedPolicyVersion: Number(button?.dataset?.expectedPolicyVersion) });
+    });
   }
 
   async function stopConsoleRestapNetwork() {
@@ -1817,10 +1825,31 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const policyVersion = state.consoleRestapNetwork?.policy?.policyVersion;
     if (!tokenId || !Number.isSafeInteger(policyVersion)) return;
     if (globalThis.confirm?.('This opts the Looper out, revokes its network lease, and cancels pending work. Ordinary Console chat and onchain ownership are unchanged.') !== true) return;
+    return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
+      await activeRestapNetworkApi.stop({ tokenId, csrfToken: state.consoleCsrfToken, signal, expectedPolicyVersion: policyVersion });
+    });
+  }
+
+  async function runConsoleRestapNetworkMutation(tokenId, operation) {
+    consoleRestapNetworkMutationAbortController?.abort();
+    const controller = new AbortController();
+    consoleRestapNetworkMutationAbortController = controller;
+    const context = { tokenId, sessionGeneration: state.consoleSessionGeneration };
+    const isCurrent = () => !controller.signal.aborted
+      && consoleRestapNetworkMutationAbortController === controller
+      && context.sessionGeneration === state.consoleSessionGeneration
+      && context.tokenId === state.consoleRestapNetwork?.selectedTokenId
+      && context.tokenId === String(state.consoleSelectedAgentId ?? '').trim();
     try {
-      await activeRestapNetworkApi.stop({ tokenId, csrfToken: state.consoleCsrfToken, expectedPolicyVersion: policyVersion });
+      await operation(controller.signal);
+      if (!isCurrent()) return;
       await loadConsoleRestapNetworkForSelection(tokenId);
-    } catch (error) { setConsoleRestapNetworkError(tokenId, error); }
+    } catch (error) {
+      if (!isCurrent()) return;
+      setConsoleRestapNetworkError(tokenId, error);
+    } finally {
+      if (consoleRestapNetworkMutationAbortController === controller) consoleRestapNetworkMutationAbortController = null;
+    }
   }
 
   function setConsoleRestapNetworkError(tokenId, error) {
@@ -2006,8 +2035,6 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function resetConsoleSession() {
     abortConsoleReleasedLooperDiscovery();
-    consoleRestapNetworkAbortController?.abort();
-    consoleRestapNetworkAbortController = null;
     clearConsoleImagePreview();
     consoleCodexCache.clear();
     consoleCodexArtifactHash = null;
@@ -2026,7 +2053,6 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       consoleThreadGeneration: Number(state.consoleThreadGeneration ?? 0) + 1,
       consoleCodexRequestId: Number(state.consoleCodexRequestId ?? 0) + 1,
       consoleCodex: createInitialConsoleCodexState(),
-      consoleRestapNetwork: createInitialConsoleRestapNetworkState(state.consoleSelectedAgentId),
       consoleAgentThread: {
         ...createInitialConsoleAgentThreadState(),
         status: 'idle',
@@ -2916,7 +2942,7 @@ function createConsoleClientMessageId() {
   return `console_${Date.now().toString(36)}_${random}`;
 }
 
-function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = null, error = null } = {}) {
+export function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = null, error = null } = {}) {
   return {
     ...state,
     walletSnapshot,
@@ -2944,6 +2970,7 @@ function clearConsoleSessionState(state = {}, { walletSnapshot = {}, status = nu
     consoleParticipantAgentIds: [],
     consoleAgentThread: createInitialConsoleAgentThreadState(),
     consoleCodex: createInitialConsoleCodexState(),
+    consoleRestapNetwork: createInitialConsoleRestapNetworkState(),
     looperAgentWallet: {
       mode: 'read_only',
       reason: 'not_selected',

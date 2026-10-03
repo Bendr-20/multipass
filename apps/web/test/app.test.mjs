@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
 import { bindConsoleAvatarFallbacks, captureConsoleInteractionState, createApp, getConsoleMessageIdentity, restoreConsoleInteractionState } from '../src/app.js';
+import * as appModule from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/multipass-console.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
@@ -20,6 +21,163 @@ test('Console RESTAP network integration aborts stale selection reads and binds 
   assert.match(source, /saveConsoleRestapNetworkPolicy/);
   assert.match(source, /cancelConsoleRestapNetworkIntent/);
   assert.match(source, /stopConsoleRestapNetwork/);
+});
+
+test('Console session clearing drops owner-scoped RESTAP policy state', () => {
+  assert.equal(typeof appModule.clearConsoleSessionState, 'function');
+  const cleared = appModule.clearConsoleSessionState({
+    consoleSessionGeneration: 4,
+    consoleRestapNetwork: {
+      status: 'ready', selectedTokenId: '617', requestId: 9,
+      policy: { tokenId: '617', networkEnabled: true }, intents: [{ intentId: 'intent-private' }], error: null,
+    },
+  }, { walletSnapshot: { connected: true, address: '0x2222222222222222222222222222222222222222' } });
+  assert.equal(cleared.consoleRestapNetwork.status, 'idle');
+  assert.equal(cleared.consoleRestapNetwork.selectedTokenId, null);
+  assert.equal(cleared.consoleRestapNetwork.policy, null);
+  assert.deepEqual(cleared.consoleRestapNetwork.intents, []);
+});
+
+test('Console RESTAP forms invoke save create cancel stop and refresh through real DOM bindings', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const restap = createConsoleRestapApiFixture();
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+
+  let form = root.querySelector('[data-restap-network-policy]');
+  assert.ok(form);
+  form.elements.namedItem('network_enabled').checked = true;
+  form.elements.namedItem('inbound_enabled').checked = true;
+  form.elements.namedItem('autonomous_initiation_enabled').checked = true;
+  form.elements.namedItem('daily_initiated_conversation_limit').value = '4';
+  form.elements.namedItem('daily_generated_message_limit').value = '9';
+  form.elements.namedItem('per_peer_daily_limit').value = '2';
+  form.querySelector('[name="topic:general"]').checked = true;
+  form.elements.namedItem('allow_peer_token_ids').value = '2, 3';
+  form.elements.namedItem('block_peer_token_ids').value = '4';
+  form.elements.namedItem('mute_until').value = '2026-10-04T00:00';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  const save = restap.calls.find(([name]) => name === 'putPolicy')?.[1];
+  assert.deepEqual(save.policy, { expected_policy_version: 3, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: true, daily_initiated_conversation_limit: 4, daily_generated_message_limit: 9, per_peer_daily_limit: 2, topics: ['general'], allow_peer_token_ids: ['2', '3'], block_peer_token_ids: ['4'], mute_until: '2026-10-04T00:00:00.000Z' });
+  assert.equal(save.csrfToken, 'test-csrf');
+  assert.equal(typeof save.signal?.aborted, 'boolean');
+
+  form = root.querySelector('[data-restap-network-intent]');
+  form.elements.namedItem('peer_token_ids').value = '2';
+  form.elements.namedItem('topic').value = 'general';
+  form.elements.namedItem('cadence').value = 'daily';
+  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  const created = restap.calls.find(([name]) => name === 'createIntent')?.[1];
+  assert.deepEqual({ ...created.intent, idempotency_key: '<generated>' }, { peer_token_ids: ['2'], topic: 'general', cadence: 'daily', run_at: '2026-10-05T00:00:00.000Z', idempotency_key: '<generated>' });
+  assert.equal(typeof created.signal?.aborted, 'boolean');
+
+  root.querySelector('[data-action="cancel-restap-network-intent"]')?.click();
+  await flushAsyncEvents(20);
+  const cancelled = restap.calls.find(([name]) => name === 'deleteIntent')?.[1];
+  assert.equal(cancelled.intentId, 'intent-console-000000000000000000001');
+  assert.equal(cancelled.expectedPolicyVersion, 3);
+  assert.equal(typeof cancelled.signal?.aborted, 'boolean');
+
+  const previousConfirm = globalThis.confirm;
+  globalThis.confirm = () => true;
+  try {
+    root.querySelector('[data-action="stop-restap-network"]')?.click();
+    await flushAsyncEvents(20);
+  } finally {
+    globalThis.confirm = previousConfirm;
+  }
+  const stopped = restap.calls.find(([name]) => name === 'stop')?.[1];
+  assert.equal(stopped.expectedPolicyVersion, 3);
+  assert.equal(typeof stopped.signal?.aborted, 'boolean');
+
+  const getCount = restap.calls.filter(([name]) => name === 'getPolicy').length;
+  const conflict = Object.assign(new Error('private conflict details'), { status: 409, code: 'version_conflict' });
+  restap.api.putPolicy = async (input) => { restap.calls.push(['putPolicyConflict', input]); throw conflict; };
+  form = root.querySelector('[data-restap-network-policy]');
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.ok(root.querySelector('[data-action="refresh-restap-network"]'));
+  root.querySelector('[data-action="refresh-restap-network"]').click();
+  await flushAsyncEvents(20);
+  assert.equal(restap.calls.filter(([name]) => name === 'getPolicy').length, getCount + 1);
+});
+
+test('Hide chat locally preserves loaded RESTAP controls', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const restap = createConsoleRestapApiFixture();
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Owner controls for Looper #617/);
+  app.resetConsoleSession();
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Owner controls for Looper #617/);
+  assert.doesNotMatch(root.querySelector('.console-restap-network')?.textContent ?? '', /Loading/);
+});
+
+test('Looper selection aborts an in-flight RESTAP mutation and suppresses its stale reload', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let resolveSave;
+  const pendingSave = new Promise((resolve) => { resolveSave = resolve; });
+  const restap = createConsoleRestapApiFixture({ putPolicy: () => pendingSave });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  root.querySelector('[data-restap-network-policy]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  const save = restap.calls.find(([name]) => name === 'putPolicy')?.[1];
+  assert.equal(typeof save.signal?.aborted, 'boolean');
+  await app.selectConsoleAgentById('812');
+  assert.equal(save.signal.aborted, true);
+  resolveSave(createConsoleRestapPolicyResponse('617'));
+  await flushAsyncEvents(20);
+  assert.equal(restap.calls.filter(([name, input]) => name === 'getPolicy' && input.tokenId === '617').length, 1);
+});
+
+test('Console session boundary aborts an in-flight RESTAP mutation', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let resolveIntent;
+  const pendingIntent = new Promise((resolve) => { resolveIntent = resolve; });
+  const restap = createConsoleRestapApiFixture({ createIntent: () => pendingIntent });
+  const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(), walletClient,
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  const form = root.querySelector('[data-restap-network-intent]');
+  form.elements.namedItem('peer_token_ids').value = '2';
+  form.elements.namedItem('topic').value = 'general';
+  form.elements.namedItem('cadence').value = 'once';
+  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  const created = restap.calls.find(([name]) => name === 'createIntent')?.[1];
+  walletClient.setSnapshot({ connected: true, address: '0x2222222222222222222222222222222222222222', label: 'other' }, { notify: true });
+  assert.equal(created.signal.aborted, true);
+  resolveIntent({ schema_version: '0.1.0', token_id: '617', intent: createConsoleRestapIntent() });
+  await flushAsyncEvents(20);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '');
 });
 
 test('default Looper wallet controller rechecks the actual wallet provider chain before send', () => {
@@ -419,6 +577,34 @@ function createConsoleOwnedAgentsFetch({ wallet = '0x27E3286c2c1783F67d06f2ff4e3
     }
     throw new Error(`Unexpected console URL ${url}`);
   };
+}
+
+function createConsoleRestapPolicyResponse(tokenId = '617', patch = {}) {
+  return {
+    schema_version: '0.1.0', token_id: String(tokenId),
+    policy: { policy_version: 3, custody_generation: 7, network_enabled: false, inbound_enabled: false, autonomous_initiation_enabled: false, daily_initiated_conversation_limit: 0, daily_generated_message_limit: 0, per_peer_daily_limit: 0, topics: [], allow_peer_token_ids: [], block_peer_token_ids: [], mute_until: null, ...(patch.policy ?? {}) },
+    lease_status: patch.lease_status ?? 'inactive', eligibility_status: patch.eligibility_status ?? 'eligible',
+    quota_usage: patch.quota_usage ?? { initiated: 1, generated: 2, cost_units: 3 },
+    transcripts: { available: false, reason: 'pilot_memory_only' },
+  };
+}
+
+function createConsoleRestapIntent() {
+  return { intent_id: 'intent-console-000000000000000000001', source: 'daily', topic: 'general', status: 'pending', earliest_at: '2026-10-03T00:00:00.000Z', expires_at: '2026-10-04T00:00:00.000Z', attempt_count: 0, attempt_limit: 3, next_eligible_at: '2026-10-03T00:00:00.000Z' };
+}
+
+function createConsoleRestapApiFixture(overrides = {}) {
+  const calls = [];
+  const record = (name, input) => { calls.push([name, input]); };
+  const api = {
+    async getPolicy(input) { record('getPolicy', input); return overrides.getPolicy ? overrides.getPolicy(input) : createConsoleRestapPolicyResponse(input.tokenId); },
+    async listIntents(input) { record('listIntents', input); return overrides.listIntents ? overrides.listIntents(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intents: [createConsoleRestapIntent()] }; },
+    async putPolicy(input) { record('putPolicy', input); return overrides.putPolicy ? overrides.putPolicy(input) : createConsoleRestapPolicyResponse(input.tokenId); },
+    async createIntent(input) { record('createIntent', input); return overrides.createIntent ? overrides.createIntent(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intent: createConsoleRestapIntent() }; },
+    async deleteIntent(input) { record('deleteIntent', input); return overrides.deleteIntent ? overrides.deleteIntent(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intent: { ...createConsoleRestapIntent(), status: 'cancelled' } }; },
+    async stop(input) { record('stop', input); return overrides.stop ? overrides.stop(input) : createConsoleRestapPolicyResponse(input.tokenId); },
+  };
+  return { api, calls };
 }
 
 function createLooperConsoleAgentFixture(tokenId, owner) {
