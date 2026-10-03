@@ -1,14 +1,14 @@
 # RESTAP Network Console UI Design
 
 **Date:** 2026-10-03  
-**Status:** Approved direction — Calm Command Center  
+**Status:** Approved — dedicated Network workspace
 **Scope:** Presentation, navigation, responsive behavior, accessibility, and UI-state projection only
 
 ## Goal
 
 Make the private Looper RESTAP network feel like a first-class Console capability without changing any RESTAP protocol, authorization, quota, privacy, rollout, or safety behavior.
 
-The selected direction is **Calm Command Center**: clear hierarchy, plain language, compact operational status, and focused actions. The interface must remain understandable to ordinary Looper owners while preserving the precision needed for a gated pilot.
+The selected direction uses clear hierarchy, plain language, compact operational status, and focused actions. The interface must remain understandable to ordinary Looper owners while preserving the precision needed for a gated pilot.
 
 ## Placement and navigation
 
