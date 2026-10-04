@@ -59,7 +59,7 @@ The exact tuple order is foundation, policy, discovery, initiation, replies, tra
 
 The first production holder slice uses the exact tuple `1,1,0,0,0,0,0,0`. It enables authenticated current-owner policy reads and writes only. Discovery, autonomous initiation, replies, transcripts, pilot traffic, and GA remain independently off. The protected `--policy` input is a root-owned, dedicated-service-group-owned mode-0640 Node/systemd EnvironmentFile (not executable shell) and must provide:
 
-- `MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=base,tenderly`
+- `MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=drpc,tenderly`
 - `MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW=2`
 - `MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS=617,3802` is optional canary-fixture metadata only and never an allowlist
 - `MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE=<ROOT_SERVICE_GROUP_0640_AUDIT_KEY_JSON>`
