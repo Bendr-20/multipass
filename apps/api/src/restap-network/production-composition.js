@@ -170,9 +170,16 @@ function productionEligibility({ config, store, custodyReconciler, accountReader
       return Boolean(custody && policy.get({ custody }).networkEnabled);
     },
     readGates: async () => ({ global: true, phase: config.gates.pilot, collection: true, token: true, emergency: false }),
-    readBreakers: async () => {
-      const open = Number(store.readOne("SELECT count(*) AS count FROM restap_network_circuit_breakers WHERE state <> 'closed'").count) > 0;
-      return Object.fromEntries(['global', 'collection', 'token', 'pair', 'provider'].map((name) => [name, open ? 'open' : 'closed']));
+    readBreakers: async ({ tokenId, peerTokenId }) => {
+      const scopeOpen = (scopeClass) => Number(store.readOne("SELECT count(*) AS count FROM restap_network_circuit_breakers WHERE scope_class = ? AND state <> 'closed'", [scopeClass]).count) > 0;
+      const tokenOpen = [tokenId, peerTokenId].filter(Boolean).some((id) => custodyReconciler.getBreakerSnapshot?.({ tokenId: id })?.state === 'open');
+      return {
+        global: scopeOpen('global') ? 'open' : 'closed',
+        collection: scopeOpen('collection') ? 'open' : 'closed',
+        token: tokenOpen ? 'open' : 'closed',
+        pair: scopeOpen('pair') ? 'open' : 'closed',
+        provider: scopeOpen('provider') ? 'open' : 'closed',
+      };
     },
     recordMetric() {},
     maxSafeBlockSkew: RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks,

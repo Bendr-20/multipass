@@ -14,20 +14,20 @@ import { parseRestapNetworkServiceConfig, startRestapNetworkService } from '../s
 
 test('production traffic config is collection-wide owner opt-in and protected relay files stay pinned', () => {
   const parsed = parseRestapNetworkProductionConfig({
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'tenderly,drpc',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '3802,617',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: '/run/restap/audit.json',
     MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE: '/run/restap/keys.json',
     MULTIPASS_RESTAP_NETWORK_SIGNER_FILE: '/run/restap/signer.json',
     MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW: '2',
   });
-  assert.deepEqual(parsed.providerIds, ['drpc', 'tenderly']);
+  assert.deepEqual(parsed.providerIds, ['blast', 'drpc']);
   assert.deepEqual(parsed.tokenIds, ['617', '3802']);
   assert.equal(parsed.keyRegistryFile, '/run/restap/keys.json');
   assert.equal(parsed.signerFile, '/run/restap/signer.json');
   assert.equal(parsed.maxFinalizedHeadSkew, 2);
   const collectionWide = parseRestapNetworkProductionConfig({
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'drpc,tenderly',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
   });
   assert.deepEqual(collectionWide.tokenIds, []);
   assert.deepEqual(parseRestapNetworkProductionConfig({
@@ -51,7 +51,7 @@ test('production server composes Phase 0 RESTAP foundation from reviewed configu
     MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
     MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: databasePath,
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32),
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'drpc,tenderly',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: auditKeyPath,
   });
@@ -101,7 +101,7 @@ test('production environment boots the holder policy slice and fails closed with
     MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED: 'true',
     MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: path.join(directory, 'network.sqlite'),
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 'p'.repeat(32),
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'drpc,tenderly',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: auditKeyPath,
   };
@@ -327,7 +327,7 @@ test('production foundation loads protected traffic files and fails closed when 
     MULTIPASS_RESTAP_NETWORK_PILOT_ROSTER: '617,3802', MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: path.join(directory, 'network.sqlite'),
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32), MULTIPASS_RESTAP_NETWORK_DAILY_COST_LIMIT: '10', MULTIPASS_RESTAP_NETWORK_CADENCES: 'once',
   });
-  const productionConfig = { providerIds: ['drpc', 'tenderly'], tokenIds: ['617', '3802'], auditKeyFile: auditKeyPath, keyRegistryFile: '/run/restap/keys.json', signerFile: '/run/restap/signer.json', maxFinalizedHeadSkew: 2 };
+  const productionConfig = { providerIds: ['blast', 'drpc'], tokenIds: ['617', '3802'], auditKeyFile: auditKeyPath, keyRegistryFile: '/run/restap/keys.json', signerFile: '/run/restap/signer.json', maxFinalizedHeadSkew: 2 };
   const loaded = [];
   const signer = Object.freeze({ keyId: 'pilot-signing-key-0000000000000001', async sign() { return Buffer.alloc(64); } });
   const keyRegistry = Object.freeze({ get(key) { return key === signer.keyId ? { status: 'signing' } : null; } });

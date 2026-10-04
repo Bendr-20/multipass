@@ -180,6 +180,11 @@ export function createCustodyReconciler({
     };
   }
 
+  function getBreakerSnapshot({ tokenId } = {}) {
+    const breaker = readBreaker(normalizeTokenId(tokenId));
+    return breaker ? deepFreeze({ ...breaker }) : null;
+  }
+
   function readBreaker(tokenId) {
     const row = store.readOne(
       "SELECT state, reason_class FROM restap_network_circuit_breakers WHERE scope_class = 'token' AND scope_digest = ?",
@@ -244,7 +249,7 @@ export function createCustodyReconciler({
       .digest('hex');
   }
 
-  return Object.freeze({ reconcileToken, reconcileRange, getEpochSnapshot });
+  return Object.freeze({ reconcileToken, reconcileRange, getEpochSnapshot, getBreakerSnapshot });
 }
 
 function normalizeEvidence(value, { tokenId, release }) {

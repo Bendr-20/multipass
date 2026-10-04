@@ -14,7 +14,7 @@ import { composeRestapNetworkProductionPolicy } from './production-composition.j
 
 const REVIEWED_BASE_PROVIDERS = Object.freeze({
   drpc: 'https://base.drpc.org',
-  tenderly: 'https://base.gateway.tenderly.co',
+  blast: 'https://base-mainnet.public.blastapi.io',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
 const MAX_AUDIT_KEY_FILE_BYTES = 4_096;
