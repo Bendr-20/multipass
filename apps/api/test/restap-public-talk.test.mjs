@@ -81,12 +81,20 @@ test('keeps only bounded reply text and appends successful turns once', async ()
   assert.equal(store.resolve(result.session_id).history.length, 1);
 });
 
-test('dedicated Bankr client sends no tools/private context and decodes exact JSON reply', async () => {
+test('dedicated Bankr client uses ZDR text-only inference with no tools or private context', async () => {
   const requests = [];
-  const client = createBankrRestapInferenceClient({ apiKey: 'test-key', fetchImpl: async (url, init) => { requests.push({ url, init, body: JSON.parse(init.body) }); return { ok: true, async json() { return { choices: [{ message: { content: '{"reply":"bounded public answer"}' } }] }; } }; } });
+  const client = createBankrRestapInferenceClient({ apiKey: ['test', 'bankr', 'key'].join('-'), fetchImpl: async (url, init) => {
+    requests.push({ url, init, body: JSON.parse(init.body) });
+    return {
+      ok: true,
+      headers: { get: (name) => name.toLowerCase() === 'x-privacy-tier' ? 'zdr' : null },
+      async json() { return { choices: [{ message: { content: 'bounded public answer' } }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } }; },
+    };
+  } });
   const output = await client.generate({ message: 'hello', history: [], codexProfile: PROFILE, publicProjection: PUBLIC });
   assert.deepEqual(output, { reply: 'bounded public answer' });
-  assert.equal(requests[0].url, 'https://llm.bankr.bot/v1/chat/completions');
+  assert.equal(requests[0].url, 'https://llm.bankr.bot/zdr/v1/chat/completions');
+  assert.equal(Object.hasOwn(requests[0].body, 'response_format'), false);
   const serialized = JSON.stringify(requests[0].body);
   for (const forbidden of ['walletContext', 'signals', 'skills', 'tools', 'XMTP', 'Sibyl']) assert.equal(serialized.includes(forbidden), false, forbidden);
 });

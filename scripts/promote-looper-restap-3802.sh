@@ -75,7 +75,7 @@ inspect() {
   load_service_endpoint
   [[ "$service_database" == "$database" ]] || { echo "database path drift" >&2; exit 65; }
   if [[ "$phase" != discovery ]]; then
-    [[ $(grep -Ec '^BANKR_API_KEY=.{16,}$' "$env_file") == 1 ]] || { echo "protected inference environment is unavailable" >&2; exit 65; }
+    [[ $(grep -Ec '^BANKR_(API|LLM)_KEY=.{16,}$' "$env_file") == 1 ]] || { echo "protected inference environment is unavailable" >&2; exit 65; }
   fi
   grep -Eq 'location[[:space:]]+/api/' "$nginx_file" || { echo "nginx API route drift" >&2; exit 65; }
   local static_parent=${static_root%/*} static_name=${static_root##*/}

@@ -84,6 +84,15 @@ test('rehearsal mutates cumulatively then verifies rollback and preserves unrela
   assert.equal(JSON.parse(await readFile(join(f.proof, 'rollback.json'), 'utf8')).verified, true);
 });
 
+test('talk rehearsal accepts the production Bankr LLM key alias', async (t) => {
+  const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
+  await writeFile(f.envFile, `UNRELATED_SECRET=keep-me\nMULTIPASS_DB_PATH=${f.database}\nBANKR_LLM_KEY=protected-existing-key\n`, { mode: 0o600 });
+  await chmod(f.envFile, 0o600);
+  const result = await run(args('rehearsal', 'talk', f), f);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(await readFile(f.envFile, 'utf8'), /BANKR_LLM_KEY=protected-existing-key/);
+});
+
 test('rehearsal uses the inspected loopback service endpoint', async (t) => {
   const f = await fixture(); t.after(() => rm(f.root, { recursive: true, force: true }));
   const result = await run(args('rehearsal', 'discovery', f), f);
