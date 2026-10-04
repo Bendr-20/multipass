@@ -56,7 +56,8 @@ SNAPSHOT=/tmp/restap-network-console-ui-incoming
 rm -rf "$SNAPSHOT"
 mkdir -p "$SNAPSHOT"
 git status --porcelain=v1 -uall > "$SNAPSHOT/status.txt"
-git diff --binary --no-ext-diff > "$SNAPSHOT/tracked.patch"
+git diff --binary --no-ext-diff > "$SNAPSHOT/unstaged.patch"
+git diff --cached --binary --no-ext-diff > "$SNAPSHOT/staged.patch"
 git ls-files --others --exclude-standard -z > "$SNAPSHOT/untracked.zlist"
 if test -s "$SNAPSHOT/untracked.zlist"; then
   tar --null -T "$SNAPSHOT/untracked.zlist" -cf "$SNAPSHOT/untracked.tar"
@@ -65,12 +66,13 @@ else
   : > "$SNAPSHOT/untracked.tar"
   : > "$SNAPSHOT/untracked.sha256"
 fi
-sha256sum "$SNAPSHOT/status.txt" "$SNAPSHOT/tracked.patch" "$SNAPSHOT/untracked.tar"
+sha256sum "$SNAPSHOT/status.txt" "$SNAPSHOT/unstaged.patch" "$SNAPSHOT/staged.patch" "$SNAPSHOT/untracked.tar" | tee "$SNAPSHOT/digests.sha256"
 cat "$SNAPSHOT/status.txt"
 git diff --check
+git diff --cached --check
 ```
 
-Expected: the manifest names every tracked and untracked incoming path, the tracked patch and untracked archive hashes are recorded outside the repository, and `git diff --check` passes. Compare the manifest with this plan's file map and explicitly account for any new path before editing. Do not run checkout/reset/clean. Do not commit unrelated incoming artifacts merely because they appear in the manifest.
+Expected: the manifest names every tracked and untracked incoming path, the staged patch, unstaged patch, and untracked archive hashes are persisted in `$SNAPSHOT/digests.sha256` outside the repository, and `git diff --check` passes. Compare the manifest with this plan's file map and explicitly account for any new path before editing. Do not run checkout/reset/clean. Do not commit unrelated incoming artifacts merely because they appear in the manifest.
 
 - [ ] **Step 2: Add RED navigation tests for all five workspace destinations**
 
@@ -216,7 +218,7 @@ Use the actual public selection API and authority boundaries:
 ```js
 await app.selectConsoleAgentById('812');
 assert.equal(root.querySelector('[name="peer_token_ids"]')?.value, '');
-walletClient.emit({ connected: false, address: null }); // existing fixture boundary
+walletClient.setSnapshot({ connected: false, address: null, label: null }, { notify: true });
 await flushAsyncEvents();
 assert.equal(root.querySelector('.console-restap-network'), null);
 ```
@@ -319,7 +321,7 @@ export function failConsoleRestapNetworkMutation(state, input) { /* clear kind; 
 export function resolveConsoleRestapNetworkMutation(state, input) { /* clear kind/message and only the successful action's drafts */ }
 ```
 
-The order in each failure update is atomic: set `mutationKind:null` in the same next-state object that sets `status:'conflict'|'error'`. Never let stale `mutationKind` outrank Review/Error in navigation. Keep one controller lock across all four actions and clear it in `finally` only if it is still the same controller.
+The failure path must make controls and the lock agree. For policy, intent, cancel, and stop, conditionally clear `consoleRestapNetworkMutationAbortController` if it is still the matching controller **before** rendering the next state; in that same transition set `mutationKind:null` with `status:'conflict'|'error'`. Keep `finally` as an idempotent fallback only. The immediate failure→retry test for each mutation kind must prove the retry dispatches rather than being silently blocked. Never let stale `mutationKind` outrank Review/Error in navigation.
 
 - [ ] **Step 7: Implement stable identity from exact API-normalized values**
 
