@@ -105,18 +105,18 @@ export function createRestapNetworkEligibilityResolver({
     const common = deepFreeze({ chainId: request.chainId, collection: request.collection, tokenId });
     const gateRequest = deepFreeze({ ...common, boundary: request.boundary });
     const breakerRequest = deepFreeze({ ...gateRequest, peerTokenId });
+    const integrityRaw = await safeRead(() => readAccountIntegrity(deepFreeze({ tokenId })));
+    const custodyRaw = await safeRead(() => readCustody(deepFreeze({ tokenId })));
     const values = await Promise.all([
       safeRead(() => readCodexMembership(common)),
       safeRead(() => deriveCanonicalAccount(deepFreeze({ tokenId }))),
-      safeRead(() => readAccountIntegrity(deepFreeze({ tokenId }))),
-      safeRead(() => readCustody(deepFreeze({ tokenId }))),
       safeRead(() => readActivationLease(common)),
       safeRead(() => readPolicy(common)),
       safeRead(() => readPilotRoster(common)),
       safeRead(() => readGates(gateRequest)),
       safeRead(() => readBreakers(breakerRequest)),
     ]);
-    const [codexRaw, derivedRaw, integrityRaw, custodyRaw, leaseRaw, policyRaw, rosterRaw, gatesRaw, breakersRaw] = values;
+    const [codexRaw, derivedRaw, leaseRaw, policyRaw, rosterRaw, gatesRaw, breakersRaw] = values;
 
     let codex;
     try { codex = normalizeCodex(codexRaw); } catch { return failed('membership'); }
