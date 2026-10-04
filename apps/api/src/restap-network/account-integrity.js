@@ -86,8 +86,17 @@ export function createAccountIntegrityReader({
         throw new TypeError('Account integrity accepts an exact server-side request with tokenId only.');
       }
       const tokenId = normalizeTokenId(request.tokenId).toString();
+      let safeBlockNumber = null;
+      if (providers.every((provider) => typeof provider.readFinalizedHead === 'function')) {
+        const heads = await readProviders(providers, providerStaggerMs, (provider) => timedRead(() => provider.readFinalizedHead(), timeoutMs));
+        if (heads.some((outcome) => outcome.timeout)) return failure('provider_timeout');
+        if (heads.some((outcome) => outcome.error)) return failure('provider_unavailable');
+        try { safeBlockNumber = Math.min(...heads.map((outcome) => normalizeHead(outcome.value).number)); }
+        catch { return failure('provider_unavailable'); }
+      }
+      const providerRequest = safeBlockNumber === null ? deepFreeze({ tokenId }) : deepFreeze({ tokenId, safeBlockNumber });
       const outcomes = await readProviders(providers, providerStaggerMs, (provider) => timedRead(
-        () => provider.readAccountIntegrity(deepFreeze({ tokenId })), timeoutMs,
+        () => provider.readAccountIntegrity(providerRequest), timeoutMs,
       ));
       if (outcomes.some((outcome) => outcome.timeout)) return failure('provider_timeout');
       if (outcomes.some((outcome) => outcome.error)) return failure('provider_unavailable');
@@ -290,6 +299,11 @@ async function timedRead(read, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function normalizeHead(value) {
+  if (!isPlainObject(value)) throw new TypeError('Invalid finalized head.');
+  return { number: normalizeBlockNumber(value.number), hash: normalizeHash(value.hash) };
 }
 
 function invalid(status) { return { ok: false, status }; }

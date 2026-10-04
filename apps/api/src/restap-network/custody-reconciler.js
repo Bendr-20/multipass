@@ -37,7 +37,18 @@ export function createCustodyReconciler({
       && current?.status === 'ready';
     const fullRebuild = !current || current.status !== 'ready' || (breaker?.state === 'open' && !transientBreaker);
     const fromBlock = fullRebuild ? 0 : (requestedRange?.fromBlock ?? current.safeBlockNumber + 1);
-    const toBlock = requestedRange?.toBlock ?? null;
+    let toBlock = requestedRange?.toBlock ?? null;
+    if (toBlock === null && providers.every((provider) => typeof provider.readFinalizedHead === 'function' && Number.isSafeInteger(provider.maxRange))) {
+      const heads = await readProviders(providers, providerStaggerMs, (provider) => timedRead(() => provider.readFinalizedHead(), timeoutMs));
+      if (heads.some((outcome) => outcome.timeout)) return markIneligible(normalizedTokenId, current, 'provider_timeout');
+      if (heads.some((outcome) => outcome.error)) return markIneligible(normalizedTokenId, current, 'provider_unavailable');
+      let commonFinalized;
+      try { commonFinalized = Math.min(...heads.map((outcome) => normalizeFinalizedHead(outcome.value).number)); }
+      catch { return markIneligible(normalizedTokenId, current, 'provider_unavailable'); }
+      if (current && commonFinalized < current.safeBlockNumber) return markIneligible(normalizedTokenId, current, 'unresolved_range');
+      const rangeLimit = Math.min(...providers.map((provider) => provider.maxRange));
+      toBlock = fromBlock === 0 ? commonFinalized : Math.min(commonFinalized, fromBlock + rangeLimit - 1);
+    }
     const request = deepFreeze({
       chainId,
       collection,
@@ -250,6 +261,11 @@ export function createCustodyReconciler({
   }
 
   return Object.freeze({ reconcileToken, reconcileRange, getEpochSnapshot, getBreakerSnapshot });
+}
+
+function normalizeFinalizedHead(value) {
+  if (!isPlainObject(value)) throw new TypeError('Malformed finalized head.');
+  return { number: normalizeBlockNumber(value.number), hash: normalizeHash(value.hash) };
 }
 
 function normalizeEvidence(value, { tokenId, release }) {

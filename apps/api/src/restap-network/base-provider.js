@@ -73,11 +73,19 @@ export function createRestapNetworkBaseProvider({
   const chainId = Number(release.chainId);
   const collection = getAddress(release.collection);
 
+  async function readFinalizedHead() {
+    await assertChain(publicClient, chainId);
+    return publicBlock(await readAnchor(publicClient, { blockTag: 'finalized' }));
+  }
+
   async function readAccountIntegrity(request = {}) {
-    exactKeys(request, ['tokenId'], 'RESTAP Base account request');
+    const keys = Object.keys(request).sort().join(',');
+    if (!['tokenId', 'safeBlockNumber,tokenId'].includes(keys)) throw new TypeError('RESTAP Base account request fields are invalid.');
     const tokenId = requireAllowed(request.tokenId);
     await assertChain(publicClient, chainId);
-    const safeAnchor = await readAnchor(publicClient, { blockTag: 'finalized' });
+    const safeAnchor = request.safeBlockNumber === undefined
+      ? await readAnchor(publicClient, { blockTag: 'finalized' })
+      : await readAnchor(publicClient, { blockNumber: BigInt(normalizeBlockNumber(request.safeBlockNumber)) });
     const safe = await guarded(publicClient, safeAnchor, async () => readIntegrityAt({ publicClient, release, collection, tokenId, anchor: safeAnchor }));
     const latestAnchor = await readAnchor(publicClient, { blockTag: 'latest' });
     const latest = await guarded(publicClient, latestAnchor, () => readAuthorityAt({ publicClient, release, collection, tokenId, anchor: latestAnchor }));
@@ -95,7 +103,7 @@ export function createRestapNetworkBaseProvider({
     const toBlock = requestedTo ?? (fromBlock === 0
       ? safeHead.number
       : Math.min(safeHead.number, fromBlock + maxRange - 1));
-    const noNewFinalizedBlock = requestedTo === null && request.previousSafeBlock !== null
+    const noNewFinalizedBlock = request.previousSafeBlock !== null
       && toBlock < fromBlock && toBlock === normalizeBlockNumber(request.previousSafeBlock?.number);
     if (toBlock > safeHead.number || (toBlock < fromBlock && !noNewFinalizedBlock)) throw new TypeError('RESTAP Base custody range is unresolved.');
     if (fromBlock !== 0 && toBlock - fromBlock + 1 > maxRange) throw new TypeError('RESTAP Base custody range exceeds the bound.');
@@ -155,7 +163,7 @@ export function createRestapNetworkBaseProvider({
     return tokenId;
   }
 
-  return Object.freeze({ readAccountIntegrity, readCustody, listAffectedTokens });
+  return Object.freeze({ readFinalizedHead, readAccountIntegrity, readCustody, listAffectedTokens, maxRange });
 }
 
 async function readIntegrityAt({ publicClient, release, collection, tokenId, anchor }) {

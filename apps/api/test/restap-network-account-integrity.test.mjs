@@ -120,6 +120,18 @@ test('calls each provider with only the canonical token ID', async () => {
   assert.deepEqual(requests, [{ tokenId: '617' }, { tokenId: '617' }]);
 });
 
+test('pins disagreeing provider finalized heads to one exact shared anchor', async () => {
+  const requests = [];
+  const anchored = (number) => ({
+    async readFinalizedHead() { return { number, hash: '0x' + number.toString(16).padStart(64, '0') }; },
+    async readAccountIntegrity(request) { requests.push(request); return observation({ safeBlock: { number: request.safeBlockNumber, hash: '0x' + 'aa'.repeat(32) } }); },
+  });
+  const result = await reader([anchored(100), anchored(180)], { maxSafeBlockSkew: 2 }).read({ tokenId: '617' });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.proof.safeBlock.number, 100);
+  assert.deepEqual(requests, [{ tokenId: '617', safeBlockNumber: 100 }, { tokenId: '617', safeBlockNumber: 100 }]);
+});
+
 test('holder opt-in may verify owner authority without deploying the deterministic V1 account', async () => {
   const undeployed = observation({ accountCode: '0x' });
   const result = await reader([undeployed, undeployed], { allowUndeployedAccount: true }).read({ tokenId: '617' });
