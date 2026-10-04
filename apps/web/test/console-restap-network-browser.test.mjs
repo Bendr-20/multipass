@@ -113,7 +113,9 @@ test('RESTAP Network workspace fits desktop, 390px and 320px deterministic state
 
   const locked = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await locked.goto(fixture.origin + '/locked', { waitUntil: 'domcontentloaded' });
-  assert.match(await locked.locator('.console-restap-network-workspace').innerText(), /Foundation installed · participation unavailable/i);
+  const lockedText = await locked.locator('.console-restap-network-workspace').innerText();
+  assert.match(lockedText, /Network participation is unavailable/i);
+  assert.doesNotMatch(lockedText, /foundation|install|rollout|root cause/i);
   assert.equal(await locked.locator('.console-restap-network-workspace form').count(), 0);
   assert.equal(await locked.locator('.console-restap-network-workspace button').count(), 0);
   await assertNoOverflow(locked);
