@@ -88,7 +88,7 @@ test('dedicated Bankr client uses ZDR text-only inference with no tools or priva
     return {
       ok: true,
       headers: { get: (name) => name.toLowerCase() === 'x-privacy-tier' ? 'zdr' : null },
-      async json() { return { choices: [{ message: { content: 'bounded public answer' } }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } }; },
+      async json() { return { choices: [{ message: { content: '\n bounded \n public answer \n' } }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } }; },
     };
   } });
   const output = await client.generate({ message: 'hello', history: [], codexProfile: PROFILE, publicProjection: PUBLIC });

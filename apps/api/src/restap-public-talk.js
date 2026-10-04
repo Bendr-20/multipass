@@ -85,7 +85,7 @@ export function createBankrRestapInferenceClient({
       if (!response.ok || response.headers?.get?.('x-privacy-tier') !== 'zdr' || !validUsage(body?.usage)) throw new RestapProviderUnavailableError();
       const content = body?.choices?.[0]?.message?.content ?? body?.content?.[0]?.text;
       if (typeof content !== 'string') throw new RestapProviderUnavailableError();
-      return Object.freeze({ reply: boundedText(content, 'reply', REPLY_BYTES) });
+      return Object.freeze({ reply: normalizeProviderReply(content) });
     } catch (error) {
       if (error instanceof RestapProviderUnavailableError) throw error;
       throw new RestapProviderUnavailableError();
@@ -137,6 +137,10 @@ function decodeReply(value) {
 function validUsage(value) {
   return plain(value) && ['prompt_tokens', 'completion_tokens', 'total_tokens'].every((key) => Number.isSafeInteger(value[key]) && value[key] >= 0)
     && value.total_tokens === value.prompt_tokens + value.completion_tokens;
+}
+function normalizeProviderReply(value) {
+  if (typeof value !== 'string') throw new TypeError('RESTAP reply is invalid.');
+  return boundedText(value.trim().replace(/\s+/gu, ' '), 'reply', REPLY_BYTES);
 }
 function boundedText(value, label, maximum) { if (typeof value !== 'string' || !value || CONTROL.test(value)) throw new TypeError(`RESTAP ${label} is invalid.`); if (Buffer.byteLength(value, 'utf8') > maximum) throw new RangeError(`RESTAP ${label} exceeds ${maximum} bytes.`); return value; }
 function capUtf8(value, maximum) { if (Buffer.byteLength(value, 'utf8') <= maximum) return value; let end = value.length; while (end > 0 && Buffer.byteLength(value.slice(0, end), 'utf8') > maximum) end -= 1; return value.slice(0, end); }
