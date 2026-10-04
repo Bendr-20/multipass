@@ -10,6 +10,8 @@ test('network canary launcher is loopback-only immutable inspect-first and close
   const source = await readFile(SCRIPT, 'utf8');
   for (const required of ['127.0.0.1', '--release-sha', '--artifact', '--policy', '--key-registry', '--database', '--identity-file', '--stop', '--replace', 'occupied', 'MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=false']) assert.match(source, new RegExp(required.replaceAll('-', '\-'), 'u'));
   assert.equal(source.includes('stat -c %u'), true);
+  assert.equal(source.includes('MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH="$artifact"'), true);
+  assert.doesNotMatch(source, /MULTIPASS_LOOPERS_CODEX_ARTIFACT=/u);
   assert.match(source, /0600|600/u);
   assert.doesNotMatch(source, /mint.*session|wallet.*signature/iu);
 });

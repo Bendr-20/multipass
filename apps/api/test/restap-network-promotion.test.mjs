@@ -7,6 +7,12 @@ import test from 'node:test';
 
 const SCRIPT = new URL('../../../scripts/promote-looper-restap-network.sh', import.meta.url);
 
+test('promotion config uses the API Codex artifact environment contract', async () => {
+  const source = await readFile(SCRIPT, 'utf8');
+  assert.match(source, /Environment=MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH=\$artifact/u);
+  assert.doesNotMatch(source, /MULTIPASS_LOOPERS_CODEX_ARTIFACT=/u);
+});
+
 test('promotion is inspect-first separately namespaced rehearsal-gated and rollback-preserving', async () => {
   await access(SCRIPT, constants.X_OK);
   const source = await readFile(SCRIPT, 'utf8');
