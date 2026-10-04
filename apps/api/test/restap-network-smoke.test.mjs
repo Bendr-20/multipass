@@ -33,6 +33,15 @@ test('default smoke performs no mutation or provider call and phase0 runs every 
   assert.deepEqual(result.checks.map((entry) => entry.name), ['immutable_release', 'artifact', 'database_integrity', 'policy_closed_defaults', 'leases_inactive', 'worker_stopped', 'signer_registry', 'no_public_network_route', 'transcript_unavailable', 'restap_3802_golden']);
 });
 
+test('remote smoke accepts an exact HTTPS candidate prefix and rejects non-canonical URLs', () => {
+  const args = [...BASE_ARGS];
+  args[3] = 'holder-opt-in';
+  args[5] = '1,1,0,0,0,0,0,0';
+  const parsed = parseRestapNetworkSmokeArgs([...args, '--base-url', 'https://helixa.xyz/multipass-api/']);
+  assert.equal(parsed.baseUrl, 'https://helixa.xyz/multipass-api/');
+  assert.throws(() => parseRestapNetworkSmokeArgs([...args, '--base-url', 'https://helixa.xyz/multipass-api']), /base URL/i);
+});
+
 test('holder opt-in is a separate foundation-plus-policy phase with all traffic off', () => {
   const args = [...BASE_ARGS];
   args[3] = 'holder-opt-in';

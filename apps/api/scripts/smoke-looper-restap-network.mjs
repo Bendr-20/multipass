@@ -40,7 +40,7 @@ export function parseRestapNetworkSmokeArgs(argv) {
   if (values.mode === 'remote' && !values.baseUrl) throw new TypeError('Remote smoke requires --base-url.');
   if (values.baseUrl) {
     let parsed; try { parsed = new URL(values.baseUrl); } catch { throw new TypeError('Smoke base URL must be exact HTTPS origin text.'); }
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.origin + '/' !== values.baseUrl) throw new TypeError('Smoke base URL must be exact HTTPS origin text.');
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !parsed.pathname.endsWith('/') || parsed.search || parsed.hash || parsed.href !== values.baseUrl) throw new TypeError('Smoke base URL must be exact canonical HTTPS candidate base text ending in slash.');
   }
   if (values.allowProviderCall && !values.execute) throw new TypeError('--allow-provider-call requires --execute.');
   return deepFreeze({

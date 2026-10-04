@@ -4,28 +4,30 @@ umask 077
 
 # Safety-critical disable order: replies initiation discovery policy foundation.
 DISABLE_ORDER=(replies initiation discovery policy foundation)
-SERVICE_NAME=multipass-restap-network.service
-DROPIN_NAME=50-restap-network.conf
+ISOLATED_SERVICE=multipass-restap-network.service
+CONSOLE_SERVICE=multipass-api-xmtp-holder-proof.service
 SYSTEMD_ROOT=/etc/systemd/system
 
 usage() {
   cat <<'EOF'
 Usage: promote-looper-restap-network.sh --inspect | --rehearsal OPTIONS | --promote OPTIONS | --rollback --backup PATH
+Select --target isolated for closed Phase 0 or --target console for owner opt-in and later reviewed phases.
 Required mutation options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --unit PATH --static-root PATH --backup-root PATH --proof-root PATH --smoke-base-url HTTPS_ORIGIN/
 Promotion also requires --rehearsal-proof PATH. Gates are explicit and closed by default.
 Rehearsal installs and starts the exact candidate, smokes it through the exact HTTPS origin, and restores the prior service state before emitting proof.
 EOF
 }
 
-mode='' release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' smoke_base_url='' rehearsal_proof='' backup=''
+mode='' target=isolated release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' smoke_base_url='' rehearsal_proof='' backup=''
 declare -A gates=([foundation]=false [policy]=false [discovery]=false [initiation]=false [replies]=false [transcripts]=false [pilot]=false [ga]=false)
 while (($#)); do
   case "$1" in
     --help) usage; exit 0 ;;
     --inspect|--rehearsal|--promote|--rollback) [[ -z "$mode" ]] || { echo 'select exactly one mode' >&2; exit 2; }; mode=${1#--}; shift ;;
-    --release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--unit|--static-root|--backup-root|--proof-root|--smoke-base-url|--rehearsal-proof|--backup|--gate)
+    --target|--release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--unit|--static-root|--backup-root|--proof-root|--smoke-base-url|--rehearsal-proof|--backup|--gate)
       flag=$1; shift; (($#)) || { echo "missing value for $flag" >&2; exit 2; }; value=$1; shift
       case "$flag" in
+        --target) target=$value ;;
         --release) release=$value ;; --release-sha) release_sha=$value ;; --artifact) artifact=$value ;; --policy) policy=$value ;;
         --key-registry) key_registry=$value ;; --signer) signer=$value ;; --database) database=$value ;; --unit) unit=$value ;;
         --static-root) static_root=$value ;; --backup-root) backup_root=$value ;; --proof-root) proof_root=$value ;; --smoke-base-url) smoke_base_url=$value ;;
@@ -37,8 +39,13 @@ while (($#)); do
 done
 
 [[ -n "$mode" ]] || { echo 'mode is required' >&2; exit 2; }
+case "$target" in
+  isolated) SERVICE_NAME=$ISOLATED_SERVICE; DROPIN_NAME=50-restap-network.conf ;;
+  console) SERVICE_NAME=$CONSOLE_SERVICE; DROPIN_NAME=40-restap-network.conf ;;
+  *) echo 'target must be isolated or console' >&2; exit 2 ;;
+esac
 if [[ "$mode" == inspect ]]; then
-  printf 'RESTAP network promotion inspection only\nservice=%s\ndropin=%s\ndisable-order=%s\n' "$SERVICE_NAME" "$DROPIN_NAME" "${DISABLE_ORDER[*]}"
+  printf 'RESTAP network promotion inspection only\ntarget=%s\nservice=%s\ndropin=%s\ndisable-order=%s\n' "$target" "$SERVICE_NAME" "$DROPIN_NAME" "${DISABLE_ORDER[*]}"
   exit 0
 fi
 [[ "$(id -u)" == 0 ]] || { echo "$mode requires root" >&2; exit 1; }
@@ -81,7 +88,7 @@ fi
 
 for value in release release_sha artifact policy key_registry signer database unit static_root backup_root proof_root smoke_base_url; do [[ -n "${!value}" ]] || { echo "required option is missing: $value" >&2; exit 2; }; done
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'invalid release SHA' >&2; exit 2; }
-[[ "$smoke_base_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/$ ]] || { echo 'smoke base URL must be an exact HTTPS origin ending in slash' >&2; exit 2; }
+[[ "$smoke_base_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._-]+)*/$ ]] || { echo 'smoke base URL must be an exact canonical HTTPS candidate base ending in slash' >&2; exit 2; }
 for path in "$release" "$artifact" "$policy" "$key_registry" "$signer" "$database" "$unit" "$static_root" "$backup_root" "$proof_root"; do [[ "$path" =~ ^[/A-Za-z0-9._:-]+$ ]] || { echo 'path contains unsupported characters' >&2; exit 1; }; done
 [[ -d "$release" && ! -L "$release" ]] || { echo 'release must be an immutable directory' >&2; exit 1; }
 release=$(realpath "$release"); [[ "$(basename "$release")" == "multipass-restap-network-$release_sha" ]] || { echo 'release path does not match SHA' >&2; exit 1; }
@@ -108,6 +115,7 @@ if find "$release" -xdev \( ! -uid 0 -o -perm /022 \) -print -quit | grep -q .; 
 
 service_user=$(awk -F= '/^[[:space:]]*User=/{print $2}' "$unit" | tail -1 | tr -d '[:space:]')
 service_group=$(awk -F= '/^[[:space:]]*Group=/{print $2}' "$unit" | tail -1 | tr -d '[:space:]')
+[[ -n "$service_group" ]] || service_group=$service_user
 [[ -n "$service_user" && -n "$service_group" && "$service_user" != root ]] || { echo 'service User/Group must name a dedicated non-root account; User=root is forbidden' >&2; exit 1; }
 service_uid=$(getent passwd "$service_user" | cut -d: -f3); service_gid=$(getent group "$service_group" | cut -d: -f3)
 [[ "$service_uid" =~ ^[0-9]+$ && "$service_uid" != 0 && "$service_gid" =~ ^[0-9]+$ ]] || { echo 'dedicated service account is unavailable' >&2; exit 1; }
@@ -128,6 +136,8 @@ case "$tuple" in
   1,1,1,1,1,0,1,0) smoke_phase=replies ;;
   *) echo 'gate tuple is not an exact reviewed production phase' >&2; exit 1 ;;
 esac
+if [[ "$smoke_phase" == phase0 && "$target" != isolated ]]; then echo 'phase0 must target the isolated service' >&2; exit 1; fi
+if [[ "$smoke_phase" != phase0 && "$target" != console ]]; then echo 'owner opt-in and traffic phases must target the Console API service' >&2; exit 1; fi
 
 hash_file() { sha256sum -- "$1" | awk '{print $1}'; }
 hash_tree() { find "$1" -xdev -type f -printf '%P\0' | sort -z | while IFS= read -r -d '' entry; do printf '%s\0' "$entry"; sha256sum -- "$1/$entry" | awk '{print $1}'; done | sha256sum | awk '{print $1}'; }
@@ -138,6 +148,7 @@ render_environment() {
   local destination=$1
   cat > "$destination" <<EOF
 [Service]
+WorkingDirectory=$release
 EnvironmentFile=$policy
 Environment=MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=${gates[foundation]}
 Environment=MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED=${gates[policy]}
@@ -158,6 +169,9 @@ EOF
 write_bindings() {
   cat <<EOF
 release_sha=$release_sha
+target=$target
+service_name=$SERVICE_NAME
+dropin_name=$DROPIN_NAME
 gate_tuple=$tuple
 smoke_base_url=$smoke_base_url
 release_path=$release

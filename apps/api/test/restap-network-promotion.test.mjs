@@ -11,13 +11,14 @@ test('promotion config uses the API Codex artifact and protected signer environm
   const source = await readFile(SCRIPT, 'utf8');
   assert.match(source, /Environment=MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH=\$artifact/u);
   assert.match(source, /Environment=MULTIPASS_RESTAP_NETWORK_SIGNER_FILE=\$signer/u);
+  assert.match(source, /WorkingDirectory=\$release/u);
   assert.doesNotMatch(source, /MULTIPASS_LOOPERS_CODEX_ARTIFACT=/u);
 });
 
 test('promotion is inspect-first separately namespaced rehearsal-gated and rollback-preserving', async () => {
   await access(SCRIPT, constants.X_OK);
   const source = await readFile(SCRIPT, 'utf8');
-  for (const required of ['multipass-restap-network', '--inspect', '--rehearsal', '--promote', '--rollback', '--signer', '--smoke-base-url', 'rehearsal-proof', 'backup', 'proof', 'database', 'candidate_started=true', 'smoke_passed=true', 'rollback=verified']) assert.match(source, new RegExp(required, 'u'));
+  for (const required of ['multipass-restap-network', 'multipass-api-xmtp-holder-proof', '--target', 'console', '--inspect', '--rehearsal', '--promote', '--rollback', '--signer', '--smoke-base-url', 'rehearsal-proof', 'backup', 'proof', 'database', 'candidate_started=true', 'smoke_passed=true', 'rollback=verified']) assert.match(source, new RegExp(required, 'u'));
   assert.ok(source.indexOf('replies') < source.indexOf('initiation'));
   assert.ok(source.indexOf('initiation') < source.indexOf('discovery'));
   assert.ok(source.indexOf('discovery') < source.indexOf('policy'));

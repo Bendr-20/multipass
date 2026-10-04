@@ -15,7 +15,7 @@ test('runbook contains every required operational and privacy section', async ()
 
 test('runbook pins complete local canary promotion and rollback arguments without embedding secrets', async () => {
   const text = await readFile(RUNBOOK, 'utf8');
-  for (const value of ['--release <IMMUTABLE_RELEASE>', '--release-sha <REVIEWED_SHA>', '--artifact <CODEX_ARTIFACT>', '--key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>', '--policy <ROOT_SERVICE_GROUP_0640_POLICY>', '--database <RESTAP_NETWORK_DB>', '--unit <NETWORK_UNIT>', '--static-root <STATIC_ROOT>', '--backup-root <BACKUP_ROOT>', '--proof-root <PROOF_ROOT>', '--smoke-base-url <HTTPS_ORIGIN>/', '--expected-gates 0,0,0,0,0,0,0,0', '--fixture-key-ref signer=<ROOT_SERVICE_GROUP_0640_SIGNING_KEY>', '--rehearsal-proof <REHEARSAL_PROOF>', '--rollback']) assert.equal(text.includes(value), true, value);
+  for (const value of ['--release <IMMUTABLE_RELEASE>', '--release-sha <REVIEWED_SHA>', '--artifact <CODEX_ARTIFACT>', '--key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>', '--policy <ROOT_SERVICE_GROUP_0640_POLICY>', '--database <RESTAP_NETWORK_DB>', '--unit <NETWORK_UNIT>', '--static-root <STATIC_ROOT>', '--backup-root <BACKUP_ROOT>', '--proof-root <PROOF_ROOT>', '--target console', '--smoke-base-url https://helixa.xyz/multipass-api/', '--expected-gates 0,0,0,0,0,0,0,0', '--fixture-key-ref signer=<ROOT_SERVICE_GROUP_0640_SIGNING_KEY>', '--rehearsal-proof <REHEARSAL_PROOF>', '--rollback']) assert.equal(text.includes(value), true, value);
   assert.doesNotMatch(text, /BEGIN (?:PRIVATE KEY|OPENSSH PRIVATE KEY)|bk_[A-Za-z0-9]{12,}|0x[0-9a-f]{64}/iu);
   assert.match(text, /placeholders only/iu);
 });
