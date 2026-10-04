@@ -88,12 +88,19 @@ release=$(realpath "$release"); [[ "$(basename "$release")" == "multipass-restap
 for path in "$artifact" "$policy" "$key_registry" "$signer" "$database" "$unit"; do [[ -f "$path" && ! -L "$path" ]] || { echo 'required file is unsafe' >&2; exit 1; }; done
 [[ -d "$static_root" && ! -L "$static_root" && -d "$backup_root" && ! -L "$backup_root" && -d "$proof_root" && ! -L "$proof_root" ]] || { echo 'required directory is unsafe' >&2; exit 1; }
 reject_escaping_symlinks() {
-  local root resolved link
+  local root
   root=$(realpath "$1")
-  while IFS= read -r -d '' link; do
-    resolved=$(realpath -- "$link") || { echo 'release or static root contains a broken symlink' >&2; return 1; }
-    case "$resolved" in "$root"|"$root"/*) ;; *) echo 'release or static root contains an escaping symlink' >&2; return 1 ;; esac
-  done < <(find "$root" -xdev -type l -print0)
+  if ! find "$root" -xdev -type l -print0 | ROOT="$root" node -e '
+    const fs = require("node:fs"); const path = require("node:path");
+    const root = fs.realpathSync(process.env.ROOT);
+    for (const link of fs.readFileSync(0).toString("utf8").split("\0").filter(Boolean)) {
+      let resolved; try { resolved = fs.realpathSync(link); } catch { process.exit(2); }
+      if (resolved !== root && !resolved.startsWith(root + path.sep)) process.exit(3);
+    }
+  '; then
+    echo 'release or static root contains a broken or escaping symlink' >&2
+    return 1
+  fi
 }
 reject_escaping_symlinks "$release"
 reject_escaping_symlinks "$static_root"
