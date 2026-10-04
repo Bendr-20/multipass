@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createPrivateKey, sign as cryptoSign } from 'node:crypto';
+import { createPrivateKey, createPublicKey, sign as cryptoSign } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -270,6 +270,30 @@ test('protected public-key registry file enforces duplicate-free exact JSON sche
     const source = registryFileOpen(body);
     await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: source.openImpl }), /registry unavailable/i, body);
   }
+});
+
+test('protected public-key registry file rejects a valid SPKI with trailing bytes accepted by Node', async () => {
+  const publicKey = Buffer.concat([PUBLIC_DER, Buffer.from([0x00])]);
+  assert.equal(createPublicKey({ key: publicKey, format: 'der', type: 'spki' }).asymmetricKeyType, 'ed25519');
+  const source = registryFileOpen(registryFileBody([
+    registryFileKey({ public_key_spki_der_base64: publicKey.toString('base64') }),
+  ]));
+  await assert.rejects(
+    () => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: source.openImpl }),
+    /registry unavailable/i,
+  );
+});
+
+test('protected public-key registry file rejects a non-canonical BER long-form length accepted by Node', async () => {
+  const publicKey = Buffer.concat([Buffer.from([0x30, 0x81, 0x2a]), PUBLIC_DER.subarray(2)]);
+  assert.equal(createPublicKey({ key: publicKey, format: 'der', type: 'spki' }).asymmetricKeyType, 'ed25519');
+  const source = registryFileOpen(registryFileBody([
+    registryFileKey({ public_key_spki_der_base64: publicKey.toString('base64') }),
+  ]));
+  await assert.rejects(
+    () => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: source.openImpl }),
+    /registry unavailable/i,
+  );
 });
 
 test('protected public-key registry file rejects invalid keys before registry construction', async () => {

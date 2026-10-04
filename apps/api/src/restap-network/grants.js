@@ -205,8 +205,12 @@ function normalizeRegistryKey(value) {
   if (notBefore < activatesAt || notAfter <= notBefore) throw new TypeError('RESTAP network public key window is invalid.');
   let publicKey;
   try {
-    publicKey = createPublicKey({ key: Buffer.from(value.publicKey), format: 'der', type: 'spki' });
-    if (publicKey.asymmetricKeyType !== 'ed25519') throw new TypeError('invalid');
+    const publicKeyDer = Buffer.from(value.publicKey);
+    publicKey = createPublicKey({ key: publicKeyDer, format: 'der', type: 'spki' });
+    if (
+      publicKey.asymmetricKeyType !== 'ed25519'
+      || !publicKey.export({ format: 'der', type: 'spki' }).equals(publicKeyDer)
+    ) throw new TypeError('invalid');
   } catch {
     throw new TypeError('RESTAP network public key is invalid.');
   }
