@@ -31,8 +31,11 @@ export function createCustodyReconciler({
   async function reconcileToken({ tokenId } = {}, requestedRange = null) {
     const normalizedTokenId = normalizeTokenId(tokenId);
     const current = readCurrent(normalizedTokenId);
-    const breakerOpen = readBreakerState(normalizedTokenId) === 'open';
-    const fullRebuild = !current || current.status !== 'ready' || breakerOpen;
+    const breaker = readBreaker(normalizedTokenId);
+    const transientBreaker = breaker?.state === 'open'
+      && ['provider_timeout', 'provider_unavailable'].includes(breaker.reasonClass)
+      && current?.status === 'ready';
+    const fullRebuild = !current || current.status !== 'ready' || (breaker?.state === 'open' && !transientBreaker);
     const fromBlock = fullRebuild ? 0 : (requestedRange?.fromBlock ?? current.safeBlockNumber + 1);
     const toBlock = requestedRange?.toBlock ?? null;
     const request = deepFreeze({
@@ -177,17 +180,20 @@ export function createCustodyReconciler({
     };
   }
 
-  function readBreakerState(tokenId) {
-    return store.readOne(
-      "SELECT state FROM restap_network_circuit_breakers WHERE scope_class = 'token' AND scope_digest = ?",
+  function readBreaker(tokenId) {
+    const row = store.readOne(
+      "SELECT state, reason_class FROM restap_network_circuit_breakers WHERE scope_class = 'token' AND scope_digest = ?",
       [tokenDigest(tokenId)],
-    )?.state ?? null;
+    );
+    return row ? { state: row.state, reasonClass: row.reason_class } : null;
   }
 
   function markIneligible(tokenId, current, status) {
     const timestamp = normalizeTime(now());
+    const preserveVerifiedCustody = current?.status === 'ready'
+      && ['provider_timeout', 'provider_unavailable'].includes(status);
     store.transaction('custody_ineligible', (tx) => {
-      if (current) markCurrentEpochDisputed(tx, tokenId, timestamp);
+      if (current && !preserveVerifiedCustody) markCurrentEpochDisputed(tx, tokenId, timestamp);
       openBreaker(tx, tokenId, status, timestamp);
     });
     return deepFreeze({ eligible: false, status, generation: current?.generation ?? null, rebuilt: false });

@@ -326,9 +326,19 @@ async function productionAuthority({ store, custodyReconciler, accountReader, no
   const tokenId = normalizeRestapNetworkTokenId(String(input?.tokenId ?? ''));
   const integrity = await accountReader.read({ tokenId });
   if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable.');
-  const reconciled = await custodyReconciler.reconcileToken({ tokenId });
-  if (reconciled?.eligible !== true) throw new Error('RESTAP network custody is unavailable.');
-  const custody = custodyReconciler.getEpochSnapshot({ tokenId });
+  const targetSafeBlock = Number(integrity.proof?.safeBlock?.number);
+  let reconciled = null;
+  let custody = null;
+  for (let step = 0; step < 8; step += 1) {
+    reconciled = await custodyReconciler.reconcileToken({ tokenId });
+    if (reconciled?.eligible !== true) break;
+    custody = custodyReconciler.getEpochSnapshot({ tokenId });
+    if (!Number.isSafeInteger(targetSafeBlock) || targetSafeBlock - Number(custody?.safeBlockNumber) <= RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks) break;
+  }
+  if (reconciled?.eligible !== true || !custody
+    || (Number.isSafeInteger(targetSafeBlock) && targetSafeBlock - Number(custody.safeBlockNumber) > RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks)) {
+    throw new Error('RESTAP network custody is unavailable.');
+  }
   let owner;
   try { owner = getAddress(input?.identity?.owner); } catch { throw new Error('RESTAP network owner authority is unavailable.'); }
   if (!custody || custody.status !== 'ready' || owner !== custody.owner) throw new Error('RESTAP network owner authority changed.');

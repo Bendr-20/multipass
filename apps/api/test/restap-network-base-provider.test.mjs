@@ -38,6 +38,7 @@ function clientFixture({
   drift = false,
   failFunction = null,
   honorLogFilter = true,
+  maxLogSpan = null,
 } = {}) {
   const calls = [];
   let guardedReads = 0;
@@ -47,11 +48,11 @@ function clientFixture({
     async getChainId() { calls.push({ kind: 'chain' }); return chainId; },
     async getBlock(request) {
       calls.push({ kind: 'block', request });
-      if (request.blockTag === 'finalized') return block(safeNumber, hashes[safeNumber]);
-      if (request.blockTag === 'latest') return block(latestNumber, hashes[latestNumber]);
+      if (request.blockTag === 'finalized') return block(safeNumber, hashes[safeNumber] ?? '0x' + safeNumber.toString(16).padStart(64, '0'));
+      if (request.blockTag === 'latest') return block(latestNumber, hashes[latestNumber] ?? '0x' + latestNumber.toString(16).padStart(64, '0'));
       const number = Number(request.blockNumber);
       guardedReads += 1;
-      const hash = drift && number === safeNumber && guardedReads > 1 ? HASH_101 : hashes[number];
+      const hash = drift && number === safeNumber && guardedReads > 1 ? HASH_101 : (hashes[number] ?? '0x' + number.toString(16).padStart(64, '0'));
       return block(number, hash);
     },
     async readContract(request) {
@@ -84,7 +85,13 @@ function clientFixture({
     },
     async getLogs(request) {
       calls.push({ kind: 'logs', request });
-      return structuredClone(honorLogFilter ? logs.filter((log) => BigInt(log.args?.tokenId ?? -1) === BigInt(request.args.tokenId)) : logs);
+      const from = Number(request.fromBlock);
+      const to = Number(request.toBlock);
+      if (maxLogSpan !== null && to - from + 1 > maxLogSpan) throw new Error('provider range limit exceeded');
+      const ranged = logs.filter((log) => Number(log.blockNumber) >= from && Number(log.blockNumber) <= to);
+      return structuredClone(honorLogFilter && request.args?.tokenId !== undefined
+        ? ranged.filter((log) => BigInt(log.args?.tokenId ?? -1) === BigInt(request.args.tokenId))
+        : ranged);
     },
   };
   return { publicClient, calls };
@@ -152,6 +159,21 @@ test('reads bounded finalized Transfer evidence and treats controller as the pin
   }]);
   assert.equal(evidence.priorSafeHash, HASH_99);
   assert.deepEqual(await f.provider.listAffectedTokens({ chainId: 8453, collection: RELEASE.collection, fromBlock: 100, toBlock: 100 }), [TOKEN_ID]);
+});
+
+test('incremental custody reads chunk provider log ranges below hosted RPC limits', async () => {
+  const f = provider({ safeNumber: 3_000, latestNumber: 3_000, maxLogSpan: 10 });
+  const evidence = await f.provider.readCustody({
+    chainId: 8453, collection: RELEASE.collection, tokenId: TOKEN_ID,
+    fromBlock: 1, toBlock: 2_000, previousSafeBlock: null,
+  });
+  assert.deepEqual(evidence.range, { fromBlock: 1, toBlock: 2_000 });
+  assert.equal(evidence.safeBlock.number, 2_000);
+  const ranges = f.calls.filter((call) => call.kind === 'logs').map((call) => [Number(call.request.fromBlock), Number(call.request.toBlock)]);
+  assert.equal(ranges.length, 200);
+  assert.deepEqual(ranges[0], [1, 10]);
+  assert.deepEqual(ranges.at(-1), [1_991, 2_000]);
+  assert.equal(ranges.every(([from, to]) => to - from + 1 <= 10), true);
 });
 
 test('incremental custody reads return an exact no-op when the finalized head has not advanced', async () => {

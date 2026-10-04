@@ -8,6 +8,8 @@ import {
 const ZERO_ADDRESS = getAddress('0x0000000000000000000000000000000000000000');
 const ZERO_HASH = '0x' + '00'.repeat(32);
 const MAX_RANGE = 2_000;
+const MAX_RPC_LOG_RANGE = 10;
+const MAX_RPC_LOG_CONCURRENCY = 8;
 const MAX_PILOT_TOKENS = 32;
 
 const LOOPERS_ABI = Object.freeze([
@@ -90,7 +92,9 @@ export function createRestapNetworkBaseProvider({
     const requestedTo = request.toBlock === null ? null : normalizeBlockNumber(request.toBlock);
     await assertChain(publicClient, chainId);
     const safeHead = await readAnchor(publicClient, { blockTag: 'finalized' });
-    const toBlock = requestedTo ?? safeHead.number;
+    const toBlock = requestedTo ?? (fromBlock === 0
+      ? safeHead.number
+      : Math.min(safeHead.number, fromBlock + maxRange - 1));
     const noNewFinalizedBlock = requestedTo === null && request.previousSafeBlock !== null
       && toBlock < fromBlock && toBlock === normalizeBlockNumber(request.previousSafeBlock?.number);
     if (toBlock > safeHead.number || (toBlock < fromBlock && !noNewFinalizedBlock)) throw new TypeError('RESTAP Base custody range is unresolved.');
@@ -127,8 +131,8 @@ export function createRestapNetworkBaseProvider({
     const affected = await guarded(publicClient, anchor, async () => {
       const result = [];
       if (allowAnyCollectionToken) {
-        const logs = await publicClient.getLogs({ address: collection, event: TRANSFER_EVENT, fromBlock: BigInt(fromBlock), toBlock: BigInt(toBlock), strict: true });
-        if (!Array.isArray(logs) || logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
+        const logs = await readLogsInChunks(publicClient, { address: collection, event: TRANSFER_EVENT, fromBlock, toBlock, strict: true });
+        if (logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
         for (const log of logs) {
           const tokenId = normalizeTokenId(log?.args?.tokenId);
           normalizeTransfer(log, { collection, tokenId, fromBlock, toBlock });
@@ -241,16 +245,34 @@ async function readAuthorityAt({ publicClient, release, collection, tokenId, anc
 }
 
 async function readTransfers({ publicClient, collection, tokenId, fromBlock, toBlock }) {
-  const logs = await publicClient.getLogs({
+  const logs = await readLogsInChunks(publicClient, {
     address: collection,
     event: TRANSFER_EVENT,
     args: { tokenId: BigInt(tokenId) },
-    fromBlock: BigInt(fromBlock),
-    toBlock: BigInt(toBlock),
+    fromBlock,
+    toBlock,
     strict: true,
   });
-  if (!Array.isArray(logs) || logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
+  if (logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
   return logs.map((log) => normalizeTransfer(log, { collection, tokenId, fromBlock, toBlock })).sort(compareEvents);
+}
+
+async function readLogsInChunks(publicClient, { fromBlock, toBlock, ...request }) {
+  const ranges = [];
+  for (let start = fromBlock; start <= toBlock; start += MAX_RPC_LOG_RANGE) {
+    ranges.push([start, Math.min(toBlock, start + MAX_RPC_LOG_RANGE - 1)]);
+  }
+  const logs = [];
+  for (let offset = 0; offset < ranges.length; offset += MAX_RPC_LOG_CONCURRENCY) {
+    const chunks = await Promise.all(ranges.slice(offset, offset + MAX_RPC_LOG_CONCURRENCY).map(([start, end]) =>
+      publicClient.getLogs({ ...request, fromBlock: BigInt(start), toBlock: BigInt(end) })));
+    for (const chunk of chunks) {
+      if (!Array.isArray(chunk)) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
+      logs.push(...chunk);
+      if (logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
+    }
+  }
+  return logs;
 }
 
 function normalizeTransfer(log, { collection, tokenId, fromBlock, toBlock }) {

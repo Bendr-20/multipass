@@ -120,6 +120,29 @@ test('incremental reconciliation requires prior-safe hash continuity', async (t)
   assert.equal(f.store.readOne("SELECT state FROM restap_network_circuit_breakers WHERE scope_class = 'token'").state, 'open');
 });
 
+test('transient provider failure opens the breaker without discarding verified custody and retries incrementally', async (t) => {
+  const resumed = evidence({ range: { fromBlock: 101, toBlock: 100 }, priorSafeHash: HASH_100 });
+  const requests = [];
+  let leftCall = 0;
+  let rightCall = 0;
+  const left = {
+    async readCustody(request) { requests.push(structuredClone(request)); leftCall += 1; return structuredClone(leftCall === 1 ? evidence() : resumed); },
+    async listAffectedTokens() { return [TOKEN_ID]; },
+  };
+  const right = {
+    async readCustody() { rightCall += 1; if (rightCall === 2) throw new Error('temporary provider failure'); return structuredClone(rightCall === 1 ? evidence() : resumed); },
+    async listAffectedTokens() { return [TOKEN_ID]; },
+  };
+  const f = await fixture([left, right]); t.after(() => f.close());
+  assert.equal((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).status, 'ready');
+  assert.equal((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).status, 'provider_unavailable');
+  assert.equal(f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID }).status, 'ready');
+  assert.equal(f.store.readOne("SELECT state FROM restap_network_circuit_breakers WHERE scope_class = 'token'").state, 'open');
+  assert.equal((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).status, 'ready');
+  assert.equal(requests[2].fromBlock, 101);
+  assert.equal(f.store.readOne("SELECT state FROM restap_network_circuit_breakers WHERE scope_class = 'token'").state, 'closed');
+});
+
 test('non-ready custody or an open breaker forces a genesis rebuild before breaker closure', async (t) => {
   const mismatch = evidence({ safeBlock: { number: 101, hash: HASH_101 }, range: { fromBlock: 101, toBlock: 101 }, priorSafeHash: HASH_100, latestOwner: B });
   const full = evidence({ safeBlock: { number: 101, hash: HASH_101 }, range: { fromBlock: 0, toBlock: 101 }, priorSafeHash: HASH_100 });

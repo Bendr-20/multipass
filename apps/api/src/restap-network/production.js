@@ -59,7 +59,7 @@ export async function createRestapNetworkProductionFoundation({
     const usageGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrLlmKey, model: bankrModel ?? undefined, fetchImpl }) : null;
     const bankrGateway = trafficEnabled ? Object.freeze({
       generatePublicReply: (projection) => inferenceGateway.generatePublicReply(projection),
-      readUsageTotals: () => usageGateway.readUsageTotals(),
+      readUsageTotals: async () => Object.freeze({ totalRequests: inferenceGateway.readDispatchedTotal() }),
     }) : null;
     const clients = publicClients ?? createLoopersPublicClients({
       rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]),
@@ -70,7 +70,7 @@ export async function createRestapNetworkProductionFoundation({
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
       id: productionConfig.providerIds[index],
-      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true }),
+      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true, maxRange: 500 }),
     })));
     const offchainOwnerAuthority = config.gates.policy === true;
     const accountReader = createAccountIntegrityReader({

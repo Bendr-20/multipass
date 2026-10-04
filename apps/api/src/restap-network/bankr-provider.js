@@ -18,10 +18,12 @@ export function createRestapNetworkBankrGateway({
   const selectedModel = text(model, 'Bankr model', 256);
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 4_096) throw new TypeError('Bankr max tokens is invalid.');
   if (typeof fetchImpl !== 'function') throw new TypeError('Bankr fetch implementation is invalid.');
+  let dispatchedTotal = 0;
 
   async function generatePublicReply(projection) {
     const normalized = normalizeProjection(projection);
     try {
+      dispatchedTotal += 1;
       const response = await fetchImpl(CHAT_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key },
@@ -60,7 +62,7 @@ export function createRestapNetworkBankrGateway({
     }
   }
 
-  return Object.freeze({ generatePublicReply, readUsageTotals });
+  return Object.freeze({ generatePublicReply, readUsageTotals, readDispatchedTotal: () => dispatchedTotal });
 }
 
 export function createRestapNetworkProviderBudget({ readProviderRequestTotal, readDurableChargedUnits } = {}) {

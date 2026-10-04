@@ -65,6 +65,16 @@ test('rejects privacy downgrade, tool calls, malformed usage, non-text output, a
   }
 });
 
+test('tracks only RESTAP-dispatched inference requests for exact process accounting', async () => {
+  const gateway = createRestapNetworkBankrGateway({
+    apiKey: '***',
+    fetchImpl: async () => response({ error: { message: 'failed after dispatch' } }, { ok: false, status: 503 }),
+  });
+  assert.equal(gateway.readDispatchedTotal(), 0);
+  await assert.rejects(gateway.generatePublicReply(projection()), /inference unavailable/i);
+  assert.equal(gateway.readDispatchedTotal(), 1);
+});
+
 test('reads exact 90-day request totals without exposing cost or model breakdowns', async () => {
   const calls = [];
   const gateway = createRestapNetworkBankrGateway({
