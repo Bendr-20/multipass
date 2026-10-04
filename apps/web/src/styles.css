@@ -11111,7 +11111,7 @@ h1 {
   .console-codex-drawer > summary { padding: 11px 10px; }
 }
 
-/* RESTAP Network workspace: Calm Command Center */
+/* RESTAP Network workspace */
 .console-workspace-nav-sidebar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

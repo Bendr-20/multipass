@@ -18,17 +18,46 @@ test('Network is a fifth isolated workspace and Multipass contains no RESTAP con
     },
   });
   const root = render(renderMultipassConsole(snapshot));
-  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Foundation installed/i);
+  assert.equal(root.querySelectorAll('.console-basic-main .console-restap-network').length, 1);
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Network participation is unavailable/i);
   assert.equal(root.querySelectorAll('.console-workspace-nav').length, 2);
   for (const nav of root.querySelectorAll('.console-workspace-nav')) {
-    assert.equal(nav.querySelectorAll('button').length, 5);
-    assert.match(nav.querySelector('[data-console-view="network"]')?.textContent ?? '', /NetworkRESTAP.*Locked/i);
-    assert.equal(nav.querySelector('[data-console-view="network"]')?.getAttribute('aria-label'), 'Network, RESTAP, Locked');
+    assert.deepEqual(
+      [...nav.querySelectorAll('[data-console-view]')].map((button) => button.dataset.consoleView),
+      ['chat', 'codex', 'wallet', 'multipass', 'network'],
+    );
+    assert.equal(nav.querySelectorAll('[aria-current="page"]').length, 1);
+    assert.equal(nav.querySelector('[data-console-view="network"]')?.getAttribute('aria-current'), 'page');
+    assert.equal(nav.querySelector('[data-console-view="network"] span')?.textContent, 'Network');
+    assert.equal(nav.querySelector('[data-console-view="network"] small')?.textContent.replace(/\s+/gu, ' ').trim(), 'RESTAP Unavailable');
+    assert.equal(nav.querySelector('[data-console-view="network"]')?.getAttribute('aria-label'), 'Network, RESTAP, Unavailable');
+    assert.equal(nav.querySelector('[data-console-view="network"]')?.disabled, false);
   }
   const multipassRoot = render(renderMultipassConsole({ ...snapshot, workspaceView: 'multipass' }));
   assert.equal(multipassRoot.querySelector('.console-basic-main .console-restap-network'), null);
+  for (const nav of multipassRoot.querySelectorAll('.console-workspace-nav')) {
+    assert.equal(nav.querySelectorAll('[aria-current="page"]').length, 1);
+    assert.equal(nav.querySelector('[data-console-view="multipass"]')?.getAttribute('aria-current'), 'page');
+  }
   assert.equal(snapshot.restapNetwork.selectedTokenId, '1');
   assert.equal(Object.hasOwn(snapshot.agentThread, 'restapNetwork'), false);
+
+  const noSelection = createMultipassConsoleSnapshot({
+    agents: [agent],
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents: [agent] },
+      consoleSelectedAgentId: null,
+    },
+  });
+  const noSelectionRoot = render(renderMultipassConsole(noSelection));
+  for (const nav of noSelectionRoot.querySelectorAll('.console-workspace-nav')) {
+    const network = nav.querySelector('[data-console-view="network"]');
+    assert.equal(network?.disabled, true);
+    assert.equal(network?.querySelector('b')?.textContent, 'Select Looper');
+    assert.equal(network?.getAttribute('aria-label'), 'Network, RESTAP, Select Looper');
+  }
 });
 
 test('production entrypoint leaves wallet mutation controls enabled', async () => {

@@ -136,30 +136,85 @@ test('native switches chips limits and live regions remain accessible and contra
   assert.match(root.querySelector('[aria-label="Scheduled RESTAP intents"]')?.textContent ?? '', /No introductions are planned/i);
 });
 
-test('navigation projection maps locked ready active and paused conservatively', () => {
-  const unavailable = failConsoleRestapNetworkLoad(beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 10 }), { tokenId: '1', requestId: 10, error: { status: 503 } });
-  assert.deepEqual(getConsoleRestapNetworkStatus(unavailable), { key: 'locked', label: 'Locked' });
+test('navigation status applies every transient precedence row before settled policy state', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 10 });
+  const ready = resolveConsoleRestapNetworkLoad(loading, {
+    tokenId: '1',
+    requestId: 10,
+    policyResponse: { ...response({ network_enabled: true }), lease_status: 'active' },
+    intentsResponse: { schema_version: '0.1.0', token_id: '1', intents: [] },
+  });
+  const cases = [
+    [{ ...ready, selectedTokenId: null, status: 'saving', mutationKind: 'policy' }, 'select', 'Select Looper'],
+    [{ ...ready, status: 'idle', mutationKind: 'policy' }, 'checking', 'Checking'],
+    [{ ...ready, status: 'loading', mutationKind: 'policy' }, 'checking', 'Checking'],
+    [{ ...ready, status: 'saving' }, 'updating', 'Updating'],
+    [{ ...ready, mutationKind: 'intent' }, 'updating', 'Updating'],
+    [{ ...ready, status: 'conflict' }, 'review', 'Review'],
+    [{ ...ready, status: 'error' }, 'error', 'Error'],
+    [{ ...ready, status: 'unavailable', policy: null }, 'unavailable', 'Unavailable'],
+    [{ ...ready, policy: null }, 'unavailable', 'Unavailable'],
+  ];
 
-  const project = (patch = {}, responsePatch = {}) => {
-    const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 11 });
-    return resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 11, policyResponse: { ...response(patch), ...responsePatch }, intentsResponse: { schema_version: '0.1.0', token_id: '1', intents: [] } });
-  };
-  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: false }, { lease_status: 'active' })), { key: 'ready', label: 'Ready' });
-  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: true }, { lease_status: 'active' })), { key: 'active', label: 'Active' });
-  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: true }, { lease_status: 'unavailable' })), { key: 'paused', label: 'Paused' });
+  for (const [state, key, label] of cases) {
+    assert.deepEqual(getConsoleRestapNetworkStatus(state), { key, label });
+  }
 });
 
-test('rollout locked and loading states never expose mutation controls', () => {
+test('navigation status covers the normalized settled network authority cross-product', () => {
+  const eligibilityStatuses = ['eligible', 'unavailable'];
+  const leaseStatuses = ['active', 'inactive', 'unavailable'];
+
+  for (const networkEnabled of [false, true]) {
+    for (const eligibilityStatus of eligibilityStatuses) {
+      for (const leaseStatus of leaseStatuses) {
+        const usable = eligibilityStatus === 'eligible' && leaseStatus === 'active';
+        const expected = networkEnabled
+          ? usable ? { key: 'active', label: 'Active' } : { key: 'paused', label: 'Paused' }
+          : usable ? { key: 'ready', label: 'Ready' } : { key: 'locked', label: 'Locked' };
+        const state = {
+          selectedTokenId: '1',
+          status: 'ready',
+          policy: { networkEnabled, eligibilityStatus, leaseStatus },
+        };
+        assert.deepEqual(
+          getConsoleRestapNetworkStatus(state),
+          expected,
+          JSON.stringify({ networkEnabled, eligibilityStatus, leaseStatus }),
+        );
+      }
+    }
+  }
+});
+
+test('loading and neutral 404 or 503 states never expose network mutation controls', () => {
   const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 12 });
   const loadingRoot = render(loading);
   assert.ok(loadingRoot.querySelector('.console-restap-skeleton[role="status"]'));
   assert.equal(loadingRoot.querySelector('form'), null);
 
-  const locked = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 12, error: { status: 404 } });
-  const lockedRoot = render(locked);
-  assert.match(lockedRoot.textContent, /Foundation installed · participation unavailable/i);
-  assert.equal(lockedRoot.querySelector('form'), null);
-  assert.equal(lockedRoot.querySelector('[data-action="stop-restap-network"]'), null);
+  for (const status of [404, 503]) {
+    const unavailable = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 12, error: { status } });
+    const unavailableRoot = render(unavailable);
+    assert.match(unavailableRoot.textContent, /Network participation is unavailable/i);
+    assert.match(unavailableRoot.textContent, /Network controls cannot be used for this Looper right now./i);
+    assert.doesNotMatch(unavailableRoot.textContent, /foundation|install|rollout|root cause/i);
+    assert.equal(unavailableRoot.querySelector('[data-restap-network-policy]'), null);
+    assert.equal(unavailableRoot.querySelector('[data-restap-network-intent]'), null);
+    assert.equal(unavailableRoot.querySelector('[data-action="stop-restap-network"]'), null);
+    assert.equal(unavailableRoot.querySelector('[data-action="refresh-restap-network"]'), null);
+  }
+});
+
+test('ordinary load errors remain distinct and offer Retry', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 14 });
+  const failed = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 14, error: { status: 500 } });
+  const root = render(failed);
+
+  assert.deepEqual(getConsoleRestapNetworkStatus(failed), { key: 'error', label: 'Error' });
+  assert.doesNotMatch(root.textContent, /Network participation is unavailable/i);
+  assert.equal(root.querySelector('[data-action="refresh-restap-network"]')?.textContent.trim(), 'Retry');
+  assert.equal(root.querySelector('[data-restap-network-policy]'), null);
 });
 
 test('saving state disables duplicate mutations without changing form names', () => {

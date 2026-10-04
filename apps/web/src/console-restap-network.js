@@ -1,5 +1,17 @@
 const TOPICS = Object.freeze(['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general']);
 const STATUSES = new Set(['idle', 'loading', 'ready', 'saving', 'error', 'conflict', 'unavailable']);
+const NETWORK_STATUS = Object.freeze({
+  select: Object.freeze({ key: 'select', label: 'Select Looper' }),
+  checking: Object.freeze({ key: 'checking', label: 'Checking' }),
+  updating: Object.freeze({ key: 'updating', label: 'Updating' }),
+  review: Object.freeze({ key: 'review', label: 'Review' }),
+  error: Object.freeze({ key: 'error', label: 'Error' }),
+  unavailable: Object.freeze({ key: 'unavailable', label: 'Unavailable' }),
+  active: Object.freeze({ key: 'active', label: 'Active' }),
+  paused: Object.freeze({ key: 'paused', label: 'Paused' }),
+  ready: Object.freeze({ key: 'ready', label: 'Ready' }),
+  locked: Object.freeze({ key: 'locked', label: 'Locked' }),
+});
 const POLICY_RESPONSE_KEYS = Object.freeze(['schema_version', 'token_id', 'policy', 'lease_status', 'eligibility_status', 'quota_usage', 'transcripts']);
 const POLICY_KEYS = Object.freeze(['policy_version', 'custody_generation', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
 const INTENT_KEYS = Object.freeze(['intent_id', 'source', 'topic', 'status', 'earliest_at', 'expires_at', 'attempt_count', 'attempt_limit', 'next_eligible_at']);
@@ -63,11 +75,16 @@ export function normalizeConsoleRestapNetworkPolicy(value, expectedTokenId) {
 }
 
 export function getConsoleRestapNetworkStatus(state = {}) {
+  if (!state.selectedTokenId) return NETWORK_STATUS.select;
+  if (state.status === 'idle' || state.status === 'loading') return NETWORK_STATUS.checking;
+  if (state.status === 'saving' || state.mutationKind) return NETWORK_STATUS.updating;
+  if (state.status === 'conflict') return NETWORK_STATUS.review;
+  if (state.status === 'error') return NETWORK_STATUS.error;
   const policy = state.policy;
-  if (!policy || state.status === 'unavailable') return { key: 'locked', label: 'Locked' };
-  const canParticipate = policy.eligibilityStatus === 'eligible' && policy.leaseStatus === 'active';
-  if (!canParticipate) return { key: 'paused', label: 'Paused' };
-  return policy.networkEnabled ? { key: 'active', label: 'Active' } : { key: 'ready', label: 'Ready' };
+  if (state.status === 'unavailable' || !policy) return NETWORK_STATUS.unavailable;
+  const usableAuthority = policy.eligibilityStatus === 'eligible' && policy.leaseStatus === 'active';
+  if (policy.networkEnabled) return usableAuthority ? NETWORK_STATUS.active : NETWORK_STATUS.paused;
+  return usableAuthority ? NETWORK_STATUS.ready : NETWORK_STATUS.locked;
 }
 
 export function renderConsoleRestapNetworkPanel(state = {}) {
@@ -136,15 +153,15 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
 }
 
 function renderUnavailableNetwork(state, status, shell) {
-  const locked = status === 'unavailable';
+  const unavailable = status === 'unavailable';
   const body = '<section class="console-restap-unavailable" role="status" aria-live="polite">'
-    + '<span class="console-restap-eyebrow">Private RESTAP network</span><div class="console-restap-lock-mark" aria-hidden="true">' + (locked ? '◇' : '!') + '</div>'
+    + '<span class="console-restap-eyebrow">Private RESTAP network</span><div class="console-restap-lock-mark" aria-hidden="true">' + (unavailable ? '◇' : '!') + '</div>'
     + '<h2>Looper #' + escapeHtml(state.selectedTokenId) + ' network</h2>'
-    + (locked
-      ? '<div class="console-restap-foundation-banner"><strong>Foundation installed · participation unavailable</strong><span>Network controls are locked during the current rollout phase.</span></div>'
+    + (unavailable
+      ? '<div class="console-restap-foundation-banner"><strong>Network participation is unavailable</strong><span>Network controls cannot be used for this Looper right now.</span></div>'
       : '<p>' + escapeHtml(state.error ?? 'RESTAP network controls could not be loaded.') + '</p><button type="button" data-action="refresh-restap-network">Retry</button>')
     + '</section>';
-  return shell(body, locked ? ' console-restap-network-locked' : ' console-restap-network-error');
+  return shell(body, unavailable ? ' console-restap-network-locked' : ' console-restap-network-error');
 }
 
 function renderSwitch(formId, name, label, description, checked, disabled) {
