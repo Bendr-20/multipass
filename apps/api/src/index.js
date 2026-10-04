@@ -1124,7 +1124,9 @@ async function handleConsoleAgentActivate(request, context) {
   const identity = await authorizeConsoleLooper({ tokenId, wallet: session.wallet, context });
   const persistedName = context.looperNameStore.get(identity)?.name;
   const runtime = context.consoleRuntimeRegistry.activate({ identity, runtimeName: persistedName ?? body.runtimeName });
-  const networkLease = await refreshRestapNetworkActivationLease({ tokenId, identity, wallet: session.wallet, context });
+  // Chat activation and RESTAP participation are independent owner actions.
+  // Only the dedicated Network policy routes may issue or revoke a network lease.
+  const networkLease = Object.freeze({ status: 'inactive' });
   const recovered = typeof context.consoleAgentRuntime.getThread === 'function'
     ? await context.consoleAgentRuntime.getThread({
       tokenId: identity.tokenId,
@@ -1151,47 +1153,6 @@ async function handleConsoleAgentActivate(request, context) {
       ...('proposalCandidates' in recovered ? { proposalCandidates: recovered.proposalCandidates } : {}),
     } : {}),
   });
-}
-
-async function refreshRestapNetworkActivationLease({ tokenId, identity, wallet, context }) {
-  try {
-    if (typeof context.consoleRuntimeRegistry.refreshNetworkLease === 'function') {
-      const projected = await context.consoleRuntimeRegistry.refreshNetworkLease({ identity, wallet });
-      if (projected) return projectRestapNetworkLease(projected);
-    }
-    const leases = context.restapNetworkActivationLeases;
-    const reconciler = context.restapNetworkCustodyReconciler;
-    if (!leases || !reconciler) return Object.freeze({ status: 'inactive' });
-    const result = await reconciler.reconcileToken({ tokenId });
-    if (!result?.eligible) return Object.freeze({ status: 'unavailable' });
-    const custody = reconciler.getEpochSnapshot({ tokenId });
-    if (!custody || custody.status !== 'ready' || custody.tokenId !== String(identity.tokenId)
-      || custody.owner.toLowerCase() !== String(wallet).toLowerCase()) {
-      return Object.freeze({ status: 'unavailable' });
-    }
-    const expectedPolicyGeneration = Number(context.restapNetworkPolicyGeneration);
-    const lease = leases.renew({ custody, expectedPolicyGeneration })
-      ?? leases.issue({ custody, expectedPolicyGeneration });
-    return projectRestapNetworkLease({
-      status: 'active',
-      custodyGeneration: lease.custodyGeneration,
-      expiresAt: new Date(lease.expiresAt).toISOString(),
-    });
-  } catch {
-    return Object.freeze({ status: 'unavailable' });
-  }
-}
-
-function projectRestapNetworkLease(value) {
-  if (value?.status !== 'active') {
-    return Object.freeze({ status: value?.status === 'inactive' ? 'inactive' : 'unavailable' });
-  }
-  const custodyGeneration = Number(value.custodyGeneration);
-  const expiresAt = String(value.expiresAt ?? '');
-  if (!Number.isSafeInteger(custodyGeneration) || custodyGeneration < 0 || Number.isNaN(Date.parse(expiresAt))) {
-    return Object.freeze({ status: 'unavailable' });
-  }
-  return Object.freeze({ status: 'active', custodyGeneration, expiresAt: new Date(expiresAt).toISOString() });
 }
 
 async function handleConsoleAgentName(request, context) {

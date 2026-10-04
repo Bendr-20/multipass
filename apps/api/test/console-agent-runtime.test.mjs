@@ -653,63 +653,27 @@ test('console agent runtime receives a message, saves memory, and emits review-o
   assert.match(result.proposals[0].risk, /No transaction authority/);
 });
 
-test('authenticated Console activation refreshes custody then issues a browser-opaque network lease', async () => {
+test('ordinary Console chat activation has no RESTAP custody or lease side effects', async () => {
   const events = [];
-  const custody = {
-    chainId: 8453,
-    collection: CONSOLE_IDENTITY.contract,
-    tokenId: CONSOLE_IDENTITY.tokenId,
-    generation: 9,
-    canonicalAccount: OWNER_ACCOUNT,
-    owner: WALLET,
-    controller: WALLET,
-    safeBlockNumber: 100,
-    safeBlockHash: '0x' + 'a'.repeat(64),
-    status: 'ready',
-  };
   const authorized = createLegacyAuthorizedOptions();
   const registry = authorized.consoleRuntimeRegistry;
   authorized.consoleRuntimeRegistry = {
     activate(input) { events.push('runtime.activate'); return registry.activate(input); },
     get: registry.get,
     bindConversation: registry.bindConversation,
+    async refreshNetworkLease() { events.push('registry.refreshNetworkLease'); throw new Error('must not run'); },
   };
   const api = createMultipassApi({
     store: createMemoryStore(),
     ...authorized,
     restapNetworkPolicyGeneration: 4,
     restapNetworkCustodyReconciler: {
-      async reconcileToken(input) { events.push('reconcile'); assert.deepEqual(input, { tokenId: '1234' }); return { eligible: true }; },
-      getEpochSnapshot(input) { events.push('snapshot'); assert.deepEqual(input, { tokenId: '1234' }); return custody; },
+      async reconcileToken() { events.push('reconcile'); throw new Error('must not run'); },
+      getEpochSnapshot() { events.push('snapshot'); throw new Error('must not run'); },
     },
     restapNetworkActivationLeases: {
-      renew(input) { events.push('renew'); assert.deepEqual(input, { custody, expectedPolicyGeneration: 4 }); return null; },
-      issue(input) { events.push('issue'); assert.deepEqual(input, { custody, expectedPolicyGeneration: 4 }); return { leaseId: 'secret-lease', custodyGeneration: 9, expiresAt: Date.parse('2026-10-03T03:00:00.000Z') }; },
-    },
-  });
-  const response = await api.handleRequest(secureConsoleRequest(
-    { runtimeName: 'Agent #1234' },
-    '/api/multipass/console/agent/activate',
-  ));
-  const body = await response.json();
-  assert.equal(response.status, 200);
-  assert.deepEqual(events, ['runtime.activate', 'reconcile', 'snapshot', 'renew', 'issue']);
-  assert.deepEqual(body.networkLease, { status: 'active', custodyGeneration: 9, expiresAt: '2026-10-03T03:00:00.000Z' });
-  assert.equal(JSON.stringify(body).includes('secret-lease'), false);
-});
-
-test('network lease failure stays closed without undoing ordinary Console activation', async () => {
-  const options = createLegacyAuthorizedOptions();
-  const api = createMultipassApi({
-    store: createMemoryStore(),
-    ...options,
-    restapNetworkCustodyReconciler: {
-      async reconcileToken() { return { eligible: true }; },
-      getEpochSnapshot() { return { tokenId: '1234', owner: WALLET, status: 'ready' }; },
-    },
-    restapNetworkActivationLeases: {
-      renew() { throw new Error('database unavailable'); },
-      issue() { throw new Error('must not run'); },
+      renew() { events.push('renew'); throw new Error('must not run'); },
+      issue() { events.push('issue'); throw new Error('must not run'); },
     },
   });
   const response = await api.handleRequest(secureConsoleRequest(
@@ -719,7 +683,8 @@ test('network lease failure stays closed without undoing ordinary Console activa
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.runtime.status, 'active');
-  assert.deepEqual(body.networkLease, { status: 'unavailable' });
+  assert.deepEqual(events, ['runtime.activate']);
+  assert.deepEqual(body.networkLease, { status: 'inactive' });
 });
 
 test('runtime deactivation revokes the network lease before marking the runtime inactive', async () => {
