@@ -11,6 +11,7 @@ const KEY_ID = /^[A-Za-z0-9_-]{32,128}$/u;
 const SIGNATURE = /^[A-Za-z0-9_-]{86}$/u;
 const KEY_STATUSES = new Set(['signing', 'overlap', 'retired', 'compromised']);
 const MAX_GRANT_JSON_BYTES = 64 * 1024;
+const MAX_PUBLIC_KEY_REGISTRY_BYTES = 64 * 1024;
 const MAX_SIGNING_BYTES = 64 * 1024;
 
 export function createRestapNetworkPublicKeyRegistry({ keys, requireSigningKey = true } = {}) {
@@ -79,6 +80,60 @@ export function parseRestapNetworkGrantJson(text) {
     return normalizeGrant(JSON.parse(text), { signatureRequired: true }).projection;
   } catch {
     throw new Error('RESTAP network grant authentication failed.');
+  }
+}
+
+export async function loadRestapNetworkPublicKeyRegistryFile({ filePath, openImpl = open } = {}) {
+  let handle;
+  try {
+    if (typeof filePath !== 'string' || !isAbsolute(filePath) || filePath.length > 4_096 || typeof openImpl !== 'function') throw new TypeError('invalid');
+    handle = await openImpl(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    if (!handle || typeof handle.stat !== 'function' || typeof handle.readFile !== 'function' || typeof handle.close !== 'function') throw new TypeError('invalid');
+    const stat = await handle.stat();
+    if (
+      !stat
+      || stat.uid !== 0
+      || (stat.mode & 0o7777) !== 0o600
+      || stat.isFile?.() !== true
+      || stat.isSymbolicLink?.() === true
+      || !Number.isSafeInteger(stat.size)
+      || stat.size < 0
+      || stat.size > MAX_PUBLIC_KEY_REGISTRY_BYTES
+    ) throw new TypeError('unsafe');
+
+    const fileValue = await handle.readFile();
+    if (!Buffer.isBuffer(fileValue) && !(fileValue instanceof Uint8Array)) throw new TypeError('invalid');
+    const bytes = Buffer.from(fileValue);
+    if (bytes.byteLength !== stat.size || bytes.byteLength > MAX_PUBLIC_KEY_REGISTRY_BYTES) throw new TypeError('invalid');
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    assertNoDuplicateJsonKeys(text);
+    const parsed = JSON.parse(text);
+    exactObject(parsed, ['schema_version', 'keys'], 'RESTAP network public key registry file');
+    if (parsed.schema_version !== '1' || !Array.isArray(parsed.keys) || parsed.keys.length < 1 || parsed.keys.length > 2) throw new TypeError('invalid');
+
+    const keys = parsed.keys.map((key) => {
+      exactObject(key, ['key_id', 'algorithm', 'public_key_spki_der_base64', 'activates_at', 'not_before', 'not_after', 'status'], 'RESTAP network public key registry file key');
+      if (
+        typeof key.public_key_spki_der_base64 !== 'string'
+        || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(key.public_key_spki_der_base64)
+      ) throw new TypeError('invalid');
+      const publicKey = Buffer.from(key.public_key_spki_der_base64, 'base64');
+      if (publicKey.byteLength === 0 || publicKey.toString('base64') !== key.public_key_spki_der_base64) throw new TypeError('invalid');
+      return {
+        keyId: key.key_id,
+        algorithm: key.algorithm,
+        publicKey,
+        activatesAt: key.activates_at,
+        notBefore: key.not_before,
+        notAfter: key.not_after,
+        status: key.status,
+      };
+    });
+    return createRestapNetworkPublicKeyRegistry({ keys });
+  } catch {
+    throw new Error('RESTAP network public key registry unavailable.');
+  } finally {
+    await handle?.close?.().catch(() => {});
   }
 }
 
@@ -239,7 +294,12 @@ function assertNoDuplicateJsonKeys(text) {
 function exactObject(value, keys, label) {
   if (!isPlainObject(value)) throw new TypeError(label + ' must be a plain object.');
   const allowed = new Set(keys);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new TypeError(label + ' contains unknown key.');
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = descriptors[key];
+    if (typeof key !== 'string' || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new TypeError(label + ' contains an invalid property.');
+    if (!allowed.has(key)) throw new TypeError(label + ' contains unknown key.');
+  }
   for (const key of keys) if (!Object.hasOwn(value, key)) throw new TypeError(label + ' is missing a key.');
 }
 function isPlainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null); }

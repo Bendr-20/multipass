@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createPrivateKey, sign as cryptoSign } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +13,7 @@ import {
   createRestapNetworkPublicKeyRegistry,
   hashRestapNetworkGrant,
   loadRestapNetworkFileSigner,
+  loadRestapNetworkPublicKeyRegistryFile,
   parseRestapNetworkGrantJson,
 } from '../src/restap-network/grants.js';
 import { canonicalizeRestapNetworkJson } from '../src/restap-network/jcs.js';
@@ -45,6 +47,38 @@ function key(status = 'signing', patch = {}) {
   return {
     keyId: KEY_ID, algorithm: 'Ed25519', publicKey: PUBLIC_DER, activatesAt: NOW - 100,
     notBefore: NOW - 100, notAfter: NOW + 10_000, status, ...patch,
+  };
+}
+
+function registryFileKey(patch = {}) {
+  return {
+    key_id: KEY_ID,
+    algorithm: 'Ed25519',
+    public_key_spki_der_base64: PUBLIC_DER.toString('base64'),
+    activates_at: NOW - 100,
+    not_before: NOW - 100,
+    not_after: NOW + 10_000,
+    status: 'signing',
+    ...patch,
+  };
+}
+
+function registryFileBody(keys = [registryFileKey()]) {
+  return JSON.stringify({ schema_version: '1', keys });
+}
+
+function registryFileOpen(body, statPatch = {}) {
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
+  const stat = { uid: 0, mode: 0o100600, size: bytes.byteLength, isFile: () => true, ...statPatch };
+  let closes = 0;
+  let flags;
+  return {
+    get closes() { return closes; },
+    get flags() { return flags; },
+    openImpl: async (_path, receivedFlags) => {
+      flags = receivedFlags;
+      return { stat: async () => stat, readFile: async () => bytes, close: async () => { closes += 1; } };
+    },
   };
 }
 
@@ -139,6 +173,125 @@ test('HTTP JSON parsing rejects duplicate decoded keys, non-JSON values, and mal
   assert.throws(() => parseRestapNetworkGrantJson(duplicate), /authentication/i);
   assert.throws(() => parseRestapNetworkGrantJson('{"header":NaN}'), /authentication/i);
   assert.deepEqual(await fixture().service.verify({ grant: { ...grant, signature: 'not-base64url' }, expectedPayload: payload() }), { status: 'authentication_failed' });
+});
+
+test('public-key registry boundary rejects accessors and custom prototypes', () => {
+  const accessorKey = key();
+  Object.defineProperty(accessorKey, 'status', { enumerable: true, get: () => 'signing' });
+  assert.throws(() => createRestapNetworkPublicKeyRegistry({ keys: [accessorKey] }), /public key/i);
+
+  const prototypeKey = Object.assign(Object.create({ inherited: true }), key());
+  assert.throws(() => createRestapNetworkPublicKeyRegistry({ keys: [prototypeKey] }), /public key/i);
+});
+
+test('protected public-key registry file loads one signing key and one overlap key', async () => {
+  const overlapId = 'overlap-key-0000000000000000000001';
+  const source = registryFileOpen(registryFileBody([
+    registryFileKey(),
+    registryFileKey({ key_id: overlapId, status: 'overlap' }),
+  ]));
+  const registry = await loadRestapNetworkPublicKeyRegistryFile({
+    filePath: '/run/secrets/restap-network-public-keys.json',
+    openImpl: source.openImpl,
+  });
+
+  assert.equal(source.flags, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  assert.equal(source.closes, 1);
+  const signing = registry.get(KEY_ID);
+  assert.deepEqual(
+    {
+      keyId: signing.keyId,
+      algorithm: signing.algorithm,
+      publicKeyDer: signing.publicKey.export({ format: 'der', type: 'spki' }),
+      activatesAt: signing.activatesAt,
+      notBefore: signing.notBefore,
+      notAfter: signing.notAfter,
+      status: signing.status,
+    },
+    {
+      keyId: KEY_ID,
+      algorithm: 'Ed25519',
+      publicKeyDer: PUBLIC_DER,
+      activatesAt: NOW - 100,
+      notBefore: NOW - 100,
+      notAfter: NOW + 10_000,
+      status: 'signing',
+    },
+  );
+  assert.equal(registry.get(overlapId).status, 'overlap');
+  assert.equal(registry.get('missing'), null);
+});
+
+test('protected public-key registry file rejects unsafe paths, metadata, symlinks, size, and UTF-8', async () => {
+  const body = registryFileBody();
+  const source = registryFileOpen(body);
+  await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: 'relative.json', openImpl: source.openImpl }), /registry unavailable/i);
+  assert.equal(source.closes, 0);
+
+  for (const statPatch of [
+    { uid: 1000 },
+    { mode: 0o100640 },
+    { mode: 0o104600 },
+    { isFile: () => false },
+    { size: (64 * 1024) + 1 },
+  ]) {
+    const unsafe = registryFileOpen(body, statPatch);
+    await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: unsafe.openImpl }), /registry unavailable/i);
+    assert.equal(unsafe.closes, 1);
+  }
+
+  const symlinkOpen = async (_path, flags) => {
+    assert.equal(flags & fsConstants.O_NOFOLLOW, fsConstants.O_NOFOLLOW);
+    const error = new Error('symbolic link'); error.code = 'ELOOP'; throw error;
+  };
+  await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/symlink', openImpl: symlinkOpen }), /registry unavailable/i);
+
+  const invalidUtf8 = registryFileOpen(Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x3a, 0x31, 0x7d]));
+  await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/invalid-utf8', openImpl: invalidUtf8.openImpl }), /registry unavailable/i);
+  const grown = registryFileOpen(Buffer.alloc((64 * 1024) + 1, 0x20), { size: 1 });
+  await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/grown', openImpl: grown.openImpl }), /registry unavailable/i);
+});
+
+test('protected public-key registry file enforces duplicate-free exact JSON schema', async () => {
+  const validKey = registryFileKey();
+  const cases = [
+    '{}',
+    JSON.stringify({ schema_version: '2', keys: [validKey] }),
+    JSON.stringify({ schema_version: '1', keys: [validKey], extra: true }),
+    JSON.stringify({ schema_version: '1', keys: [] }),
+    JSON.stringify({ schema_version: '1', keys: [validKey, validKey, validKey] }),
+    JSON.stringify({ schema_version: '1', keys: [{ ...validKey, extra: true }] }),
+    JSON.stringify({ schema_version: '1', keys: [{ ...validKey, status: undefined }] }),
+    registryFileBody().replace('{"key_id"', '{"__proto__":{},"key_id"'),
+    registryFileBody().replace('"schema_version":"1"', '"schema_version":"1","\u0073chema_version":"1"'),
+    registryFileBody().replace('"key_id"', '"key_id":"other-key-000000000000000000000001","\u006bey_id"'),
+  ];
+  for (const body of cases) {
+    const source = registryFileOpen(body);
+    await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: source.openImpl }), /registry unavailable/i, body);
+  }
+});
+
+test('protected public-key registry file rejects invalid keys before registry construction', async () => {
+  const secondId = 'second-key-00000000000000000000001';
+  const cases = [
+    [registryFileKey({ algorithm: 'RSA' })],
+    [registryFileKey({ status: 'unknown' })],
+    [registryFileKey({ public_key_spki_der_base64: 'not base64' })],
+    [registryFileKey({ public_key_spki_der_base64: PUBLIC_DER.toString('base64').replace(/=$/u, '') })],
+    [registryFileKey({ public_key_spki_der_base64: PRIVATE_DER.toString('base64') })],
+    [registryFileKey({ not_before: NOW - 101 })],
+    [registryFileKey({ not_after: NOW - 100 })],
+    [registryFileKey(), registryFileKey()],
+    [registryFileKey(), registryFileKey({ key_id: secondId, status: 'signing' })],
+    [registryFileKey({ status: 'retired' })],
+    [registryFileKey({ key_id: 'short' })],
+    [registryFileKey({ activates_at: 1.5 })],
+  ];
+  for (const keys of cases) {
+    const source = registryFileOpen(registryFileBody(keys));
+    await assert.rejects(() => loadRestapNetworkPublicKeyRegistryFile({ filePath: '/secret', openImpl: source.openImpl }), /registry unavailable/i, JSON.stringify(keys));
+  }
 });
 
 test('file signer accepts only root-owned regular mode-0600 files and exposes sign(bytes) only', async () => {
