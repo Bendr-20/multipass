@@ -11,6 +11,7 @@ export function createCustodyReconciler({
   auditKeyId,
   timeoutMs = 5_000,
   now = Date.now,
+  allowSafeBlockSkew = false,
 } = {}) {
   if (!store || typeof store.transaction !== 'function' || typeof store.readOne !== 'function') throw new TypeError('Custody reconciler requires the network store.');
   if (!Array.isArray(providers) || providers.length < 2 || providers.some((provider) => typeof provider?.readCustody !== 'function')) {
@@ -21,6 +22,7 @@ export function createCustodyReconciler({
   if (typeof auditKeyId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(auditKeyId)) throw new TypeError('Custody audit key ID is invalid.');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Custody provider timeout is invalid.');
   if (typeof now !== 'function') throw new TypeError('Custody clock is invalid.');
+  if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Custody safe block skew policy is invalid.');
   const chainId = Number(release.chainId);
   const collection = getAddress(release.collection);
 
@@ -52,12 +54,17 @@ export function createCustodyReconciler({
       }
     }
     const safeCoordinate = canonical(observations[0].safeBlock);
-    if (observations.some((value) => canonical(value.safeBlock) !== safeCoordinate)) {
+    const safeDisagreement = observations.some((value) => canonical(value.safeBlock) !== safeCoordinate);
+    const sameSafeNumber = observations.every((value) => value.safeBlock.number === observations[0].safeBlock.number);
+    if (safeDisagreement && (!allowSafeBlockSkew || sameSafeNumber)) {
       return markIneligible(normalizedTokenId, current, 'safe_block_disagreement');
     }
-    const first = canonical(observations[0]);
-    if (observations.some((value) => canonical(value) !== first)) return markIneligible(normalizedTokenId, current, 'provider_disagreement');
-    const evidence = observations[0];
+    const comparable = (value) => ({ ...value, safeBlock: null, range: { ...value.range, toBlock: null } });
+    const first = canonical(comparable(observations[0]));
+    if (observations.some((value) => canonical(comparable(value)) !== first)) return markIneligible(normalizedTokenId, current, 'provider_disagreement');
+    const evidence = safeDisagreement
+      ? observations.reduce((older, value) => value.safeBlock.number < older.safeBlock.number ? value : older)
+      : observations[0];
 
     if (current && !fullRebuild && evidence.priorSafeHash !== current.safeBlockHash) {
       return markIneligible(normalizedTokenId, current, 'prior_hash_mismatch');

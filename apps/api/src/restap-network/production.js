@@ -11,7 +11,7 @@ import { composeRestapNetworkProductionPolicy } from './production-composition.j
 
 const REVIEWED_BASE_PROVIDERS = Object.freeze({
   blast: 'https://base-mainnet.public.blastapi.io',
-  drpc: 'https://base.drpc.org',
+  tenderly: 'https://base.gateway.tenderly.co',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
 const REQUIRED_PILOT_TOKEN_IDS = Object.freeze(['617', '3802']);
@@ -51,7 +51,16 @@ export async function createRestapNetworkProductionFoundation({
       id: productionConfig.providerIds[index],
       ...createRestapNetworkBaseProvider({ publicClient, tokenIds: productionConfig.tokenIds }),
     })));
-    const accountReader = createAccountIntegrityReader({ providers, timeoutMs: config.providerTimeoutMs });
+    const policyOnly = config.gates.policy === true
+      && config.gates.discovery === false
+      && config.gates.initiation === false
+      && config.gates.replies === false;
+    const accountReader = createAccountIntegrityReader({
+      providers,
+      timeoutMs: config.providerTimeoutMs,
+      allowUndeployedAccount: policyOnly,
+      allowSafeBlockSkew: policyOnly,
+    });
     database = createRestapNetworkDatabase({ filename: config.databasePath });
     const custody = createCustodyReconciler({
       store: database,
@@ -59,6 +68,7 @@ export async function createRestapNetworkProductionFoundation({
       auditKey: Buffer.from(auditKey),
       auditKeyId,
       timeoutMs: config.providerTimeoutMs,
+      allowSafeBlockSkew: policyOnly,
     });
     const composition = composeRestapNetworkProductionPolicy({
       config, productionConfig, store: database, custodyReconciler: custody, accountReader, providers, codexRuntime, now,

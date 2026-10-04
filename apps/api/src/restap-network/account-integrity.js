@@ -67,11 +67,15 @@ export function createAccountIntegrityReader({
   providers,
   release = RESTAP_NETWORK_ACCOUNT_RELEASE,
   timeoutMs = 5_000,
+  allowUndeployedAccount = false,
+  allowSafeBlockSkew = false,
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers.some((provider) => typeof provider?.readAccountIntegrity !== 'function')) {
     throw new TypeError('Account integrity requires at least two approved providers.');
   }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Account integrity timeout is invalid.');
+  if (typeof allowUndeployedAccount !== 'boolean') throw new TypeError('Undeployed account policy is invalid.');
+  if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Safe block skew policy is invalid.');
   const pinnedRelease = normalizeRelease(release);
 
   return Object.freeze({
@@ -81,7 +85,7 @@ export function createAccountIntegrityReader({
       }
       const tokenId = normalizeTokenId(request.tokenId).toString();
       const outcomes = await Promise.all(providers.map((provider) => timedRead(
-        () => provider.readAccountIntegrity(deepFreeze({ tokenId, release: pinnedRelease })),
+        () => provider.readAccountIntegrity(deepFreeze({ tokenId })),
         timeoutMs,
       )));
       if (outcomes.some((outcome) => outcome.timeout)) return failure('provider_timeout');
@@ -89,20 +93,25 @@ export function createAccountIntegrityReader({
 
       const normalized = [];
       for (const outcome of outcomes) {
-        const checked = validateObservation(outcome.value, { tokenId, release: pinnedRelease });
+        const checked = validateObservation(outcome.value, { tokenId, release: pinnedRelease, allowUndeployedAccount });
         if (!checked.ok) return failure(checked.status);
         normalized.push(checked.value);
       }
       const firstSafe = canonical(normalized[0].safeBlock);
-      if (normalized.some((value) => canonical(value.safeBlock) !== firstSafe)) return failure('safe_block_disagreement');
-      const first = canonical(normalized[0]);
-      if (normalized.some((value) => canonical(value) !== first)) return failure('provider_disagreement');
-      return deepFreeze({ eligible: true, status: 'ready', proof: normalized[0] });
+      const safeDisagreement = normalized.some((value) => canonical(value.safeBlock) !== firstSafe);
+      const sameSafeNumber = normalized.every((value) => value.safeBlock.number === normalized[0].safeBlock.number);
+      if (safeDisagreement && (!allowSafeBlockSkew || sameSafeNumber)) return failure('safe_block_disagreement');
+      const first = canonical({ ...normalized[0], safeBlock: null });
+      if (normalized.some((value) => canonical({ ...value, safeBlock: null }) !== first)) return failure('provider_disagreement');
+      const proof = safeDisagreement
+        ? normalized.reduce((older, value) => value.safeBlock.number < older.safeBlock.number ? value : older)
+        : normalized[0];
+      return deepFreeze({ eligible: true, status: 'ready', proof });
     },
   });
 }
 
-function validateObservation(value, { tokenId, release }) {
+function validateObservation(value, { tokenId, release, allowUndeployedAccount }) {
   try {
     if (!isPlainObject(value)) return invalid('provider_unavailable');
     const safeBlock = {
@@ -119,9 +128,12 @@ function validateObservation(value, { tokenId, release }) {
       || String(value.collectionSalt).toLowerCase() !== release.salt) return invalid('binding_mismatch');
 
     const accountCode = normalizeCode(value.accountCode, { allowEmpty: true });
-    if (accountCode === '0x') return invalid('account_missing');
-    const expectedAccountCode = buildReleasedAccountRuntime({ tokenId, release });
-    if (accountCode !== expectedAccountCode) return invalid('proxy_mismatch');
+    const accountDeployed = accountCode !== '0x';
+    if (!accountDeployed && !allowUndeployedAccount) return invalid('account_missing');
+    if (accountDeployed) {
+      const expectedAccountCode = buildReleasedAccountRuntime({ tokenId, release });
+      if (accountCode !== expectedAccountCode) return invalid('proxy_mismatch');
+    }
 
     const implementationCode = normalizeCode(value.implementationCode);
     if (byteLength(implementationCode) !== release.implementationRuntimeBytes
@@ -175,8 +187,9 @@ function validateObservation(value, { tokenId, release }) {
         tokenId,
         safeBlock,
         account,
+        accountDeployed,
         accountCode,
-        accountRuntimeSha256: sha256(accountCode),
+        accountRuntimeSha256: accountDeployed ? sha256(accountCode) : null,
         implementation: release.implementation,
         implementationCode,
         implementationRuntimeSha256: sha256(implementationCode),

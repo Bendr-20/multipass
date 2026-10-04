@@ -12,18 +12,18 @@ import { parseRestapNetworkServiceConfig, startRestapNetworkService } from '../s
 
 test('production traffic config is pinned to the #617 and #3802 private pilot and protected relay files', () => {
   const parsed = parseRestapNetworkProductionConfig({
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'drpc,blast',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'tenderly,blast',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '3802,617',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: '/run/restap/audit.json',
     MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE: '/run/restap/keys.json',
     MULTIPASS_RESTAP_NETWORK_SIGNER_FILE: '/run/restap/signer.json',
   });
-  assert.deepEqual(parsed.providerIds, ['blast', 'drpc']);
+  assert.deepEqual(parsed.providerIds, ['blast', 'tenderly']);
   assert.deepEqual(parsed.tokenIds, ['617', '3802']);
   assert.equal(parsed.keyRegistryFile, '/run/restap/keys.json');
   assert.equal(parsed.signerFile, '/run/restap/signer.json');
   assert.throws(() => parseRestapNetworkProductionConfig({
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,tenderly',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802,4000',
   }), /exact.*617.*3802|pilot roster/i);
 });
@@ -43,7 +43,7 @@ test('production server composes Phase 0 RESTAP foundation from reviewed configu
     MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
     MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: databasePath,
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32),
-    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,tenderly',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: auditKeyPath,
   });

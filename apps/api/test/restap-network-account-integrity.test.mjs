@@ -112,6 +112,32 @@ test('returns one deeply frozen exact proof only when both approved providers ag
   assert.throws(() => { result.proof.accountToken.tokenId = '1'; }, TypeError);
 });
 
+test('calls each provider with only the canonical token ID', async () => {
+  const requests = [];
+  const exactProvider = { async readAccountIntegrity(request) { requests.push(request); return observation(); } };
+  const result = await reader([exactProvider, exactProvider]).read({ tokenId: '617' });
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(requests, [{ tokenId: '617' }, { tokenId: '617' }]);
+});
+
+test('holder opt-in may verify owner authority without deploying the deterministic V1 account', async () => {
+  const undeployed = observation({ accountCode: '0x' });
+  const result = await reader([undeployed, undeployed], { allowUndeployedAccount: true }).read({ tokenId: '617' });
+  assert.equal(result.eligible, true);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.proof.accountDeployed, false);
+  assert.equal(result.proof.owner, OWNER);
+  assert.equal(result.proof.controller, CONTROLLER);
+});
+
+test('holder opt-in accepts bounded finalized-head skew when authority evidence agrees', async () => {
+  const newer = observation({ safeBlock: { number: 101, hash: '0x' + 'bb'.repeat(32) } });
+  const result = await reader([observation(), newer], { allowSafeBlockSkew: true }).read({ tokenId: '617' });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.proof.safeBlock.number, 100);
+  assert.equal(result.proof.safeBlock.hash, '0x' + 'aa'.repeat(32));
+});
+
 test('rejects browser-supplied evidence and requires two approved providers', async () => {
   await assert.rejects(reader().read({ tokenId: '617', browserEvidence: observation() }), /exact server-side request/i);
   assert.throws(() => createAccountIntegrityReader({ providers: [provider()], release: RELEASE }), /at least two approved providers/i);
