@@ -265,7 +265,7 @@ async function readLogsInChunks(publicClient, { fromBlock, toBlock, ...request }
   const logs = [];
   for (let offset = 0; offset < ranges.length; offset += MAX_RPC_LOG_CONCURRENCY) {
     const chunks = await Promise.all(ranges.slice(offset, offset + MAX_RPC_LOG_CONCURRENCY).map(([start, end]) =>
-      publicClient.getLogs({ ...request, fromBlock: BigInt(start), toBlock: BigInt(end) })));
+      retryTransientRpc(() => publicClient.getLogs({ ...request, fromBlock: BigInt(start), toBlock: BigInt(end) }))));
     for (const chunk of chunks) {
       if (!Array.isArray(chunk)) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
       logs.push(...chunk);
@@ -319,7 +319,7 @@ async function assertAnchor(publicClient, anchor) {
 }
 
 async function readAnchor(publicClient, request) {
-  const block = await publicClient.getBlock(request);
+  const block = await retryTransientRpc(() => publicClient.getBlock(request));
   const number = normalizeBlockNumber(block?.number);
   const hash = normalizeHash(block?.hash);
   if (request.blockNumber !== undefined && number !== Number(request.blockNumber)) throw new Error('RESTAP Base canonical block number mismatched.');
@@ -327,18 +327,38 @@ async function readAnchor(publicClient, request) {
 }
 
 async function assertChain(publicClient, expected) {
-  const actual = Number(await publicClient.getChainId());
+  const actual = Number(await retryTransientRpc(() => publicClient.getChainId()));
   if (actual !== expected) throw new Error('RESTAP Base chain mismatch.');
 }
 
 async function readContract(publicClient, request) {
-  return publicClient.readContract({ ...request, address: getAddress(request.address) });
+  return retryTransientRpc(() => publicClient.readContract({ ...request, address: getAddress(request.address) }));
 }
 
 async function readCode(publicClient, address, blockNumber, allowEmpty = false) {
-  const code = String(await publicClient.getBytecode({ address: getAddress(address), blockNumber }) ?? '0x').toLowerCase();
+  const code = String(await retryTransientRpc(() => publicClient.getBytecode({ address: getAddress(address), blockNumber })) ?? '0x').toLowerCase();
   if (!/^0x(?:[0-9a-f]{2})*$/u.test(code) || (!allowEmpty && code === '0x')) throw new Error('RESTAP Base runtime code is missing or malformed.');
   return code;
+}
+
+async function retryTransientRpc(read) {
+  const delays = [750, 1_500, 3_000];
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await read(); } catch (error) {
+      if (attempt >= delays.length || !isTransientRpcError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    }
+  }
+}
+
+function isTransientRpcError(error) {
+  const messages = [];
+  for (let current = error, depth = 0; current && depth < 6; current = current.cause, depth += 1) {
+    if (typeof current.message === 'string') messages.push(current.message);
+    if (typeof current.details === 'string') messages.push(current.details);
+    if (typeof current.status === 'number') messages.push(String(current.status));
+  }
+  return /(?:rate.?limit|too many requests|timed? ?out|timeout|fetch failed|\b429\b|\b50[234]\b)/iu.test(messages.join(' | '));
 }
 
 function normalizeBinding(value) {

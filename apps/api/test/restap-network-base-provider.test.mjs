@@ -37,11 +37,13 @@ function clientFixture({
   logs = [],
   drift = false,
   failFunction = null,
+  transientFunction = null,
   honorLogFilter = true,
   maxLogSpan = null,
 } = {}) {
   const calls = [];
   let guardedReads = 0;
+  let transientFailed = false;
   const hashes = { 99: HASH_99, 100: HASH_100, 101: HASH_101 };
   const ownerAt = (number) => owners[Number(number)] ?? owners[safeNumber] ?? A;
   const publicClient = {
@@ -58,6 +60,12 @@ function clientFixture({
     async readContract(request) {
       calls.push({ kind: 'read', request });
       if (request.functionName === failFunction) throw new Error('partial read');
+      if (request.functionName === transientFunction && !transientFailed) {
+        transientFailed = true;
+        const error = new Error('Request exceeds defined limit.');
+        error.details = 'rate limit exceeded';
+        throw error;
+      }
       const number = Number(request.blockNumber);
       switch (request.functionName) {
         case 'ownerOf': return ownerAt(number);
@@ -107,6 +115,14 @@ test('production collection mode resolves an explicit owner-selected Looper with
   const openProvider = createRestapNetworkBaseProvider({ publicClient: fixture.publicClient, allowAnyCollectionToken: true, release: RELEASE });
   const observation = await openProvider.readAccountIntegrity({ tokenId: TOKEN_ID });
   assert.equal(observation.accountToken.tokenId, TOKEN_ID);
+});
+
+test('retries a bounded transient RPC rate limit without weakening the integrity proof', async () => {
+  const f = provider({ transientFunction: 'isController' });
+  const observation = await f.provider.readAccountIntegrity({ tokenId: TOKEN_ID });
+  assert.equal(observation.owner, A);
+  assert.equal(observation.controller, A);
+  assert.equal(f.calls.filter((call) => call.kind === 'read' && call.request.functionName === 'isController').length, 3);
 });
 
 test('reads a complete safe-block account-integrity observation and proves the ERC-721 owner controller', async () => {
