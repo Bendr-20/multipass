@@ -23,6 +23,7 @@ import { createRestapNewsStore } from './restap-news-store.js';
 import { createRestapPublicSessionStore } from './restap-public-sessions.js';
 import { createBankrRestapInferenceClient, createRestapPublicTalkRuntime } from './restap-public-talk.js';
 import { loadRestapNetworkFileSigner } from './restap-network/grants.js';
+import { createRestapNetworkProductionFoundation, parseRestapNetworkProductionConfig } from './restap-network/production.js';
 import { hasRestapNetworkEnvironment, parseRestapNetworkServiceConfig, startRestapNetworkService } from './restap-network/service.js';
 
 const DEFAULT_FIXTURE = 'generic';
@@ -101,7 +102,10 @@ export function parseServerOptions(argv = [], env = process.env) {
       concurrency: parseBoundedPositiveInteger(env.MULTIPASS_RESTAP_TALK_CONCURRENCY, DEFAULT_RESTAP_TALK_LIMITS.concurrency, 'MULTIPASS_RESTAP_TALK_CONCURRENCY', 16),
     },
   };
-  if (hasRestapNetworkEnvironment(env)) options.restapNetworkServiceConfig = parseRestapNetworkServiceConfig(env);
+  if (hasRestapNetworkEnvironment(env)) {
+    options.restapNetworkServiceConfig = parseRestapNetworkServiceConfig(env);
+    options.restapNetworkProductionConfig = parseRestapNetworkProductionConfig(env);
+  }
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -173,6 +177,7 @@ export async function startServer(options = {}) {
     restapNetworkSignerFile: options.restapNetworkSignerFile ?? null,
     restapNetworkSignerRequired: options.restapNetworkSignerRequired === true,
     restapNetworkServiceConfig: options.restapNetworkServiceConfig ?? parseRestapNetworkServiceConfig({}),
+    restapNetworkProductionConfig: options.restapNetworkProductionConfig ?? parseRestapNetworkProductionConfig({}),
     restap3802PolicyPath: options.restap3802PolicyPath ?? null,
     restapTalkModel: parseOptionalBoundedString(options.restapTalkModel, 'restapTalkModel', 128),
     restapTalkTimeoutMs: parseBoundedPositiveInteger(options.restapTalkTimeoutMs, DEFAULT_RESTAP_TALK_TIMEOUT_MS, 'restapTalkTimeoutMs', DEFAULT_RESTAP_TALK_TIMEOUT_MS),
@@ -222,6 +227,7 @@ export async function startServer(options = {}) {
   let restapNewsStore;
   let restapNetworkSigner;
   let restapNetworkService;
+  let restapNetworkProductionFoundation;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -275,17 +281,36 @@ export async function startServer(options = {}) {
       rssDeltaBytes: process.memoryUsage().rss - codexStartingRss,
     });
 
+    let restapNetworkDependencies = {};
+    if (!options.restapNetworkService && parsed.restapNetworkServiceConfig.gates.foundation) {
+      if (Object.hasOwn(options, 'restapNetworkDependencies')) {
+        restapNetworkDependencies = {
+          ...(options.restapNetworkDependencies ?? {}),
+          codexRuntime: options.restapNetworkDependencies?.codexRuntime ?? looperCodexRuntime,
+        };
+      } else {
+        restapNetworkProductionFoundation = await createRestapNetworkProductionFoundation({
+          config: parsed.restapNetworkServiceConfig,
+          productionConfig: parsed.restapNetworkProductionConfig,
+          codexRuntime: looperCodexRuntime,
+        });
+        restapNetworkDependencies = restapNetworkProductionFoundation.dependencies;
+      }
+    }
     restapNetworkService = options.restapNetworkService ?? await restapNetworkServiceFactory({
       config: parsed.restapNetworkServiceConfig,
-      dependencies: parsed.restapNetworkServiceConfig.gates.foundation
-        ? { ...(options.restapNetworkDependencies ?? {}), codexRuntime: options.restapNetworkDependencies?.codexRuntime ?? looperCodexRuntime }
-        : {},
+      dependencies: restapNetworkDependencies,
     });
     if (!restapNetworkService || typeof restapNetworkService.close !== 'function') throw new Error('RESTAP network service is unavailable.');
 
     const consoleBootstrapOptions = { ...parsed };
     delete consoleBootstrapOptions.restapNetworkServiceConfig;
+    delete consoleBootstrapOptions.restapNetworkProductionConfig;
     delete consoleBootstrapOptions.restapNetworkSignerFile;
+    if (restapNetworkProductionFoundation) {
+      consoleBootstrapOptions.restapNetworkStore = restapNetworkProductionFoundation.store;
+      consoleBootstrapOptions.restapNetworkCustodyReconciler = restapNetworkProductionFoundation.custodyReconciler;
+    }
     delete consoleBootstrapOptions.restapNetworkSignerRequired;
     consoleBootstrap = await consoleBootstrapFactory({
       ...consoleBootstrapOptions,
@@ -463,6 +488,7 @@ export async function startServer(options = {}) {
     apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
     if (!api) api = createApi();
   } catch (error) {
+    if (!restapNetworkService) await restapNetworkProductionFoundation?.closeOnStartupFailure?.().catch(() => {});
     await closeServerResources({
       consoleBootstrap,
       nodeServer,
