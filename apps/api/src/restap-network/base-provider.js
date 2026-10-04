@@ -61,8 +61,11 @@ export function createRestapNetworkBaseProvider({
   allowAnyCollectionToken = false,
   release = RESTAP_NETWORK_ACCOUNT_RELEASE,
   maxRange = MAX_RANGE,
+  rpcMinIntervalMs = 0,
 } = {}) {
   assertClient(publicClient);
+  if (!Number.isSafeInteger(rpcMinIntervalMs) || rpcMinIntervalMs < 0 || rpcMinIntervalMs > 1_000) throw new TypeError('RESTAP Base RPC interval is invalid.');
+  publicClient = createRetriedClient(publicClient, rpcMinIntervalMs);
   if (!release || release.controllerModel !== 'erc721_owner') throw new TypeError('RESTAP Base controller model is unsupported.');
   if (!Number.isSafeInteger(maxRange) || maxRange < 1 || maxRange > MAX_RANGE) throw new TypeError('RESTAP Base range limit is invalid.');
   if (typeof allowAnyCollectionToken !== 'boolean') throw new TypeError('RESTAP Base collection-token policy is invalid.');
@@ -273,7 +276,7 @@ async function readLogsInChunks(publicClient, { fromBlock, toBlock, ...request }
   const logs = [];
   for (let offset = 0; offset < ranges.length; offset += MAX_RPC_LOG_CONCURRENCY) {
     const chunks = await Promise.all(ranges.slice(offset, offset + MAX_RPC_LOG_CONCURRENCY).map(([start, end]) =>
-      retryTransientRpc(() => publicClient.getLogs({ ...request, fromBlock: BigInt(start), toBlock: BigInt(end) }))));
+      publicClient.getLogs({ ...request, fromBlock: BigInt(start), toBlock: BigInt(end) })));
     for (const chunk of chunks) {
       if (!Array.isArray(chunk)) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
       logs.push(...chunk);
@@ -327,7 +330,7 @@ async function assertAnchor(publicClient, anchor) {
 }
 
 async function readAnchor(publicClient, request) {
-  const block = await retryTransientRpc(() => publicClient.getBlock(request));
+  const block = await publicClient.getBlock(request);
   const number = normalizeBlockNumber(block?.number);
   const hash = normalizeHash(block?.hash);
   if (request.blockNumber !== undefined && number !== Number(request.blockNumber)) throw new Error('RESTAP Base canonical block number mismatched.');
@@ -335,18 +338,34 @@ async function readAnchor(publicClient, request) {
 }
 
 async function assertChain(publicClient, expected) {
-  const actual = Number(await retryTransientRpc(() => publicClient.getChainId()));
+  const actual = Number(await publicClient.getChainId());
   if (actual !== expected) throw new Error('RESTAP Base chain mismatch.');
 }
 
 async function readContract(publicClient, request) {
-  return retryTransientRpc(() => publicClient.readContract({ ...request, address: getAddress(request.address) }));
+  return publicClient.readContract({ ...request, address: getAddress(request.address) });
 }
 
 async function readCode(publicClient, address, blockNumber, allowEmpty = false) {
-  const code = String(await retryTransientRpc(() => publicClient.getBytecode({ address: getAddress(address), blockNumber })) ?? '0x').toLowerCase();
+  const code = String(await publicClient.getBytecode({ address: getAddress(address), blockNumber }) ?? '0x').toLowerCase();
   if (!/^0x(?:[0-9a-f]{2})*$/u.test(code) || (!allowEmpty && code === '0x')) throw new Error('RESTAP Base runtime code is missing or malformed.');
   return code;
+}
+
+function createRetriedClient(client, minIntervalMs) {
+  let queue = Promise.resolve();
+  let lastStartedAt = 0;
+  const schedule = (method, args) => {
+    const run = queue.then(async () => {
+      const remaining = minIntervalMs - (Date.now() - lastStartedAt);
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+      lastStartedAt = Date.now();
+      return retryTransientRpc(() => client[method](...args));
+    });
+    queue = run.catch(() => {});
+    return run;
+  };
+  return Object.freeze(Object.fromEntries(['getChainId', 'getBlock', 'readContract', 'getBytecode', 'getLogs'].map((method) => [method, (...args) => schedule(method, args)])));
 }
 
 async function retryTransientRpc(read) {

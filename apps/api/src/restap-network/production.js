@@ -70,7 +70,7 @@ export async function createRestapNetworkProductionFoundation({
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
       id: productionConfig.providerIds[index],
-      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true, maxRange: 500 }),
+      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true, maxRange: 500, rpcMinIntervalMs: 150 }),
     })));
     const offchainOwnerAuthority = config.gates.policy === true;
     const accountReader = createAccountIntegrityReader({
