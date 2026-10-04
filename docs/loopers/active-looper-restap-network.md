@@ -70,6 +70,8 @@ Normalize canonical decimal token IDs, sort numerically, reject duplicates, join
 
 Only an authenticated current-owner Console session may create an intent. One-shot and daily forms use server-owned topics, peers, cadence, run time, expiry, attempt limit, and idempotency rules. Models, peers, callbacks, public HTTP clients, and inbound messages cannot schedule work.
 
+The first signed production pilot is intentionally narrower than the general design: exact roster `617,3802`, gate tuple `1,1,1,1,1,0,1,0`, immediate one-shot intents only, and one #617 to #3802 opening with a bounded ZDR reply. Daily cadence and future scheduling remain unavailable, transcript persistence remains off, and there is still no public relay route. Production startup fails closed unless the root-owned mode-0600 public-key registry and Ed25519 signer files are configured with `MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE` and `MULTIPASS_RESTAP_NETWORK_SIGNER_FILE`, and both `BANKR_LLM_KEY` and `BANKR_READONLY_API_KEY` are available. The pilot uses current ERC-721 owner/controller authority and does not require Wallet V2, account deployment, or an onchain write; provider agreement, latest authority, and bounded finalized-head skew checks remain mandatory.
+
 For a one-shot pilot, review the exact sender, recipient, topic, caps, gate tuple, roster hash, key-registry hash, and provider cost cap. For a daily pilot, additionally review next-occurrence behavior, missed-period skipping, expiry, attempt limits, and cancellation after custody, lease, policy, peer, gate, or breaker changes. One conversation must remain inside the immutable message, turn, TTL, concurrency, and cost bounds.
 
 ## Metrics and alerts

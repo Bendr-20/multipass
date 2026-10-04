@@ -5,8 +5,10 @@ import { isAbsolute } from 'node:path';
 import { createLoopersPublicClients } from '../loopers-owned-agents.js';
 import { createAccountIntegrityReader } from './account-integrity.js';
 import { createRestapNetworkBaseProvider } from './base-provider.js';
+import { createRestapNetworkBankrGateway } from './bankr-provider.js';
 import { createCustodyReconciler } from './custody-reconciler.js';
 import { createRestapNetworkDatabase } from './database.js';
+import { loadRestapNetworkFileSigner, loadRestapNetworkPublicKeyRegistryFile } from './grants.js';
 import { composeRestapNetworkProductionPolicy } from './production-composition.js';
 
 const REVIEWED_BASE_PROVIDERS = Object.freeze({
@@ -31,6 +33,9 @@ export function parseRestapNetworkProductionConfig(env = {}) {
 
 export async function createRestapNetworkProductionFoundation({
   config, productionConfig, codexRuntime, now = Date.now, publicClients = null,
+  bankrLlmKey = null, bankrReadonlyApiKey = null, bankrModel = null, fetchImpl = fetch,
+  keyRegistryLoader = loadRestapNetworkPublicKeyRegistryFile,
+  signerLoader = loadRestapNetworkFileSigner,
 } = {}) {
   if (!config?.gates?.foundation) throw new Error('RESTAP network production foundation is not enabled.');
   if (!productionConfig || !sameStrings(productionConfig.providerIds, REQUIRED_PROVIDER_IDS)) {
@@ -40,10 +45,25 @@ export async function createRestapNetworkProductionFoundation({
     throw new Error('RESTAP network foundation requires authority token IDs.');
   }
   if (!productionConfig.auditKeyFile) throw new Error('RESTAP network foundation requires a protected audit key file.');
+  const trafficEnabled = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
+  if (trafficEnabled && !productionConfig.keyRegistryFile) throw new Error('RESTAP network traffic requires a protected key registry file.');
+  if (trafficEnabled && !productionConfig.signerFile) throw new Error('RESTAP network traffic requires a protected signer file.');
+  if (trafficEnabled && (!bankrLlmKey || !bankrReadonlyApiKey)) throw new Error('RESTAP network traffic requires protected Bankr provider keys.');
 
   const { auditKey, auditKeyId } = await loadAuditKeyFile({ filePath: productionConfig.auditKeyFile });
   let database;
   try {
+    const keyRegistry = trafficEnabled ? await keyRegistryLoader({ filePath: productionConfig.keyRegistryFile }) : null;
+    const signer = trafficEnabled ? await signerLoader({ filePath: productionConfig.signerFile }) : null;
+    if (trafficEnabled && keyRegistry?.get?.(signer?.keyId)?.status !== 'signing') {
+      throw new Error('RESTAP network signer has no active signing key in the protected registry.');
+    }
+    const inferenceGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrLlmKey, model: bankrModel ?? undefined, fetchImpl }) : null;
+    const usageGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrReadonlyApiKey, model: bankrModel ?? undefined, fetchImpl }) : null;
+    const bankrGateway = trafficEnabled ? Object.freeze({
+      generatePublicReply: (projection) => inferenceGateway.generatePublicReply(projection),
+      readUsageTotals: () => usageGateway.readUsageTotals(),
+    }) : null;
     const clients = publicClients ?? createLoopersPublicClients({ rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]) });
     if (clients.length !== REQUIRED_PROVIDER_IDS.length) throw new Error('RESTAP network approved providers are unavailable.');
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
@@ -51,15 +71,12 @@ export async function createRestapNetworkProductionFoundation({
       id: productionConfig.providerIds[index],
       ...createRestapNetworkBaseProvider({ publicClient, tokenIds: productionConfig.tokenIds }),
     })));
-    const policyOnly = config.gates.policy === true
-      && config.gates.discovery === false
-      && config.gates.initiation === false
-      && config.gates.replies === false;
+    const offchainOwnerAuthority = config.gates.policy === true;
     const accountReader = createAccountIntegrityReader({
       providers,
       timeoutMs: config.providerTimeoutMs,
-      allowUndeployedAccount: policyOnly,
-      allowSafeBlockSkew: policyOnly,
+      allowUndeployedAccount: offchainOwnerAuthority,
+      allowSafeBlockSkew: offchainOwnerAuthority,
     });
     database = createRestapNetworkDatabase({ filename: config.databasePath });
     const custody = createCustodyReconciler({
@@ -68,10 +85,11 @@ export async function createRestapNetworkProductionFoundation({
       auditKey: Buffer.from(auditKey),
       auditKeyId,
       timeoutMs: config.providerTimeoutMs,
-      allowSafeBlockSkew: policyOnly,
+      allowSafeBlockSkew: offchainOwnerAuthority,
     });
     const composition = composeRestapNetworkProductionPolicy({
-      config, productionConfig, store: database, custodyReconciler: custody, accountReader, providers, codexRuntime, now,
+      config, productionConfig, store: database, custodyReconciler: custody, accountReader, providers, codexRuntime,
+      signer, keyRegistry, bankrGateway, now,
     });
     return Object.freeze({
       ...composition,

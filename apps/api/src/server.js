@@ -293,6 +293,13 @@ export async function startServer(options = {}) {
           config: parsed.restapNetworkServiceConfig,
           productionConfig: parsed.restapNetworkProductionConfig,
           codexRuntime: looperCodexRuntime,
+          publicClients: parsed.loopersPublicClients ?? null,
+          bankrLlmKey: parsed.bankrLlmKey,
+          bankrReadonlyApiKey: parsed.bankrReadonlyApiKey,
+          bankrModel: parsed.bankrLlmModel,
+          fetchImpl: parsed.fetchImpl ?? fetch,
+          keyRegistryLoader: options.restapNetworkKeyRegistryLoader,
+          signerLoader: options.restapNetworkProductionSignerLoader,
         });
         restapNetworkDependencies = restapNetworkProductionFoundation.dependencies;
       }
