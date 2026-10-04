@@ -216,11 +216,11 @@ install_candidate() {
 }
 run_smoke() {
   local attempt
-  for attempt in {1..30}; do
+  for attempt in {1..90}; do
     if node "$release/apps/api/scripts/smoke-looper-restap-network.mjs" --mode remote --base-url "$smoke_base_url" --phase "$smoke_phase" --expected-gates "$tuple" --release-sha "$release_sha" --release "$release" --artifact "$artifact" --policy "$policy" --key-registry "$key_registry" --database "$database" --fixture-key-ref "signer=$signer" >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
-  echo 'candidate smoke did not become ready within 30 seconds' >&2
+  echo 'candidate smoke did not become ready within 90 seconds' >&2
   return 1
 }
 verify_proof() { local file=$1; while IFS= read -r binding; do grep -Fx -- "$binding" "$file" >/dev/null || { echo 'rehearsal proof binding mismatch' >&2; return 1; }; done < <(write_bindings); grep -Fx 'candidate_started=true' "$file" >/dev/null; grep -Fx 'smoke_passed=true' "$file" >/dev/null; grep -Fx 'rollback=verified' "$file" >/dev/null; }
