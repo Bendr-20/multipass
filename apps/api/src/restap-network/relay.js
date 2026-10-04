@@ -262,6 +262,7 @@ async function resumeCommittedDelivery(context, record, message, deliverySequenc
       if (record.operation === 'opening') {
         if (!pending.conversationId) {
           const opened = context.conversations.open({
+            conversationId: record.correlationId,
             senderTokenId: record.senderTokenId,
             recipientTokenId: record.recipientTokenId,
             topic: record.topic,

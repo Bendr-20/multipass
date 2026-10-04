@@ -162,6 +162,7 @@ test('production composes the exact signed private pilot while schedules and tra
     tx.run('INSERT INTO restap_network_activation_leases (lease_id, chain_id, collection, token_id, custody_generation, canonical_account, owner_address, controller_address, issued_at, last_renewed_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['1'.repeat(32), 8453, collection, '617', 1, account, owner, owner, now - 1_000, now - 500, now + 60_000, 'active']);
     tx.run('INSERT INTO restap_network_owner_policies (chain_id, collection, token_id, custody_generation, policy_version, network_enabled, inbound_enabled, autonomous_enabled, initiated_daily_limit, generated_daily_limit, peer_daily_limit, topic_mask, mute_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [8453, collection, '617', 1, 1, 1, 1, 1, 1, 3, 1, 32, null, now, now]);
     tx.run("INSERT INTO restap_network_policy_peers (chain_id, collection, token_id, custody_generation, policy_version, peer_token_id, relation) VALUES (?, ?, ?, ?, ?, ?, 'allow')", [8453, collection, '617', 1, 1, '3802']);
+    tx.run('INSERT INTO restap_network_intents (intent_id, chain_id, collection, token_id, custody_generation, activation_lease_id, policy_version, source, topic, peer_set_digest, selection_cursor, idempotency_key, earliest_at, expires_at, attempt_count, attempt_limit, next_eligible_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['orphaned-leased-intent-000001', 8453, collection, '617', 1, '1'.repeat(32), 1, 'one_shot', 'general', 'f'.repeat(64), 1, 'orphaned-idempotency-key-000001', now, now + 60_000, 1, 1, now, 'leased', now, now]);
   });
   const config = parseRestapNetworkServiceConfig({
     MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true', MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED: 'true',
@@ -181,6 +182,7 @@ test('production composes the exact signed private pilot while schedules and tra
     bankrGateway: { async generatePublicReply() { return 'Bounded public reply.'; }, async readUsageTotals() { return { totalRequests: 0 }; } },
     now: () => now,
   });
+  assert.equal(store.readOne('SELECT status FROM restap_network_intents WHERE intent_id = ?', ['orphaned-leased-intent-000001']).status, 'exhausted');
   for (const [dependency, method] of [['eligibility', 'resolvePeerForRelay'], ['coordinator', 'reserve'], ['conversations', 'close'], ['runtime', 'generate'], ['relay', 'createDueOperation'], ['providerBudget', 'read'], ['worker', 'start']]) {
     assert.equal(typeof composition.dependencies[dependency]?.[method], 'function', dependency + '.' + method);
   }
@@ -188,7 +190,7 @@ test('production composes the exact signed private pilot while schedules and tra
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true }); });
   assert.deepEqual(service.status.gates, { foundation: true, policy: true, discovery: true, initiation: true, replies: true, transcripts: false, pilot: true, ga: false });
   await assert.rejects(() => service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'daily', run_at: new Date(now).toISOString(), idempotency_key: 'daily-is-forbidden-in-this-pilot-0001' } }), /daily|schedule|one-shot/i);
-  await assert.rejects(() => service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(now + 60_000).toISOString(), idempotency_key: 'future-schedule-is-forbidden-000001' } }), /schedule|immediate|one-shot/i);
+  await assert.rejects(() => service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(now + 5 * 60_000).toISOString(), idempotency_key: 'future-schedule-is-forbidden-000001' } }), /schedule|immediate|one-shot/i);
   assert.equal(store.readOne("SELECT count(*) AS count FROM restap_network_intents WHERE source = 'daily'").count, 0);
   assert.equal(service.status.transcriptCapability, 'unavailable');
 });
@@ -235,7 +237,7 @@ test('production one-shot worker signs and delivers one private #617 to #3802 op
   const directory = await mkdtemp(path.join(os.tmpdir(), 'restap-production-e2e-'));
   const filename = path.join(directory, 'network.sqlite');
   const store = createRestapNetworkDatabase({ filename });
-  const now = Date.UTC(2026, 9, 4, 16, 47);
+  let now = Date.UTC(2026, 9, 4, 16, 47, 45);
   const collection = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
   const owner = '0x1111111111111111111111111111111111111111';
   const blockHash = '0x' + 'a'.repeat(64);
@@ -247,8 +249,8 @@ test('production one-shot worker signs and delivers one private #617 to #3802 op
       const leaseId = tokenId.padEnd(32, tokenId.at(-1));
       snapshots[tokenId] = Object.freeze({ chainId: 8453, collection, tokenId, generation: 1, canonicalAccount: accounts[tokenId], owner, controller: owner, safeBlockNumber: 100, safeBlockHash: blockHash, status: 'ready' });
       tx.run('INSERT INTO restap_network_custody_epochs (chain_id, collection, token_id, generation, canonical_account, owner_address, controller_address, safe_block_number, safe_block_hash, event_block_number, event_log_index, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [8453, collection, tokenId, 1, accounts[tokenId], owner, owner, 100, blockHash.slice(2), 100, 0, 'ready', now]);
-      tx.run('INSERT INTO restap_network_activation_leases (lease_id, chain_id, collection, token_id, custody_generation, canonical_account, owner_address, controller_address, issued_at, last_renewed_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [leaseId, 8453, collection, tokenId, 1, accounts[tokenId], owner, owner, now - 1_000, now - 500, now + 60_000, 'active']);
-      tx.run('INSERT INTO restap_network_owner_policies (chain_id, collection, token_id, custody_generation, policy_version, network_enabled, inbound_enabled, autonomous_enabled, initiated_daily_limit, generated_daily_limit, peer_daily_limit, topic_mask, mute_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [8453, collection, tokenId, 1, 1, 1, 1, 1, 1, 3, 1, 32, null, now, now]);
+      tx.run('INSERT INTO restap_network_activation_leases (lease_id, chain_id, collection, token_id, custody_generation, canonical_account, owner_address, controller_address, issued_at, last_renewed_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [leaseId, 8453, collection, tokenId, 1, accounts[tokenId], owner, owner, now - 1_000, now - 500, now + 10 * 60_000, 'active']);
+      tx.run('INSERT INTO restap_network_owner_policies (chain_id, collection, token_id, custody_generation, policy_version, network_enabled, inbound_enabled, autonomous_enabled, initiated_daily_limit, generated_daily_limit, peer_daily_limit, topic_mask, mute_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [8453, collection, tokenId, 1, 1, 1, 1, 1, 2, 3, 2, 32, null, now, now]);
       tx.run("INSERT INTO restap_network_policy_peers (chain_id, collection, token_id, custody_generation, policy_version, peer_token_id, relation) VALUES (?, ?, ?, ?, ?, ?, 'allow')", [8453, collection, tokenId, 1, 1, peer]);
     }
   });
@@ -267,18 +269,31 @@ test('production one-shot worker signs and delivers one private #617 to #3802 op
   const seconds = Math.floor(now / 1_000);
   const keyRegistry = createRestapNetworkPublicKeyRegistry({ keys: [{ keyId, algorithm: 'Ed25519', publicKey, activatesAt: seconds - 10, notBefore: seconds - 10, notAfter: seconds + 10_000, status: 'signing' }] });
   let providerRequests = 0;
+  let failProvider = false;
   const composition = composeRestapNetworkProductionPolicy({
     config, productionConfig: { tokenIds: ['617', '3802'] }, store, custodyReconciler, accountReader, providers: [{ approved: true }],
     codexRuntime: { available: true, getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId), canonicalName: 'Looper #' + tokenId } }; } },
-    signer, keyRegistry, bankrGateway: { async generatePublicReply() { providerRequests += 1; return 'One bounded private reply.'; }, async readUsageTotals() { return { totalRequests: providerRequests }; } }, now: () => now,
+    signer, keyRegistry, bankrGateway: { async generatePublicReply() { providerRequests += 1; if (failProvider) throw new Error('provider unavailable'); return 'One bounded private reply.'; }, async readUsageTotals() { return { totalRequests: providerRequests }; } }, now: () => now,
   });
   const service = await startRestapNetworkService({ config, dependencies: composition.dependencies });
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true }); });
-  const intent = await service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(now).toISOString(), idempotency_key: 'production-e2e-one-shot-0000000001' } });
+  const intent = await service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(Math.floor(now / 60_000) * 60_000).toISOString(), idempotency_key: 'production-e2e-one-shot-0000000001' } });
+  now += 1_000;
   const poll = await composition.dependencies.worker.pollNow();
   assert.equal(poll.processed, 1);
   assert.equal(providerRequests, 1);
   assert.equal(store.readOne('SELECT status FROM restap_network_intents WHERE intent_id = ?', [intent.intentId]).status, 'completed');
   assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_operations WHERE status = ?', ['committed']).count, 1);
   assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_deliveries WHERE status = ?', ['delivered']).count, 1);
+  const operationConversation = store.readOne('SELECT conversation_id FROM restap_network_deliveries LIMIT 1').conversation_id;
+  assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_conversations').count, 1);
+  assert.equal(store.readOne('SELECT turn_count FROM restap_network_conversations WHERE conversation_id = ?', [operationConversation]).turn_count, 2);
+
+  now += 60_000;
+  failProvider = true;
+  const failedIntent = await service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(Math.floor(now / 60_000) * 60_000).toISOString(), idempotency_key: 'production-e2e-provider-failure-0001' } });
+  now += 1_000;
+  await assert.rejects(() => composition.dependencies.worker.pollNow(), /unavailable/i);
+  assert.equal(store.readOne('SELECT status FROM restap_network_intents WHERE intent_id = ?', [failedIntent.intentId]).status, 'exhausted');
+  assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_intents WHERE status = ?', ['leased']).count, 0);
 });

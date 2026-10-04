@@ -43,6 +43,7 @@ async function fixture(options = {}) {
     globalDailyCostLimit: options.globalDailyCostLimit ?? 1_000,
     reservationTtlMs: options.reservationTtlMs ?? 1_000,
     faultInjector: options.faultInjector ?? null,
+    quotaLimitResolver: options.quotaLimitResolver ?? null,
   });
   return {
     directory, filename, store, coordinator,
@@ -78,6 +79,14 @@ const EXACT_TRANSITIONS = Object.freeze({
   reserved: ['provider_dispatched', 'released'],
   provider_dispatched: ['charged_unknown', 'cancelled_charged', 'failed_charged', 'committed'],
   committed: [], released: [], charged_unknown: [], cancelled_charged: [], failed_charged: [],
+});
+
+test('owner policy quota limits are enforced atomically below platform maxima', async (t) => {
+  const f = await fixture({ quotaLimitResolver: () => ({ initiatedDailyLimit: 1, generatedDailyLimit: 1, peerDailyLimit: 1 }) }); t.after(() => f.close());
+  const first = f.coordinator.reserve(reservation());
+  f.coordinator.markProviderDispatched({ operationId: first.operationId, freshSnapshot: first.snapshot });
+  f.coordinator.markFailedCharged({ operationId: first.operationId });
+  assert.throws(() => f.coordinator.reserve(reservation({ idempotencyKey: 'idem-owner-limit-2', nonce: 'nonce-owner-limit-2', conversationId: 'conversation-owner-limit-2' })), /quota|limit|exceeded/i);
 });
 
 test('operation transitions are exactly the approved table and terminal states are immutable', async (t) => {

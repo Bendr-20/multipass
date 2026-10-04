@@ -90,6 +90,7 @@ function composeSignedPilot({ config, store, custodyReconciler, accountReader, c
   const pendingOperationIds = [];
   const coordinator = createRestapNetworkCoordinator({
     store, now, globalDailyCostLimit: config.dailyCostLimit,
+    quotaLimitResolver: ({ tx, snapshot }) => productionQuotaLimits(tx, snapshot),
     createId(kind) {
       if (kind !== 'operation') return opaqueId(kind);
       const operationId = pendingOperationIds.shift();
@@ -108,6 +109,7 @@ function composeSignedPilot({ config, store, custodyReconciler, accountReader, c
     timeoutMs: config.providerTimeoutMs,
   });
   const intents = createRestapNetworkIntentStore({ store, now, createId: () => opaqueId('intent'), authenticateConsoleOwner: () => true });
+  terminalizeOrphanedLeasedIntents(store, now());
   const acquired = new Map();
   const due = new Map();
   const relay = createRestapNetworkRelay({
@@ -147,6 +149,13 @@ function composeSignedPilot({ config, store, custodyReconciler, accountReader, c
   });
 }
 
+function productionQuotaLimits(tx, snapshot) {
+  const sender = tx.get('SELECT initiated_daily_limit, peer_daily_limit FROM restap_network_owner_policies WHERE token_id = ? AND custody_generation = ? AND policy_version = ?', [snapshot.senderTokenId, snapshot.senderCustodyGeneration, snapshot.senderPolicyVersion]);
+  const recipient = tx.get('SELECT generated_daily_limit FROM restap_network_owner_policies WHERE token_id = ? AND custody_generation = ? AND policy_version = ?', [snapshot.recipientTokenId, snapshot.recipientCustodyGeneration, snapshot.recipientPolicyVersion]);
+  if (!sender || !recipient) throw new Error('RESTAP network owner quota authority is unavailable.');
+  return { initiatedDailyLimit: Number(sender.initiated_daily_limit), generatedDailyLimit: Number(recipient.generated_daily_limit), peerDailyLimit: Number(sender.peer_daily_limit) };
+}
+
 function productionEligibility({ config, store, custodyReconciler, accountReader, codexRuntime, policy, now }) {
   return createRestapNetworkEligibilityResolver({
     now,
@@ -167,6 +176,7 @@ function productionEligibility({ config, store, custodyReconciler, accountReader
       return Object.fromEntries(['global', 'collection', 'token', 'pair', 'provider'].map((name) => [name, open ? 'open' : 'closed']));
     },
     recordMetric() {},
+    allowSafeBlockSkew: true,
   });
 }
 
@@ -176,11 +186,13 @@ function createTrafficManagement(context) {
     ...base,
     async createIntent(input) {
       const { custody, lease } = await productionAuthority(context, input, { requireLease: true });
+      const timestamp = context.now();
       const runAt = Date.parse(input.input?.run_at);
       if (input.input?.cadence !== 'once') throw new Error('RESTAP network daily schedules are unavailable for the one-shot pilot.');
-      if (!Number.isSafeInteger(runAt) || runAt < context.now() || runAt > context.now() + 1_000) throw new Error('RESTAP network one-shot intents must be immediate; schedules are unavailable.');
+      if (!Number.isSafeInteger(runAt) || Math.abs(runAt - timestamp) > 2 * 60_000) throw new Error('RESTAP network one-shot intents must be immediate; schedules are unavailable.');
       const current = context.policy.get({ custody });
-      return context.intents.create({ source: 'console_owner', ownerSession: 'verified-current-owner', authority: { chainId: custody.chainId, collection: custody.collection, tokenId: custody.tokenId, custodyGeneration: custody.generation, activationLeaseId: lease.leaseId, policyVersion: current.policyVersion }, intent: input.input, expiresAt: runAt + 30 * 60_000, attemptLimit: 1 });
+      const executionAt = timestamp + 1_000;
+      return context.intents.create({ source: 'console_owner', ownerSession: 'verified-current-owner', authority: { chainId: custody.chainId, collection: custody.collection, tokenId: custody.tokenId, custodyGeneration: custody.generation, activationLeaseId: lease.leaseId, policyVersion: current.policyVersion }, intent: { ...input.input, run_at: new Date(executionAt).toISOString() }, expiresAt: executionAt + 30 * 60_000, attemptLimit: 1 });
     },
     async listIntents(input) {
       const { custody } = await productionAuthority(context, input, { requireLease: false });
@@ -203,7 +215,11 @@ function pilotWorkerLifecycle(context) {
   let timer = null; let current = null; let stopped = false;
   async function pollNow() {
     if (stopped) return Object.freeze({ status: 'stopped' });
-    current = Promise.resolve(context.coreWorker.poll()).then(async (value) => { await dispatchClaimed(context); return value; }).finally(() => { current = null; });
+    if (current) return current;
+    current = Promise.resolve().then(() => context.coreWorker.poll()).then(async (value) => {
+      if (value.status === 'polled' && value.processed > 0) await dispatchClaimed(context);
+      return value;
+    }).finally(() => { current = null; });
     return current;
   }
   return Object.freeze({
@@ -225,8 +241,21 @@ async function dispatchClaimed(context) {
       if (delivered.status !== 'delivered') throw new Error('RESTAP network one-shot delivery was unavailable.');
       const selected = context.acquired.get(row.intent_id);
       context.intents.settle({ intentId: row.intent_id, authority: selected.authority, outcome: 'succeeded' });
+    } catch (error) {
+      const selected = context.acquired.get(row.intent_id);
+      if (selected) {
+        try { context.intents.settle({ intentId: row.intent_id, authority: selected.authority, outcome: 'failed' }); } catch {}
+      }
+      throw error;
     } finally { context.acquired.delete(row.intent_id); context.due.delete(row.intent_id); }
   }
+}
+
+function terminalizeOrphanedLeasedIntents(store, timestamp) {
+  store.transaction('production_orphaned_intents', (tx) => tx.run(
+    "UPDATE restap_network_intents SET status = 'exhausted', updated_at = ? WHERE status = 'leased'",
+    [timestamp],
+  ));
 }
 
 function prepareOpening(selected, intentId, expectedPolicyVersion) {

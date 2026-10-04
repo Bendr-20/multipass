@@ -76,6 +76,19 @@ test('strict alternation rejects a speaker before any delivery is created', asyn
   assert.equal(f.conversations.get({ conversationId: opened.conversationId }).turnCount, 1);
 });
 
+test('a signed relay initializes its pre-reserved conversation ID instead of creating a second row', async (t) => {
+  const f = await fixture(); t.after(() => f.close());
+  const conversationId = 'conversation-reserved-000001';
+  f.store.transaction('reserve_conversation_fixture', (tx) => tx.run(
+    'INSERT INTO restap_network_conversations (conversation_id, sender_token_digest, recipient_token_digest, topic, turn_count, next_speaker, status, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [conversationId, 'a'.repeat(64), 'b'.repeat(64), 'general', 0, 'sender', 'active', START, START, START + HALF_HOUR],
+  ));
+  const opened = f.conversations.open(opening({ conversationId }));
+  assert.equal(opened.conversationId, conversationId);
+  assert.equal(opened.turnCount, 1);
+  assert.equal(f.store.readOne('SELECT count(*) AS count FROM restap_network_conversations').count, 1);
+});
+
 test('message text is non-empty well-formed Unicode and capped at 2,000 UTF-8 bytes', async (t) => {
   const f = await fixture(); t.after(() => f.close());
   assert.throws(() => f.conversations.open(opening({ opening: 'x'.repeat(2_001) })), /2,000|2000|bytes/i);

@@ -29,12 +29,14 @@ export function createRestapNetworkCoordinator({
   globalDailyCostLimit,
   reservationTtlMs = 2 * 60_000,
   faultInjector = null,
+  quotaLimitResolver = null,
 } = {}) {
   if (!store || typeof store.transaction !== 'function' || typeof store.readOne !== 'function') throw new TypeError('RESTAP network store is required.');
   if (typeof now !== 'function' || typeof createId !== 'function') throw new TypeError('Coordinator clocks and IDs must be functions.');
   assertPositiveInteger(globalDailyCostLimit, 'globalDailyCostLimit');
   assertPositiveInteger(reservationTtlMs, 'reservationTtlMs');
   if (faultInjector !== null && typeof faultInjector !== 'function') throw new TypeError('faultInjector must be a function.');
+  if (quotaLimitResolver !== null && typeof quotaLimitResolver !== 'function') throw new TypeError('quotaLimitResolver must be a function.');
 
   function reserve(input) {
     const normalized = validateReservation(input);
@@ -65,7 +67,12 @@ export function createRestapNetworkCoordinator({
       if (activeDelivery) throw new Error('RESTAP network active delivery limit reached.');
 
       const operationId = createOpaqueId(createId, 'operation');
-      const quotaReservations = quotaPlan(normalized, start, end, globalDailyCostLimit);
+      const ownerLimits = quotaLimitResolver === null ? null : normalizeQuotaLimits(quotaLimitResolver(Object.freeze({
+        tx: Object.freeze({ get: tx.get }),
+        operationKind: normalized.operationKind,
+        snapshot: normalized.snapshot,
+      })));
+      const quotaReservations = quotaPlan(normalized, start, end, globalDailyCostLimit, ownerLimits);
       for (const quota of quotaReservations) reserveQuota(tx, quota, timestamp);
 
       const senderScope = digest('concurrency|token|' + normalized.snapshot.senderTokenId);
@@ -291,16 +298,27 @@ function validateSnapshot(value) {
   return Object.freeze(Object.fromEntries(SNAPSHOT_KEYS.map((key) => [key, value[key]])));
 }
 
-function quotaPlan(input, start, end, globalDailyCostLimit) {
+function quotaPlan(input, start, end, globalDailyCostLimit, ownerLimits = null) {
+  const generatedLimit = Math.min(RESTAP_NETWORK_LIMITS.generatedPerTokenDay, ownerLimits?.generatedDailyLimit ?? RESTAP_NETWORK_LIMITS.generatedPerTokenDay);
   const rows = [
-    quota('token', 'generated|' + input.snapshot.recipientTokenId, start, end, 1, RESTAP_NETWORK_LIMITS.generatedPerTokenDay, 'generated message quota'),
+    quota('token', 'generated|' + input.snapshot.recipientTokenId, start, end, 1, generatedLimit, 'generated message quota'),
     quota('global', 'cost', start, end, input.costUnits, globalDailyCostLimit, 'cost budget'),
   ];
   if (input.operationKind === 'opening') {
-    rows.unshift(quota('token', 'initiated|' + input.snapshot.senderTokenId, start, end, 1, RESTAP_NETWORK_LIMITS.initiatedPerTokenDay, 'initiation quota'));
-    rows.splice(1, 0, quota('ordered_pair', 'initiated|' + input.snapshot.senderTokenId + '|' + input.snapshot.recipientTokenId, start, end, 1, RESTAP_NETWORK_LIMITS.initiatedPerOrderedPairDay, 'ordered pair quota'));
+    const initiatedLimit = Math.min(RESTAP_NETWORK_LIMITS.initiatedPerTokenDay, ownerLimits?.initiatedDailyLimit ?? RESTAP_NETWORK_LIMITS.initiatedPerTokenDay);
+    const pairLimit = Math.min(RESTAP_NETWORK_LIMITS.initiatedPerOrderedPairDay, ownerLimits?.peerDailyLimit ?? RESTAP_NETWORK_LIMITS.initiatedPerOrderedPairDay);
+    rows.unshift(quota('token', 'initiated|' + input.snapshot.senderTokenId, start, end, 1, initiatedLimit, 'initiation quota'));
+    rows.splice(1, 0, quota('ordered_pair', 'initiated|' + input.snapshot.senderTokenId + '|' + input.snapshot.recipientTokenId, start, end, 1, pairLimit, 'ordered pair quota'));
   }
   return rows;
+}
+
+function normalizeQuotaLimits(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError('Owner quota limits are invalid.');
+  const keys = Object.keys(value).sort();
+  if (keys.join(',') !== 'generatedDailyLimit,initiatedDailyLimit,peerDailyLimit') throw new TypeError('Owner quota limits are invalid.');
+  for (const key of keys) if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new TypeError('Owner quota limits are invalid.');
+  return Object.freeze({ initiatedDailyLimit: value.initiatedDailyLimit, generatedDailyLimit: value.generatedDailyLimit, peerDailyLimit: value.peerDailyLimit });
 }
 
 function quota(scopeClass, scopeLabel, start, end, units, limit, errorLabel) {

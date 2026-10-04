@@ -4,6 +4,7 @@ import { RESTAP_NETWORK_LIMITS, RESTAP_NETWORK_TOPICS } from './constants.js';
 import { normalizeRestapNetworkTokenId } from './schema.js';
 
 const OPEN_KEYS = Object.freeze(['opening', 'recipientTokenId', 'senderTokenId', 'topic']);
+const RESERVED_OPEN_KEYS = Object.freeze(['conversationId', ...OPEN_KEYS]);
 const CONVERSATION_KEYS = Object.freeze(['conversationId']);
 const BEGIN_KEYS = Object.freeze(['conversationId', 'speaker']);
 const DELIVERY_KEYS = Object.freeze(['conversationId', 'deliveryId']);
@@ -75,7 +76,8 @@ export function createRestapNetworkConversations({
 
   function open(input) {
     assertOpenService();
-    assertExactObject(input, OPEN_KEYS, 'conversation opening');
+    const reserved = Object.hasOwn(input ?? {}, 'conversationId');
+    assertExactObject(input, reserved ? RESERVED_OPEN_KEYS : OPEN_KEYS, 'conversation opening');
     const senderTokenId = assertTokenId(input.senderTokenId, 'senderTokenId');
     const recipientTokenId = assertTokenId(input.recipientTokenId, 'recipientTokenId');
     if (senderTokenId === recipientTokenId) throw new TypeError('RESTAP network self-conversation is forbidden.');
@@ -90,15 +92,26 @@ export function createRestapNetworkConversations({
     ).count);
     if (recentPairCount >= pairChurnLimit) throw new Error('RESTAP network ordered-pair churn limit reached.');
 
-    const conversationId = createOpaqueId(createId, 'conversation');
+    const conversationId = reserved ? assertOpaque(input.conversationId, 'conversationId') : createOpaqueId(createId, 'conversation');
     const fingerprint = messageFingerprint(text);
     const expiresAt = timestamp + RESTAP_NETWORK_LIMITS.conversationTtlMs;
     const eventId = createOpaqueId(createId, 'conversation-event');
     store.transaction('conversation_open', (tx) => {
-      tx.run(
-        'INSERT INTO restap_network_conversations (conversation_id, sender_token_digest, recipient_token_digest, topic, turn_count, next_speaker, status, terminal_class, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [conversationId, senderDigest, recipientDigest, input.topic, 1, 'recipient', 'active', null, timestamp, timestamp, expiresAt],
-      );
+      const existing = tx.get('SELECT topic, turn_count, next_speaker, status FROM restap_network_conversations WHERE conversation_id = ?', [conversationId]);
+      if (existing) {
+        if (!reserved || existing.topic !== input.topic || Number(existing.turn_count) > 1 || existing.next_speaker !== 'sender' || existing.status !== 'active') {
+          throw new Error('RESTAP network reserved conversation is unavailable.');
+        }
+        tx.run(
+          'UPDATE restap_network_conversations SET sender_token_digest = ?, recipient_token_digest = ?, turn_count = 1, next_speaker = ?, terminal_class = NULL, updated_at = ?, expires_at = ? WHERE conversation_id = ?',
+          [senderDigest, recipientDigest, 'recipient', timestamp, expiresAt, conversationId],
+        );
+      } else {
+        tx.run(
+          'INSERT INTO restap_network_conversations (conversation_id, sender_token_digest, recipient_token_digest, topic, turn_count, next_speaker, status, terminal_class, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [conversationId, senderDigest, recipientDigest, input.topic, 1, 'recipient', 'active', null, timestamp, timestamp, expiresAt],
+        );
+      }
       persistFingerprint(tx, { eventId, fingerprint, topic: input.topic, timestamp, expiresAt });
     });
 

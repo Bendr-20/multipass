@@ -75,7 +75,7 @@ function tokenState(tokenId, account) {
   };
 }
 
-function fixture() {
+function fixture(options = {}) {
   const states = { '1': tokenState('1', ACCOUNT_1), '2': tokenState('2', ACCOUNT_2) };
   const metrics = [];
   const reads = { codex: 0, derived: 0, integrity: 0, custody: 0, lease: 0, policy: 0, roster: 0, gates: 0, breakers: 0 };
@@ -91,6 +91,7 @@ function fixture() {
     readGates: async ({ tokenId }) => { reads.gates += 1; return clone(states[tokenId].gates); },
     readBreakers: async ({ tokenId }) => { reads.breakers += 1; return clone(states[tokenId].breakers); },
     recordMetric: (metric) => metrics.push(metric),
+    ...options,
   });
   return { states, metrics, reads, resolver };
 }
@@ -107,6 +108,17 @@ function assertDeepFrozen(value) {
   assert.equal(Object.isFrozen(value), true);
   for (const item of Object.values(value)) if (item && typeof item === 'object') assertDeepFrozen(item);
 }
+
+test('production mode accepts different finalized heights only when all authority values agree', async () => {
+  const f = fixture({ allowSafeBlockSkew: true });
+  f.states['1'].integrity.proof.safeBlock = { number: 101, hash: '0x' + 'cd'.repeat(32) };
+  assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'eligible');
+  f.states['1'].integrity.proof.owner = OTHER_ACCOUNT;
+  assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'unavailable');
+  f.states['1'].integrity.proof.owner = OWNER;
+  f.states['1'].integrity.proof.safeBlock = { number: 100, hash: '0x' + 'ef'.repeat(32) };
+  assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'unavailable');
+});
 
 test('eligible relay peers and owner self projection are bounded and deeply frozen', async () => {
   const f = fixture();
