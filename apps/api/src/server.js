@@ -501,7 +501,7 @@ export async function startServer(options = {}) {
     apiBaseUrl = parsed.publicBaseUrl ?? listeningUrl;
     if (!api) api = createApi();
   } catch (error) {
-    if (!restapNetworkService) await restapNetworkProductionFoundation?.closeOnStartupFailure?.().catch(() => {});
+    if (!restapNetworkService) await Promise.resolve(restapNetworkProductionFoundation?.closeOnStartupFailure?.()).catch(() => {});
     await closeServerResources({
       consoleBootstrap,
       nodeServer,

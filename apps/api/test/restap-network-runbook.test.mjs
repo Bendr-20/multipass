@@ -20,6 +20,17 @@ test('runbook pins complete local canary promotion and rollback arguments withou
   assert.match(text, /placeholders only/iu);
 });
 
+test('runbook pins reviewed providers and exact Ed25519 signer generation formats', async () => {
+  const text = await readFile(RUNBOOK, 'utf8');
+  assert.match(text, /MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=blast,tenderly/u);
+  assert.match(text, /generateKeyPairSync\('ed25519'\)/u);
+  assert.match(text, /pkcs8_der_base64/u);
+  assert.match(text, /public_key_spki_der_base64/u);
+  assert.match(text, /MULTIPASS_RESTAP_NETWORK_SIGNER_FILE/u);
+  assert.match(text, /BANKR_LLM_KEY/u);
+  assert.doesNotMatch(text, /both .*BANKR_LLM_KEY.*BANKR_READONLY_API_KEY.*available/u);
+});
+
 test('seven-day evidence queries prove all zero-failure invariants with expected shapes', async () => {
   const text = await readFile(RUNBOOK, 'utf8');
   for (const invariant of ['duplicate delivery', 'commit after epoch/policy/gate change', 'cap overrun', 'plaintext/private sentinel hit', 'bounded provider cost', 'reviewed key/gate/roster hashes', 'one worker holder', 'unexplained restart']) assert.equal(text.toLowerCase().includes(invariant.toLowerCase()), true, invariant);

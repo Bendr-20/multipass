@@ -18,7 +18,11 @@ The public HTTP API exposes no RESTAP network relay route. Console owner routes 
 ## Secrets, key rotation, and compromise
 
 - Keep the signing key, key registry, and protected policy in root-owned regular files with mode 0600.
+- Generate the pilot pair on the approved host in one bounded Node process with `generateKeyPairSync('ed25519')`. Export the private key as PKCS#8 DER and the public key as SPKI DER; do not generate an Ethereum key, PEM text, seed hex, or a wallet signature.
+- Write the signer file with `JSON.stringify` and exact fields `{"key_id":"<32-128 ASCII letters/digits/_/->","pkcs8_der_base64":"<canonical PKCS#8 DER base64>"}`. Write it with exclusive create, mode 0600, and no stdout/stderr copy of the private bytes; configure its absolute path as `MULTIPASS_RESTAP_NETWORK_SIGNER_FILE`.
+- Write the registry file with exact top-level fields `{"schema_version":"1","keys":[...]}`. Its signing entry has exact fields `key_id`, `algorithm` (`Ed25519`), `public_key_spki_der_base64`, integer Unix-second `activates_at`, `not_before`, `not_after`, and `status` (`signing`). The key ID must equal the signer file key ID, and the SPKI must come from the same generated pair. Configure its absolute path as `MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE`.
 - Put only key IDs, algorithms, activation windows, public keys, and status in the registry. Never persist the private key in SQLite, logs, metrics, audits, browser storage, or proof packets.
+- Before any signed-gate approval, load both files through the production loaders, verify the registry hash, and run the local signer/grant smoke. Until these host-generated files and their review evidence exist, the exact signed pilot remains blocked and all signed traffic gates must stay off.
 - Rotate with a reviewed signing key plus an overlap key. Verify both public entries before changing the signing key reference. Retire the old key only after the maximum grant lifetime and replay-retention window pass.
 - On compromise, mark the key compromised, open the global and provider breakers, disable replies then initiation, reconcile unknown charges, rotate key material, and require a new explicit phase approval.
 - Hash operational subjects with the active keyed identifier. Rotation changes the keyed namespace without exposing token IDs, wallets, operation IDs, or message hashes.
@@ -40,7 +44,7 @@ Before and after a rehearsal:
 
 Gate order is cumulative and exact:
 
-- foundation requires the immutable release, artifact, approved providers, database, operational hash key, integrity resolver, signer registry, and all traffic off;
+- foundation requires the immutable release, artifact, approved providers, database, operational hash key, integrity resolver, and all traffic off;
 - policy requires foundation and enables owner policy management only;
 - discovery requires policy and a protected pilot roster;
 - initiation requires discovery, the signer, coordinator, worker lease, and a positive cost limit;
@@ -55,7 +59,7 @@ The exact tuple order is foundation, policy, discovery, initiation, replies, tra
 
 The first production holder slice uses the exact tuple `1,1,0,0,0,0,0,0`. It enables authenticated current-owner policy reads and writes only. Discovery, autonomous initiation, replies, transcripts, pilot traffic, and GA remain independently off. The protected `--policy` input is a root-owned mode-0600 Node/systemd EnvironmentFile (not executable shell) and must provide:
 
-- `MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=base-official,drpc`
+- `MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=blast,tenderly`
 - `MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS=617,3802`
 - `MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE=<ROOT_0600_AUDIT_KEY_JSON>`
 - `MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT=<HIGH_ENTROPY_SECRET>`
@@ -70,7 +74,7 @@ Normalize canonical decimal token IDs, sort numerically, reject duplicates, join
 
 Only an authenticated current-owner Console session may create an intent. One-shot and daily forms use server-owned topics, peers, cadence, run time, expiry, attempt limit, and idempotency rules. Models, peers, callbacks, public HTTP clients, and inbound messages cannot schedule work.
 
-The first signed production pilot is intentionally narrower than the general design: exact roster `617,3802`, gate tuple `1,1,1,1,1,0,1,0`, immediate one-shot intents only, and one #617 to #3802 opening with a bounded ZDR reply. Daily cadence and future scheduling remain unavailable, transcript persistence remains off, and there is still no public relay route. Production startup fails closed unless the root-owned mode-0600 public-key registry and Ed25519 signer files are configured with `MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE` and `MULTIPASS_RESTAP_NETWORK_SIGNER_FILE`, and both `BANKR_LLM_KEY` and `BANKR_READONLY_API_KEY` are available. The pilot uses current ERC-721 owner/controller authority and does not require Wallet V2, account deployment, or an onchain write; provider agreement, latest authority, and bounded finalized-head skew checks remain mandatory.
+The first signed production pilot is intentionally narrower than the general design: exact roster `617,3802`, gate tuple `1,1,1,1,1,0,1,0`, immediate one-shot intents only, and one #617 to #3802 opening with a bounded ZDR reply. Daily cadence and future scheduling remain unavailable, transcript persistence remains off, and there is still no public relay route. Production startup fails closed unless the root-owned mode-0600 public-key registry and Ed25519 signer files are configured with `MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE` and `MULTIPASS_RESTAP_NETWORK_SIGNER_FILE`, and `BANKR_LLM_KEY` is available for both inference and usage accounting. The pilot uses current ERC-721 owner/controller authority and does not require Wallet V2, account deployment, or an onchain write; provider agreement, latest authority, and bounded finalized-head skew checks remain mandatory.
 
 For a one-shot pilot, review the exact sender, recipient, topic, caps, gate tuple, roster hash, key-registry hash, and provider cost cap. For a daily pilot, additionally review next-occurrence behavior, missed-period skipping, expiry, attempt limits, and cancellation after custody, lease, policy, peer, gate, or breaker changes. One conversation must remain inside the immutable message, turn, TTL, concurrency, and cost bounds.
 

@@ -30,10 +30,11 @@ export function composeRestapNetworkProductionPolicy({
   if (!sameTokens(productionConfig?.tokenIds, EXACT_PILOT)) {
     throw new Error('RESTAP network production requires the exact #617 and #3802 pilot roster.');
   }
-  if (config.gates.discovery && (!config.gates.policy || !config.gates.initiation || !config.gates.replies
+  const signedTrafficRequested = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
+  if (signedTrafficRequested && (!config.gates.policy || !config.gates.discovery || !config.gates.initiation || !config.gates.replies
     || config.gates.transcripts || !config.gates.pilot || config.gates.ga
     || !sameTokens(config.pilotRoster, EXACT_PILOT) || !sameTokens(config.cadences, ['once']))) {
-    throw new Error('RESTAP network signed traffic production composition is unavailable outside the exact one-shot pilot gate tuple.');
+    throw new Error('RESTAP network signed traffic production composition is unavailable without the exact one-shot pilot gate tuple.');
   }
   const dependencies = {
     databaseFactory: oneDatabaseFactory(store, config.databasePath),

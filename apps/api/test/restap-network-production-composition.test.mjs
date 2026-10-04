@@ -80,6 +80,79 @@ test('production server composes Phase 0 RESTAP foundation from reviewed configu
 });
 
 
+test('production environment boots the holder policy slice and fails closed without concrete dependencies', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'restap-production-policy-bootstrap-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const auditKeyPath = path.join(directory, 'audit-key.json');
+  await writeFile(auditKeyPath, JSON.stringify({
+    schema_version: '1',
+    key_id: 'holder-policy-audit-v1',
+    key_base64: Buffer.alloc(32, 0x4b).toString('base64'),
+  }), { mode: 0o600 });
+  await chmod(auditKeyPath, 0o600);
+  const env = {
+    MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
+    MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED: 'true',
+    MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: path.join(directory, 'network.sqlite'),
+    MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 'p'.repeat(32),
+    MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,tenderly',
+    MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802',
+    MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: auditKeyPath,
+  };
+  const publicClient = {
+    async getChainId() { throw new Error('authority reads are not expected without persisted candidates'); },
+    async getBlock() { throw new Error('authority reads are not expected without persisted candidates'); },
+    async readContract() { throw new Error('authority reads are not expected without persisted candidates'); },
+    async getBytecode() { throw new Error('authority reads are not expected without persisted candidates'); },
+    async getLogs() { throw new Error('authority reads are not expected without persisted candidates'); },
+  };
+  const codexRuntime = Object.freeze({
+    available: true,
+    status: Object.freeze({ available: true, artifactHash: 'b'.repeat(64), count: 7777 }),
+    getProfileContext() { throw new Error('traffic is disabled'); },
+    query() { throw new Error('traffic is disabled'); },
+  });
+  const server = await startServer({
+    ...parseServerOptions([], env),
+    port: 0,
+    logger: { info() {}, warn() {}, error() {} },
+    looperCodexRuntime: codexRuntime,
+    loopersPublicClients: [publicClient, publicClient],
+  });
+  try {
+    assert.deepEqual(server.restapNetwork.status.gates, {
+      foundation: true,
+      policy: true,
+      discovery: false,
+      initiation: false,
+      replies: false,
+      transcripts: false,
+      pilot: false,
+      ga: false,
+    });
+    assert.equal(typeof server.restapNetwork.getPolicy, 'function');
+    assert.equal(typeof server.restapNetwork.createIntent, 'function');
+    assert.equal((await fetch(server.url + '/restap-network/relay')).status, 404);
+  } finally {
+    await server.close();
+  }
+
+  await assert.rejects(() => startServer({
+    ...parseServerOptions([], { ...env, MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: undefined }),
+    port: 0,
+    logger: { info() {}, warn() {}, error() {} },
+    looperCodexRuntime: codexRuntime,
+    loopersPublicClients: [publicClient, publicClient],
+  }), /exact reviewed Base providers/i);
+  await assert.rejects(() => startServer({
+    ...parseServerOptions([], { ...env, MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: path.join(directory, 'missing-codex.sqlite') }),
+    port: 0,
+    logger: { info() {}, warn() {}, error() {} },
+    looperCodexRuntime: Object.freeze({ available: false, status: Object.freeze({ available: false }) }),
+    loopersPublicClients: [publicClient, publicClient],
+  }), /available Codex/i);
+});
+
 test('production composition rejects non-reviewed providers and signed traffic gates', async () => {
   assert.throws(
     () => parseServerOptions([], {
@@ -100,6 +173,34 @@ test('production composition rejects non-reviewed providers and signed traffic g
     }),
     /signed traffic production composition is unavailable/i,
   );
+});
+
+test('production composition rejects every partial signed pilot gate tuple', () => {
+  for (const gates of [
+    { pilot: true },
+    { policy: true, pilot: true },
+    { policy: true, discovery: true, initiation: true, replies: true },
+  ]) {
+    const config = parseRestapNetworkServiceConfig({
+      MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
+      MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED: String(gates.policy ?? false),
+      MULTIPASS_RESTAP_NETWORK_DISCOVERY_ENABLED: String(gates.discovery ?? false),
+      MULTIPASS_RESTAP_NETWORK_INITIATION_ENABLED: String(gates.initiation ?? false),
+      MULTIPASS_RESTAP_NETWORK_REPLIES_ENABLED: String(gates.replies ?? false),
+      MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED: String(gates.pilot ?? false),
+      MULTIPASS_RESTAP_NETWORK_PILOT_ROSTER: '617,3802',
+      MULTIPASS_RESTAP_NETWORK_CADENCES: 'once',
+    });
+    assert.throws(() => composeRestapNetworkProductionPolicy({
+      config,
+      productionConfig: { tokenIds: ['617', '3802'] },
+      store: {},
+      custodyReconciler: {},
+      accountReader: {},
+      providers: [],
+      codexRuntime: {},
+    }), /exact one-shot pilot gate tuple/i);
+  }
 });
 
 test('production policy composition lets the current holder opt in and refresh persisted state while traffic stays off', async (t) => {
