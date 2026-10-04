@@ -89,12 +89,14 @@ export function createRestapNetworkBaseProvider({
     await assertChain(publicClient, chainId);
     const safeHead = await readAnchor(publicClient, { blockTag: 'finalized' });
     const toBlock = requestedTo ?? safeHead.number;
-    if (toBlock > safeHead.number || toBlock < fromBlock) throw new TypeError('RESTAP Base custody range is unresolved.');
+    const noNewFinalizedBlock = requestedTo === null && request.previousSafeBlock !== null
+      && toBlock < fromBlock && toBlock === normalizeBlockNumber(request.previousSafeBlock?.number);
+    if (toBlock > safeHead.number || (toBlock < fromBlock && !noNewFinalizedBlock)) throw new TypeError('RESTAP Base custody range is unresolved.');
     if (fromBlock !== 0 && toBlock - fromBlock + 1 > maxRange) throw new TypeError('RESTAP Base custody range exceeds the bound.');
     const anchor = toBlock === safeHead.number ? safeHead : await readAnchor(publicClient, { blockNumber: BigInt(toBlock) });
     const priorSafeHash = await verifyPreviousSafeBlock(publicClient, request.previousSafeBlock);
     const safeAuthority = await guarded(publicClient, anchor, () => readAuthorityAt({ publicClient, release, collection, tokenId, anchor }));
-    const events = fromBlock === 0 ? [] : await guarded(publicClient, anchor, () => readTransfers({ publicClient, collection, tokenId, fromBlock, toBlock }));
+    const events = fromBlock === 0 || noNewFinalizedBlock ? [] : await guarded(publicClient, anchor, () => readTransfers({ publicClient, collection, tokenId, fromBlock, toBlock }));
     const latestAnchor = await readAnchor(publicClient, { blockTag: 'latest' });
     const latestAuthority = await guarded(publicClient, latestAnchor, () => readAuthorityAt({ publicClient, release, collection, tokenId, anchor: latestAnchor }));
     return deepFreeze({

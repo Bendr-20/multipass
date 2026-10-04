@@ -147,6 +147,17 @@ test('reads bounded finalized Transfer evidence and treats controller as the pin
   assert.deepEqual(await f.provider.listAffectedTokens({ chainId: 8453, collection: RELEASE.collection, fromBlock: 100, toBlock: 100 }), [TOKEN_ID]);
 });
 
+test('incremental custody reads return an exact no-op when the finalized head has not advanced', async () => {
+  const f = provider();
+  const value = await f.provider.readCustody({
+    chainId: 8453, collection: RESTAP_NETWORK_ACCOUNT_RELEASE.collection, tokenId: TOKEN_ID,
+    fromBlock: 101, toBlock: null, previousSafeBlock: { number: 100, hash: HASH_100 },
+  });
+  assert.deepEqual(value.range, { fromBlock: 101, toBlock: 100 });
+  assert.deepEqual(value.events, []);
+  assert.equal(value.priorSafeHash, HASH_100);
+});
+
 test('full rebuild snapshots current authority without an unbounded historical log scan', async () => {
   const f = provider();
   const evidence = await f.provider.readCustody({ chainId: 8453, collection: RELEASE.collection, tokenId: TOKEN_ID, fromBlock: 0, toBlock: null, previousSafeBlock: null });
