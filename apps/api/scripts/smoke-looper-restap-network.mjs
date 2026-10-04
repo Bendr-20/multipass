@@ -128,7 +128,9 @@ function defaultDependencies() {
           LEFT JOIN restap_network_custody_epochs c ON c.chain_id=p.chain_id AND c.collection=p.collection AND c.token_id=p.token_id AND c.generation=p.custody_generation
           LEFT JOIN restap_network_activation_leases l ON l.chain_id=p.chain_id AND l.collection=p.collection AND l.token_id=p.token_id
             AND l.custody_generation=p.custody_generation AND l.status='active' AND l.expires_at > ?
-          WHERE p.network_enabled=1 AND (c.status <> 'ready' OR l.lease_id IS NULL)
+          WHERE p.network_enabled=1
+            AND p.custody_generation=(SELECT MAX(c2.generation) FROM restap_network_custody_epochs c2 WHERE c2.chain_id=p.chain_id AND c2.collection=p.collection AND c2.token_id=p.token_id)
+            AND (c.status <> 'ready' OR l.lease_id IS NULL)
         `).get(Date.now()).count);
         const invalidActiveLeases = Number(db.prepare(`
           WITH latest AS (
