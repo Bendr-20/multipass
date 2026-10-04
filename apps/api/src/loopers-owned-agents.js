@@ -64,14 +64,16 @@ const ADAPTER_READ_ABI = [
   },
 ];
 
-export function createLoopersPublicClients({ rpcUrl, rpcUrls, publicClient, publicClients } = {}) {
+export function createLoopersPublicClients({ rpcUrl, rpcUrls, publicClient, publicClients, rpcRetryCount = 0, rpcRetryDelay = 150 } = {}) {
   const injected = Array.isArray(publicClients) ? publicClients.filter(Boolean) : [];
   if (injected.length) return injected;
   if (publicClient) return [publicClient];
+  if (!Number.isSafeInteger(rpcRetryCount) || rpcRetryCount < 0 || rpcRetryCount > 5) throw new TypeError('RPC retry count is invalid.');
+  if (!Number.isSafeInteger(rpcRetryDelay) || rpcRetryDelay < 1 || rpcRetryDelay > 5_000) throw new TypeError('RPC retry delay is invalid.');
   const urls = rpcUrl ? [rpcUrl, ...DEFAULT_RPC_URLS.filter((url) => url !== rpcUrl)] : (rpcUrls ?? DEFAULT_RPC_URLS);
   return [...new Set(urls)].map((url) => createPublicClient({
     chain: base,
-    transport: http(url, { timeout: DEFAULT_RPC_TIMEOUT_MS, retryCount: 0 }),
+    transport: http(url, { timeout: DEFAULT_RPC_TIMEOUT_MS, retryCount: rpcRetryCount, retryDelay: rpcRetryDelay }),
   }));
 }
 

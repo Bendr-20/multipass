@@ -64,7 +64,11 @@ export async function createRestapNetworkProductionFoundation({
       generatePublicReply: (projection) => inferenceGateway.generatePublicReply(projection),
       readUsageTotals: () => usageGateway.readUsageTotals(),
     }) : null;
-    const clients = publicClients ?? createLoopersPublicClients({ rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]) });
+    const clients = publicClients ?? createLoopersPublicClients({
+      rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]),
+      rpcRetryCount: 3,
+      rpcRetryDelay: 1_500,
+    });
     if (clients.length !== REQUIRED_PROVIDER_IDS.length) throw new Error('RESTAP network approved providers are unavailable.');
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
