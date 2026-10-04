@@ -1764,10 +1764,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     state = { ...state, consoleRestapNetwork: beginConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId: normalizedTokenId, requestId }) };
     render(root, state, handlers);
     try {
-      const [policyResponse, intentsResponse] = await Promise.all([
-        activeRestapNetworkApi.getPolicy({ tokenId: normalizedTokenId, signal: controller.signal }),
-        activeRestapNetworkApi.listIntents({ tokenId: normalizedTokenId, signal: controller.signal }),
-      ]);
+      const policyResponse = await activeRestapNetworkApi.getPolicy({ tokenId: normalizedTokenId, signal: controller.signal });
+      if (controller.signal.aborted || normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()) return;
+      const intentsResponse = await activeRestapNetworkApi.listIntents({ tokenId: normalizedTokenId, signal: controller.signal });
       if (controller.signal.aborted || normalizedTokenId !== String(state.consoleSelectedAgentId ?? '').trim()) return;
       state = { ...state, consoleRestapNetwork: resolveConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId: normalizedTokenId, requestId, policyResponse, intentsResponse }) };
     } catch (error) {

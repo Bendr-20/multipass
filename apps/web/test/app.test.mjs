@@ -23,6 +23,25 @@ test('Console RESTAP network integration aborts stale selection reads and binds 
   assert.match(source, /stopConsoleRestapNetwork/);
 });
 
+test('Console loads RESTAP policy before intents to avoid concurrent custody reconciliation', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let resolvePolicy;
+  const pendingPolicy = new Promise((resolve) => { resolvePolicy = resolve; });
+  const restap = createConsoleRestapApiFixture({ getPolicy: () => pendingPolicy });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(20);
+  assert.equal(restap.calls.filter(([name]) => name === 'getPolicy').length, 1);
+  assert.equal(restap.calls.filter(([name]) => name === 'listIntents').length, 0);
+  resolvePolicy(createConsoleRestapPolicyResponse('617'));
+  await flushAsyncEvents(20);
+  assert.equal(restap.calls.filter(([name]) => name === 'listIntents').length, 1);
+});
+
 test('Console session clearing drops owner-scoped RESTAP policy state', () => {
   assert.equal(typeof appModule.clearConsoleSessionState, 'function');
   const cleared = appModule.clearConsoleSessionState({
