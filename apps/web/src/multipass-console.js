@@ -784,7 +784,7 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
     mode: String(wallet.mode ?? 'read_only'),
     reason: wallet.reason ? String(wallet.reason) : null,
     account: wallet.account ? String(wallet.account) : null,
-    operatorProfile: ['eoa', 'eip7702', 'contract', 'malformed'].includes(wallet.operatorProfile)
+    operatorProfile: ['eoa', 'eip7702', 'coinbase_smart_wallet', 'contract', 'malformed'].includes(wallet.operatorProfile)
       ? wallet.operatorProfile
       : 'unknown',
     nativeWei: String(wallet.nativeWei ?? '0'),
@@ -846,6 +846,8 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
     ? 'Direct EOA'
     : wallet.operatorProfile === 'eip7702'
       ? 'Delegated EOA'
+      : wallet.operatorProfile === 'coinbase_smart_wallet'
+        ? 'Coinbase Smart Wallet'
       : wallet.operatorProfile === 'contract'
         ? 'Contract — blocked'
         : wallet.operatorProfile === 'malformed'
@@ -1020,7 +1022,7 @@ function formatWalletReason(reason) {
     permission_hook_paused: 'Permission hooks are paused. Owner recovery remains available.',
     policy_drift: 'Policy evidence changed. Preview the recovery again.',
     wrong_chain: 'Switch your wallet network to Base and try again.',
-    unsupported_wallet: 'The owner signer has arbitrary or malformed Base code and cannot submit Looper wallet writes.',
+    unsupported_wallet: 'This smart-wallet implementation is not yet verified for Looper wallet writes.',
     owner_changed: 'Ownership changed. Reconnect as the current Looper owner.',
     wrong_runtime: 'The deployed account runtime does not match the reviewed release.',
     locks_unavailable: 'This browser cannot safely serialize wallet writes across tabs.',

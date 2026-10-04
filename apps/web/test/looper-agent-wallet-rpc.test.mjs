@@ -43,6 +43,10 @@ const REGISTRY_CODE = '0x6002600055';
 const MODULE_CODE = '0x6003600055';
 const BLOCK_HASH = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const DELEGATED_OWNER_CODE = `0xef0100${'aa'.repeat(20)}`;
+const COINBASE_SMART_WALLET_CODE = '0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3';
+const COINBASE_SMART_WALLET_IMPLEMENTATION = '0x000100abaad02f1cfc8bbe32bd5a564817339e72';
+const CURRENT_COINBASE_SMART_WALLET_IMPLEMENTATION = '0x00000110dcdedc9581cb5ecb8467282f2926534d';
+const COINBASE_ENTRY_POINT = '0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789';
 const RELEASE_CONFIG = Object.freeze({
   implementation: IMPLEMENTATION,
   runtimeCode: IMPLEMENTATION_CODE,
@@ -82,6 +86,49 @@ const TRANSFER_EVENT = [{
     { name: 'value', type: 'uint256', indexed: false },
   ],
 }];
+
+const USER_OPERATION_COMPONENTS = [
+  { name: 'sender', type: 'address' },
+  { name: 'nonce', type: 'uint256' },
+  { name: 'initCode', type: 'bytes' },
+  { name: 'callData', type: 'bytes' },
+  { name: 'callGasLimit', type: 'uint256' },
+  { name: 'verificationGasLimit', type: 'uint256' },
+  { name: 'preVerificationGas', type: 'uint256' },
+  { name: 'maxFeePerGas', type: 'uint256' },
+  { name: 'maxPriorityFeePerGas', type: 'uint256' },
+  { name: 'paymasterAndData', type: 'bytes' },
+  { name: 'signature', type: 'bytes' },
+];
+const ENTRY_POINT_V06_ABI = [{
+  type: 'function', name: 'handleOps', stateMutability: 'nonpayable',
+  inputs: [{ name: 'ops', type: 'tuple[]', components: USER_OPERATION_COMPONENTS }, { name: 'beneficiary', type: 'address' }],
+  outputs: [],
+}];
+const COINBASE_EXECUTE_BATCH_ABI = [{
+  type: 'function', name: 'executeBatch', stateMutability: 'payable',
+  inputs: [{ name: 'calls', type: 'tuple[]', components: [
+    { name: 'target', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' },
+  ] }],
+  outputs: [],
+}];
+const USER_OPERATION_EVENT_TOPIC = '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
+
+function userOperationHashV06(operation) {
+  const packedHash = keccak256(encodeAbiParameters([
+    { type: 'address' }, { type: 'uint256' }, { type: 'bytes32' }, { type: 'bytes32' },
+    { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' },
+    { type: 'uint256' }, { type: 'bytes32' },
+  ], [
+    operation.sender, operation.nonce, keccak256(operation.initCode), keccak256(operation.callData),
+    operation.callGasLimit, operation.verificationGasLimit, operation.preVerificationGas,
+    operation.maxFeePerGas, operation.maxPriorityFeePerGas, keccak256(operation.paymasterAndData),
+  ]));
+  return keccak256(encodeAbiParameters(
+    [{ type: 'bytes32' }, { type: 'address' }, { type: 'uint256' }],
+    [packedHash, COINBASE_ENTRY_POINT, 8453n],
+  ));
+}
 
 function rawReceiptLog({
   address,
@@ -508,6 +555,112 @@ test('receipt evidence rejects malformed quantities, statuses, and transaction h
   }
 });
 
+test('strictly attributes one Coinbase v0.6 UserOperation to the exact Looper call', () => {
+  const requestedHash = `0x${'cc'.repeat(32)}`;
+  const account = deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const expectedTransaction = buildActivationTransaction({ owner: OWNER, implementation: IMPLEMENTATION, tokenId: TOKEN_ID });
+  const callData = encodeFunctionData({
+    abi: COINBASE_EXECUTE_BATCH_ABI, functionName: 'executeBatch',
+    args: [[{ target: expectedTransaction.to, value: 0n, data: expectedTransaction.data }]],
+  });
+  const operation = {
+    sender: OWNER, nonce: 7n, initCode: '0x', callData, callGasLimit: 200000n,
+    verificationGasLimit: 150000n, preVerificationGas: 50000n, maxFeePerGas: 2n,
+    maxPriorityFeePerGas: 1n, paymasterAndData: '0x', signature: '0x1234',
+  };
+  const userOpHash = userOperationHashV06(operation);
+  const outerInput = encodeFunctionData({
+    abi: ENTRY_POINT_V06_ABI, functionName: 'handleOps', args: [[operation], OWNER],
+  });
+  const accountLog = accountCreatedLog(account, { receiptArrayIndex: 1, logIndex: 1, transactionHash: requestedHash });
+  const userOperationLog = rawReceiptLog({
+    address: COINBASE_ENTRY_POINT,
+    topics: [
+      USER_OPERATION_EVENT_TOPIC, userOpHash,
+      encodeAbiParameters([{ type: 'address' }], [OWNER]),
+      encodeAbiParameters([{ type: 'address' }], ['0x0000000000000000000000000000000000000000']),
+    ],
+    data: encodeAbiParameters(
+      [{ type: 'uint256' }, { type: 'bool' }, { type: 'uint256' }, { type: 'uint256' }],
+      [operation.nonce, true, 1n, 1n],
+    ),
+    receiptArrayIndex: 0, logIndex: 0, transactionHash: requestedHash,
+  });
+  const transaction = {
+    hash: requestedHash, chainId: '0x2105', from: POLICY_MODULE, to: COINBASE_ENTRY_POINT,
+    value: '0x0', input: outerInput, blockNumber: '0x64', blockHash: BLOCK_HASH, transactionIndex: '0x0',
+  };
+  const receipt = {
+    status: '0x1', transactionHash: requestedHash, blockNumber: '0x64', blockHash: BLOCK_HASH,
+    transactionIndex: '0x0', logs: [userOperationLog, accountLog],
+  };
+  const targetFrame = {
+    type: 'CALL', from: OWNER, to: expectedTransaction.to, input: expectedTransaction.data, value: '0x0',
+    output: '0x', logs: [{ index: '0x1', address: accountLog.address, topics: accountLog.topics, data: accountLog.data }], calls: [],
+  };
+  const trace = {
+    type: 'CALL', from: POLICY_MODULE, to: COINBASE_ENTRY_POINT, input: outerInput, value: '0x0', output: '0x', logs: [],
+    calls: [{
+      type: 'CALL', from: COINBASE_ENTRY_POINT, to: OWNER, input: callData, value: '0x0', output: '0x', logs: [],
+      calls: [{ type: 'DELEGATECALL', from: OWNER, to: COINBASE_SMART_WALLET_IMPLEMENTATION, input: callData, value: '0x0', output: '0x', logs: [], calls: [targetFrame] }],
+    }],
+  };
+  const verify = walletRpc.verifyCoinbaseWrappedTransaction ?? (() => ({ attribution: 'missing' }));
+  const result = verify({ transaction, receipt, expectedTransaction, trace, onchainUserOpHash: userOpHash });
+  assert.equal(result.attribution, 'coinbase_erc4337_v06');
+  assert.equal(result.userOpHash, userOpHash);
+
+  assert.throws(() => verify({
+    transaction, receipt, expectedTransaction: { ...expectedTransaction, data: '0x' }, trace, onchainUserOpHash: userOpHash,
+  }), /wallet envelope|exact Looper call/i);
+
+  const expectedSend = buildEthSendTransaction({ owner: OWNER, account, recipient: POLICY_MODULE, amountWei: '1' });
+  const sendCallData = encodeFunctionData({
+    abi: COINBASE_EXECUTE_BATCH_ABI, functionName: 'executeBatch',
+    args: [[{ target: expectedSend.to, value: 0n, data: expectedSend.data }]],
+  });
+  const sendOperation = { ...operation, nonce: 8n, callData: sendCallData };
+  const sendUserOpHash = userOperationHashV06(sendOperation);
+  const sendOuterInput = encodeFunctionData({
+    abi: ENTRY_POINT_V06_ABI, functionName: 'handleOps', args: [[sendOperation], OWNER],
+  });
+  const stateLog = stateUpdatedLog(account, '1', { receiptArrayIndex: 1, logIndex: 1, transactionHash: requestedHash });
+  const sendUserOperationLog = rawReceiptLog({
+    address: COINBASE_ENTRY_POINT,
+    topics: [
+      USER_OPERATION_EVENT_TOPIC, sendUserOpHash,
+      encodeAbiParameters([{ type: 'address' }], [OWNER]),
+      encodeAbiParameters([{ type: 'address' }], ['0x0000000000000000000000000000000000000000']),
+    ],
+    data: encodeAbiParameters(
+      [{ type: 'uint256' }, { type: 'bool' }, { type: 'uint256' }, { type: 'uint256' }],
+      [sendOperation.nonce, true, 1n, 1n],
+    ),
+    receiptArrayIndex: 0, logIndex: 0, transactionHash: requestedHash,
+  });
+  const sendTransaction = { ...transaction, input: sendOuterInput };
+  const sendReceipt = { ...receipt, logs: [sendUserOperationLog, stateLog] };
+  const sendTargetFrame = {
+    ...targetFrame, to: expectedSend.to, input: expectedSend.data,
+    logs: [{ index: '0x1', address: stateLog.address, topics: stateLog.topics, data: stateLog.data }],
+  };
+  const sendTrace = {
+    ...trace, input: sendOuterInput, calls: [{
+      type: 'CALL', from: COINBASE_ENTRY_POINT, to: OWNER, input: sendCallData, value: '0x0', output: '0x', logs: [],
+      calls: [{ type: 'DELEGATECALL', from: OWNER, to: COINBASE_SMART_WALLET_IMPLEMENTATION, input: sendCallData, value: '0x0', output: '0x', logs: [], calls: [sendTargetFrame] }],
+    }],
+  };
+  assert.equal(verify({
+    transaction: sendTransaction, receipt: sendReceipt, expectedTransaction: expectedSend,
+    trace: sendTrace, onchainUserOpHash: sendUserOpHash,
+  }).attribution, 'coinbase_erc4337_v06');
+  assert.throws(() => verify({
+    transaction: sendTransaction, receipt: sendReceipt, expectedTransaction: expectedSend,
+    trace: { ...sendTrace, calls: [{ ...sendTrace.calls[0], calls: [{ ...sendTrace.calls[0].calls[0], calls: [{ ...sendTargetFrame, logs: [] }] }] }] },
+    onchainUserOpHash: sendUserOpHash,
+  }), /Looper receipt event|receipt ordinal/i);
+});
+
 test('fixed requester retries a transient public RPC rate limit', async () => {
   const baseRequest = requester();
   let rateLimited = false;
@@ -812,6 +965,29 @@ test('classifies only empty code and an exact EIP-7702 delegation designator as 
   ]) assert.equal(classify(code), 'malformed');
   assert.equal(classify('0x6001'), 'contract');
 });
+
+test('classifies the exact pinned Coinbase ERC-4337 proxy profile as writable', () => {
+  const classify = walletRpc.classifyOwnerProfile ?? (() => 'missing');
+  const evidence = {
+    operatorCode: COINBASE_SMART_WALLET_CODE,
+    operatorImplementation: COINBASE_SMART_WALLET_IMPLEMENTATION,
+    operatorImplementationRuntimeByteLength: 18002,
+    operatorImplementationRuntimeSha256: '0xa7dba5dc36ffc7d92796b2d17cd61f4e89d7ace44ff953def7e39e444c278bfa',
+    operatorEntryPoint: COINBASE_ENTRY_POINT,
+    operatorEntryPointRuntimeByteLength: 23689,
+    operatorEntryPointRuntimeSha256: '0x009b0281380fb08973d2b8e55936c0d55f5a1d65ddc5713944420e119455620c',
+  };
+  assert.equal(classify(evidence), 'coinbase_smart_wallet');
+  assert.equal(classify({
+    ...evidence,
+    operatorImplementation: CURRENT_COINBASE_SMART_WALLET_IMPLEMENTATION,
+    operatorImplementationRuntimeByteLength: 17694,
+    operatorImplementationRuntimeSha256: '0x232b9f0ef7a71b67bafd3a4bacc47e81bc93374e27d3ed37b6eaa66da5000269',
+  }), 'coinbase_smart_wallet');
+  assert.equal(classify({ ...evidence, operatorImplementationRuntimeByteLength: 18001 }), 'contract');
+  assert.equal(classify({ ...evidence, operatorEntryPoint: OWNER }), 'contract');
+});
+
 
 test('canonical EIP-7702 owner code remains writable through anchored readiness', async () => {
   const client = walletRpc.createLooperAgentWalletRpc({
