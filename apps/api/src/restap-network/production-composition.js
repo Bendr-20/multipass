@@ -158,7 +158,18 @@ function productionEligibility({ config, store, custodyReconciler, accountReader
     readCodexMembership: async ({ tokenId }) => { const profile = codexRuntime.getProfileContext(Number(tokenId)); return { member: String(profile?.identity?.tokenId) === tokenId, identityId: 'codex:' + tokenId }; },
     deriveCanonicalAccount: ({ tokenId }) => custodyReconciler.getEpochSnapshot({ tokenId })?.canonicalAccount,
     readAccountIntegrity: ({ tokenId }) => accountReader.read({ tokenId }),
-    readCustody: ({ tokenId }) => custodyReconciler.getEpochSnapshot({ tokenId }),
+    readCustody: async ({ tokenId }) => {
+      let previousSafeBlock = null;
+      for (let step = 0; step < 8; step += 1) {
+        const result = await custodyReconciler.reconcileToken({ tokenId });
+        if (result?.eligible !== true) return null;
+        const snapshot = custodyReconciler.getEpochSnapshot({ tokenId });
+        if (!snapshot) return null;
+        if (snapshot.safeBlockNumber === previousSafeBlock) return snapshot;
+        previousSafeBlock = snapshot.safeBlockNumber;
+      }
+      return null;
+    },
     readActivationLease: ({ tokenId }) => {
       const custody = custodyReconciler.getEpochSnapshot({ tokenId });
       const lease = custody && readActiveLease(store, custody, now());
