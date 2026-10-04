@@ -532,8 +532,8 @@ Add one documented `/* RESTAP Network workspace */` block near existing workspac
   grid-template-columns: minmax(0, 1.08fr) minmax(18rem, 0.92fr);
   grid-template-areas:
     "readiness readiness"
-    "permissions plan"
-    "limits scheduled"
+    "permissions limits"
+    "plan scheduled"
     "advanced privacy"
     "danger danger";
   gap: 14px;
@@ -552,7 +552,7 @@ Add one documented `/* RESTAP Network workspace */` block near existing workspac
 
 Style native controls rather than replacing them. Use a visually-hidden checkbox only when its label/switch remains keyboard reachable and its focus ring is visible on the styled track. Give buttons, summaries, inputs, selects, and chip labels at least 44px touch height.
 
-Update `.console-workspace-nav` so five destinations fit the existing sidebar and mobile surfaces without truncating **Network**, **RESTAP**, or status text. Do not hide the textual status in favor of color.
+Update `.console-workspace-nav` so five destinations fit the existing sidebar and mobile surfaces without truncating **Network**, **RESTAP**, or status text. Do not hide the textual status in favor of color. The desktop grid must remain row-major with canonical DOM/tab order: permissions → limits → plan → scheduled → advanced → privacy. Add a browser assertion that these section bounding boxes follow that same visual progression; focus must never jump to a visually earlier row.
 
 - [ ] **Step 4: Add narrow and reduced-motion rules**
 
@@ -596,12 +596,25 @@ git commit -m "style: polish RESTAP Network workspace"
 
 **Files:**
 - Create: `apps/web/scripts/smoke-restap-network-console.mjs`
+- Modify: `apps/web/scripts/smoke-looper-codex-console.mjs` — preserve and verify its incoming five-workspace navigation change.
+- Modify/adopt: `apps/web/test/console-restap-network-browser.test.mjs` — preserve its viewport proof and replace cause-claiming unavailable assertions.
 - Modify: `apps/web/package.json`
 - Test: built `apps/web/dist`
 
 - [ ] **Step 1: Create a built-bundle Playwright smoke harness**
 
-Follow `apps/web/scripts/smoke-looper-codex-console.mjs` for server lifecycle, browser errors, and screenshots. Serve only the fresh `dist`; route the same-origin Console owner endpoints with exact schema-valid fixtures. Do not use or print a real cookie, CSRF token, wallet key, signature, grant, lease ID, operation ID, message, or transcript.
+Follow `apps/web/scripts/smoke-looper-codex-console.mjs` for server lifecycle, browser errors, and screenshots, and preserve that incoming script's five-workspace loop/count. Serve only the fresh `dist` at the exact route `/multipass/console?mock=looper`. Adopt the incoming `apps/web/test/console-restap-network-browser.test.mjs` rather than leaving it untracked; update its locked-state assertion to neutral 404/503 semantics.
+
+Mock and assert all six owner contracts for token 812:
+
+1. `GET /api/multipass/console/restap-network/812/policy` → exact schema-valid policy envelope.
+2. `PUT /api/multipass/console/restap-network/812/policy` → assert exact policy body, `content-type: application/json`, and presence—not value logging—of `x-csrf-token`; return policy envelope.
+3. `GET /api/multipass/console/restap-network/812/intents` → exact list envelope.
+4. `POST /api/multipass/console/restap-network/812/intents` → assert exact normalized intent body plus idempotency key and mutation headers; return single-intent envelope.
+5. `DELETE /api/multipass/console/restap-network/812/intents/intent-browser-proof-000000000000001` → assert `{ expected_policy_version: 4 }` and mutation headers; return single cancelled-intent envelope.
+6. `POST /api/multipass/console/restap-network/812/stop` → assert `{ expected_policy_version: 4 }` and mutation headers; return stopped policy envelope.
+
+Use explicit scenario state: the first selected PUT returns 409; separate policy GET scenarios return 404 and 503; ordinary successful GET/PUT/POST/DELETE responses use only the exact normalized shapes from `console-restap-network-api.js`. Assert `accept: application/json` on every request and no CSRF header on GET. Never log header values, credentials, cookies, or response canaries.
 
 Exercise viewports:
 
@@ -628,17 +641,22 @@ For every viewport:
 
 - [ ] **Step 3: Prove interaction and unavailable states**
 
-With mocked authenticated responses:
+With the exact mocks above:
 
 - save policy and assert the exact current request body;
-- submit one introduction twice while the first request is held and assert one POST;
-- return an ambiguous failure, retry unchanged, and assert the same idempotency key;
-- edit topic, retry, and assert a different key;
+- dispatch one introduction POST, record its body, and hold the route pending;
+- while that first request is still pending, repeat submit and assert only one POST was dispatched;
+- then abort the held first route as a transport failure;
+- retry unchanged after the failure settles and assert the second dispatched POST reuses the first body's idempotency key;
+- edit one substantive field, submit again, and assert a new key;
 - cancel one pending intent;
 - open Danger zone and stop only after mocked confirm;
-- force 409 and assert conflict focus/Refresh;
-- force 404 and 503 and assert neutral unavailable copy with zero mutation controls;
-- inspect localStorage/sessionStorage and collected response text for forbidden sentinels.
+- return 409 from the configured PUT and assert conflict focus/Refresh;
+- return 404 and 503 from separate policy GET scenarios and assert neutral unavailable copy with zero mutation controls;
+- inject unique high-entropy canaries into sanitized server-error and wrong-owner response fixtures; assert none appears in rendered text, HTML attributes, page errors, console output, request logs, or storage;
+- capture sorted localStorage/sessionStorage key+value snapshots before RESTAP interaction and after every scenario; require exact equality so existing Console preference entries are allowed but RESTAP adds or changes nothing.
+
+The script must print bounded pass/fail counts only—never request headers, cookie values, response bodies containing canaries, or storage values.
 
 - [ ] **Step 4: Add the package command**
 
@@ -669,7 +687,9 @@ Load all three images with the image inspection tool. Reject clipped controls, w
 Commit only source/script/package changes, not screenshots:
 
 ```bash
-git add apps/web/scripts/smoke-restap-network-console.mjs apps/web/package.json
+git add apps/web/scripts/smoke-restap-network-console.mjs \
+  apps/web/scripts/smoke-looper-codex-console.mjs \
+  apps/web/test/console-restap-network-browser.test.mjs apps/web/package.json
 git commit -m "test: prove RESTAP Network workspace in browsers"
 ```
 
@@ -703,15 +723,22 @@ Expected: all web tests pass and production build exits 0.
 
 - [ ] **Step 3: Re-run RESTAP isolation/privacy scans**
 
-Use the existing RESTAP pre-live test groups and scanner commands from `docs/superpowers/plans/2026-10-02-active-looper-restap-network.md`. At minimum run:
+Run the exact API and scanner gates:
 
 ```bash
 node --test apps/api/test/restap-network-*.test.mjs
+node --test apps/api/test/*.test.mjs
+pnpm --filter @helixa/multipass-web test
+pnpm web:build
+pnpm --filter @helixa/multipass-web smoke:restap-network-console -- \
+  --dist ./dist --output ./tmp/restap-network-console-smoke
 git grep -n -E 'grant|signature|cookie|csrf|operation_id|lease_id|message_body|transcript' \
-  -- apps/web/src/console-restap-network.js apps/web/scripts/smoke-restap-network-console.mjs
+  -- apps/web/src/console-restap-network.js \
+     apps/web/scripts/smoke-restap-network-console.mjs \
+     apps/web/test/console-restap-network-browser.test.mjs
 ```
 
-Review every grep hit; permitted explanatory copy is not equivalent to rendering a value. Prove the DOM/browser-storage smoke contains no injected secret sentinel, other-owner policy, message/transcript content, activation ID, lease ID, operation ID, or wallet secret.
+Expected: both focused and full API suites pass, the full web suite/build pass, and browser output reports unchanged storage plus zero canary hits across DOM text, attributes, console/page errors, request metadata, and storage keys/values. Review every grep hit manually; permitted explanatory copy and test-only field names are not equivalent to rendering a secret. Record the reviewed hit list and why each hit is safe. Prove no other-owner policy, message/transcript content, activation ID, lease ID, operation ID, wallet secret, or injected canary is exposed or persisted.
 
 - [ ] **Step 4: Request two-stage code review**
 
@@ -731,8 +758,9 @@ Expected: no uncommitted source/test changes. If review fixes exist:
 git add apps/web/src/app.js apps/web/src/console-restap-network.js \
   apps/web/src/multipass-console.js apps/web/src/styles.css \
   apps/web/test/app.test.mjs apps/web/test/console-restap-network.test.mjs \
-  apps/web/test/multipass-console.test.mjs \
-  apps/web/scripts/smoke-restap-network-console.mjs apps/web/package.json
+  apps/web/test/multipass-console.test.mjs apps/web/test/console-restap-network-browser.test.mjs \
+  apps/web/scripts/smoke-restap-network-console.mjs \
+  apps/web/scripts/smoke-looper-codex-console.mjs apps/web/package.json
 git commit -m "fix: complete RESTAP Network workspace review"
 ```
 
