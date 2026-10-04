@@ -59,7 +59,7 @@ test('pilot phases require explicit provider approval and include revocation acc
   let providers = 0;
   const result = await runRestapNetworkSmoke(args, {
     inspectRelease: async () => ({ immutable: true }), inspectArtifact: async () => ({ count: 1, hash: 'b'.repeat(64) }),
-    inspectDatabase: async () => ({ integrity: 'ok', policyDefaults: 'closed', leases: 'inactive', workerHolders: 0 }),
+    inspectDatabase: async () => ({ integrity: 'ok', policyDefaults: 'closed', leases: 'inactive', workerHolders: 1 }),
     inspectKeys: async () => ({ ready: true, registryHash: 'c'.repeat(64) }), inspectRoutes: async () => ({ publicNetworkRoutes: 0, restap3802Golden: true }),
     callProvider: async () => { providers += 1; return { boundedReplies: true, revocationRace: 'contained', accounting: 'exact' }; }, mutate: async () => ({ applied: true }),
   });

@@ -64,7 +64,8 @@ export async function runRestapNetworkSmoke(config, dependencies = defaultDepend
   add('database_integrity', database.integrity === 'ok');
   add('policy_closed_defaults', database.policyDefaults === 'closed');
   add('leases_inactive', database.leases === 'inactive');
-  add('worker_stopped', database.workerHolders === 0);
+  const trafficWorkerExpected = ['one-shot', 'daily', 'replies'].includes(config.phase);
+  add(trafficWorkerExpected ? 'worker_singleton' : 'worker_stopped', database.workerHolders === (trafficWorkerExpected ? 1 : 0));
   const keys = await dependencies.inspectKeys(config);
   add('signer_registry', keys.ready === true && /^[0-9a-f]{64}$/u.test(keys.registryHash), { registryHash: keys.registryHash });
   const routes = await dependencies.inspectRoutes(config);
