@@ -60,11 +60,23 @@ fi
 if [[ "$mode" == rollback ]]; then
   [[ -n "$backup" && -d "$backup" && ! -L "$backup" ]] || { echo 'verified backup is required' >&2; exit 2; }
   [[ "$(id -u)" == 0 ]] || { echo 'rollback requires root' >&2; exit 1; }
+  for marker in unit.present environment.present service.active service.enabled; do [[ -f "$backup/$marker" ]] || { echo 'rollback state marker is missing' >&2; exit 1; }; done
   for gate in "${DISABLE_ORDER[@]}"; do printf 'disabling %s\n' "$gate"; done
-  install -d -m 0755 /etc/systemd/system/$SERVICE_NAME.d
-  install -o root -g root -m 0600 "$backup/environment" "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME"
+  systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  if grep -Fx true "$backup/unit.present" >/dev/null; then
+    install -o root -g root -m 0644 "$backup/unit.before" "/etc/systemd/system/$SERVICE_NAME"
+  else
+    rm -f "/etc/systemd/system/$SERVICE_NAME"
+  fi
+  if grep -Fx true "$backup/environment.present" >/dev/null; then
+    install -d -m 0755 "/etc/systemd/system/$SERVICE_NAME.d"
+    install -o root -g root -m 0600 "$backup/environment" "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME"
+  else
+    rm -f "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME"
+  fi
   systemctl daemon-reload
-  systemctl restart "$SERVICE_NAME"
+  if grep -Fx true "$backup/service.enabled" >/dev/null; then systemctl enable "$SERVICE_NAME"; else systemctl disable "$SERVICE_NAME" 2>/dev/null || true; fi
+  if grep -Fx true "$backup/service.active" >/dev/null; then systemctl start "$SERVICE_NAME"; fi
   echo 'RESTAP network rollback restored; database rows retained'
   exit 0
 fi
@@ -82,19 +94,23 @@ mkdir -p "$backup_root" "$proof_root"
 
 render_environment() {
   local destination=$1
+  for environment_value in "$database" "$policy" "$key_registry" "$artifact"; do
+    [[ "$environment_value" =~ ^[/A-Za-z0-9._:-]+$ ]] || { echo 'environment path contains unsupported characters' >&2; exit 1; }
+  done
   cat > "$destination" <<EOF
-MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=${gates[foundation]}
-MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED=${gates[policy]}
-MULTIPASS_RESTAP_NETWORK_DISCOVERY_ENABLED=${gates[discovery]}
-MULTIPASS_RESTAP_NETWORK_INITIATION_ENABLED=${gates[initiation]}
-MULTIPASS_RESTAP_NETWORK_REPLIES_ENABLED=${gates[replies]}
-MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED=${gates[transcripts]}
-MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED=${gates[pilot]}
-MULTIPASS_RESTAP_NETWORK_GA_ENABLED=${gates[ga]}
-MULTIPASS_RESTAP_NETWORK_DATABASE_PATH=$database
-MULTIPASS_RESTAP_NETWORK_POLICY_FILE=$policy
-MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE=$key_registry
-MULTIPASS_LOOPERS_CODEX_ARTIFACT=$artifact
+[Service]
+Environment=MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=${gates[foundation]}
+Environment=MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED=${gates[policy]}
+Environment=MULTIPASS_RESTAP_NETWORK_DISCOVERY_ENABLED=${gates[discovery]}
+Environment=MULTIPASS_RESTAP_NETWORK_INITIATION_ENABLED=${gates[initiation]}
+Environment=MULTIPASS_RESTAP_NETWORK_REPLIES_ENABLED=${gates[replies]}
+Environment=MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED=${gates[transcripts]}
+Environment=MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED=${gates[pilot]}
+Environment=MULTIPASS_RESTAP_NETWORK_GA_ENABLED=${gates[ga]}
+Environment=MULTIPASS_RESTAP_NETWORK_DATABASE_PATH=$database
+Environment=MULTIPASS_RESTAP_NETWORK_POLICY_FILE=$policy
+Environment=MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE=$key_registry
+Environment=MULTIPASS_LOOPERS_CODEX_ARTIFACT=$artifact
 EOF
   chmod 0600 "$destination"
 }
@@ -123,8 +139,21 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_dir="$backup_root/promote-$stamp"
 proof_dir="$proof_root/promote-$stamp"
 mkdir -p "$backup_dir" "$proof_dir"
-if [[ -f "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME" ]]; then cp -a "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME" "$backup_dir/environment"; else : > "$backup_dir/environment"; chmod 0600 "$backup_dir/environment"; fi
-systemctl cat "$SERVICE_NAME" > "$backup_dir/unit.before" 2>/dev/null || true
+if [[ -f "/etc/systemd/system/$SERVICE_NAME" ]]; then
+  printf 'true\n' > "$backup_dir/unit.present"
+  cp -a "/etc/systemd/system/$SERVICE_NAME" "$backup_dir/unit.before"
+else
+  printf 'false\n' > "$backup_dir/unit.present"
+fi
+if [[ -f "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME" ]]; then
+  printf 'true\n' > "$backup_dir/environment.present"
+  cp -a "/etc/systemd/system/$SERVICE_NAME.d/$DROPIN_NAME" "$backup_dir/environment"
+else
+  printf 'false\n' > "$backup_dir/environment.present"
+fi
+if systemctl is-active --quiet "$SERVICE_NAME"; then printf 'true\n' > "$backup_dir/service.active"; else printf 'false\n' > "$backup_dir/service.active"; fi
+if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then printf 'true\n' > "$backup_dir/service.enabled"; else printf 'false\n' > "$backup_dir/service.enabled"; fi
+chmod 0600 "$backup_dir"/*
 systemctl show "$SERVICE_NAME" -p FragmentPath -p DropInPaths -p MainPID -p NRestarts > "$proof_dir/inspection.before"
 install -d -m 0755 /etc/systemd/system/$SERVICE_NAME.d
 render_environment "$proof_dir/environment.candidate"
