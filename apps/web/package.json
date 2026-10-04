@@ -14,7 +14,8 @@
     "smoke:looper-mint-browser": "CHROMIUM_PATH=/snap/bin/chromium node scripts/smoke-looper-mint-browser.mjs",
     "capture:sibyl-console-demo": "CHROMIUM_PATH=/snap/bin/chromium node scripts/capture-sibyl-console-demo.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "smoke:restap-network-console": "CHROMIUM_PATH=/snap/bin/chromium node --test test/console-restap-network-browser.test.mjs"
   },
   "devDependencies": {
     "jsdom": "^26.1.0",
