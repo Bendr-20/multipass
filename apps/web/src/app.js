@@ -4493,6 +4493,9 @@ export function captureConsoleInteractionState(root) {
       selectionEnd: composer.selectionEnd,
       selectionDirection: composer.selectionDirection,
     } : { present: false },
+    network: documentRef?.activeElement?.matches?.('[data-restap-focus-key]') && root?.contains?.(documentRef.activeElement)
+      ? { key: String(documentRef.activeElement.dataset.restapFocusKey ?? '') }
+      : { key: null },
   };
 }
 
@@ -4516,6 +4519,13 @@ export function restoreConsoleInteractionState(root, previous = {}) {
     } else if (prior.present) {
       timeline.scrollTop = prior.scrollTop;
     }
+  }
+
+  const networkKey = String(previous.network?.key ?? '');
+  if (networkKey) {
+    const target = [...(root?.querySelectorAll?.('[data-restap-focus-key]') ?? [])]
+      .find((node) => node.dataset.restapFocusKey === networkKey && !node.disabled);
+    target?.focus?.({ preventScroll: true });
   }
 
   const priorComposer = previous.composer ?? { present: false };

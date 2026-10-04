@@ -373,7 +373,7 @@ function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
       <button type="button" data-action="set-console-workspace-view" data-console-view="multipass" ${view === 'multipass' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
         <span>Multipass</span><small>Manage</small>
       </button>
-      <button type="button" class="console-network-nav console-network-nav-${networkStatus.key}" data-action="set-console-workspace-view" data-console-view="network" aria-label="Network, RESTAP, ${networkStatus.label}" ${view === 'network' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
+      <button type="button" class="console-network-nav console-network-nav-${networkStatus.key}" data-action="set-console-workspace-view" data-console-view="network" data-restap-focus-key="nav-network-${mobile ? 'mobile' : 'sidebar'}" aria-label="Network, RESTAP, ${networkStatus.label}" ${view === 'network' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
         <span>Network</span><small><i aria-hidden="true"></i>RESTAP <b>${networkStatus.label}</b></small>
       </button>
     </nav>
