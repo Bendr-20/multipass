@@ -7787,3 +7787,41 @@ test('RESTAP introduction errors preserve the bounded planner draft', async () =
   assert.doesNotMatch(root.textContent, /raw private provider detail/i);
   assert.match(root.querySelector('[data-restap-feedback]')?.textContent ?? '', /not saved/i);
 });
+
+test('RESTAP unchanged intent retries reuse identity and substantive edits rotate it', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let attempts = 0;
+  const restap = createConsoleRestapApiFixture({ createIntent: async (input) => {
+    attempts += 1;
+    if (attempts < 3) throw Object.assign(new Error('ambiguous transport failure'), { status: 500 });
+    return { schema_version: '0.1.0', token_id: String(input.tokenId), intent: createConsoleRestapIntent() };
+  } });
+  const keys = ['intent-retry-0000000000000001', 'intent-retry-0000000000000002'];
+  const issued = [];
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    restapIdempotencyKeyFactory: () => { const key = keys[issued.length]; issued.push(key); return key; },
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
+  const submit = async (peers, topic = 'general') => {
+    const form = root.querySelector('[data-restap-network-intent]');
+    form.elements.namedItem('peer_token_ids').value = peers;
+    form.elements.namedItem('topic').value = topic;
+    form.elements.namedItem('cadence').value = 'daily';
+    form.elements.namedItem('run_at').value = '2026-10-05T00:00';
+    form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await flushAsyncEvents(20);
+  };
+  await submit('48, 12');
+  await submit(' 12, 48 ');
+  await submit('12, 77');
+  const calls = restap.calls.filter(([name]) => name === 'createIntent').map(([, input]) => input.intent);
+  assert.equal(calls[0].idempotency_key, calls[1].idempotency_key);
+  assert.notEqual(calls[1].idempotency_key, calls[2].idempotency_key);
+  assert.deepEqual(calls[0].peer_token_ids, ['12', '48']);
+  assert.deepEqual(issued, keys);
+});

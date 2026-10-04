@@ -27,8 +27,34 @@ const TOPIC_LABELS = Object.freeze({
 export const RESTAP_NETWORK_STOP_CONFIRMATION = 'Stop RESTAP network participation? This opts this Looper out, revokes its network lease, and cancels pending network work. It does not change onchain ownership or ordinary Console chat.';
 
 export function createInitialConsoleRestapNetworkState(tokenId = null) {
-  return Object.freeze({ status: tokenId ? 'loading' : 'idle', selectedTokenId: tokenId ? token(tokenId) : null, requestId: 0, policy: null, intents: Object.freeze([]), error: null });
+  return Object.freeze({ status: tokenId ? 'loading' : 'idle', selectedTokenId: tokenId ? token(tokenId) : null, requestId: 0, policy: null, intents: Object.freeze([]), error: null, policyDraft: null, intentDraft: null, intentDraftFingerprint: null, intentIdempotencyKey: null, mutationKind: null, message: null });
 }
+
+export function normalizeConsoleRestapNetworkPolicyDraft(value) {
+  exactDraftObject(value, ['networkEnabled', 'inboundEnabled', 'autonomousEnabled', 'initiatedLimit', 'generatedLimit', 'peerLimit', 'topics', 'allowPeers', 'blockPeers', 'muteUntil'], 'policy draft');
+  const draft = {
+    networkEnabled: bool(value.networkEnabled), inboundEnabled: bool(value.inboundEnabled), autonomousEnabled: bool(value.autonomousEnabled),
+    initiatedLimit: integer(value.initiatedLimit, 0, 10), generatedLimit: integer(value.generatedLimit, 0, 30), peerLimit: integer(value.peerLimit, 0, 5),
+    topics: closedArray(value.topics, TOPICS), allowPeers: tokenArray(value.allowPeers), blockPeers: tokenArray(value.blockPeers),
+    muteUntil: value.muteUntil === null ? null : canonicalTime(value.muteUntil),
+  };
+  if (draft.allowPeers.some((item) => draft.blockPeers.includes(item))) throw new TypeError('policy draft peers overlap.');
+  return deepFreeze(draft);
+}
+
+export function normalizeConsoleRestapNetworkIntentDraft(value) {
+  exactDraftObject(value, ['peerTokenIds', 'topic', 'cadence', 'runAt'], 'intent draft');
+  return deepFreeze({
+    peerTokenIds: tokenArray(value.peerTokenIds, true),
+    topic: closed(value.topic, TOPICS), cadence: closed(value.cadence, ['once', 'daily']), runAt: canonicalTime(value.runAt),
+  });
+}
+
+export function getConsoleRestapNetworkIntentFingerprint(draft) {
+  const normalized = normalizeConsoleRestapNetworkIntentDraft(draft);
+  return JSON.stringify({ peer_token_ids: normalized.peerTokenIds, topic: normalized.topic, cadence: normalized.cadence, run_at: normalized.runAt });
+}
+
 
 export function beginConsoleRestapNetworkLoad(state, { tokenId, requestId }) {
   return Object.freeze({ status: 'loading', selectedTokenId: token(tokenId), requestId: integer(requestId, 0), policy: null, intents: Object.freeze([]), error: null });
@@ -99,8 +125,8 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
   if (!state.policy) return renderUnavailableNetwork(state, status, shell);
 
   const p = state.policy;
-  const display = state.draft ? { ...p, ...state.draft } : p;
-  const intentDraft = state.intentDraft ?? { peerTokenIds: '', topic: TOPICS[0], cadence: 'once', runAt: '' };
+  const display = state.policyDraft ? { ...p, ...state.policyDraft } : p;
+  const intentDraft = state.intentDraft ?? { peerTokenIds: Object.freeze([]), topic: TOPICS[0], cadence: 'once', runAt: '' };
   const saving = status === 'saving';
   const projected = getConsoleRestapNetworkStatus(state);
   const formId = 'restap-network-policy-' + p.tokenId;
@@ -125,7 +151,7 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
       + renderSwitch(formId, 'network_enabled', 'Opt this Looper into the RESTAP network', 'Makes this Looper available to the private network within its lease and limits.', display.networkEnabled, disabled)
       + renderSwitch(formId, 'inbound_enabled', 'Allow inbound conversations', 'Lets eligible network peers begin a bounded conversation with this Looper.', display.inboundEnabled, disabled)
       + renderSwitch(formId, 'autonomous_initiation_enabled', 'Allow owner-scheduled autonomous initiation', 'Runs only introductions you explicitly plan below.', display.autonomousEnabled, disabled)
-      + '<button class="console-restap-primary-action" type="submit" form="' + formId + '" data-action="save-restap-network-policy"' + disabled + '>' + (saving ? 'Saving…' : 'Save network settings') + '</button>'
+      + '<button class="console-restap-primary-action" type="submit" form="' + formId + '" data-action="save-restap-network-policy" data-restap-mutation="policy"' + disabled + '>' + (saving ? 'Saving…' : 'Save network settings') + '</button>'
     + '</section>'
     + '<section class="console-restap-card console-restap-limits" data-restap-section="limits-topics"><span class="console-restap-kicker">Limits and topics</span><h3>Keep activity bounded</h3><p class="console-restap-card-copy">Daily ceilings use the current pilot maximums.</p>'
       + '<div class="console-restap-limit-grid">'
@@ -137,18 +163,18 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
       + '</div></fieldset>'
     + '</section>'
     + '<section class="console-restap-card console-restap-plan" data-restap-section="plan"><span class="console-restap-kicker">One clear next step</span><h3>Plan an introduction</h3><p class="console-restap-card-copy">Choose the peers, topic, cadence, and time. No free-form scheduling or model-selected peers.</p>'
-      + '<form data-restap-network-intent class="console-restap-intent-form"><label><span>Peer Looper IDs</span><input name="peer_token_ids" inputmode="numeric" autocomplete="off" required placeholder="12, 48" value="' + escapeHtml(intentDraft.peerTokenIds) + '"></label>'
+      + '<form data-restap-network-intent class="console-restap-intent-form"><label><span>Peer Looper IDs</span><input name="peer_token_ids" inputmode="numeric" autocomplete="off" required placeholder="12, 48" maxlength="2048" value="' + escapeHtml(intentDraft.peerTokenIds.join(', ')) + '"></label>'
       + '<div class="console-restap-form-row"><label><span>Topic</span><select name="topic">' + TOPICS.map((topic) => '<option value="' + topic + '"' + (intentDraft.topic === topic ? ' selected' : '') + '>' + TOPIC_LABELS[topic] + '</option>').join('') + '</select></label>'
       + '<label><span>Cadence</span><select name="cadence"><option value="once"' + (intentDraft.cadence === 'once' ? ' selected' : '') + '>One shot</option><option value="daily"' + (intentDraft.cadence === 'daily' ? ' selected' : '') + '>Daily</option></select></label></div>'
-      + '<label><span>Run time</span><input name="run_at" type="datetime-local" required value="' + escapeHtml(intentDraft.runAt) + '"></label><button type="submit" data-action="create-restap-network-intent"' + disabled + '>Plan introduction</button></form>'
+      + '<label><span>Run time</span><input name="run_at" type="datetime-local" required value="' + escapeHtml(intentDraft.runAt ? intentDraft.runAt.slice(0, 16) : '') + '"></label><button type="submit" data-action="create-restap-network-intent" data-restap-mutation="intent"' + disabled + '>Plan introduction</button></form>'
     + '</section>'
     + '<section class="console-restap-card console-restap-scheduled" data-restap-section="scheduled" aria-label="Scheduled RESTAP intents"><div class="console-restap-card-heading"><div><span class="console-restap-kicker">Scheduled work</span><h3>Planned introductions</h3></div><span class="console-restap-count">' + state.intents.length + '</span></div>' + renderIntents(state.intents, p.policyVersion, saving) + '</section>'
     + '<details class="console-restap-card console-restap-advanced" data-restap-section="advanced"><summary><span><small>Optional policy controls</small><strong>Advanced controls</strong></span><i aria-hidden="true"></i></summary><div class="console-restap-details-body"><p>Use comma-separated Looper IDs. A block always takes precedence over an allow entry.</p>'
-      + '<label><span>Allowed peer Looper IDs</span><input form="' + formId + '" name="allow_peer_token_ids" value="' + escapeHtml(display.allowPeers.join(', ')) + '" autocomplete="off"></label>'
-      + '<label><span>Blocked peer Looper IDs</span><input form="' + formId + '" name="block_peer_token_ids" value="' + escapeHtml(display.blockPeers.join(', ')) + '" autocomplete="off"></label>'
+      + '<label><span>Allowed peer Looper IDs</span><input form="' + formId + '" name="allow_peer_token_ids" maxlength="2048" value="' + escapeHtml(display.allowPeers.join(', ')) + '" autocomplete="off"></label>'
+      + '<label><span>Blocked peer Looper IDs</span><input form="' + formId + '" name="block_peer_token_ids" maxlength="2048" value="' + escapeHtml(display.blockPeers.join(', ')) + '" autocomplete="off"></label>'
       + '<label><span>Mute until</span><input form="' + formId + '" name="mute_until" type="datetime-local" value="' + escapeHtml(display.muteUntil?.slice(0, 16) ?? '') + '"></label></div></details>'
-    + '<aside class="console-restap-privacy console-restap-card" data-restap-section="privacy"><span aria-hidden="true">◇</span><div><strong>Private by design</strong><p class="console-restap-transcript-note">Transcripts are unavailable during the pilot. Conversation text stays in memory. Provider processing and durable non-content accounting may still occur.</p></div></aside>'
-    + '<details class="console-restap-card console-restap-danger" data-restap-section="danger"><summary><span><small>Emergency control</small><strong>Danger zone</strong></span><i aria-hidden="true"></i></summary><div class="console-restap-details-body"><h3>Stop network participation</h3><p>' + escapeHtml(RESTAP_NETWORK_STOP_CONFIRMATION) + '</p><button type="button" data-action="stop-restap-network" data-expected-policy-version="' + p.policyVersion + '"' + disabled + '>Stop network participation</button></div></details>'
+    + '<aside class="console-restap-privacy console-restap-card" data-restap-section="privacy"><span aria-hidden="true">◇</span><div><strong>Private by design</strong><p class="console-restap-transcript-note">Pilot conversations are processed by the model provider but are not stored as transcripts by Helixa. Active text is held in process memory for the live conversation; Helixa retains bounded non-content accounting such as status, timestamps, keyed hashes, and usage.</p></div></aside>'
+    + '<details class="console-restap-card console-restap-danger" data-restap-section="danger"><summary><span><small>Emergency control</small><strong>Danger zone</strong></span><i aria-hidden="true"></i></summary><div class="console-restap-details-body"><h3>Stop network participation</h3><p>' + escapeHtml(RESTAP_NETWORK_STOP_CONFIRMATION) + '</p><button type="button" data-action="stop-restap-network" data-restap-mutation="stop" data-expected-policy-version="' + p.policyVersion + '"' + disabled + '>Stop network participation</button></div></details>'
   );
 }
 
@@ -183,7 +209,7 @@ function renderIntents(intents, policyVersion, saving) {
     const cancellable = ['pending', 'leased'].includes(item.status);
     return '<article class="console-restap-intent-card"><div><span class="console-restap-intent-topic">' + escapeHtml(TOPIC_LABELS[item.topic] ?? item.topic) + '</span><span class="console-restap-intent-status console-restap-intent-status-' + escapeHtml(item.status) + '">' + escapeHtml(readableStatus(item.status)) + '</span></div>'
       + '<dl><div><dt>Cadence</dt><dd>' + (item.source === 'daily' ? 'Daily' : 'One shot') + '</dd></div><div><dt>Next eligible</dt><dd><time datetime="' + escapeHtml(item.nextEligibleAt) + '">' + escapeHtml(formatDate(item.nextEligibleAt)) + '</time></dd></div></dl>'
-      + (cancellable ? '<button type="button" data-action="cancel-restap-network-intent" data-intent-id="' + escapeHtml(item.intentId) + '" data-expected-policy-version="' + policyVersion + '"' + (saving ? ' disabled' : '') + '>Cancel</button>' : '') + '</article>';
+      + (cancellable ? '<button type="button" data-action="cancel-restap-network-intent" data-restap-mutation="cancel" data-intent-id="' + escapeHtml(item.intentId) + '" data-expected-policy-version="' + policyVersion + '"' + (saving ? ' disabled' : '') + '>Cancel</button>' : '') + '</article>';
   }).join('') + '</div>';
 }
 
@@ -203,7 +229,8 @@ function isCurrent(state, tokenId, requestId) { return state?.selectedTokenId ==
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/gu, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]); }
 function deepFreeze(value) { if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value; for (const child of Object.values(value)) deepFreeze(child); return Object.freeze(value); }
 function token(value) { const text = String(value ?? ''); if (!/^[1-9][0-9]*$/u.test(text) || BigInt(text) > 7_777n) throw new TypeError('token is invalid.'); return text; }
-function tokenArray(value) { if (!Array.isArray(value) || value.length > 256) throw new TypeError('token list is invalid.'); const result = value.map(token); if (new Set(result).size !== result.length) throw new TypeError('token list duplicates.'); return Object.freeze(result); }
+function tokenArray(value, required = false) { if (!Array.isArray(value) || value.length > 256 || (required && value.length === 0)) throw new TypeError('token list is invalid.'); const result = value.map(token); if (new Set(result).size !== result.length) throw new TypeError('token list duplicates.'); return Object.freeze(result.sort((a, b) => BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0)); }
+function exactDraftObject(value, keys, label) { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Reflect.ownKeys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))) throw new TypeError(label + ' is invalid.'); }
 function closedArray(value, allowed) { if (!Array.isArray(value) || value.some((item) => !allowed.includes(item)) || new Set(value).size !== value.length) throw new TypeError('closed list is invalid.'); return Object.freeze([...value]); }
 function closed(value, allowed) { if (typeof value !== 'string' || !allowed.includes(value)) throw new TypeError('closed value is invalid.'); return value; }
 function canonicalTime(value) { if (typeof value !== 'string' || Number.isNaN(Date.parse(value)) || new Date(value).toISOString() !== value) throw new TypeError('time is invalid.'); return value; }

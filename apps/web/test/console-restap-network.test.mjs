@@ -37,7 +37,10 @@ test('panel renders flags lower caps topics peers mute intents usage cancellatio
   assert.equal(root.querySelectorAll('[name="cadence"] option').length, 2);
   assert.match(root.textContent, /1 initiated.*2 generated.*3 cost units/s);
   assert.ok(root.querySelector('[data-action="cancel-restap-network-intent"]'));
-  assert.match(root.textContent, /Transcripts are unavailable during the pilot/i);
+  assert.match(root.textContent, /processed by the model provider/i);
+  assert.match(root.textContent, /not stored as transcripts by Helixa/i);
+  assert.match(root.textContent, /held in process memory/i);
+  assert.match(root.textContent, /bounded non-content accounting/i);
 });
 
 test('emergency stop copy states exact destructive and non-destructive boundaries', () => {
@@ -114,8 +117,10 @@ test('Network workspace renders semantic sections in the approved mobile order',
   assert.equal(workspace.querySelector('[data-action="save-restap-network-policy"]')?.textContent.trim(), 'Save network settings');
   assert.equal(workspace.querySelectorAll('.console-restap-intent-card').length, 1);
   assert.doesNotMatch(workspace.textContent, /intent-panel-/);
-  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /text stays in memory/i);
-  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /provider processing/i);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /processed by the model provider/i);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /not stored as transcripts by Helixa/i);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /held in process memory/i);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /bounded non-content accounting/i);
 });
 
 test('native switches chips limits and live regions remain accessible and contract compatible', () => {
