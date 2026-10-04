@@ -222,6 +222,12 @@ test('protected public-key registry file loads one signing key and one overlap k
   assert.equal(registry.get('missing'), null);
 });
 
+test('protected public-key registry accepts root-owned service-group-readable mode-0640 files', async () => {
+  const source = registryFileOpen(registryFileBody(), { mode: 0o100640, gid: process.getgid() });
+  const registry = await loadRestapNetworkPublicKeyRegistryFile({ filePath: '/run/secrets/restap-network-public-keys.json', openImpl: source.openImpl });
+  assert.equal(registry.get(KEY_ID).status, 'signing');
+});
+
 test('protected public-key registry file rejects unsafe paths, metadata, symlinks, size, and UTF-8', async () => {
   const body = registryFileBody();
   const source = registryFileOpen(body);
@@ -318,7 +324,7 @@ test('protected public-key registry file rejects invalid keys before registry co
   }
 });
 
-test('file signer accepts only root-owned regular mode-0600 files and exposes sign(bytes) only', async () => {
+test('file signer accepts root-owned mode-0600 or service-group-readable mode-0640 files and exposes sign(bytes) only', async () => {
   const fileBody = JSON.stringify({ key_id: KEY_ID, pkcs8_der_base64: PRIVATE_DER.toString('base64') });
   const safeStat = { uid: 0, mode: 0o100600, isFile: () => true };
   let closes = 0;
@@ -329,8 +335,11 @@ test('file signer accepts only root-owned regular mode-0600 files and exposes si
   assert.equal(Buffer.from(await signer.sign(Buffer.from(CANONICAL))).byteLength, 64);
   await assert.rejects(() => signer.sign(Buffer.from('proof')), /signing unavailable/i);
   assert.equal(closes, 1);
+  const serviceGroupStat = { ...safeStat, mode: 0o100640, gid: process.getgid() };
+  const serviceGroupSigner = await loadRestapNetworkFileSigner({ filePath: '/run/secrets/restap-network-signer', openImpl: async () => ({ stat: async () => serviceGroupStat, readFile: async () => fileBody, close: async () => {} }) });
+  assert.equal(serviceGroupSigner.keyId, KEY_ID);
   for (const unsafe of [
-    { ...safeStat, uid: 1000 }, { ...safeStat, mode: 0o100640 },
+    { ...safeStat, uid: 1000 }, { ...safeStat, mode: 0o100640, gid: process.getgid() + 1 },
     { ...safeStat, mode: 0o104600 }, { ...safeStat, isFile: () => false },
   ]) await assert.rejects(() => loadRestapNetworkFileSigner({ filePath: '/secret', openImpl: async () => ({ stat: async () => unsafe, readFile: async () => fileBody, close: async () => {} }) }), /signer unavailable/i);
   await assert.rejects(() => loadRestapNetworkFileSigner({ filePath: null, openImpl }), /signer unavailable/i);

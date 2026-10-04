@@ -92,8 +92,7 @@ export async function loadRestapNetworkPublicKeyRegistryFile({ filePath, openImp
     const stat = await handle.stat();
     if (
       !stat
-      || stat.uid !== 0
-      || (stat.mode & 0o7777) !== 0o600
+      || !protectedFileMode(stat)
       || stat.isFile?.() !== true
       || stat.isSymbolicLink?.() === true
       || !Number.isSafeInteger(stat.size)
@@ -144,7 +143,7 @@ export async function loadRestapNetworkFileSigner({ filePath, openImpl = open } 
     handle = await openImpl(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     if (!handle || typeof handle.stat !== 'function' || typeof handle.readFile !== 'function' || typeof handle.close !== 'function') throw new TypeError('invalid');
     const stat = await handle.stat();
-    if (!stat || stat.uid !== 0 || (stat.mode & 0o7777) !== 0o600 || stat.isFile?.() !== true) throw new TypeError('unsafe');
+    if (!stat || !protectedFileMode(stat) || stat.isFile?.() !== true || stat.isSymbolicLink?.() === true) throw new TypeError('unsafe');
     const text = await handle.readFile({ encoding: 'utf8' });
     if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 8_192) throw new TypeError('invalid');
     assertNoDuplicateJsonKeys(text);
@@ -227,6 +226,14 @@ function insideWindows({ key, payload, timestamp }) {
     && timestamp < payload.exp
     && payload.nbf >= key.notBefore
     && payload.exp <= key.notAfter;
+}
+
+function protectedFileMode(stat) {
+  const mode = stat.mode & 0o7777;
+  if (stat.uid !== 0) return false;
+  if (mode === 0o600) return true;
+  const serviceGid = typeof process.getgid === 'function' ? process.getgid() : null;
+  return mode === 0o640 && Number.isSafeInteger(serviceGid) && stat.gid === serviceGid;
 }
 
 function normalizeSignatureBytes(value) {
