@@ -178,8 +178,6 @@ const kept=fs.readFileSync(path,'utf8').split(/\n/u).filter((line)=>line&&!keys.
 kept.push('MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH='+artifact,'MULTIPASS_RESTAP_3802_POLICY_PATH='+policy,'MULTIPASS_DB_PATH='+database,'MULTIPASS_RESTAP_DISCOVERY_ENABLED='+discovery,'MULTIPASS_RESTAP_TALK_ENABLED='+talk,'MULTIPASS_RESTAP_NEWS_WRITE_ENABLED='+write,'MULTIPASS_RESTAP_NEWS_READ_ENABLED='+read);
 const tmp=path+'.tmp.'+process.pid; fs.writeFileSync(tmp,kept.join('\n')+'\n',{mode:0o600}); fs.renameSync(tmp,path);
 NODE
-find "$static_root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-cp -a -- "$release/apps/web/dist/." "$static_root/"
 write_json mutation.json phase "$phase" staged true gates "$discovery,$talk,$news_write,$news_read"
 rollback_armed=true
 systemctl daemon-reload
@@ -188,7 +186,7 @@ new_cwd=$(service_prop WorkingDirectory); new_pid=$(service_prop MainPID); new_r
 [[ "$new_cwd" == "$release" && "$new_pid" =~ ^[1-9][0-9]*$ && "$new_pid" != "$prior_pid" && "$new_restarts" == 0 ]] || { echo "post-restart service verification failed" >&2; exit 70; }
 write_json restart.json phase "$phase" verified true priorPid "$prior_pid" currentPid "$new_pid" restartCount "$new_restarts"
 wait_for_http "http://$service_host:$service_port/api/restap/loopers/3802/.well-known/restap.json"
-[[ $(hash_tree "$static_root") == $(hash_tree "$release/apps/web/dist") ]] || { echo "static verification failed" >&2; exit 70; }
+[[ $(hash_tree "$static_root") == "$(cat "$backup_root/prior-static.sha256")" ]] || { echo "shared static root changed during API-only promotion" >&2; exit 70; }
 write_json health.json phase "$phase" verified true
 if [[ "$mode" == rehearsal ]]; then rollback; printf 'rehearsal-restored=verified phase=%s
 ' "$phase"; exit 0; fi

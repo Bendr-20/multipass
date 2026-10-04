@@ -151,6 +151,7 @@ test('promote leaves exact cumulative phase gates and rollback restores prior re
   assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /promotion=verified/);
   const staged = (await readFile(f.dropin, 'utf8')) + (await readFile(f.envFile, 'utf8'));
   assert.match(staged, /MULTIPASS_RESTAP_DISCOVERY_ENABLED=true/); assert.match(staged, /MULTIPASS_RESTAP_TALK_ENABLED=true/); assert.match(staged, /MULTIPASS_RESTAP_NEWS_WRITE_ENABLED=false/); assert.match(staged, /UNRELATED_DROPIN=keep/);
+  assert.equal(await readFile(join(f.staticRoot, 'index.html'), 'utf8'), 'current static\n');
   result = await run(args('rollback', 'talk', f), f);
   assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /rollback=verified/);
   assert.equal(JSON.parse(await readFile(f.serviceState, 'utf8')).cwd, f.current);
