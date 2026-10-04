@@ -180,27 +180,59 @@ export function renderConsoleRestapNetworkPanel(state = {}) {
 
 function renderUnavailableNetwork(state, status, shell) {
   const unavailable = status === 'unavailable';
-  const body = '<section class="console-restap-unavailable" role="status" aria-live="polite">'
-    + '<span class="console-restap-eyebrow">Private RESTAP network</span><div class="console-restap-lock-mark" aria-hidden="true">' + (unavailable ? '◇' : '!') + '</div>'
-    + '<h2>Looper #' + escapeHtml(state.selectedTokenId) + ' network</h2>'
-    + (unavailable
-      ? '<div class="console-restap-foundation-banner"><strong>Network participation is unavailable</strong><span>Network controls cannot be used for this Looper right now.</span></div>'
-      : '<p>' + escapeHtml(state.error ?? 'RESTAP network controls could not be loaded.') + '</p><button type="button" data-action="refresh-restap-network" data-restap-focus-key="retry">Retry</button>')
-    + '</section>';
-  return shell(body, unavailable ? ' console-restap-network-locked' : ' console-restap-network-error');
+  if (!unavailable) {
+    const body = '<section class="console-restap-unavailable" role="alert" aria-live="assertive">'
+      + '<span class="console-restap-eyebrow">Private RESTAP network</span><div class="console-restap-lock-mark" aria-hidden="true">!</div>'
+      + '<h2>Looper #' + escapeHtml(state.selectedTokenId) + ' network</h2>'
+      + '<p>' + escapeHtml(state.error ?? 'RESTAP network controls could not be loaded.') + '</p><button type="button" data-action="refresh-restap-network" data-restap-focus-key="retry">Retry</button></section>';
+    return shell(body, ' console-restap-network-error');
+  }
+
+  const disabled = ' disabled aria-disabled="true"';
+  const tokenId = escapeHtml(state.selectedTokenId);
+  const body = '<header class="console-restap-readiness" data-restap-section="readiness">'
+    + '<div class="console-restap-heading"><div><span class="console-restap-eyebrow">Private RESTAP network</span><h2>Looper #' + tokenId + ' network</h2><p>See the owner controls before participation is enabled.</p></div>'
+    + '<span class="console-restap-state console-restap-state-unavailable" aria-label="Network status: Unavailable"><i aria-hidden="true"></i>Unavailable</span></div>'
+    + '<dl class="console-restap-status"><div><dt>Rollout access</dt><dd>Not enabled</dd><small>Network traffic stays off</small></div>'
+    + '<div><dt>Owner controls</dt><dd>Preview only</dd><small>Changes unlock in a later phase</small></div>'
+    + '<div><dt>Transcripts</dt><dd>Not stored</dd><small>Pilot transcript storage remains off</small></div></dl>'
+    + '<div class="console-restap-foundation-banner" role="status" aria-live="polite"><strong>Network participation is unavailable</strong><span>Read-only preview — these settings are visible but disabled until this Looper can participate.</span></div>'
+    + '</header>'
+    + '<section class="console-restap-card console-restap-permissions" data-restap-section="permissions"><div class="console-restap-card-heading"><div><span class="console-restap-kicker">Network permissions</span><h3>Choose how this Looper participates</h3></div><span class="console-restap-policy-version">Preview</span></div>'
+      + renderSwitch(null, 'network_enabled', 'Opt this Looper into the RESTAP network', 'Makes this Looper available within its lease and limits.', false, disabled)
+      + renderSwitch(null, 'inbound_enabled', 'Allow inbound conversations', 'Lets eligible peers begin a bounded conversation.', false, disabled)
+      + renderSwitch(null, 'autonomous_initiation_enabled', 'Allow scheduled introductions', 'Runs only introductions explicitly planned by the owner.', false, disabled)
+    + '</section>'
+    + '<section class="console-restap-card console-restap-limits" data-restap-section="limits-topics"><span class="console-restap-kicker">Activity limits</span><h3>Keep network activity bounded</h3><p class="console-restap-card-copy">The current pilot ceilings are shown for orientation.</p>'
+      + '<div class="console-restap-limit-grid">'
+      + renderLimit(null, 'daily_initiated_conversation_limit', 'Daily initiated', 0, 10, disabled)
+      + renderLimit(null, 'daily_generated_message_limit', 'Daily generated', 0, 30, disabled)
+      + renderLimit(null, 'per_peer_daily_limit', 'Per peer daily', 0, 5, disabled)
+      + '</div><fieldset class="console-restap-topics" disabled><legend>Conversation topics</legend><p>Owners choose from this closed topic set.</p><div>'
+      + TOPICS.map((topic) => renderTopic(null, topic, false, disabled)).join('')
+      + '</div></fieldset></section>'
+    + '<section class="console-restap-card console-restap-plan" data-restap-section="plan"><span class="console-restap-kicker">Introduction planner</span><h3>Plan an introduction</h3><p class="console-restap-card-copy">Pick peers, a topic, cadence, and start time after participation unlocks.</p>'
+      + '<div class="console-restap-intent-form console-restap-preview-controls" aria-label="Read-only introduction planner"><label><span>Peer Looper IDs</span><input type="text" placeholder="12, 48" disabled aria-disabled="true"></label>'
+      + '<div class="console-restap-form-row"><label><span>Topic</span><select disabled aria-disabled="true"><option>Collection lore</option></select></label><label><span>Cadence</span><select disabled aria-disabled="true"><option>One shot</option></select></label></div>'
+      + '<label><span>Run time</span><input type="datetime-local" disabled aria-disabled="true"></label><p class="console-restap-preview-note">Planning stays off until rollout access and an active lease are available.</p></div></section>'
+    + '<aside class="console-restap-privacy console-restap-card" data-restap-section="privacy"><span aria-hidden="true">◇</span><div><strong>Private by design</strong><p class="console-restap-transcript-note">No RESTAP conversations or provider calls are running. Pilot transcripts are not stored by Helixa.</p></div></aside>';
+  return shell(body, ' console-restap-network-preview');
 }
 
 function renderSwitch(formId, name, label, description, checked, disabled) {
   const id = 'restap-' + name.replaceAll('_', '-');
-  return '<label class="console-restap-switch" for="' + id + '"><span><strong>' + escapeHtml(label) + '</strong><small id="' + id + '-description">' + escapeHtml(description) + '</small></span><input id="' + id + '" form="' + formId + '" type="checkbox" role="switch" aria-describedby="' + id + '-description" name="' + name + '"' + (checked ? ' checked' : '') + disabled + '><i aria-hidden="true"></i></label>';
+  const form = formId ? ' form="' + escapeHtml(formId) + '"' : '';
+  return '<label class="console-restap-switch" for="' + id + '"><span><strong>' + escapeHtml(label) + '</strong><small id="' + id + '-description">' + escapeHtml(description) + '</small></span><input id="' + id + '"' + form + ' type="checkbox" role="switch" aria-describedby="' + id + '-description" name="' + name + '"' + (checked ? ' checked' : '') + disabled + '><i aria-hidden="true"></i></label>';
 }
 
 function renderLimit(formId, name, label, value, max, disabled) {
-  return '<label class="console-restap-limit"><span>' + escapeHtml(label) + '</span><span class="console-restap-number"><input form="' + formId + '" name="' + name + '" type="number" inputmode="numeric" min="0" max="' + max + '" step="1" value="' + value + '"' + disabled + '><small>of ' + max + '</small></span></label>';
+  const form = formId ? ' form="' + escapeHtml(formId) + '"' : '';
+  return '<label class="console-restap-limit"><span>' + escapeHtml(label) + '</span><span class="console-restap-number"><input' + form + ' name="' + name + '" type="number" inputmode="numeric" min="0" max="' + max + '" step="1" value="' + value + '"' + disabled + '><small>of ' + max + '</small></span></label>';
 }
 
 function renderTopic(formId, topic, checked, disabled) {
-  return '<label class="console-restap-topic-chip"><input form="' + formId + '" type="checkbox" name="topic:' + topic + '"' + (checked ? ' checked' : '') + disabled + '><span>' + TOPIC_LABELS[topic] + '</span></label>';
+  const form = formId ? ' form="' + escapeHtml(formId) + '"' : '';
+  return '<label class="console-restap-topic-chip"><input' + form + ' type="checkbox" name="topic:' + topic + '"' + (checked ? ' checked' : '') + disabled + '><span>' + TOPIC_LABELS[topic] + '</span></label>';
 }
 
 function renderIntents(intents, policyVersion, saving) {

@@ -202,12 +202,18 @@ test('loading and neutral 404 or 503 states never expose network mutation contro
     const unavailable = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 12, error: { status } });
     const unavailableRoot = render(unavailable);
     assert.match(unavailableRoot.textContent, /Network participation is unavailable/i);
-    assert.match(unavailableRoot.textContent, /Network controls cannot be used for this Looper right now./i);
-    assert.doesNotMatch(unavailableRoot.textContent, /foundation|install|rollout|root cause/i);
+    assert.match(unavailableRoot.textContent, /Read-only preview/i);
+    assert.match(unavailableRoot.textContent, /Network permissions/i);
+    assert.match(unavailableRoot.textContent, /Activity limits/i);
+    assert.match(unavailableRoot.textContent, /Plan an introduction/i);
+    assert.doesNotMatch(unavailableRoot.textContent, /foundation|install|root cause/i);
+    assert.equal(unavailableRoot.querySelectorAll('[data-restap-section]').length, 5);
+    assert.ok(unavailableRoot.querySelectorAll('input, select').length >= 10);
+    assert.equal([...unavailableRoot.querySelectorAll('input, select')].every((control) => control.disabled), true);
     assert.equal(unavailableRoot.querySelector('[data-restap-network-policy]'), null);
     assert.equal(unavailableRoot.querySelector('[data-restap-network-intent]'), null);
-    assert.equal(unavailableRoot.querySelector('[data-action="stop-restap-network"]'), null);
-    assert.equal(unavailableRoot.querySelector('[data-action="refresh-restap-network"]'), null);
+    assert.equal(unavailableRoot.querySelector('[data-action]'), null);
+    assert.equal(unavailableRoot.querySelector('form, button'), null);
   }
 });
 

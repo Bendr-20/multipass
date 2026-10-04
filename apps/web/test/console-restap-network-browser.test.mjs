@@ -116,9 +116,15 @@ test('RESTAP Network workspace fits desktop, 390px and 320px deterministic state
   const lockedWorkspace = locked.locator('.console-restap-network-workspace');
   const lockedText = await lockedWorkspace.innerText();
   assert.match(lockedText, /Network participation is unavailable/i);
-  assert.match(lockedText, /Network controls cannot be used for this Looper right now\./i);
-  assert.doesNotMatch(lockedText, /foundation|install|rollout|root cause/i);
-  assert.equal(await lockedWorkspace.locator('[data-restap-network-policy], [data-restap-network-intent], [data-action="save-restap-network-policy"], [data-action="create-restap-network-intent"], [data-action="cancel-restap-network-intent"], [data-action="stop-restap-network"]').count(), 0);
+  assert.match(lockedText, /Read-only preview/i);
+  assert.match(lockedText, /Network permissions/i);
+  assert.match(lockedText, /Activity limits/i);
+  assert.match(lockedText, /Plan an introduction/i);
+  assert.doesNotMatch(lockedText, /foundation|install|root cause/i);
+  assert.equal(await lockedWorkspace.locator('[data-restap-section]').count(), 5);
+  assert.ok(await lockedWorkspace.locator('input, select').count() >= 10);
+  assert.equal(await lockedWorkspace.locator('input:not(:disabled), select:not(:disabled)').count(), 0);
+  assert.equal(await lockedWorkspace.locator('[data-restap-network-policy], [data-restap-network-intent], [data-action]').count(), 0);
   assert.equal(await lockedWorkspace.locator('form, button').count(), 0);
   await assertNoOverflow(locked);
   await locked.screenshot({ path: join(OUTPUT, 'restap-network-locked-390.png'), fullPage: true });
