@@ -41,10 +41,8 @@ export function createRestapNetworkEligibilityResolver({
     const request = normalizePeerRequest(input);
     let timestamp;
     try { timestamp = clock(now); } catch { emit(request.boundary, 'unavailable'); return UNAVAILABLE; }
-    const [sender, recipient] = await Promise.all([
-      loadToken(request, request.senderTokenId, request.recipientTokenId, timestamp),
-      loadToken(request, request.recipientTokenId, request.senderTokenId, timestamp),
-    ]);
+    const sender = await loadToken(request, request.senderTokenId, request.recipientTokenId, timestamp);
+    const recipient = await loadToken(request, request.recipientTokenId, request.senderTokenId, timestamp);
     let result = UNAVAILABLE;
     if (sender.ok && recipient.ok) {
       const topics = intersect(sender.policy.topics, recipient.policy.topics);
