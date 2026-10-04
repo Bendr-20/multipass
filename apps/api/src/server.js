@@ -310,6 +310,10 @@ export async function startServer(options = {}) {
     if (restapNetworkProductionFoundation) {
       consoleBootstrapOptions.restapNetworkStore = restapNetworkProductionFoundation.store;
       consoleBootstrapOptions.restapNetworkCustodyReconciler = restapNetworkProductionFoundation.custodyReconciler;
+      if (restapNetworkProductionFoundation.activationLeaseService) {
+        consoleBootstrapOptions.restapNetworkActivationLeases = restapNetworkProductionFoundation.activationLeaseService;
+        consoleBootstrapOptions.restapNetworkLeasesAlreadyLoaded = true;
+      }
     }
     delete consoleBootstrapOptions.restapNetworkSignerRequired;
     consoleBootstrap = await consoleBootstrapFactory({
@@ -459,6 +463,8 @@ export async function startServer(options = {}) {
       loopersAuthorizer: consoleBootstrap.authorizeLooper,
       consoleAuthStore: options.consoleAuthStore,
       consoleRuntimeRegistry: consoleBootstrap.runtimeRegistry,
+      restapNetworkActivationLeases: consoleBootstrap.activationLeases,
+      restapNetworkCustodyReconciler: consoleBootstrap.restapNetworkCustodyReconciler,
       consoleXmtpClient: consoleBootstrap.publishingClient,
       consoleAgentRuntime: consoleBootstrap.runtime,
       looperCodexRuntime,

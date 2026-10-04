@@ -55,6 +55,7 @@ test('rehearsal emits a valid systemd service drop-in with explicit gate environ
   const rehearsalProof = result.stdout.trim();
   const environment = await readFile(join(new URL('.', 'file://' + rehearsalProof).pathname, 'environment'), 'utf8');
   assert.match(environment, /^\[Service\]\n/u);
+  assert.equal(environment.includes('EnvironmentFile=' + files.policy + '\n'), true);
   assert.match(environment, /^Environment=MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=true$/mu);
   assert.match(environment, /^Environment=MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED=false$/mu);
 });

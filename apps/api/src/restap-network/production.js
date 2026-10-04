@@ -7,26 +7,32 @@ import { createAccountIntegrityReader } from './account-integrity.js';
 import { createRestapNetworkBaseProvider } from './base-provider.js';
 import { createCustodyReconciler } from './custody-reconciler.js';
 import { createRestapNetworkDatabase } from './database.js';
+import { composeRestapNetworkProductionPolicy } from './production-composition.js';
 
 const REVIEWED_BASE_PROVIDERS = Object.freeze({
   'base-official': 'https://mainnet.base.org',
   drpc: 'https://base.drpc.org',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
-const UNSUPPORTED_GATES = Object.freeze(['policy', 'discovery', 'initiation', 'replies', 'transcripts', 'pilot', 'ga']);
+const REQUIRED_PILOT_TOKEN_IDS = Object.freeze(['617', '3802']);
 const MAX_AUDIT_KEY_FILE_BYTES = 4_096;
 
 export function parseRestapNetworkProductionConfig(env = {}) {
   const providerIds = parseReviewedProviderIds(env.MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS);
   const tokenIds = parseTokenIds(env.MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS);
   const auditKeyFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE, 'MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE');
-  return Object.freeze({ providerIds, tokenIds, auditKeyFile });
+  const keyRegistryFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE, 'MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE');
+  const signerFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_SIGNER_FILE, 'MULTIPASS_RESTAP_NETWORK_SIGNER_FILE');
+  if (tokenIds.length && !sameStrings(tokenIds, REQUIRED_PILOT_TOKEN_IDS)) {
+    throw new TypeError('MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS must name the exact #617 and #3802 pilot roster.');
+  }
+  return Object.freeze({ providerIds, tokenIds, auditKeyFile, keyRegistryFile, signerFile });
 }
 
-export async function createRestapNetworkProductionFoundation({ config, productionConfig, codexRuntime } = {}) {
+export async function createRestapNetworkProductionFoundation({
+  config, productionConfig, codexRuntime, now = Date.now, publicClients = null,
+} = {}) {
   if (!config?.gates?.foundation) throw new Error('RESTAP network production foundation is not enabled.');
-  const enabledUnsupportedGate = UNSUPPORTED_GATES.find((name) => config.gates[name] === true);
-  if (enabledUnsupportedGate) throw new Error('RESTAP network production composition is unavailable for gate: ' + enabledUnsupportedGate + '.');
   if (!productionConfig || !sameStrings(productionConfig.providerIds, REQUIRED_PROVIDER_IDS)) {
     throw new Error('RESTAP network foundation requires the exact reviewed Base providers.');
   }
@@ -38,9 +44,7 @@ export async function createRestapNetworkProductionFoundation({ config, producti
   const { auditKey, auditKeyId } = await loadAuditKeyFile({ filePath: productionConfig.auditKeyFile });
   let database;
   try {
-    const clients = createLoopersPublicClients({
-      rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]),
-    });
+    const clients = publicClients ?? createLoopersPublicClients({ rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]) });
     if (clients.length !== REQUIRED_PROVIDER_IDS.length) throw new Error('RESTAP network approved providers are unavailable.');
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
@@ -56,21 +60,11 @@ export async function createRestapNetworkProductionFoundation({ config, producti
       auditKeyId,
       timeoutMs: config.providerTimeoutMs,
     });
-    const startupCustody = createStartupCustodyAdapter({ accountReader, custody });
-    let databaseClaimed = false;
-    const dependencies = Object.freeze({
-      databaseFactory: async ({ filename }) => {
-        if (databaseClaimed || filename !== config.databasePath) throw new Error('RESTAP network database composition mismatch.');
-        databaseClaimed = true;
-        return database;
-      },
-      approvedProviders: providers,
-      codexRuntime,
-      accountIntegrity: Object.freeze({ configured: true, read: accountReader.read }),
-      custodyReconciler: startupCustody,
+    const composition = composeRestapNetworkProductionPolicy({
+      config, productionConfig, store: database, custodyReconciler: custody, accountReader, providers, codexRuntime, now,
     });
     return Object.freeze({
-      dependencies,
+      ...composition,
       store: database,
       custodyReconciler: custody,
       closeOnStartupFailure() { database.close(); },
@@ -81,20 +75,6 @@ export async function createRestapNetworkProductionFoundation({ config, producti
   } finally {
     auditKey.fill(0);
   }
-}
-
-function createStartupCustodyAdapter({ accountReader, custody }) {
-  return Object.freeze({
-    async reconcile({ candidates } = {}) {
-      if (!Array.isArray(candidates)) throw new TypeError('RESTAP network custody candidates are invalid.');
-      for (const candidate of candidates) {
-        const integrity = await accountReader.read({ tokenId: candidate.tokenId });
-        if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable: ' + String(integrity?.status ?? 'unknown') + '.');
-        const reconciled = await custody.reconcileToken({ tokenId: candidate.tokenId });
-        if (reconciled?.eligible !== true) throw new Error('RESTAP network custody is unavailable: ' + String(reconciled?.status ?? 'unknown') + '.');
-      }
-    },
-  });
 }
 
 async function loadAuditKeyFile({ filePath, openImpl = open } = {}) {

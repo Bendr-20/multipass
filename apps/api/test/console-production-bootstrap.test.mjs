@@ -204,6 +204,18 @@ test('production bootstrap loads leases as candidates and binds runtime deactiva
   assert.deepEqual(harness.calls.deactivate, { custody, expectedPolicyGeneration: 4 });
 });
 
+test('production-composed leases are not loaded as restart candidates a second time', async () => {
+  const events = [];
+  const harness = createFactoryHarness(events);
+  const bootstrap = await createConsoleProductionBootstrap({
+    restapNetworkActivationLeases: harness.objects.activationLeases,
+    restapNetworkLeasesAlreadyLoaded: true,
+  }, harness.factories);
+  assert.strictEqual(bootstrap.activationLeases, harness.objects.activationLeases);
+  assert.deepEqual(bootstrap.activationLeaseCandidates, []);
+  assert.equal(events.includes('leases.loadCandidates'), false);
+});
+
 test('production bootstrap stays XMTP-disabled by default and starts no Node client or worker', async () => {
   const harness = createFactoryHarness();
   const bootstrap = await createConsoleProductionBootstrap({}, harness.factories);

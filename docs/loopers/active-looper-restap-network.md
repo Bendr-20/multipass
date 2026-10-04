@@ -51,6 +51,17 @@ Gate order is cumulative and exact:
 
 The exact tuple order is foundation, policy, discovery, initiation, replies, transcripts, pilot, GA. Disable in this order: replies, initiation, discovery, policy, foundation.
 
+### Holder opt-in production slice
+
+The first production holder slice uses the exact tuple `1,1,0,0,0,0,0,0`. It enables authenticated current-owner policy reads and writes only. Discovery, autonomous initiation, replies, transcripts, pilot traffic, and GA remain independently off. The protected `--policy` input is a root-owned mode-0600 Node/systemd EnvironmentFile (not executable shell) and must provide:
+
+- `MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=base-official,drpc`
+- `MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS=617,3802`
+- `MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE=<ROOT_0600_AUDIT_KEY_JSON>`
+- `MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT=<HIGH_ENTROPY_SECRET>`
+
+The launcher passes this file with Node `--env-file`; the promotion drop-in uses systemd `EnvironmentFile=`. Explicit gate and artifact/database path values override the file. Do not source or execute the file. No signing key, Bankr call, Wallet V2 activation, wallet deployment, or onchain transaction is required for holder opt-in.
+
 ## Roster hashing
 
 Normalize canonical decimal token IDs, sort numerically, reject duplicates, join with a single newline, and SHA-256 the exact UTF-8 bytes. The proof packet records only the roster count and roster hash. Any roster change invalidates the previous approval and requires a new reviewed hash. Never infer roster membership from browser state or a cached owner list.
@@ -147,6 +158,7 @@ Compare the service PID and restart counter with the change ledger and approved 
 ## Unrouted canary
 
 Create the immutable release and use an isolated loopback port. Keep every gate false for the Phase 0 canary.
+For the holder opt-in canary, enable only `foundation` and `policy`, then run smoke phase `holder-opt-in` with expected gates `1,1,0,0,0,0,0,0`.
 
 ~~~bash
 scripts/launch-looper-restap-network-canary.sh   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_0600_POLICY>   --key-registry <ROOT_0600_KEY_REGISTRY>   --database <RESTAP_NETWORK_DB>   --identity-file <CANARY_IDENTITY>   --pid-file <CANARY_PID>   --log-file <CANARY_LOG>   --port <LOOPBACK_PORT>
@@ -211,6 +223,8 @@ The #3802 public discovery, talk, news-write, and owner news-read routes retain 
 ## Approval boundaries
 
 Approval: Phase 0 foundation
+
+Approval: holder opt-in policy
 
 Approval: internal discovery
 

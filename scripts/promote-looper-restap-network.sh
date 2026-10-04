@@ -99,6 +99,7 @@ render_environment() {
   done
   cat > "$destination" <<EOF
 [Service]
+EnvironmentFile=$policy
 Environment=MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=${gates[foundation]}
 Environment=MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED=${gates[policy]}
 Environment=MULTIPASS_RESTAP_NETWORK_DISCOVERY_ENABLED=${gates[discovery]}

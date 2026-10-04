@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const GATES = Object.freeze(['foundation', 'policy', 'discovery', 'initiation', 'replies', 'transcripts', 'pilot', 'ga']);
-const PHASES = Object.freeze(['phase0', 'internal-discovery', 'one-shot', 'daily', 'replies']);
+const PHASES = Object.freeze(['phase0', 'holder-opt-in', 'internal-discovery', 'one-shot', 'daily', 'replies']);
 const VALUE_FLAGS = new Map([
   ['--mode', 'mode'], ['--phase', 'phase'], ['--expected-gates', 'expectedGates'], ['--release-sha', 'releaseSha'],
   ['--release', 'release'], ['--artifact', 'artifact'], ['--policy', 'policy'], ['--key-registry', 'keyRegistry'],
@@ -34,7 +34,7 @@ export function parseRestapNetworkSmokeArgs(argv) {
   if (!PHASES.includes(values.phase)) throw new TypeError('Smoke phase is invalid.');
   if (!/^[0-9a-f]{40}$/u.test(values.releaseSha)) throw new TypeError('Release SHA is invalid.');
   const expectedGates = parseGateTuple(values.expectedGates);
-  const requiredTuple = { phase0: '0,0,0,0,0,0,0,0', 'internal-discovery': '1,1,1,0,0,0,1,0', 'one-shot': '1,1,1,1,0,0,1,0', daily: '1,1,1,1,0,0,1,0', replies: '1,1,1,1,1,0,1,0' }[values.phase];
+  const requiredTuple = { phase0: '0,0,0,0,0,0,0,0', 'holder-opt-in': '1,1,0,0,0,0,0,0', 'internal-discovery': '1,1,1,0,0,0,1,0', 'one-shot': '1,1,1,1,0,0,1,0', daily: '1,1,1,1,0,0,1,0', replies: '1,1,1,1,1,0,1,0' }[values.phase];
   if (values.expectedGates !== requiredTuple) throw new TypeError('Expected gate tuple does not match the selected phase.');
   if (values.fixtureKeyRefs.length === 0) throw new TypeError('At least one fixture key reference is required.');
   if (values.mode === 'remote' && !values.baseUrl) throw new TypeError('Remote smoke requires --base-url.');
@@ -147,7 +147,7 @@ function parseGateTuple(value) {
 function deepFreeze(value) { if (value && typeof value === 'object' && !Object.isFrozen(value)) { for (const child of Object.values(value)) deepFreeze(child); Object.freeze(value); } return value; }
 
 function help() {
-  return 'Usage: smoke-looper-restap-network.mjs --mode local|remote --phase phase0|internal-discovery|one-shot|daily|replies --expected-gates 0,0,0,0,0,0,0,0 --release-sha SHA --release PATH --artifact PATH --policy PATH --key-registry PATH --database PATH --fixture-key-ref name=/path [--base-url https://host] [--execute] [--allow-provider-call]';
+  return 'Usage: smoke-looper-restap-network.mjs --mode local|remote --phase phase0|holder-opt-in|internal-discovery|one-shot|daily|replies --expected-gates 0,0,0,0,0,0,0,0 --release-sha SHA --release PATH --artifact PATH --policy PATH --key-registry PATH --database PATH --fixture-key-ref name=/path [--base-url https://host] [--execute] [--allow-provider-call]';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

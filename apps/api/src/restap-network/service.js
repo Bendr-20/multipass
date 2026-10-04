@@ -91,6 +91,11 @@ export async function startRestapNetworkService(input = {}) {
       return closePromise;
     },
   };
+  if (config.gates.policy) {
+    for (const name of ['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop']) {
+      service[name] = (value) => dependencies.management[name](value);
+    }
+  }
   return Object.freeze(service);
 }
 
@@ -125,6 +130,7 @@ function assertDependencyMatrix(config, dependencies) {
   if (config.gates.policy) {
     assertMethods(dependencies.activationLeases, ['loadInactiveCandidates', 'reauthorizeCandidates'], 'activation leases');
     assertMethods(dependencies.policy, ['get'], 'policy service');
+    assertMethods(dependencies.management, ['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop'], 'management adapter');
   }
   if (config.gates.discovery) {
     assertMethods(dependencies.eligibility, ['resolvePeerForRelay'], 'eligibility resolver');

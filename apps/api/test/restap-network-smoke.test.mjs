@@ -33,6 +33,15 @@ test('default smoke performs no mutation or provider call and phase0 runs every 
   assert.deepEqual(result.checks.map((entry) => entry.name), ['immutable_release', 'artifact', 'database_integrity', 'policy_closed_defaults', 'leases_inactive', 'worker_stopped', 'signer_registry', 'no_public_network_route', 'transcript_unavailable', 'restap_3802_golden']);
 });
 
+test('holder opt-in is a separate foundation-plus-policy phase with all traffic off', () => {
+  const args = [...BASE_ARGS];
+  args[3] = 'holder-opt-in';
+  args[5] = '1,1,0,0,0,0,0,0';
+  const parsed = parseRestapNetworkSmokeArgs(args);
+  assert.deepEqual(parsed.expectedGates, [true, true, false, false, false, false, false, false]);
+  assert.equal(parsed.allowProviderCall, false);
+});
+
 test('pilot phases require explicit provider approval and include revocation accounting proof', async () => {
   const pilotArgs = [...BASE_ARGS];
   pilotArgs[3] = 'one-shot';

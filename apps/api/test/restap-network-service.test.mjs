@@ -28,6 +28,7 @@ function dependencies(events = []) {
     custodyReconciler: { async reconcile({ candidates }) { events.push('custody:' + candidates.length); } },
     activationLeases: { async loadInactiveCandidates() { events.push('leases:load'); return ['candidate']; }, async reauthorizeCandidates() { events.push('leases:reauthorize'); } },
     policy: { get() {} },
+    management: Object.fromEntries(['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop'].map((name) => [name, async () => ({ name })])),
     eligibility: { resolvePeerForRelay() {} },
     signer: { sign() {} },
     keyRegistry: { get() {} },
@@ -133,6 +134,23 @@ test('startup and shutdown lifecycle is ordered, bounded, and idempotent', async
   assert.equal(first, second);
   await first;
   assert.deepEqual(events.slice(4), ['worker:stop', 'worker:await', 'conversations:close', 'db:checkpoint', 'db:close']);
+});
+
+test('policy service exposes only typed owner controls from the composed management adapter', async () => {
+  const deps = dependencies();
+  const calls = [];
+  deps.management = Object.freeze(Object.fromEntries(
+    ['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop'].map((name) => [name, async (input) => { calls.push([name, input]); return name; }]),
+  ));
+  const service = await startRestapNetworkService({
+    config: enabledConfig({ policy: true, discovery: true, initiation: true }, { dailyCostLimit: 10 }),
+    dependencies: deps,
+  });
+  for (const name of ['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop']) {
+    assert.equal(await service[name]({ tokenId: '617' }), name);
+  }
+  assert.deepEqual(calls.map(([name]) => name), ['getPolicy', 'putPolicy', 'createIntent', 'listIntents', 'deleteIntent', 'stop']);
+  await service.close();
 });
 
 test('worker start fault still stops acquisition and awaits bounded current work', async () => {

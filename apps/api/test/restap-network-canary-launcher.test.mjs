@@ -11,9 +11,11 @@ test('network canary launcher is loopback-only immutable inspect-first and close
   for (const required of ['127.0.0.1', '--release-sha', '--artifact', '--policy', '--key-registry', '--database', '--identity-file', '--stop', '--replace', 'occupied', 'MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED=false']) assert.match(source, new RegExp(required.replaceAll('-', '\-'), 'u'));
   assert.equal(source.includes('stat -c %u'), true);
   assert.equal(source.includes('MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH="$artifact"'), true);
+  assert.equal(source.includes('node --env-file="$policy" "$server_entry"'), true);
   assert.doesNotMatch(source, /MULTIPASS_LOOPERS_CODEX_ARTIFACT=/u);
   assert.match(source, /0600|600/u);
   assert.doesNotMatch(source, /mint.*session|wallet.*signature/iu);
+  assert.doesNotMatch(source, /source .*policy|\. .*policy/iu);
 });
 
 test('launcher help is offline and rejects auth-shaped arguments', async () => {

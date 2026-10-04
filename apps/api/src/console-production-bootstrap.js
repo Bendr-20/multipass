@@ -70,7 +70,9 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
       getPolicyGeneration: options.restapNetworkPolicyGenerationLoader ?? (() => 0),
     })
     : null);
-  const activationLeaseCandidates = activationLeases?.loadCandidates() ?? [];
+  const activationLeaseCandidates = options.restapNetworkLeasesAlreadyLoaded === true
+    ? []
+    : activationLeases?.loadCandidates() ?? [];
   const runtimeRegistry = factories.createLooperRuntimeRegistry({
     onNetworkActivate: activationLeases && options.restapNetworkCustodyReconciler
       ? async ({ identity, wallet }) => {

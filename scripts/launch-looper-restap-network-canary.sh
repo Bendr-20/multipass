@@ -139,7 +139,7 @@ env HOST=127.0.0.1 PORT="$port" \
   MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED="$MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED" \
   MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED="$MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED" \
   MULTIPASS_RESTAP_NETWORK_GA_ENABLED="$MULTIPASS_RESTAP_NETWORK_GA_ENABLED" \
-  node "$server_entry" >>"$log_file" 2>&1 &
+  node --env-file="$policy" "$server_entry" >>"$log_file" 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$pid_file"
 chmod 0600 "$pid_file"
