@@ -48,7 +48,7 @@ export async function createRestapNetworkProductionFoundation({
   const trafficEnabled = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
   if (trafficEnabled && !productionConfig.keyRegistryFile) throw new Error('RESTAP network traffic requires a protected key registry file.');
   if (trafficEnabled && !productionConfig.signerFile) throw new Error('RESTAP network traffic requires a protected signer file.');
-  if (trafficEnabled && (!bankrLlmKey || !bankrReadonlyApiKey)) throw new Error('RESTAP network traffic requires protected Bankr provider keys.');
+  if (trafficEnabled && !bankrLlmKey) throw new Error('RESTAP network traffic requires a protected Bankr LLM key.');
 
   const { auditKey, auditKeyId } = await loadAuditKeyFile({ filePath: productionConfig.auditKeyFile });
   let database;
@@ -59,7 +59,7 @@ export async function createRestapNetworkProductionFoundation({
       throw new Error('RESTAP network signer has no active signing key in the protected registry.');
     }
     const inferenceGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrLlmKey, model: bankrModel ?? undefined, fetchImpl }) : null;
-    const usageGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrReadonlyApiKey, model: bankrModel ?? undefined, fetchImpl }) : null;
+    const usageGateway = trafficEnabled ? createRestapNetworkBankrGateway({ apiKey: bankrLlmKey, model: bankrModel ?? undefined, fetchImpl }) : null;
     const bankrGateway = trafficEnabled ? Object.freeze({
       generatePublicReply: (projection) => inferenceGateway.generatePublicReply(projection),
       readUsageTotals: () => usageGateway.readUsageTotals(),
