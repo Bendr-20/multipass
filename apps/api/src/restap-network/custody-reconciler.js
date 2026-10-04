@@ -12,6 +12,7 @@ export function createCustodyReconciler({
   timeoutMs = 5_000,
   now = Date.now,
   allowSafeBlockSkew = false,
+  providerStaggerMs = 0,
 } = {}) {
   if (!store || typeof store.transaction !== 'function' || typeof store.readOne !== 'function') throw new TypeError('Custody reconciler requires the network store.');
   if (!Array.isArray(providers) || providers.length < 2 || providers.some((provider) => typeof provider?.readCustody !== 'function')) {
@@ -23,6 +24,7 @@ export function createCustodyReconciler({
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Custody provider timeout is invalid.');
   if (typeof now !== 'function') throw new TypeError('Custody clock is invalid.');
   if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Custody safe block skew policy is invalid.');
+  if (!Number.isSafeInteger(providerStaggerMs) || providerStaggerMs < 0 || providerStaggerMs > 5_000) throw new TypeError('Custody provider stagger is invalid.');
   const chainId = Number(release.chainId);
   const collection = getAddress(release.collection);
 
@@ -41,7 +43,7 @@ export function createCustodyReconciler({
       toBlock,
       previousSafeBlock: current ? { number: current.safeBlockNumber, hash: current.safeBlockHash } : null,
     });
-    const outcomes = await Promise.all(providers.map((provider) => timedRead(() => provider.readCustody(request), timeoutMs)));
+    const outcomes = await readProviders(providers, providerStaggerMs, (provider) => timedRead(() => provider.readCustody(request), timeoutMs));
     if (outcomes.some((outcome) => outcome.timeout)) return markIneligible(normalizedTokenId, current, 'provider_timeout');
     if (outcomes.some((outcome) => outcome.error)) return markIneligible(normalizedTokenId, current, 'provider_unavailable');
 
@@ -306,6 +308,16 @@ function replayEventHistory({ evidence, prior, release }) {
     }
   }
   if (owner !== evidence.safeOwner || controller !== evidence.safeController) throw new Error('Custody event history does not resolve to safe authority.');
+}
+
+async function readProviders(providers, staggerMs, readProvider) {
+  if (staggerMs === 0) return Promise.all(providers.map(readProvider));
+  const outcomes = [];
+  for (const provider of providers) {
+    if (outcomes.length) await new Promise((resolve) => setTimeout(resolve, staggerMs));
+    outcomes.push(await readProvider(provider));
+  }
+  return outcomes;
 }
 
 async function timedRead(read, timeoutMs) {

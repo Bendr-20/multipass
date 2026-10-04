@@ -77,6 +77,7 @@ export async function createRestapNetworkProductionFoundation({
       timeoutMs: config.providerTimeoutMs,
       allowUndeployedAccount: offchainOwnerAuthority,
       allowSafeBlockSkew: offchainOwnerAuthority,
+      providerStaggerMs: 750,
     });
     database = createRestapNetworkDatabase({ filename: config.databasePath });
     const custody = createCustodyReconciler({
@@ -86,6 +87,7 @@ export async function createRestapNetworkProductionFoundation({
       auditKeyId,
       timeoutMs: config.providerTimeoutMs,
       allowSafeBlockSkew: offchainOwnerAuthority,
+      providerStaggerMs: 750,
     });
     const composition = composeRestapNetworkProductionPolicy({
       config, productionConfig, store: database, custodyReconciler: custody, accountReader, providers, codexRuntime,

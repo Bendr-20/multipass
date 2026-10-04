@@ -69,6 +69,7 @@ export function createAccountIntegrityReader({
   timeoutMs = 5_000,
   allowUndeployedAccount = false,
   allowSafeBlockSkew = false,
+  providerStaggerMs = 0,
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers.some((provider) => typeof provider?.readAccountIntegrity !== 'function')) {
     throw new TypeError('Account integrity requires at least two approved providers.');
@@ -76,6 +77,7 @@ export function createAccountIntegrityReader({
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Account integrity timeout is invalid.');
   if (typeof allowUndeployedAccount !== 'boolean') throw new TypeError('Undeployed account policy is invalid.');
   if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Safe block skew policy is invalid.');
+  if (!Number.isSafeInteger(providerStaggerMs) || providerStaggerMs < 0 || providerStaggerMs > 5_000) throw new TypeError('Provider stagger is invalid.');
   const pinnedRelease = normalizeRelease(release);
 
   return Object.freeze({
@@ -84,10 +86,9 @@ export function createAccountIntegrityReader({
         throw new TypeError('Account integrity accepts an exact server-side request with tokenId only.');
       }
       const tokenId = normalizeTokenId(request.tokenId).toString();
-      const outcomes = await Promise.all(providers.map((provider) => timedRead(
-        () => provider.readAccountIntegrity(deepFreeze({ tokenId })),
-        timeoutMs,
-      )));
+      const outcomes = await readProviders(providers, providerStaggerMs, (provider) => timedRead(
+        () => provider.readAccountIntegrity(deepFreeze({ tokenId })), timeoutMs,
+      ));
       if (outcomes.some((outcome) => outcome.timeout)) return failure('provider_timeout');
       if (outcomes.some((outcome) => outcome.error)) return failure('provider_unavailable');
 
@@ -265,6 +266,16 @@ function accountFooter({ tokenId, release }) {
     [{ type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }, { type: 'uint256' }],
     [release.salt, BigInt(release.chainId), getAddress(release.collection), tokenId],
   );
+}
+
+async function readProviders(providers, staggerMs, readProvider) {
+  if (staggerMs === 0) return Promise.all(providers.map(readProvider));
+  const outcomes = [];
+  for (const provider of providers) {
+    if (outcomes.length) await new Promise((resolve) => setTimeout(resolve, staggerMs));
+    outcomes.push(await readProvider(provider));
+  }
+  return outcomes;
 }
 
 async function timedRead(read, timeoutMs) {
