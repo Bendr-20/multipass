@@ -59,12 +59,13 @@ test('pilot phases require explicit provider approval and include revocation acc
   let providers = 0;
   const result = await runRestapNetworkSmoke(args, {
     inspectRelease: async () => ({ immutable: true }), inspectArtifact: async () => ({ count: 1, hash: 'b'.repeat(64) }),
-    inspectDatabase: async () => ({ integrity: 'ok', policyDefaults: 'closed', leases: 'inactive', workerHolders: 1 }),
+    inspectDatabase: async () => ({ integrity: 'ok', policyDefaults: 'open', leases: 'active', ownerState: 'valid', enabledPolicies: 2, activeLeases: 2, workerHolders: 1 }),
     inspectKeys: async () => ({ ready: true, registryHash: 'c'.repeat(64) }), inspectRoutes: async () => ({ publicNetworkRoutes: 0, restap3802Golden: true }),
     callProvider: async () => { providers += 1; return { boundedReplies: true, revocationRace: 'contained', accounting: 'exact' }; }, mutate: async () => ({ applied: true }),
   });
   assert.equal(providers, 1);
   assert.equal(result.providerCalled, true);
+  assert.equal(result.checks.some((entry) => entry.name === 'owner_opt_in_state'), true);
   assert.equal(result.checks.some((entry) => entry.name === 'revocation_race'), true);
   assert.equal(result.checks.some((entry) => entry.name === 'exact_accounting'), true);
 });

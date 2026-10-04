@@ -62,8 +62,13 @@ export async function runRestapNetworkSmoke(config, dependencies = defaultDepend
   add('artifact', Number.isSafeInteger(artifact.count) && artifact.count >= 0 && /^[0-9a-f]{64}$/u.test(artifact.hash), { count: artifact.count, hash: artifact.hash });
   const database = await dependencies.inspectDatabase(config);
   add('database_integrity', database.integrity === 'ok');
-  add('policy_closed_defaults', database.policyDefaults === 'closed');
-  add('leases_inactive', database.leases === 'inactive');
+  const closedDefaultsRequired = ['phase0', 'foundation'].includes(config.phase);
+  if (closedDefaultsRequired) {
+    add('policy_closed_defaults', database.policyDefaults === 'closed');
+    add('leases_inactive', database.leases === 'inactive');
+  } else {
+    add('owner_opt_in_state', database.ownerState === 'valid', { enabledPolicies: database.enabledPolicies, activeLeases: database.activeLeases });
+  }
   const trafficWorkerExpected = ['one-shot', 'daily', 'replies'].includes(config.phase);
   add(trafficWorkerExpected ? 'worker_singleton' : 'worker_stopped', database.workerHolders === (trafficWorkerExpected ? 1 : 0));
   const keys = await dependencies.inspectKeys(config);
@@ -111,7 +116,37 @@ function defaultDependencies() {
         const openPolicies = Number(db.prepare('SELECT count(*) AS count FROM restap_network_owner_policies WHERE network_enabled <> 0 OR inbound_enabled <> 0 OR autonomous_enabled <> 0').get().count);
         const activeLeases = Number(db.prepare("SELECT count(*) AS count FROM restap_network_activation_leases WHERE status = 'active'").get().count);
         const workerHolders = Number(db.prepare('SELECT count(*) AS count FROM restap_network_worker_lease').get().count);
-        return { integrity, policyDefaults: openPolicies === 0 ? 'closed' : 'open', leases: activeLeases === 0 ? 'inactive' : 'active', workerHolders };
+        const invalidEnabledPolicies = Number(db.prepare(`
+          WITH latest AS (
+            SELECT p.* FROM restap_network_owner_policies p
+            JOIN (SELECT chain_id, collection, token_id, custody_generation, MAX(policy_version) AS version
+              FROM restap_network_owner_policies GROUP BY chain_id, collection, token_id, custody_generation) x
+            ON x.chain_id=p.chain_id AND x.collection=p.collection AND x.token_id=p.token_id
+              AND x.custody_generation=p.custody_generation AND x.version=p.policy_version
+          )
+          SELECT count(*) AS count FROM latest p
+          LEFT JOIN restap_network_custody_epochs c ON c.chain_id=p.chain_id AND c.collection=p.collection AND c.token_id=p.token_id AND c.generation=p.custody_generation
+          LEFT JOIN restap_network_activation_leases l ON l.chain_id=p.chain_id AND l.collection=p.collection AND l.token_id=p.token_id
+            AND l.custody_generation=p.custody_generation AND l.status='active' AND l.expires_at > ?
+          WHERE p.network_enabled=1 AND (c.status <> 'ready' OR l.lease_id IS NULL)
+        `).get(Date.now()).count);
+        const invalidActiveLeases = Number(db.prepare(`
+          WITH latest AS (
+            SELECT p.* FROM restap_network_owner_policies p
+            JOIN (SELECT chain_id, collection, token_id, custody_generation, MAX(policy_version) AS version
+              FROM restap_network_owner_policies GROUP BY chain_id, collection, token_id, custody_generation) x
+            ON x.chain_id=p.chain_id AND x.collection=p.collection AND x.token_id=p.token_id
+              AND x.custody_generation=p.custody_generation AND x.version=p.policy_version
+          )
+          SELECT count(*) AS count FROM restap_network_activation_leases l
+          LEFT JOIN restap_network_custody_epochs c ON c.chain_id=l.chain_id AND c.collection=l.collection AND c.token_id=l.token_id AND c.generation=l.custody_generation
+          LEFT JOIN latest p ON p.chain_id=l.chain_id AND p.collection=l.collection AND p.token_id=l.token_id AND p.custody_generation=l.custody_generation
+          WHERE l.status='active' AND (l.expires_at <= ? OR c.status <> 'ready' OR p.network_enabled <> 1)
+        `).get(Date.now()).count);
+        return {
+          integrity, policyDefaults: openPolicies === 0 ? 'closed' : 'open', leases: activeLeases === 0 ? 'inactive' : 'active', workerHolders,
+          ownerState: invalidEnabledPolicies === 0 && invalidActiveLeases === 0 ? 'valid' : 'invalid', enabledPolicies: openPolicies, activeLeases,
+        };
       } finally { db.close(); }
     },
     async inspectKeys(config) {
