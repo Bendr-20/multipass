@@ -11,7 +11,7 @@ export function createCustodyReconciler({
   auditKeyId,
   timeoutMs = 5_000,
   now = Date.now,
-  allowSafeBlockSkew = false,
+  maxSafeBlockSkew = 0,
   providerStaggerMs = 0,
 } = {}) {
   if (!store || typeof store.transaction !== 'function' || typeof store.readOne !== 'function') throw new TypeError('Custody reconciler requires the network store.');
@@ -23,7 +23,7 @@ export function createCustodyReconciler({
   if (typeof auditKeyId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(auditKeyId)) throw new TypeError('Custody audit key ID is invalid.');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Custody provider timeout is invalid.');
   if (typeof now !== 'function') throw new TypeError('Custody clock is invalid.');
-  if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Custody safe block skew policy is invalid.');
+  if (!Number.isSafeInteger(maxSafeBlockSkew) || maxSafeBlockSkew < 0 || maxSafeBlockSkew > 256) throw new TypeError('Custody safe block skew bound is invalid.');
   if (!Number.isSafeInteger(providerStaggerMs) || providerStaggerMs < 0 || providerStaggerMs > 5_000) throw new TypeError('Custody provider stagger is invalid.');
   const chainId = Number(release.chainId);
   const collection = getAddress(release.collection);
@@ -58,7 +58,9 @@ export function createCustodyReconciler({
     const safeCoordinate = canonical(observations[0].safeBlock);
     const safeDisagreement = observations.some((value) => canonical(value.safeBlock) !== safeCoordinate);
     const sameSafeNumber = observations.every((value) => value.safeBlock.number === observations[0].safeBlock.number);
-    if (safeDisagreement && (!allowSafeBlockSkew || sameSafeNumber)) {
+    const safeNumbers = observations.map((value) => value.safeBlock.number);
+    const safeBlockSkew = Math.max(...safeNumbers) - Math.min(...safeNumbers);
+    if (safeDisagreement && (sameSafeNumber || safeBlockSkew > maxSafeBlockSkew)) {
       return markIneligible(normalizedTokenId, current, 'safe_block_disagreement');
     }
     const comparable = (value) => ({ ...value, safeBlock: null, range: { ...value.range, toBlock: null } });

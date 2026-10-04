@@ -553,9 +553,9 @@ export async function startServer(options = {}) {
 async function closeServerResources({ consoleBootstrap, nodeServer, restapPublicSessions, restapNewsStore, restapNetworkService, savedRecords, ownsSavedRecords, looperNameStore, ownsLooperNameStore }) {
   const errors = [];
   for (const close of [
+    () => closeHttpServer(nodeServer),
     () => restapNetworkService?.close?.(),
     () => consoleBootstrap?.stopWorker?.(),
-    () => closeHttpServer(nodeServer),
     () => restapPublicSessions?.close?.(),
     () => restapNewsStore?.close?.(),
     () => consoleBootstrap?.closeClient?.(),

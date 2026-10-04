@@ -55,14 +55,16 @@ const CONTROLLER_ABI = Object.freeze([
 
 export function createRestapNetworkBaseProvider({
   publicClient,
-  tokenIds,
+  tokenIds = [],
+  allowAnyCollectionToken = false,
   release = RESTAP_NETWORK_ACCOUNT_RELEASE,
   maxRange = MAX_RANGE,
 } = {}) {
   assertClient(publicClient);
   if (!release || release.controllerModel !== 'erc721_owner') throw new TypeError('RESTAP Base controller model is unsupported.');
   if (!Number.isSafeInteger(maxRange) || maxRange < 1 || maxRange > MAX_RANGE) throw new TypeError('RESTAP Base range limit is invalid.');
-  if (!Array.isArray(tokenIds) || tokenIds.length === 0 || tokenIds.length > MAX_PILOT_TOKENS) throw new TypeError('RESTAP Base pilot allowlist is invalid.');
+  if (typeof allowAnyCollectionToken !== 'boolean') throw new TypeError('RESTAP Base collection-token policy is invalid.');
+  if (!Array.isArray(tokenIds) || tokenIds.length > MAX_PILOT_TOKENS || (!allowAnyCollectionToken && tokenIds.length === 0)) throw new TypeError('RESTAP Base pilot allowlist is invalid.');
   const normalizedTokenIds = tokenIds.map(normalizeTokenId);
   if (new Set(normalizedTokenIds).size !== normalizedTokenIds.length) throw new TypeError('RESTAP Base pilot allowlist has duplicates.');
   const allowed = new Set(normalizedTokenIds);
@@ -124,18 +126,28 @@ export function createRestapNetworkBaseProvider({
     const anchor = toBlock === finalizedHead.number ? finalizedHead : await readAnchor(publicClient, { blockNumber: BigInt(toBlock) });
     const affected = await guarded(publicClient, anchor, async () => {
       const result = [];
-      for (const tokenId of normalizedTokenIds) {
-        const events = await readTransfers({ publicClient, collection, tokenId, fromBlock, toBlock });
-        if (events.length) result.push(tokenId);
+      if (allowAnyCollectionToken) {
+        const logs = await publicClient.getLogs({ address: collection, event: TRANSFER_EVENT, fromBlock: BigInt(fromBlock), toBlock: BigInt(toBlock), strict: true });
+        if (!Array.isArray(logs) || logs.length > MAX_RANGE) throw new Error('RESTAP Base Transfer evidence is malformed or excessive.');
+        for (const log of logs) {
+          const tokenId = normalizeTokenId(log?.args?.tokenId);
+          normalizeTransfer(log, { collection, tokenId, fromBlock, toBlock });
+          result.push(tokenId);
+        }
+      } else {
+        for (const tokenId of normalizedTokenIds) {
+          const events = await readTransfers({ publicClient, collection, tokenId, fromBlock, toBlock });
+          if (events.length) result.push(tokenId);
+        }
       }
-      return result;
+      return [...new Set(result)].sort((left, right) => BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0);
     });
     return Object.freeze(affected);
   }
 
   function requireAllowed(value) {
     const tokenId = normalizeTokenId(value);
-    if (!allowed.has(tokenId)) throw new TypeError('RESTAP Base token is outside the pilot allowlist.');
+    if (!allowAnyCollectionToken && !allowed.has(tokenId)) throw new TypeError('RESTAP Base token is outside the pilot allowlist.');
     return tokenId;
   }
 

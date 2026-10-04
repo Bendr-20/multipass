@@ -65,12 +65,16 @@ test('initial finalized build persists a ready deeply frozen custody epoch', asy
 
 test('holder opt-in uses the older finalized head when authority and event evidence agree', async (t) => {
   const newer = evidence({ safeBlock: { number: 101, hash: HASH_101 }, range: { fromBlock: 0, toBlock: 101 } });
-  const f = await fixture([evidence(), newer], { allowSafeBlockSkew: true }); t.after(() => f.close());
+  const f = await fixture([evidence(), newer], { maxSafeBlockSkew: 1 }); t.after(() => f.close());
   const result = await f.reconciler.reconcileToken({ tokenId: TOKEN_ID });
   assert.equal(result.status, 'ready');
   const snapshot = f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID });
   assert.equal(snapshot.safeBlockNumber, 100);
   assert.equal(snapshot.safeBlockHash, HASH_100);
+
+  const tooNew = evidence({ safeBlock: { number: 102, hash: '0x' + 'cc'.repeat(32) }, range: { fromBlock: 0, toBlock: 102 } });
+  const overBound = await fixture([evidence(), tooNew], { maxSafeBlockSkew: 1 }); t.after(() => overBound.close());
+  assert.equal((await overBound.reconciler.reconcileToken({ tokenId: TOKEN_ID })).status, 'safe_block_disagreement');
 });
 
 test('the pinned ERC-721 controller follows finalized ownership transfers', async (t) => {

@@ -51,6 +51,9 @@ export function createRestapNetworkIntentStore({
         [intentId, authority.chainId, authority.collection, authority.tokenId, authority.custodyGeneration, authority.activationLeaseId, authority.policyVersion,
           source, intent.topic, peerSetDigest, 0, idempotencyDigest, runAt, expiresAt, 0, attemptLimit, runAt, 'pending', timestamp, timestamp],
       );
+      for (const peerTokenId of peers) {
+        tx.run('INSERT INTO restap_network_intent_peers (intent_id, peer_token_id) VALUES (?, ?)', [intentId, peerTokenId]);
+      }
       return project(tx.get('SELECT * FROM restap_network_intents WHERE intent_id = ?', [intentId]));
     });
   }

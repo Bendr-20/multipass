@@ -230,10 +230,11 @@ function insideWindows({ key, payload, timestamp }) {
 
 function protectedFileMode(stat) {
   const mode = stat.mode & 0o7777;
-  if (stat.uid !== 0) return false;
-  if (mode === 0o600) return true;
   const serviceGid = typeof process.getgid === 'function' ? process.getgid() : null;
-  return mode === 0o640 && Number.isSafeInteger(serviceGid) && stat.gid === serviceGid;
+  return stat.uid === 0
+    && mode === 0o640
+    && Number.isSafeInteger(serviceGid)
+    && stat.gid === serviceGid;
 }
 
 function normalizeSignatureBytes(value) {

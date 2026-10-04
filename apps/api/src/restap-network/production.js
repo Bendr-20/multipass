@@ -6,6 +6,7 @@ import { createLoopersPublicClients } from '../loopers-owned-agents.js';
 import { createAccountIntegrityReader } from './account-integrity.js';
 import { createRestapNetworkBaseProvider } from './base-provider.js';
 import { createRestapNetworkBankrGateway } from './bankr-provider.js';
+import { RESTAP_NETWORK_LIMITS } from './constants.js';
 import { createCustodyReconciler } from './custody-reconciler.js';
 import { createRestapNetworkDatabase } from './database.js';
 import { loadRestapNetworkFileSigner, loadRestapNetworkPublicKeyRegistryFile } from './grants.js';
@@ -16,7 +17,6 @@ const REVIEWED_BASE_PROVIDERS = Object.freeze({
   tenderly: 'https://base.gateway.tenderly.co',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
-const REQUIRED_PILOT_TOKEN_IDS = Object.freeze(['617', '3802']);
 const MAX_AUDIT_KEY_FILE_BYTES = 4_096;
 
 export function parseRestapNetworkProductionConfig(env = {}) {
@@ -25,10 +25,8 @@ export function parseRestapNetworkProductionConfig(env = {}) {
   const auditKeyFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE, 'MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE');
   const keyRegistryFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE, 'MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE');
   const signerFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_SIGNER_FILE, 'MULTIPASS_RESTAP_NETWORK_SIGNER_FILE');
-  if (tokenIds.length && !sameStrings(tokenIds, REQUIRED_PILOT_TOKEN_IDS)) {
-    throw new TypeError('MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS must name the exact #617 and #3802 pilot roster.');
-  }
-  return Object.freeze({ providerIds, tokenIds, auditKeyFile, keyRegistryFile, signerFile });
+  const maxFinalizedHeadSkew = parsePinnedFinalizedHeadSkew(env.MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW);
+  return Object.freeze({ providerIds, tokenIds, auditKeyFile, keyRegistryFile, signerFile, maxFinalizedHeadSkew });
 }
 
 export async function createRestapNetworkProductionFoundation({
@@ -41,9 +39,8 @@ export async function createRestapNetworkProductionFoundation({
   if (!productionConfig || !sameStrings(productionConfig.providerIds, REQUIRED_PROVIDER_IDS)) {
     throw new Error('RESTAP network foundation requires the exact reviewed Base providers.');
   }
-  if (!Array.isArray(productionConfig.tokenIds) || productionConfig.tokenIds.length === 0) {
-    throw new Error('RESTAP network foundation requires authority token IDs.');
-  }
+  if (!Array.isArray(productionConfig.tokenIds)) throw new Error('RESTAP network authority token fixtures are invalid.');
+  if (productionConfig.maxFinalizedHeadSkew !== RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks) throw new Error('RESTAP network production finalized-head skew is not pinned.');
   if (!productionConfig.auditKeyFile) throw new Error('RESTAP network foundation requires a protected audit key file.');
   const trafficEnabled = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
   if (trafficEnabled && !productionConfig.keyRegistryFile) throw new Error('RESTAP network traffic requires a protected key registry file.');
@@ -73,14 +70,14 @@ export async function createRestapNetworkProductionFoundation({
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
       id: productionConfig.providerIds[index],
-      ...createRestapNetworkBaseProvider({ publicClient, tokenIds: productionConfig.tokenIds }),
+      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true }),
     })));
     const offchainOwnerAuthority = config.gates.policy === true;
     const accountReader = createAccountIntegrityReader({
       providers,
       timeoutMs: config.providerTimeoutMs,
       allowUndeployedAccount: offchainOwnerAuthority,
-      allowSafeBlockSkew: offchainOwnerAuthority,
+      maxSafeBlockSkew: offchainOwnerAuthority ? productionConfig.maxFinalizedHeadSkew : 0,
       providerStaggerMs: 750,
     });
     database = createRestapNetworkDatabase({ filename: config.databasePath });
@@ -90,7 +87,7 @@ export async function createRestapNetworkProductionFoundation({
       auditKey: Buffer.from(auditKey),
       auditKeyId,
       timeoutMs: config.providerTimeoutMs,
-      allowSafeBlockSkew: offchainOwnerAuthority,
+      maxSafeBlockSkew: offchainOwnerAuthority ? productionConfig.maxFinalizedHeadSkew : 0,
       providerStaggerMs: 750,
     });
     const composition = composeRestapNetworkProductionPolicy({
@@ -157,6 +154,14 @@ function optionalText(value, label) {
   const normalized = String(value).trim();
   if (!normalized || Buffer.byteLength(normalized, 'utf8') > 4_096 || /[\u0000-\u001f\u007f]/u.test(normalized)) throw new TypeError(label + ' is invalid.');
   return normalized;
+}
+function parsePinnedFinalizedHeadSkew(value) {
+  if (value === undefined || value === null || value === '') return RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed !== RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks) {
+    throw new TypeError('MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW must equal ' + RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks + '.');
+  }
+  return parsed;
 }
 function sameStrings(left, right) { return Array.isArray(left) && left.length === right.length && left.every((value, index) => value === right[index]); }
 function isPlainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }

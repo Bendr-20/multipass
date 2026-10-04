@@ -115,6 +115,15 @@ test('exact idempotency joins while changed schedule conflicts without duplicate
   assert.equal(f.store.readOne('SELECT count(*) AS count FROM restap_network_intents').count, 1);
 });
 
+test('explicit peer choices are durably normalized for restart-safe production acquisition', async (t) => {
+  const f = await fixture(); t.after(() => f.close());
+  const intent = f.intents.create(createInput({ peers: ['4', '2', '3'] }));
+  assert.deepEqual(
+    f.store.readAll('SELECT peer_token_id FROM restap_network_intent_peers WHERE intent_id = ? ORDER BY peer_token_id', [intent.intentId]).map((row) => row.peer_token_id),
+    ['2', '3', '4'],
+  );
+});
+
 test('deterministic sorted round-robin excludes ineligible, blocked, exhausted and active peers', async (t) => {
   const f = await fixture(); t.after(() => f.close());
   const intent = f.intents.create(createInput({ cadence: 'daily', expiresAt: NOW + 3 * DAY }));

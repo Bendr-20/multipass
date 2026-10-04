@@ -45,6 +45,7 @@ export function hasRestapNetworkEnvironment(env = {}) {
   return [...Object.values(ENV_GATES),
     'MULTIPASS_RESTAP_NETWORK_DATABASE_PATH', 'MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT',
     'MULTIPASS_RESTAP_NETWORK_DAILY_COST_LIMIT', 'MULTIPASS_RESTAP_NETWORK_PROVIDER_TIMEOUT_MS',
+    'MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW',
     'MULTIPASS_RESTAP_NETWORK_TOPICS', 'MULTIPASS_RESTAP_NETWORK_CADENCES',
     'MULTIPASS_RESTAP_NETWORK_PILOT_ROSTER', 'MULTIPASS_RESTAP_NETWORK_GA_APPROVED',
     'MULTIPASS_RESTAP_NETWORK_GA_ROSTER_REMOVAL_APPROVED',
@@ -156,9 +157,7 @@ function assertGateRelationships(config) {
   if (config.gates.replies && !config.gates.initiation) throw new Error('RESTAP network replies require initiation.');
   if (config.gates.transcripts) throw new Error('RESTAP network transcript persistence is unavailable during the pilot.');
   if (config.gates.pilot && !config.gates.foundation) throw new Error('RESTAP network pilot requires foundation.');
-  if (config.gates.pilot && config.pilotRoster.length === 0 && !(config.gates.ga && config.gaRosterRemovalApproved)) throw new Error('RESTAP network pilot requires a protected roster.');
   if (config.gates.ga && (!config.gates.pilot || !config.gaApproved)) throw new Error('RESTAP network GA requires separate explicit approval and pilot gate.');
-  if (config.gates.ga && config.pilotRoster.length === 0 && !config.gaRosterRemovalApproved) throw new Error('RESTAP network GA roster removal requires explicit approval.');
 }
 
 function normalizeConfig(value) {

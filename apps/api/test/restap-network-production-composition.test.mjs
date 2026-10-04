@@ -12,22 +12,28 @@ import { createRestapNetworkDatabase } from '../src/restap-network/database.js';
 import { createRestapNetworkPublicKeyRegistry } from '../src/restap-network/grants.js';
 import { parseRestapNetworkServiceConfig, startRestapNetworkService } from '../src/restap-network/service.js';
 
-test('production traffic config is pinned to the #617 and #3802 private pilot and protected relay files', () => {
+test('production traffic config is collection-wide owner opt-in and protected relay files stay pinned', () => {
   const parsed = parseRestapNetworkProductionConfig({
     MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'tenderly,blast',
     MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '3802,617',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: '/run/restap/audit.json',
     MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE: '/run/restap/keys.json',
     MULTIPASS_RESTAP_NETWORK_SIGNER_FILE: '/run/restap/signer.json',
+    MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW: '2',
   });
   assert.deepEqual(parsed.providerIds, ['blast', 'tenderly']);
   assert.deepEqual(parsed.tokenIds, ['617', '3802']);
   assert.equal(parsed.keyRegistryFile, '/run/restap/keys.json');
   assert.equal(parsed.signerFile, '/run/restap/signer.json');
-  assert.throws(() => parseRestapNetworkProductionConfig({
+  assert.equal(parsed.maxFinalizedHeadSkew, 2);
+  const collectionWide = parseRestapNetworkProductionConfig({
     MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,tenderly',
-    MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '617,3802,4000',
-  }), /exact.*617.*3802|pilot roster/i);
+  });
+  assert.deepEqual(collectionWide.tokenIds, []);
+  assert.deepEqual(parseRestapNetworkProductionConfig({
+    MULTIPASS_RESTAP_NETWORK_AUTHORITY_TOKEN_IDS: '99,42',
+  }).tokenIds, ['42', '99']);
+  assert.throws(() => parseRestapNetworkProductionConfig({ MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW: '3' }), /finalized.*skew|must equal 2/i);
 });
 
 test('production server composes Phase 0 RESTAP foundation from reviewed configuration without dependency injection', async () => {
@@ -199,7 +205,7 @@ test('production composition rejects every partial signed pilot gate tuple', () 
       accountReader: {},
       providers: [],
       codexRuntime: {},
-    }), /exact one-shot pilot gate tuple/i);
+    }), /reviewed owner-opt-in gate tuple/i);
   }
 });
 
@@ -249,7 +255,7 @@ test('production policy composition lets the current holder opt in and refresh p
   assert.deepEqual(service.status.gates, { foundation: true, policy: true, discovery: false, initiation: false, replies: false, transcripts: false, pilot: false, ga: false });
 });
 
-test('production composes the exact signed private pilot while schedules and transcripts stay unavailable', async (t) => {
+test('production composes the signed owner-opt-in network while schedules and transcripts stay unavailable', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'restap-production-pilot-'));
   const filename = path.join(directory, 'network.sqlite');
   const store = createRestapNetworkDatabase({ filename });
@@ -308,7 +314,7 @@ test('production foundation loads protected traffic files and fails closed when 
     MULTIPASS_RESTAP_NETWORK_PILOT_ROSTER: '617,3802', MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: path.join(directory, 'network.sqlite'),
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32), MULTIPASS_RESTAP_NETWORK_DAILY_COST_LIMIT: '10', MULTIPASS_RESTAP_NETWORK_CADENCES: 'once',
   });
-  const productionConfig = { providerIds: ['blast', 'tenderly'], tokenIds: ['617', '3802'], auditKeyFile: auditKeyPath, keyRegistryFile: '/run/restap/keys.json', signerFile: '/run/restap/signer.json' };
+  const productionConfig = { providerIds: ['blast', 'tenderly'], tokenIds: ['617', '3802'], auditKeyFile: auditKeyPath, keyRegistryFile: '/run/restap/keys.json', signerFile: '/run/restap/signer.json', maxFinalizedHeadSkew: 2 };
   const loaded = [];
   const signer = Object.freeze({ keyId: 'pilot-signing-key-0000000000000001', async sign() { return Buffer.alloc(64); } });
   const keyRegistry = Object.freeze({ get(key) { return key === signer.keyId ? { status: 'signing' } : null; } });
@@ -334,7 +340,7 @@ test('production foundation loads protected traffic files and fails closed when 
   }), /signer.*file|protected.*signer/i);
 });
 
-test('production one-shot worker signs and delivers one private #617 to #3802 opening with one ZDR reply', async (t) => {
+test('production worker supports mutually opted-in directions while preserving bounded canary accounting', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'restap-production-e2e-'));
   const filename = path.join(directory, 'network.sqlite');
   const store = createRestapNetworkDatabase({ filename });
@@ -370,11 +376,10 @@ test('production one-shot worker signs and delivers one private #617 to #3802 op
   const seconds = Math.floor(now / 1_000);
   const keyRegistry = createRestapNetworkPublicKeyRegistry({ keys: [{ keyId, algorithm: 'Ed25519', publicKey, activatesAt: seconds - 10, notBefore: seconds - 10, notAfter: seconds + 10_000, status: 'signing' }] });
   let providerRequests = 0;
-  let failProvider = false;
   const composition = composeRestapNetworkProductionPolicy({
     config, productionConfig: { tokenIds: ['617', '3802'] }, store, custodyReconciler, accountReader, providers: [{ approved: true }],
     codexRuntime: { available: true, getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId), canonicalName: 'Looper #' + tokenId } }; } },
-    signer, keyRegistry, bankrGateway: { async generatePublicReply() { providerRequests += 1; if (failProvider) throw new Error('provider unavailable'); return 'One bounded private reply.'; }, async readUsageTotals() { return { totalRequests: providerRequests }; } }, now: () => now,
+    signer, keyRegistry, bankrGateway: { async generatePublicReply() { providerRequests += 1; return 'One bounded private reply.'; }, async readUsageTotals() { return { totalRequests: providerRequests }; } }, now: () => now,
   });
   const service = await startRestapNetworkService({ config, dependencies: composition.dependencies });
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true }); });
@@ -390,11 +395,10 @@ test('production one-shot worker signs and delivers one private #617 to #3802 op
   assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_conversations').count, 1);
   assert.equal(store.readOne('SELECT turn_count FROM restap_network_conversations WHERE conversation_id = ?', [operationConversation]).turn_count, 2);
 
+  const reverse = await service.createIntent({ tokenId: '3802', identity: { owner }, input: { peer_token_ids: ['617'], topic: 'general', cadence: 'once', run_at: new Date(Math.floor(now / 60_000) * 60_000).toISOString(), idempotency_key: 'production-e2e-reverse-opt-in-0001' } });
   now += 60_000;
-  failProvider = true;
-  const failedIntent = await service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(Math.floor(now / 60_000) * 60_000).toISOString(), idempotency_key: 'production-e2e-provider-failure-0001' } });
-  now += 1_000;
-  await assert.rejects(() => composition.dependencies.worker.pollNow(), /unavailable/i);
-  assert.equal(store.readOne('SELECT status FROM restap_network_intents WHERE intent_id = ?', [failedIntent.intentId]).status, 'exhausted');
-  assert.equal(store.readOne('SELECT count(*) AS count FROM restap_network_intents WHERE status = ?', ['leased']).count, 0);
+  assert.equal((await composition.dependencies.worker.pollNow()).processed, 1);
+  assert.equal(store.readOne('SELECT status FROM restap_network_intents WHERE intent_id = ?', [reverse.intentId]).status, 'completed');
+  assert.equal(providerRequests, 2);
+  assert.equal(store.readOne("SELECT count(*) AS count FROM restap_network_operations WHERE operation_kind = 'opening'").count, 2);
 });

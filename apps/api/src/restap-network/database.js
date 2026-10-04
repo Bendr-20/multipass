@@ -10,6 +10,7 @@ export const RESTAP_NETWORK_TABLES = Object.freeze([
   'restap_network_custody_epochs',
   'restap_network_deliveries',
   'restap_network_idempotency_keys',
+  'restap_network_intent_peers',
   'restap_network_intents',
   'restap_network_key_registry',
   'restap_network_operation_events',
@@ -112,6 +113,12 @@ const SCHEMA = [
     FOREIGN KEY (activation_lease_id) REFERENCES restap_network_activation_leases (lease_id) ON DELETE RESTRICT,
     FOREIGN KEY (chain_id, collection, token_id, custody_generation, policy_version)
       REFERENCES restap_network_owner_policies (chain_id, collection, token_id, custody_generation, policy_version) ON DELETE RESTRICT
+  ) STRICT`,
+  `CREATE TABLE IF NOT EXISTS restap_network_intent_peers (
+    intent_id TEXT NOT NULL,
+    peer_token_id TEXT NOT NULL CHECK (length(peer_token_id) BETWEEN 1 AND 78),
+    PRIMARY KEY (intent_id, peer_token_id),
+    FOREIGN KEY (intent_id) REFERENCES restap_network_intents (intent_id) ON DELETE CASCADE
   ) STRICT`,
   `CREATE TABLE IF NOT EXISTS restap_network_worker_lease (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

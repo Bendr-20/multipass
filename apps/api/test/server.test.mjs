@@ -11,6 +11,20 @@ import { createAllowlistSnapshot, verifyAllowlistProof } from '../src/allowlist-
 
 import { parseServerOptions, sanitizeRestapProxyHeaders, startServer } from '../src/server.js';
 
+test('shutdown stops HTTP intake before closing the RESTAP worker and database lifecycle', async () => {
+  const events = [];
+  const restapNetworkService = Object.freeze({
+    status: Object.freeze({ enabled: false, gates: Object.freeze({}), transcriptCapability: 'unavailable' }),
+    async close() { events.push('restap:close'); },
+  });
+  const server = await startServer({ fixture: 'generic', host: '127.0.0.1', port: 0, restapNetworkService });
+  server.server.once('close', () => events.push('http:close'));
+
+  await server.close();
+
+  assert.deepEqual(events.slice(0, 2), ['http:close', 'restap:close']);
+});
+
 test('parseServerOptions returns safe defaults', () => {
   assert.deepEqual(parseServerOptions([], {}), {
     fixture: 'generic',
@@ -1175,6 +1189,36 @@ test('server composes and closes exactly one gated network service', async () =>
   assert.equal(server.restapNetwork, restapNetworkService);
   await server.close();
   assert.deepEqual(calls, ['network:start', 'network:close']);
+});
+
+test('shutdown closes HTTP intake and drains in-flight requests before RESTAP database shutdown', async () => {
+  const order = [];
+  let releaseRequest;
+  let requestStarted;
+  const started = new Promise((resolve) => { requestStarted = resolve; });
+  const held = new Promise((resolve) => { releaseRequest = resolve; });
+  const restapNetworkService = {
+    status: { enabled: false, gates: {}, transcriptCapability: 'unavailable' },
+    async close() { order.push('network:close'); },
+  };
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, logger: { info() {}, warn() {} },
+    restapNetworkService,
+    apiFactory: () => ({ async handleRequest() {
+      order.push('request:start'); requestStarted(); await held; order.push('request:end'); return new Response('{}');
+    } }),
+  });
+  const inFlight = fetch(server.url + '/held');
+  await started;
+  const closing = server.close();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(server.server.listening, false);
+  await assert.rejects(() => fetch(server.url + '/after-close'));
+  assert.equal(order.includes('network:close'), false);
+  releaseRequest();
+  assert.equal((await inFlight).status, 200);
+  await closing;
+  assert.deepEqual(order, ['request:start', 'request:end', 'network:close']);
 });
 
 test('RESTAP startup performs an uncached authority/Codex warm-check, injects isolated resources, listens last, and logs only safe gate metadata', async () => {

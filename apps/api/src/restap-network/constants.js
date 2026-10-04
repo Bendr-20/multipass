@@ -20,6 +20,7 @@ export const RESTAP_NETWORK_LIMITS = Object.freeze({
   terminalOperationRetentionMs: 30 * 24 * 60 * 60_000,
   redactedAuditRetentionMs: 30 * 24 * 60 * 60_000,
   pilotUnknownChargeBudget: 0,
+  finalizedHeadSkewBlocks: 2,
 });
 
 export const RESTAP_NETWORK_CADENCES = Object.freeze(['once', 'daily']);

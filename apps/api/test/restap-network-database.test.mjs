@@ -10,7 +10,7 @@ import { createRestapNetworkDatabase, RESTAP_NETWORK_TABLES } from '../src/resta
 const EXPECTED_TABLES = [
   'restap_network_activation_leases', 'restap_network_audit_events', 'restap_network_circuit_breakers',
   'restap_network_concurrency_leases', 'restap_network_conversations', 'restap_network_custody_epochs',
-  'restap_network_deliveries', 'restap_network_idempotency_keys', 'restap_network_intents',
+  'restap_network_deliveries', 'restap_network_idempotency_keys', 'restap_network_intent_peers', 'restap_network_intents',
   'restap_network_key_registry', 'restap_network_operation_events', 'restap_network_operations',
   'restap_network_owner_policies', 'restap_network_policy_peers', 'restap_network_quota_buckets',
   'restap_network_replay_nonces', 'restap_network_worker_lease',

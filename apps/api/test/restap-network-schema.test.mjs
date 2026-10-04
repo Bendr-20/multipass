@@ -47,6 +47,7 @@ test('network constants freeze exact platform maxima and closed taxonomies', () 
     terminalOperationRetentionMs: 30 * 24 * 60 * 60_000,
     redactedAuditRetentionMs: 30 * 24 * 60 * 60_000,
     pilotUnknownChargeBudget: 0,
+    finalizedHeadSkewBlocks: 2,
   });
   assert.deepEqual(RESTAP_NETWORK_CADENCES, ['once', 'daily']);
   assert.deepEqual(RESTAP_NETWORK_TOPICS, [

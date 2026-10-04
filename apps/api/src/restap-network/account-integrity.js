@@ -68,7 +68,7 @@ export function createAccountIntegrityReader({
   release = RESTAP_NETWORK_ACCOUNT_RELEASE,
   timeoutMs = 5_000,
   allowUndeployedAccount = false,
-  allowSafeBlockSkew = false,
+  maxSafeBlockSkew = 0,
   providerStaggerMs = 0,
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers.some((provider) => typeof provider?.readAccountIntegrity !== 'function')) {
@@ -76,7 +76,7 @@ export function createAccountIntegrityReader({
   }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) throw new TypeError('Account integrity timeout is invalid.');
   if (typeof allowUndeployedAccount !== 'boolean') throw new TypeError('Undeployed account policy is invalid.');
-  if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Safe block skew policy is invalid.');
+  if (!Number.isSafeInteger(maxSafeBlockSkew) || maxSafeBlockSkew < 0 || maxSafeBlockSkew > 256) throw new TypeError('Safe block skew bound is invalid.');
   if (!Number.isSafeInteger(providerStaggerMs) || providerStaggerMs < 0 || providerStaggerMs > 5_000) throw new TypeError('Provider stagger is invalid.');
   const pinnedRelease = normalizeRelease(release);
 
@@ -101,7 +101,9 @@ export function createAccountIntegrityReader({
       const firstSafe = canonical(normalized[0].safeBlock);
       const safeDisagreement = normalized.some((value) => canonical(value.safeBlock) !== firstSafe);
       const sameSafeNumber = normalized.every((value) => value.safeBlock.number === normalized[0].safeBlock.number);
-      if (safeDisagreement && (!allowSafeBlockSkew || sameSafeNumber)) return failure('safe_block_disagreement');
+      const safeNumbers = normalized.map((value) => value.safeBlock.number);
+      const safeBlockSkew = Math.max(...safeNumbers) - Math.min(...safeNumbers);
+      if (safeDisagreement && (sameSafeNumber || safeBlockSkew > maxSafeBlockSkew)) return failure('safe_block_disagreement');
       const first = canonical({ ...normalized[0], safeBlock: null });
       if (normalized.some((value) => canonical({ ...value, safeBlock: null }) !== first)) return failure('provider_disagreement');
       const proof = safeDisagreement

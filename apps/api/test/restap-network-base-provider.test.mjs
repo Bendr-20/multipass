@@ -95,6 +95,13 @@ function provider(options = {}) {
   return { ...fixture, provider: createRestapNetworkBaseProvider({ publicClient: fixture.publicClient, tokenIds: [TOKEN_ID, OTHER_TOKEN_ID], release: RELEASE }) };
 }
 
+test('production collection mode resolves an explicit owner-selected Looper without a collection allowlist', async () => {
+  const fixture = clientFixture();
+  const openProvider = createRestapNetworkBaseProvider({ publicClient: fixture.publicClient, allowAnyCollectionToken: true, release: RELEASE });
+  const observation = await openProvider.readAccountIntegrity({ tokenId: TOKEN_ID });
+  assert.equal(observation.accountToken.tokenId, TOKEN_ID);
+});
+
 test('reads a complete safe-block account-integrity observation and proves the ERC-721 owner controller', async () => {
   const f = provider();
   const observation = await f.provider.readAccountIntegrity({ tokenId: TOKEN_ID });

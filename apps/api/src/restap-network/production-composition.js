@@ -4,6 +4,7 @@ import { getAddress } from 'viem';
 
 import { createRestapNetworkActivationLeaseService } from './activation-leases.js';
 import { createRestapNetworkProviderBudget } from './bankr-provider.js';
+import { RESTAP_NETWORK_LIMITS } from './constants.js';
 import { createRestapNetworkConversations } from './conversations.js';
 import { createRestapNetworkCoordinator } from './coordinator.js';
 import { createRestapNetworkEligibilityResolver } from './eligibility.js';
@@ -15,10 +16,8 @@ import { createRestapNetworkRuntime } from './runtime.js';
 import { normalizeRestapNetworkTokenId } from './schema.js';
 import { createRestapNetworkWorker, createSqliteRestapNetworkWorkerCoordinator } from './worker.js';
 
-const EXACT_PILOT = Object.freeze(['617', '3802']);
-
 /**
- * Production composition for the exact signed #617 <-> #3802 private pilot.
+ * Production composition for the owner-opt-in Looper collection network.
  */
 export function composeRestapNetworkProductionPolicy({
   config, productionConfig, store, custodyReconciler, accountReader, providers, codexRuntime,
@@ -27,14 +26,11 @@ export function composeRestapNetworkProductionPolicy({
   if (!config?.gates?.foundation || !store || !custodyReconciler || !accountReader) {
     throw new Error('RESTAP network production foundation is unavailable.');
   }
-  if (!sameTokens(productionConfig?.tokenIds, EXACT_PILOT)) {
-    throw new Error('RESTAP network production requires the exact #617 and #3802 pilot roster.');
-  }
+  if (!Array.isArray(productionConfig?.tokenIds)) throw new Error('RESTAP network production token fixtures are invalid.');
   const signedTrafficRequested = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
   if (signedTrafficRequested && (!config.gates.policy || !config.gates.discovery || !config.gates.initiation || !config.gates.replies
-    || config.gates.transcripts || !config.gates.pilot || config.gates.ga
-    || !sameTokens(config.pilotRoster, EXACT_PILOT) || !sameTokens(config.cadences, ['once']))) {
-    throw new Error('RESTAP network signed traffic production composition is unavailable without the exact one-shot pilot gate tuple.');
+    || config.gates.transcripts || !config.gates.pilot || config.gates.ga)) {
+    throw new Error('RESTAP network signed traffic production composition is unavailable without the reviewed owner-opt-in gate tuple.');
   }
   const dependencies = {
     databaseFactory: oneDatabaseFactory(store, config.databasePath),
@@ -77,9 +73,8 @@ export function composeRestapNetworkProductionPolicy({
 }
 
 function composeSignedPilot({ config, store, custodyReconciler, accountReader, codexRuntime, signer, keyRegistry, bankrGateway, now, policy, dependencies, managementContext }) {
-  if (!config.gates.policy || !config.gates.pilot || config.gates.transcripts || config.gates.ga
-    || !sameTokens(config.pilotRoster, EXACT_PILOT) || !sameTokens(config.cadences, ['once'])) {
-    throw new Error('RESTAP network signed production traffic requires the exact one-shot private pilot gate tuple.');
+  if (!config.gates.policy || !config.gates.pilot || config.gates.transcripts || config.gates.ga) {
+    throw new Error('RESTAP network signed production traffic requires the reviewed owner-opt-in gate tuple.');
   }
   const eligibility = productionEligibility({ config, store, custodyReconciler, accountReader, codexRuntime, policy, now });
   dependencies.eligibility = eligibility;
@@ -170,14 +165,17 @@ function productionEligibility({ config, store, custodyReconciler, accountReader
       return lease && { leaseId: lease.leaseId, chainId: custody.chainId, collection: custody.collection, tokenId, custodyGeneration: custody.generation, canonicalAccount: custody.canonicalAccount, owner: custody.owner, controller: custody.controller, issuedAt: lease.issuedAt, lastRenewedAt: lease.lastRenewedAt, expiresAt: lease.expiresAt, status: 'active' };
     },
     readPolicy: ({ tokenId }) => { const custody = custodyReconciler.getEpochSnapshot({ tokenId }); return custody ? policy.get({ custody }) : null; },
-    readPilotRoster: async ({ tokenId }) => EXACT_PILOT.includes(tokenId) && config.pilotRoster.includes(tokenId),
+    readPilotRoster: async ({ tokenId }) => {
+      const custody = custodyReconciler.getEpochSnapshot({ tokenId });
+      return Boolean(custody && policy.get({ custody }).networkEnabled);
+    },
     readGates: async () => ({ global: true, phase: config.gates.pilot, collection: true, token: true, emergency: false }),
     readBreakers: async () => {
       const open = Number(store.readOne("SELECT count(*) AS count FROM restap_network_circuit_breakers WHERE state <> 'closed'").count) > 0;
       return Object.fromEntries(['global', 'collection', 'token', 'pair', 'provider'].map((name) => [name, open ? 'open' : 'closed']));
     },
     recordMetric() {},
-    allowSafeBlockSkew: true,
+    maxSafeBlockSkew: RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks,
   });
 }
 
@@ -189,7 +187,8 @@ function createTrafficManagement(context) {
       const { custody, lease } = await productionAuthority(context, input, { requireLease: true });
       const timestamp = context.now();
       const runAt = Date.parse(input.input?.run_at);
-      if (input.input?.cadence !== 'once') throw new Error('RESTAP network daily schedules are unavailable for the one-shot pilot.');
+      if (input.input?.cadence !== 'once') throw new Error('RESTAP network daily schedules are unavailable in the current rollout phase.');
+      if (!Array.isArray(input.input?.peer_token_ids) || input.input.peer_token_ids.length < 1 || input.input.peer_token_ids.length > 16) throw new Error('RESTAP network intent requires a bounded explicit peer set.');
       if (!Number.isSafeInteger(runAt) || Math.abs(runAt - timestamp) > 2 * 60_000) throw new Error('RESTAP network one-shot intents must be immediate; schedules are unavailable.');
       const current = context.policy.get({ custody });
       const executionAt = timestamp + 1_000;
@@ -273,11 +272,16 @@ function prepareOpening(selected, intentId, expectedPolicyVersion) {
 async function acquireProductionIntent({ store, intents, eligibility, acquired, intentId, expectedPolicyVersion, custodyGeneration }) {
   const row = store.readOne('SELECT * FROM restap_network_intents WHERE intent_id = ?', [intentId]);
   if (!row || row.source !== 'one_shot' || Number(row.policy_version) !== expectedPolicyVersion || Number(row.custody_generation) !== custodyGeneration) return { status: 'unavailable' };
-  const peerTokenId = row.token_id === '617' ? '3802' : '617';
+  const peerTokenIds = store.readAll('SELECT peer_token_id FROM restap_network_intent_peers WHERE intent_id = ? ORDER BY peer_token_id', [intentId]).map((entry) => entry.peer_token_id);
+  if (peerTokenIds.length === 0 || peerTokenIds.length > 16) return { status: 'unavailable' };
   const authorityValue = { chainId: Number(row.chain_id), collection: row.collection, tokenId: row.token_id, custodyGeneration: Number(row.custody_generation), activationLeaseId: row.activation_lease_id, policyVersion: Number(row.policy_version) };
-  const eligible = await eligibility.resolvePeerForRelay({ chainId: Number(row.chain_id), collection: row.collection, senderTokenId: row.token_id, recipientTokenId: peerTokenId, boundary: 'intent_lease' });
-  if (eligible.status !== 'eligible') return { status: 'unavailable' };
-  const result = intents.acquire({ intentId, authority: authorityValue, peerTokenIds: [peerTokenId], candidates: [{ tokenId: peerTokenId, eligible: true, blocked: false, pairExhausted: false, alreadyActive: false, topics: eligible.topics }] });
+  const resolved = await Promise.all(peerTokenIds.map(async (peerTokenId) => ({
+    peerTokenId,
+    result: await eligibility.resolvePeerForRelay({ chainId: Number(row.chain_id), collection: row.collection, senderTokenId: row.token_id, recipientTokenId: peerTokenId, boundary: 'intent_lease' }),
+  })));
+  const candidates = resolved.map(({ peerTokenId, result }) => ({ tokenId: peerTokenId, eligible: result.status === 'eligible', blocked: false, pairExhausted: false, alreadyActive: false, topics: result.status === 'eligible' ? result.topics : [] }));
+  if (!candidates.some((candidate) => candidate.eligible)) return { status: 'unavailable' };
+  const result = intents.acquire({ intentId, authority: authorityValue, peerTokenIds, candidates });
   if (result.status === 'acquired') acquired.set(intentId, { ...result, authority: authorityValue });
   return { status: result.status };
 }
@@ -320,7 +324,6 @@ function opaqueId(kind) { return kind + '-' + randomUUID().replaceAll('-', ''); 
 
 async function productionAuthority({ store, custodyReconciler, accountReader, now }, input, { requireLease }) {
   const tokenId = normalizeRestapNetworkTokenId(String(input?.tokenId ?? ''));
-  if (!EXACT_PILOT.includes(tokenId)) throw new Error('RESTAP network token is outside the pilot.');
   const integrity = await accountReader.read({ tokenId });
   if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable.');
   const reconciled = await custodyReconciler.reconcileToken({ tokenId });
@@ -337,7 +340,6 @@ async function productionAuthority({ store, custodyReconciler, accountReader, no
 function createPolicyManagement({ store, custodyReconciler, accountReader, policy, now }) {
   async function authority(input, { requireLease }) {
     const tokenId = normalizeRestapNetworkTokenId(String(input?.tokenId ?? ''));
-    if (!EXACT_PILOT.includes(tokenId)) throw new Error('RESTAP network token is outside the pilot.');
     const integrity = await accountReader.read({ tokenId });
     if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable.');
     const reconciled = await custodyReconciler.reconcileToken({ tokenId });
@@ -425,8 +427,4 @@ function readActiveLease(store, custody, timestamp) {
     [custody.chainId, custody.collection, custody.tokenId, custody.generation, timestamp],
   );
   return row ? Object.freeze({ leaseId: row.lease_id, issuedAt: Number(row.issued_at), lastRenewedAt: Number(row.last_renewed_at), expiresAt: Number(row.expires_at) }) : null;
-}
-
-function sameTokens(left, right) {
-  return Array.isArray(left) && left.length === right.length && left.every((value, index) => value === right[index]);
 }

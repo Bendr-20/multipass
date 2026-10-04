@@ -31,11 +31,11 @@ export function createRestapNetworkEligibilityResolver({
   readGates,
   readBreakers,
   recordMetric,
-  allowSafeBlockSkew = false,
+  maxSafeBlockSkew = 0,
 } = {}) {
   const dependencies = [now, readCodexMembership, deriveCanonicalAccount, readAccountIntegrity, readCustody, readActivationLease, readPolicy, readPilotRoster, readGates, readBreakers, recordMetric];
   if (dependencies.some((dependency) => typeof dependency !== 'function')) throw new TypeError('Eligibility resolver dependencies are invalid.');
-  if (typeof allowSafeBlockSkew !== 'boolean') throw new TypeError('Eligibility safe block skew policy is invalid.');
+  if (!Number.isSafeInteger(maxSafeBlockSkew) || maxSafeBlockSkew < 0 || maxSafeBlockSkew > 256) throw new TypeError('Eligibility safe block skew bound is invalid.');
 
   async function resolvePeerForRelay(input) {
     const request = normalizePeerRequest(input);
@@ -144,7 +144,8 @@ export function createRestapNetworkEligibilityResolver({
       && custody.canonicalAccount === account;
     if (!identityMatches) return failed('identity', custody);
     const exactSafeBlock = proof.safeBlock.number === custody.safeBlockNumber && proof.safeBlock.hash === custody.safeBlockHash;
-    const boundedSafeBlockSkew = allowSafeBlockSkew && proof.safeBlock.number !== custody.safeBlockNumber;
+    const safeBlockSkew = Math.abs(proof.safeBlock.number - custody.safeBlockNumber);
+    const boundedSafeBlockSkew = proof.safeBlock.number !== custody.safeBlockNumber && safeBlockSkew <= maxSafeBlockSkew;
     const authorityMatches = custody.status === 'ready'
       && proof.owner === custody.owner
       && proof.controller === custody.controller

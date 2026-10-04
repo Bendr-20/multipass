@@ -110,9 +110,12 @@ function assertDeepFrozen(value) {
 }
 
 test('production mode accepts different finalized heights only when all authority values agree', async () => {
-  const f = fixture({ allowSafeBlockSkew: true });
+  const f = fixture({ maxSafeBlockSkew: 1 });
   f.states['1'].integrity.proof.safeBlock = { number: 101, hash: '0x' + 'cd'.repeat(32) };
   assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'eligible');
+  f.states['1'].integrity.proof.safeBlock = { number: 102, hash: '0x' + 'dc'.repeat(32) };
+  assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'unavailable');
+  f.states['1'].integrity.proof.safeBlock = { number: 101, hash: '0x' + 'cd'.repeat(32) };
   f.states['1'].integrity.proof.owner = OTHER_ACCOUNT;
   assert.equal((await f.resolver.resolvePeerForRelay(peerInput('pre_dispatch'))).status, 'unavailable');
   f.states['1'].integrity.proof.owner = OWNER;

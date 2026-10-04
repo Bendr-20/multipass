@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: launch-looper-restap-network-canary.sh [start options] | --stop --identity-file PATH | --replace [start options]
 Starts an unrouted RESTAP network canary on loopback 127.0.0.1 only.
-Required start options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --database PATH --identity-file PATH --pid-file PATH --log-file PATH --port N
+Required start options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --identity-file PATH --pid-file PATH --log-file PATH --port N
 Optional: --server-entry PATH --gate NAME --dry-run --replace
 EOF
 }
@@ -19,6 +19,7 @@ release_sha=''
 artifact=''
 policy=''
 key_registry=''
+signer=''
 database=''
 identity_file=''
 pid_file=''
@@ -40,11 +41,11 @@ while (($#)); do
     --stop) mode=stop; shift ;;
     --replace) replace=true; shift ;;
     --dry-run) dry_run=true; shift ;;
-    --release|--release-sha|--artifact|--policy|--key-registry|--database|--identity-file|--pid-file|--log-file|--port|--server-entry|--gate)
+    --release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--identity-file|--pid-file|--log-file|--port|--server-entry|--gate)
       flag=$1; shift; (($#)) || { echo "missing value for $flag" >&2; exit 2; }; value=$1; shift
       case "$flag" in
         --release) release=$value ;; --release-sha) release_sha=$value ;; --artifact) artifact=$value ;;
-        --policy) policy=$value ;; --key-registry) key_registry=$value ;; --database) database=$value ;;
+        --policy) policy=$value ;; --key-registry) key_registry=$value ;; --signer) signer=$value ;; --database) database=$value ;;
         --identity-file) identity_file=$value ;; --pid-file) pid_file=$value ;; --log-file) log_file=$value ;;
         --port) port=$value ;; --server-entry) server_entry=$value ;;
         --gate)
@@ -57,8 +58,10 @@ done
 safe_file() { [[ -f "$1" && ! -L "$1" ]] || { echo 'required regular file is unavailable' >&2; exit 1; }; }
 secret_file() {
   safe_file "$1"
+  [[ "$(id -u)" != 0 ]] || { echo 'canary must run as the dedicated non-root service user' >&2; exit 1; }
   [[ "$(stat -c %u "$1")" == 0 ]] || { echo 'secret file must be root-owned' >&2; exit 1; }
-  [[ "$(stat -c %a "$1")" == 600 ]] || { echo 'secret file mode must be 0600' >&2; exit 1; }
+  [[ "$(stat -c %g "$1")" == "$(id -g)" ]] || { echo 'secret file must be owned by the service group' >&2; exit 1; }
+  [[ "$(stat -c %a "$1")" == 640 ]] || { echo 'secret file mode must be 0640' >&2; exit 1; }
 }
 read_identity() {
   [[ -n "$identity_file" ]] || { echo '--identity-file is required' >&2; exit 2; }
@@ -90,7 +93,7 @@ stop_canary() {
 if [[ "$mode" == stop ]]; then stop_canary; exit 0; fi
 if $replace && [[ -f "$identity_file" ]]; then stop_canary; fi
 
-for value in release release_sha artifact policy key_registry database identity_file pid_file log_file port; do [[ -n "${!value}" ]] || { echo "required start option is missing: $value" >&2; exit 2; }; done
+for value in release release_sha artifact policy key_registry signer database identity_file pid_file log_file port; do [[ -n "${!value}" ]] || { echo "required start option is missing: $value" >&2; exit 2; }; done
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'invalid release SHA' >&2; exit 2; }
 [[ "$port" =~ ^[0-9]+$ ]] && ((port >= 1024 && port <= 65535)) || { echo 'invalid loopback port' >&2; exit 2; }
 [[ -d "$release" && ! -L "$release" ]] || { echo 'release must be an immutable directory' >&2; exit 1; }
@@ -99,7 +102,7 @@ release=$(realpath "$release")
 server_entry=${server_entry:-$release/apps/api/src/server.js}
 safe_file "$server_entry"
 safe_file "$artifact"
-if ! $dry_run; then secret_file "$policy"; secret_file "$key_registry"; fi
+if ! $dry_run; then secret_file "$policy"; secret_file "$key_registry"; secret_file "$signer"; fi
 [[ ! -L "$database" ]] || { echo 'database symlink is forbidden' >&2; exit 1; }
 mkdir -p -- "$(dirname "$database")" "$(dirname "$identity_file")" "$(dirname "$pid_file")" "$(dirname "$log_file")"
 if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"; then echo 'occupied loopback port' >&2; exit 1; fi
@@ -130,6 +133,7 @@ env HOST=127.0.0.1 PORT="$port" \
   MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH="$artifact" \
   MULTIPASS_RESTAP_NETWORK_POLICY_FILE="$policy" \
   MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE="$key_registry" \
+  MULTIPASS_RESTAP_NETWORK_SIGNER_FILE="$signer" \
   MULTIPASS_RESTAP_NETWORK_DATABASE_PATH="$database" \
   MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED="$MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED" \
   MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED="$MULTIPASS_RESTAP_NETWORK_POLICY_ENABLED" \

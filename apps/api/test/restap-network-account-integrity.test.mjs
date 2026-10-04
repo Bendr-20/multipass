@@ -132,7 +132,9 @@ test('holder opt-in may verify owner authority without deploying the determinist
 
 test('holder opt-in accepts bounded finalized-head skew when authority evidence agrees', async () => {
   const newer = observation({ safeBlock: { number: 101, hash: '0x' + 'bb'.repeat(32) } });
-  const result = await reader([observation(), newer], { allowSafeBlockSkew: true }).read({ tokenId: '617' });
+  const result = await reader([observation(), newer], { maxSafeBlockSkew: 1 }).read({ tokenId: '617' });
+  const tooNew = observation({ safeBlock: { number: 102, hash: '0x' + 'cc'.repeat(32) } });
+  assert.equal((await reader([observation(), tooNew], { maxSafeBlockSkew: 1 }).read({ tokenId: '617' })).status, 'safe_block_disagreement');
   assert.equal(result.status, 'ready');
   assert.equal(result.proof.safeBlock.number, 100);
   assert.equal(result.proof.safeBlock.hash, '0x' + 'aa'.repeat(32));

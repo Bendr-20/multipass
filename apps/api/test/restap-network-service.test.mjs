@@ -114,8 +114,9 @@ test('policy, discovery, initiation and replies require their dedicated dependen
   await assert.rejects(() => startRestapNetworkService({ config: replies, dependencies: { ...dependencies(), runtime: null } }), /runtime/i);
 });
 
-test('pilot and GA require protected roster and separate approvals', async () => {
-  await assert.rejects(() => startRestapNetworkService({ config: enabledConfig({ pilot: true }), dependencies: dependencies() }), /protected roster/i);
+test('pilot uses dynamic owner opt-in without a collection roster while GA still requires separate approvals', async () => {
+  const pilot = await startRestapNetworkService({ config: enabledConfig({ pilot: true }), dependencies: dependencies() });
+  await pilot.close();
   await assert.rejects(() => startRestapNetworkService({ config: enabledConfig({ pilot: true, ga: true }, { pilotRoster: ['1'], gaApproved: false }), dependencies: dependencies() }), /explicit approval/i);
   const service = await startRestapNetworkService({ config: enabledConfig({ pilot: true, ga: true }, { pilotRoster: [], gaApproved: true, gaRosterRemovalApproved: true }), dependencies: dependencies() });
   assert.equal(service.status.enabled, true);
