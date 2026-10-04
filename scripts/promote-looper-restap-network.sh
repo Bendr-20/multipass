@@ -11,24 +11,24 @@ SYSTEMD_ROOT=/etc/systemd/system
 usage() {
   cat <<'EOF'
 Usage: promote-looper-restap-network.sh --inspect | --rehearsal OPTIONS | --promote OPTIONS | --rollback --backup PATH
-Required mutation options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --unit PATH --static-root PATH --backup-root PATH --proof-root PATH
+Required mutation options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --unit PATH --static-root PATH --backup-root PATH --proof-root PATH --smoke-base-url HTTPS_ORIGIN/
 Promotion also requires --rehearsal-proof PATH. Gates are explicit and closed by default.
-Rehearsal installs and starts the exact candidate, runs the local smoke, and restores the prior service state before emitting proof.
+Rehearsal installs and starts the exact candidate, smokes it through the exact HTTPS origin, and restores the prior service state before emitting proof.
 EOF
 }
 
-mode='' release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' rehearsal_proof='' backup=''
+mode='' release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' smoke_base_url='' rehearsal_proof='' backup=''
 declare -A gates=([foundation]=false [policy]=false [discovery]=false [initiation]=false [replies]=false [transcripts]=false [pilot]=false [ga]=false)
 while (($#)); do
   case "$1" in
     --help) usage; exit 0 ;;
     --inspect|--rehearsal|--promote|--rollback) [[ -z "$mode" ]] || { echo 'select exactly one mode' >&2; exit 2; }; mode=${1#--}; shift ;;
-    --release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--unit|--static-root|--backup-root|--proof-root|--rehearsal-proof|--backup|--gate)
+    --release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--unit|--static-root|--backup-root|--proof-root|--smoke-base-url|--rehearsal-proof|--backup|--gate)
       flag=$1; shift; (($#)) || { echo "missing value for $flag" >&2; exit 2; }; value=$1; shift
       case "$flag" in
         --release) release=$value ;; --release-sha) release_sha=$value ;; --artifact) artifact=$value ;; --policy) policy=$value ;;
         --key-registry) key_registry=$value ;; --signer) signer=$value ;; --database) database=$value ;; --unit) unit=$value ;;
-        --static-root) static_root=$value ;; --backup-root) backup_root=$value ;; --proof-root) proof_root=$value ;;
+        --static-root) static_root=$value ;; --backup-root) backup_root=$value ;; --proof-root) proof_root=$value ;; --smoke-base-url) smoke_base_url=$value ;;
         --rehearsal-proof) rehearsal_proof=$value ;; --backup) backup=$value ;;
         --gate) [[ -v "gates[$value]" ]] || { echo 'unknown gate' >&2; exit 2; }; gates[$value]=true ;;
       esac ;;
@@ -79,8 +79,9 @@ if [[ "$mode" == rollback ]]; then
   exit 0
 fi
 
-for value in release release_sha artifact policy key_registry signer database unit static_root backup_root proof_root; do [[ -n "${!value}" ]] || { echo "required option is missing: $value" >&2; exit 2; }; done
+for value in release release_sha artifact policy key_registry signer database unit static_root backup_root proof_root smoke_base_url; do [[ -n "${!value}" ]] || { echo "required option is missing: $value" >&2; exit 2; }; done
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'invalid release SHA' >&2; exit 2; }
+[[ "$smoke_base_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/$ ]] || { echo 'smoke base URL must be an exact HTTPS origin ending in slash' >&2; exit 2; }
 for path in "$release" "$artifact" "$policy" "$key_registry" "$signer" "$database" "$unit" "$static_root" "$backup_root" "$proof_root"; do [[ "$path" =~ ^[/A-Za-z0-9._:-]+$ ]] || { echo 'path contains unsupported characters' >&2; exit 1; }; done
 [[ -d "$release" && ! -L "$release" ]] || { echo 'release must be an immutable directory' >&2; exit 1; }
 release=$(realpath "$release"); [[ "$(basename "$release")" == "multipass-restap-network-$release_sha" ]] || { echo 'release path does not match SHA' >&2; exit 1; }
@@ -141,6 +142,7 @@ write_bindings() {
   cat <<EOF
 release_sha=$release_sha
 gate_tuple=$tuple
+smoke_base_url=$smoke_base_url
 release_path=$release
 artifact_path=$artifact
 artifact_sha256=$artifact_sha256
@@ -182,7 +184,13 @@ install_candidate() {
   systemctl is-active --quiet "$SERVICE_NAME"
 }
 run_smoke() {
-  node "$release/apps/api/scripts/smoke-looper-restap-network.mjs" --mode local --phase "$smoke_phase" --expected-gates "$tuple" --release-sha "$release_sha" --release "$release" --artifact "$artifact" --policy "$policy" --key-registry "$key_registry" --database "$database" --fixture-key-ref "signer=$signer" >/dev/null
+  local attempt
+  for attempt in {1..30}; do
+    if node "$release/apps/api/scripts/smoke-looper-restap-network.mjs" --mode remote --base-url "$smoke_base_url" --phase "$smoke_phase" --expected-gates "$tuple" --release-sha "$release_sha" --release "$release" --artifact "$artifact" --policy "$policy" --key-registry "$key_registry" --database "$database" --fixture-key-ref "signer=$signer" >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  echo 'candidate smoke did not become ready within 30 seconds' >&2
+  return 1
 }
 verify_proof() { local file=$1; while IFS= read -r binding; do grep -Fx -- "$binding" "$file" >/dev/null || { echo 'rehearsal proof binding mismatch' >&2; return 1; }; done < <(write_bindings); grep -Fx 'candidate_started=true' "$file" >/dev/null; grep -Fx 'smoke_passed=true' "$file" >/dev/null; grep -Fx 'rollback=verified' "$file" >/dev/null; }
 

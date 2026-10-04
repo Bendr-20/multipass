@@ -119,11 +119,11 @@ function defaultDependencies() {
       return { ready: Array.isArray(parsed?.keys) && parsed.keys.some((key) => ['signing', 'overlap'].includes(key.status)), registryHash: createHash('sha256').update(bytes).digest('hex') };
     },
     async inspectRoutes(config) {
-      if (!config.execute || !config.baseUrl) return { publicNetworkRoutes: 0, restap3802Golden: true };
+      if (!config.baseUrl) return { publicNetworkRoutes: 0, restap3802Golden: true };
       const guesses = ['/api/restap/network/discovery', '/api/restap/network/opening', '/api/restap/network/reply'];
-      const responses = await Promise.all(guesses.map((path) => fetch(config.baseUrl + path)));
+      const responses = await Promise.all(guesses.map((path) => fetch(new URL(path.slice(1), config.baseUrl))));
       const publicNetworkRoutes = responses.filter((response) => response.status !== 404).length;
-      const golden = await fetch(config.baseUrl + '/api/restap/loopers/3802/.well-known/restap.json');
+      const golden = await fetch(new URL('api/restap/loopers/3802/.well-known/restap.json', config.baseUrl));
       return { publicNetworkRoutes, restap3802Golden: golden.status === 200 };
     },
     async callProvider() { throw new Error('Live provider smoke requires an injected reviewed provider proof adapter.'); },

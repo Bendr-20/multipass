@@ -187,16 +187,16 @@ Inspect first:
 scripts/promote-looper-restap-network.sh --inspect
 ~~~
 
-Rehearse with the exact immutable inputs. This starts the actual candidate service, runs smoke, and restores prior service state before emitting proof:
+Rehearse with the exact immutable inputs. This starts the actual candidate service, probes it through the exact HTTPS origin, runs smoke, and restores prior service state before emitting proof:
 
 ~~~bash
-scripts/promote-looper-restap-network.sh --rehearsal   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_SERVICE_GROUP_0640_POLICY>   --key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>   --signer <ROOT_SERVICE_GROUP_0640_SIGNING_KEY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>
+scripts/promote-looper-restap-network.sh --rehearsal   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_SERVICE_GROUP_0640_POLICY>   --key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>   --signer <ROOT_SERVICE_GROUP_0640_SIGNING_KEY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>   --smoke-base-url <HTTPS_ORIGIN>/
 ~~~
 
 The rehearsal proof binds the exact release SHA, gate tuple, and canonical path plus SHA-256 for artifact, policy, key registry, signer, database, unit, and static root. A live promotion is separate, verifies every binding, reruns smoke, and automatically rolls back on failure:
 
 ~~~bash
-scripts/promote-looper-restap-network.sh --promote   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_SERVICE_GROUP_0640_POLICY>   --key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>   --signer <ROOT_SERVICE_GROUP_0640_SIGNING_KEY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>   --rehearsal-proof <REHEARSAL_PROOF>
+scripts/promote-looper-restap-network.sh --promote   --release <IMMUTABLE_RELEASE>   --release-sha <REVIEWED_SHA>   --artifact <CODEX_ARTIFACT>   --policy <ROOT_SERVICE_GROUP_0640_POLICY>   --key-registry <ROOT_SERVICE_GROUP_0640_KEY_REGISTRY>   --signer <ROOT_SERVICE_GROUP_0640_SIGNING_KEY>   --database <RESTAP_NETWORK_DB>   --unit <NETWORK_UNIT>   --static-root <STATIC_ROOT>   --backup-root <BACKUP_ROOT>   --proof-root <PROOF_ROOT>   --smoke-base-url <HTTPS_ORIGIN>/   --rehearsal-proof <REHEARSAL_PROOF>
 ~~~
 
 Do not run this live command without the named approval for that phase.
