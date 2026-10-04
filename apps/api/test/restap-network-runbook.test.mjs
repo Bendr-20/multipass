@@ -22,7 +22,7 @@ test('runbook pins complete local canary promotion and rollback arguments withou
 
 test('runbook pins reviewed providers and exact Ed25519 signer generation formats', async () => {
   const text = await readFile(RUNBOOK, 'utf8');
-  assert.match(text, /MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=blast,tenderly/u);
+  assert.match(text, /MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS=base,tenderly/u);
   assert.match(text, /generateKeyPairSync\('ed25519'\)/u);
   assert.match(text, /pkcs8_der_base64/u);
   assert.match(text, /public_key_spki_der_base64/u);

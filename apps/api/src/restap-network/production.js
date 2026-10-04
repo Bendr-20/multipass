@@ -13,7 +13,7 @@ import { loadRestapNetworkFileSigner, loadRestapNetworkPublicKeyRegistryFile } f
 import { composeRestapNetworkProductionPolicy } from './production-composition.js';
 
 const REVIEWED_BASE_PROVIDERS = Object.freeze({
-  blast: 'https://base-mainnet.public.blastapi.io',
+  base: 'https://mainnet.base.org',
   tenderly: 'https://base.gateway.tenderly.co',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
