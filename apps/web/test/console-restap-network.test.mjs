@@ -217,6 +217,18 @@ test('loading and neutral 404 or 503 states never expose network mutation contro
   }
 });
 
+test('transient mutation failures preserve the loaded owner controls instead of reverting to Preview', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 7 });
+  const ready = resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 7, policyResponse: response(), intentsResponse: intents() });
+  const failed = { ...failConsoleRestapNetworkLoad({ ...ready, status: 'saving', mutationKind: 'policy' }, { tokenId: '1', requestId: 7, error: { status: 503 }, preserveProjection: true }), mutationKind: null };
+  const root = render(failed);
+  assert.deepEqual(getConsoleRestapNetworkStatus(failed), { key: 'error', label: 'Error' });
+  assert.ok(root.querySelector('[data-restap-network-policy]'));
+  assert.equal(root.querySelector('[data-action="save-restap-network-policy"]')?.disabled, false);
+  assert.doesNotMatch(root.textContent, /Read-only preview/i);
+  assert.match(root.textContent, /Network changes were not saved/i);
+});
+
 test('ordinary load errors remain distinct and offer Retry', () => {
   const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 14 });
   const failed = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 14, error: { status: 500 } });

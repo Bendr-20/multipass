@@ -1863,7 +1863,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     } catch (error) {
       if (!isCurrent()) return;
       if (consoleRestapNetworkMutationAbortController === controller) consoleRestapNetworkMutationAbortController = null;
-      state = { ...state, consoleRestapNetwork: { ...failConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId, requestId: state.consoleRestapNetwork.requestId, error }), mutationKind: null } };
+      state = { ...state, consoleRestapNetwork: { ...failConsoleRestapNetworkLoad(state.consoleRestapNetwork, { tokenId, requestId: state.consoleRestapNetwork.requestId, error, preserveProjection: true }), mutationKind: null } };
       render(root, state, handlers);
     } finally {
       if (consoleRestapNetworkMutationAbortController === controller) consoleRestapNetworkMutationAbortController = null;

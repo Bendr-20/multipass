@@ -65,12 +65,12 @@ export function resolveConsoleRestapNetworkLoad(state, { tokenId, requestId, pol
   return Object.freeze({ status: 'ready', selectedTokenId: token(tokenId), requestId: integer(requestId, 0), policy: normalizeConsoleRestapNetworkPolicy(policyResponse, tokenId), intents: normalizeIntents(intentsResponse, tokenId), error: null });
 }
 
-export function failConsoleRestapNetworkLoad(state, { tokenId, requestId, error }) {
+export function failConsoleRestapNetworkLoad(state, { tokenId, requestId, error, preserveProjection = false }) {
   if (!isCurrent(state, tokenId, requestId)) return state;
   const conflict = Number(error?.status) === 409 || error?.code === 'version_conflict';
-  const unavailable = Number(error?.status) === 404 || Number(error?.status) === 503;
-  const preserveProjection = Boolean(state.policy) && !unavailable;
-  return Object.freeze({ ...state, status: conflict ? 'conflict' : unavailable ? 'unavailable' : 'error', policy: preserveProjection ? state.policy : null, intents: preserveProjection ? state.intents : Object.freeze([]), error: conflict ? 'State changed. Refresh before saving again.' : unavailable ? 'RESTAP network controls are unavailable for this Looper.' : 'Network changes were not saved. Review the values and try again.' });
+  const unavailable = (Number(error?.status) === 404 || Number(error?.status) === 503) && !preserveProjection;
+  const keepProjection = Boolean(state.policy) && (preserveProjection || !unavailable);
+  return Object.freeze({ ...state, status: conflict ? 'conflict' : unavailable ? 'unavailable' : 'error', policy: keepProjection ? state.policy : null, intents: keepProjection ? state.intents : Object.freeze([]), error: conflict ? 'State changed. Refresh before saving again.' : unavailable ? 'RESTAP network controls are unavailable for this Looper.' : 'Network changes were not saved. Review the values and try again.' });
 }
 
 export function clearConsoleRestapNetworkSelection(state, tokenId = null) {

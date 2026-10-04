@@ -73,34 +73,10 @@ export async function createConsoleProductionBootstrap(options = {}, injectedFac
   const activationLeaseCandidates = options.restapNetworkLeasesAlreadyLoaded === true
     ? []
     : activationLeases?.loadCandidates() ?? [];
-  const runtimeRegistry = factories.createLooperRuntimeRegistry({
-    onNetworkActivate: activationLeases && options.restapNetworkCustodyReconciler
-      ? async ({ identity, wallet }) => {
-        const result = await options.restapNetworkCustodyReconciler.reconcileToken({ tokenId: identity.tokenId });
-        if (!result?.eligible) return Object.freeze({ status: 'unavailable' });
-        const custody = options.restapNetworkCustodyReconciler.getEpochSnapshot({ tokenId: identity.tokenId });
-        if (!custody || custody.status !== 'ready' || custody.tokenId !== String(identity.tokenId) || custody.owner.toLowerCase() !== wallet) {
-          return Object.freeze({ status: 'unavailable' });
-        }
-        const expectedPolicyGeneration = Number(options.restapNetworkPolicyGeneration ?? 0);
-        const lease = activationLeases.renew({ custody, expectedPolicyGeneration })
-          ?? activationLeases.issue({ custody, expectedPolicyGeneration });
-        return Object.freeze({
-          status: 'active',
-          custodyGeneration: lease.custodyGeneration,
-          expiresAt: new Date(lease.expiresAt).toISOString(),
-        });
-      }
-      : null,
-    onDeactivate: activationLeases && options.restapNetworkCustodyReconciler
-      ? async ({ identity }) => {
-        const result = await options.restapNetworkCustodyReconciler.reconcileToken({ tokenId: identity.tokenId });
-        if (!result?.eligible) throw new Error('RESTAP network custody is unavailable.');
-        const custody = options.restapNetworkCustodyReconciler.getEpochSnapshot({ tokenId: identity.tokenId });
-        activationLeases.deactivate({ custody, expectedPolicyGeneration: Number(options.restapNetworkPolicyGeneration ?? 0) });
-      }
-      : null,
-  });
+  // RESTAP participation is an explicit owner policy action. Ordinary Console
+  // activation/deactivation must not issue, renew, revoke, or reconcile network
+  // leases; the dedicated Network owner routes own that lifecycle.
+  const runtimeRegistry = factories.createLooperRuntimeRegistry();
   const memoryClient = factories.createSibylMemoryStore();
   const llmClient = options.consoleAgentBankrLlmEnabled === true
     ? factories.createBankrLlmClient({
