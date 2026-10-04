@@ -39,7 +39,9 @@ test('promotion proof binds every reviewed path, hash, gate tuple, and rolls bac
   assert.match(source, /--mode remote.*--base-url "\$smoke_base_url"/su);
   assert.match(source, /secret.*0640|mode.*640/iu);
   assert.match(source, /User=.*root|service user.*root/iu);
-  assert.match(source, /find .* -type l/iu);
+  assert.match(source, /reject_escaping_symlinks/iu);
+  assert.match(source, /resolved.*root.*\/\*/iu);
+  assert.doesNotMatch(source, /must not contain symlinks/iu);
   const rehearsal = source.slice(source.indexOf('if [[ "$mode" == rehearsal ]]'));
   assert.ok(rehearsal.indexOf('restore_backup "$backup_dir"') < rehearsal.indexOf('database_sha256=$(hash_file "$database")'));
 });
