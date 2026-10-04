@@ -113,11 +113,13 @@ test('RESTAP Network workspace fits desktop, 390px and 320px deterministic state
 
   const locked = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await locked.goto(fixture.origin + '/locked', { waitUntil: 'domcontentloaded' });
-  const lockedText = await locked.locator('.console-restap-network-workspace').innerText();
+  const lockedWorkspace = locked.locator('.console-restap-network-workspace');
+  const lockedText = await lockedWorkspace.innerText();
   assert.match(lockedText, /Network participation is unavailable/i);
+  assert.match(lockedText, /Network controls cannot be used for this Looper right now\./i);
   assert.doesNotMatch(lockedText, /foundation|install|rollout|root cause/i);
-  assert.equal(await locked.locator('.console-restap-network-workspace form').count(), 0);
-  assert.equal(await locked.locator('.console-restap-network-workspace button').count(), 0);
+  assert.equal(await lockedWorkspace.locator('[data-restap-network-policy], [data-restap-network-intent], [data-action="save-restap-network-policy"], [data-action="create-restap-network-intent"], [data-action="cancel-restap-network-intent"], [data-action="stop-restap-network"]').count(), 0);
+  assert.equal(await lockedWorkspace.locator('form, button').count(), 0);
   await assertNoOverflow(locked);
   await locked.screenshot({ path: join(OUTPUT, 'restap-network-locked-390.png'), fullPage: true });
 
