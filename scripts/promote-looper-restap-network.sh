@@ -111,7 +111,7 @@ reject_escaping_symlinks() {
 }
 reject_escaping_symlinks "$release"
 reject_escaping_symlinks "$static_root"
-if find "$release" -xdev \( ! -uid 0 -o -perm /022 \) -print -quit | grep -q .; then echo 'release must be root-owned and not group/other writable' >&2; exit 1; fi
+if find "$release" -xdev ! -type l \( ! -uid 0 -o -perm /022 \) -print -quit | grep -q .; then echo 'release must be root-owned and not group/other writable' >&2; exit 1; fi
 
 service_user=$(awk -F= '/^[[:space:]]*User=/{print $2}' "$unit" | tail -1 | tr -d '[:space:]')
 service_group=$(awk -F= '/^[[:space:]]*Group=/{print $2}' "$unit" | tail -1 | tr -d '[:space:]')
