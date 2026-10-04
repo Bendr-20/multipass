@@ -56,7 +56,7 @@ export function composeRestapNetworkProductionPolicy({
       .update(['token', custody.chainId, custody.collection.toLowerCase(), custody.tokenId].join('|'))
       .digest('hex'),
   });
-  const management = createPolicyManagement({ store, custodyReconciler, accountReader, policy, now });
+  const management = createPolicyManagement({ store, custodyReconciler, accountReader, policy, activationLeases, now });
   Object.assign(dependencies, {
     activationLeases: createStartupLeaseAdapter({ activationLeases, custodyReconciler }),
     policy,
@@ -64,7 +64,7 @@ export function composeRestapNetworkProductionPolicy({
   });
   if (config.gates.discovery) composeSignedPilot({
     config, store, custodyReconciler, accountReader, providers, codexRuntime, signer, keyRegistry,
-    bankrGateway, now, policy, dependencies, managementContext: { store, custodyReconciler, accountReader, policy, now },
+    bankrGateway, now, policy, dependencies, managementContext: { store, custodyReconciler, accountReader, policy, activationLeases, now },
   });
   return Object.freeze({
     dependencies: Object.freeze(dependencies),
@@ -195,7 +195,7 @@ function createTrafficManagement(context) {
       return context.intents.create({ source: 'console_owner', ownerSession: 'verified-current-owner', authority: { chainId: custody.chainId, collection: custody.collection, tokenId: custody.tokenId, custodyGeneration: custody.generation, activationLeaseId: lease.leaseId, policyVersion: current.policyVersion }, intent: { ...input.input, run_at: new Date(executionAt).toISOString() }, expiresAt: executionAt + 30 * 60_000, attemptLimit: 1 });
     },
     async listIntents(input) {
-      const { custody } = await productionAuthority(context, input, { requireLease: false });
+      const { custody } = cachedProductionAuthority(context, input, { requireLease: false });
       return context.store.readAll('SELECT * FROM restap_network_intents WHERE chain_id = ? AND collection = ? AND token_id = ? AND custody_generation = ? ORDER BY created_at, intent_id', [custody.chainId, custody.collection, custody.tokenId, custody.generation]).map(projectIntent);
     },
     async deleteIntent(input) {
@@ -337,44 +337,42 @@ async function productionAuthority({ store, custodyReconciler, accountReader, no
   return { custody, lease };
 }
 
-function createPolicyManagement({ store, custodyReconciler, accountReader, policy, now }) {
-  async function authority(input, { requireLease }) {
-    const tokenId = normalizeRestapNetworkTokenId(String(input?.tokenId ?? ''));
-    const integrity = await accountReader.read({ tokenId });
-    if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable.');
-    const reconciled = await custodyReconciler.reconcileToken({ tokenId });
-    if (reconciled?.eligible !== true) throw new Error('RESTAP network custody is unavailable.');
-    const custody = custodyReconciler.getEpochSnapshot({ tokenId });
-    let owner;
-    try { owner = getAddress(input?.identity?.owner); } catch { throw new Error('RESTAP network owner authority is unavailable.'); }
-    if (!custody || custody.status !== 'ready' || owner !== custody.owner) {
-      throw new Error('RESTAP network owner authority changed.');
-    }
-    const lease = readActiveLease(store, custody, now());
-    if (requireLease && !lease) throw new Error('RESTAP network activation lease is unavailable.');
-    return { custody, lease };
-  }
+function cachedProductionAuthority({ store, custodyReconciler, now }, input, { requireLease }) {
+  const tokenId = normalizeRestapNetworkTokenId(String(input?.tokenId ?? ''));
+  const custody = custodyReconciler.getEpochSnapshot({ tokenId });
+  let owner;
+  try { owner = getAddress(input?.identity?.owner); } catch { throw new Error('RESTAP network owner authority is unavailable.'); }
+  if (!custody || custody.status !== 'ready' || owner !== custody.owner) throw new Error('RESTAP network owner authority changed.');
+  const lease = readActiveLease(store, custody, now());
+  if (requireLease && !lease) throw new Error('RESTAP network activation lease is unavailable.');
+  return { custody, lease };
+}
 
+function createPolicyManagement({ store, custodyReconciler, policy, activationLeases, now }) {
   const trafficUnavailable = async () => {
     throw new Error('RESTAP network autonomous traffic is not enabled.');
   };
   return Object.freeze({
     async getPolicy(input) {
-      const { custody, lease } = await authority(input, { requireLease: false });
+      const { custody, lease } = cachedProductionAuthority({ store, custodyReconciler, now }, input, { requireLease: false });
       return Object.freeze({
         policy: policy.get({ custody }),
         leaseStatus: lease ? 'active' : 'inactive',
-        eligibilityStatus: lease ? 'eligible' : 'unavailable',
+        eligibilityStatus: 'eligible',
       });
     },
     async putPolicy(input) {
-      const { custody } = await authority(input, { requireLease: true });
+      const { custody, lease } = cachedProductionAuthority({ store, custodyReconciler, now }, input, { requireLease: false });
       const { expected_policy_version: expectedVersion, ...value } = input.input;
-      return policy.put({ custody, owner: custody.owner, expectedVersion, policy: value });
+      const saved = policy.put({ custody, owner: custody.owner, expectedVersion, policy: value });
+      if (saved.networkEnabled && !lease) activationLeases.issue({ custody, expectedPolicyGeneration: 0 });
+      return saved;
     },
     async stop(input) {
-      const { custody } = await authority(input, { requireLease: false });
-      return policy.stop({ custody, owner: custody.owner, expectedVersion: input.input.expected_policy_version });
+      const { custody } = cachedProductionAuthority({ store, custodyReconciler, now }, input, { requireLease: false });
+      const stopped = policy.stop({ custody, owner: custody.owner, expectedVersion: input.input.expected_policy_version });
+      activationLeases.deactivate({ custody, expectedPolicyGeneration: 0 });
+      return stopped;
     },
     createIntent: trafficUnavailable,
     listIntents: trafficUnavailable,
@@ -387,6 +385,16 @@ function createStartupCustodyAdapter({ accountReader, custodyReconciler }) {
     async reconcile({ candidates } = {}) {
       if (!Array.isArray(candidates)) throw new TypeError('RESTAP network custody candidates are invalid.');
       for (const candidate of candidates) {
+        const snapshot = custodyReconciler.getEpochSnapshot({ tokenId: candidate.tokenId });
+        const snapshotMatchesLease = snapshot?.status === 'ready'
+          && snapshot.chainId === candidate.chainId
+          && snapshot.collection === candidate.collection
+          && snapshot.tokenId === candidate.tokenId
+          && snapshot.generation === candidate.custodyGeneration
+          && snapshot.canonicalAccount === candidate.canonicalAccount
+          && snapshot.owner === candidate.owner
+          && snapshot.controller === candidate.controller;
+        if (snapshotMatchesLease) continue;
         const integrity = await accountReader.read({ tokenId: candidate.tokenId });
         if (integrity?.eligible !== true) throw new Error('RESTAP network account integrity is unavailable.');
         const custody = await custodyReconciler.reconcileToken({ tokenId: candidate.tokenId });

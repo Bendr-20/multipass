@@ -221,7 +221,6 @@ test('production policy composition lets the current holder opt in and refresh p
   const custody = Object.freeze({ chainId: 8453, collection, tokenId: '617', generation: 1, canonicalAccount: account, owner, controller, safeBlockNumber: 100, safeBlockHash: '0x' + 'a'.repeat(64), status: 'ready' });
   store.transaction('seed_policy_composition', (tx) => {
     tx.run('INSERT INTO restap_network_custody_epochs (chain_id, collection, token_id, generation, canonical_account, owner_address, controller_address, safe_block_number, safe_block_hash, event_block_number, event_log_index, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [8453, collection, '617', 1, account, owner, controller, 100, 'a'.repeat(64), 100, 0, 'ready', now]);
-    tx.run('INSERT INTO restap_network_activation_leases (lease_id, chain_id, collection, token_id, custody_generation, canonical_account, owner_address, controller_address, issued_at, last_renewed_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['1'.repeat(32), 8453, collection, '617', 1, account, owner, controller, now - 1_000, now - 500, now + 60_000, 'active']);
   });
   const config = parseRestapNetworkServiceConfig({
     MULTIPASS_RESTAP_NETWORK_FOUNDATION_ENABLED: 'true',
@@ -229,8 +228,9 @@ test('production policy composition lets the current holder opt in and refresh p
     MULTIPASS_RESTAP_NETWORK_DATABASE_PATH: filename,
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32),
   });
-  const custodyReconciler = { async reconcileToken() { return { eligible: true }; }, getEpochSnapshot() { return custody; } };
-  const accountReader = { async read() { return { eligible: true, status: 'ready' }; } };
+  let liveAuthorityReads = 0;
+  const custodyReconciler = { async reconcileToken() { liveAuthorityReads += 1; return { eligible: true }; }, getEpochSnapshot() { return custody; } };
+  const accountReader = { async read() { liveAuthorityReads += 1; return { eligible: true, status: 'ready' }; } };
   const composition = composeRestapNetworkProductionPolicy({
     config, productionConfig: { tokenIds: ['617', '3802'] }, store, custodyReconciler, accountReader,
     providers: [{ approved: true }], codexRuntime: { available: true }, now: () => now,
@@ -241,6 +241,9 @@ test('production policy composition lets the current holder opt in and refresh p
   const initial = await service.getPolicy({ tokenId: '617', identity });
   assert.equal(initial.policy.policyVersion, 0);
   assert.equal(initial.policy.networkEnabled, false);
+  assert.equal(initial.leaseStatus, 'inactive');
+  assert.equal(initial.eligibilityStatus, 'eligible');
+  assert.equal(liveAuthorityReads, 0);
   const saved = await service.putPolicy({ tokenId: '617', identity, input: {
     expected_policy_version: 0, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: false,
     daily_initiated_conversation_limit: 0, daily_generated_message_limit: 0, per_peer_daily_limit: 0,
@@ -248,10 +251,14 @@ test('production policy composition lets the current holder opt in and refresh p
   } });
   assert.equal(saved.policyVersion, 1);
   assert.equal(saved.networkEnabled, true);
+  assert.equal(store.readOne("SELECT status FROM restap_network_activation_leases WHERE token_id = '617' ORDER BY issued_at DESC LIMIT 1").status, 'active');
+  assert.equal(liveAuthorityReads, 0);
   const refreshed = await service.getPolicy({ tokenId: '617', identity });
   assert.equal(refreshed.policy.policyVersion, 1);
   assert.equal(refreshed.policy.networkEnabled, true);
   assert.equal(refreshed.policy.inboundEnabled, true);
+  assert.equal(refreshed.leaseStatus, 'active');
+  assert.equal(refreshed.eligibilityStatus, 'eligible');
   assert.deepEqual(service.status.gates, { foundation: true, policy: true, discovery: false, initiation: false, replies: false, transcripts: false, pilot: false, ga: false });
 });
 
@@ -279,10 +286,11 @@ test('production composes the signed owner-opt-in network while schedules and tr
     MULTIPASS_RESTAP_NETWORK_OPERATIONAL_HASH_SALT: 's'.repeat(32), MULTIPASS_RESTAP_NETWORK_DAILY_COST_LIMIT: '10',
     MULTIPASS_RESTAP_NETWORK_CADENCES: 'once',
   });
+  let liveAuthorityReads = 0;
   const composition = composeRestapNetworkProductionPolicy({
     config, productionConfig: { tokenIds: ['617', '3802'] }, store,
-    custodyReconciler: { async reconcileToken() { return { eligible: true }; }, getEpochSnapshot() { return custody; } },
-    accountReader: { async read() { return { eligible: true, status: 'ready' }; } }, providers: [{ approved: true }],
+    custodyReconciler: { async reconcileToken() { liveAuthorityReads += 1; return { eligible: true }; }, getEpochSnapshot() { return custody; } },
+    accountReader: { async read() { liveAuthorityReads += 1; return { eligible: true, status: 'ready' }; } }, providers: [{ approved: true }],
     codexRuntime: { available: true, getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId), canonicalName: 'Looper #' + tokenId } }; } },
     signer: { keyId: 'pilot-signing-key-0000000000000001', async sign() { return Buffer.alloc(64); } },
     keyRegistry: { get() { return null; } },
@@ -296,6 +304,11 @@ test('production composes the signed owner-opt-in network while schedules and tr
   const service = await startRestapNetworkService({ config, dependencies: composition.dependencies });
   t.after(async () => { await service.close(); await rm(directory, { recursive: true, force: true }); });
   assert.deepEqual(service.status.gates, { foundation: true, policy: true, discovery: true, initiation: true, replies: true, transcripts: false, pilot: true, ga: false });
+  const readsAfterStartup = liveAuthorityReads;
+  assert.equal(readsAfterStartup, 0);
+  assert.equal((await service.getPolicy({ tokenId: '617', identity: { owner } })).eligibilityStatus, 'eligible');
+  assert.equal(Array.isArray(await service.listIntents({ tokenId: '617', identity: { owner } })), true);
+  assert.equal(liveAuthorityReads, readsAfterStartup);
   await assert.rejects(() => service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'daily', run_at: new Date(now).toISOString(), idempotency_key: 'daily-is-forbidden-in-this-pilot-0001' } }), /daily|schedule|one-shot/i);
   await assert.rejects(() => service.createIntent({ tokenId: '617', identity: { owner }, input: { peer_token_ids: ['3802'], topic: 'general', cadence: 'once', run_at: new Date(now + 5 * 60_000).toISOString(), idempotency_key: 'future-schedule-is-forbidden-000001' } }), /schedule|immediate|one-shot/i);
   assert.equal(store.readOne("SELECT count(*) AS count FROM restap_network_intents WHERE source = 'daily'").count, 0);
