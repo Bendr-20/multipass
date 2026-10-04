@@ -19,6 +19,16 @@ function fixture({ status = 200, response } = {}) {
   return { api, calls };
 }
 
+test('default client routes RESTAP controls through the deployed Multipass API prefix', async () => {
+  const calls = [];
+  const api = createConsoleRestapNetworkApi({ fetchImpl: async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify(policyResponse()), { status: 200, headers: { 'content-type': 'application/json' } });
+  } });
+  await api.getPolicy({ tokenId: '1' });
+  assert.equal(calls[0].url, '/multipass-api/api/multipass/console/restap-network/1/policy');
+});
+
 test('all six methods use exact paths methods credentials and CSRF', async () => {
   const f = fixture();
   await f.api.getPolicy({ tokenId: '1' });

@@ -15,10 +15,10 @@ export class ConsoleRestapNetworkApiError extends Error {
   }
 }
 
-export function createConsoleRestapNetworkApi({ fetchImpl, apiBase = '' } = {}) {
+export function createConsoleRestapNetworkApi({ fetchImpl, apiBase = '/multipass-api' } = {}) {
   const activeFetch = fetchImpl ?? ((...args) => globalThis.fetch(...args));
   if (typeof activeFetch !== 'function') throw new TypeError('fetchImpl must be a function.');
-  const base = String(apiBase ?? '').replace(/\/$/u, '');
+  const base = String(apiBase || '/multipass-api').replace(/\/$/u, '');
 
   async function call(path, { method = 'GET', csrfToken = null, body, signal, validate } = {}) {
     const headers = { accept: 'application/json' };
