@@ -48,7 +48,7 @@ test('Console RESTAP forms invoke save create cancel stop and refresh through re
     claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
   });
   await app.start(); await flushAsyncEvents(30);
-  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
 
   let form = root.querySelector('[data-restap-network-policy]');
   assert.ok(form);
@@ -58,7 +58,7 @@ test('Console RESTAP forms invoke save create cancel stop and refresh through re
   form.elements.namedItem('daily_initiated_conversation_limit').value = '4';
   form.elements.namedItem('daily_generated_message_limit').value = '9';
   form.elements.namedItem('per_peer_daily_limit').value = '2';
-  form.querySelector('[name="topic:general"]').checked = true;
+  form.elements.namedItem('topic:general').checked = true;
   form.elements.namedItem('allow_peer_token_ids').value = '2, 3';
   form.elements.namedItem('block_peer_token_ids').value = '4';
   form.elements.namedItem('mute_until').value = '2026-10-04T00:00';
@@ -121,10 +121,10 @@ test('Hide chat locally preserves loaded RESTAP controls', async () => {
     claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
   });
   await app.start(); await flushAsyncEvents(30);
-  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
-  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Owner controls for Looper #617/);
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Looper #617 network/);
   app.resetConsoleSession();
-  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Owner controls for Looper #617/);
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Looper #617 network/);
   assert.doesNotMatch(root.querySelector('.console-restap-network')?.textContent ?? '', /Loading/);
 });
 
@@ -140,7 +140,7 @@ test('Looper selection aborts an in-flight RESTAP mutation and suppresses its st
     claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
   });
   await app.start(); await flushAsyncEvents(30);
-  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
   root.querySelector('[data-restap-network-policy]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents();
   const save = restap.calls.find(([name]) => name === 'putPolicy')?.[1];
@@ -164,7 +164,7 @@ test('Console session boundary aborts an in-flight RESTAP mutation', async () =>
     claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
   });
   await app.start(); await flushAsyncEvents(30);
-  root.querySelector('[data-console-view="multipass"]')?.click(); await flushAsyncEvents();
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
   const form = root.querySelector('[data-restap-network-intent]');
   form.elements.namedItem('peer_token_ids').value = '2';
   form.elements.namedItem('topic').value = 'general';
@@ -7723,4 +7723,67 @@ test('Console Codex retry only runs from unavailable or error states', async () 
   await app.selectConsoleAgentById('913');
   await app.retryConsoleCodex();
   assert.deepEqual(calls, ['617', '812', '812', '913', '913']);
+});
+
+test('RESTAP mutations project saving state and suppress duplicate submissions', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let finishSave;
+  const pendingSave = new Promise((resolve) => { finishSave = resolve; });
+  const restap = createConsoleRestapApiFixture({ putPolicy: () => pendingSave });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
+  let form = root.querySelector('[data-restap-network-policy]');
+  form.elements.namedItem('daily_generated_message_limit').value = '9';
+  form.elements.namedItem('topic:general').checked = true;
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  form = root.querySelector('[data-restap-network-policy]');
+  assert.equal(form.elements.namedItem('daily_generated_message_limit').value, '9');
+  assert.equal(form.elements.namedItem('topic:general').checked, true);
+  assert.equal(root.querySelector('[data-action="save-restap-network-policy"]')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="save-restap-network-policy"]')?.textContent.trim(), 'Saving…');
+  root.querySelector('[data-restap-network-policy]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  assert.equal(restap.calls.filter(([name]) => name === 'putPolicy').length, 1);
+  finishSave(createConsoleRestapPolicyResponse('617'));
+  await flushAsyncEvents(30);
+});
+
+test('RESTAP introduction errors preserve the bounded planner draft', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  let rejectIntent;
+  const pendingIntent = new Promise((_resolve, reject) => { rejectIntent = reject; });
+  const restap = createConsoleRestapApiFixture({ createIntent: () => pendingIntent });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
+  let form = root.querySelector('[data-restap-network-intent]');
+  form.elements.namedItem('peer_token_ids').value = '12, 48';
+  form.elements.namedItem('topic').value = 'collection-lore';
+  form.elements.namedItem('cadence').value = 'daily';
+  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents();
+  form = root.querySelector('[data-restap-network-intent]');
+  assert.equal(form.elements.namedItem('peer_token_ids').value, '12, 48');
+  assert.equal(form.elements.namedItem('topic').value, 'collection-lore');
+  assert.equal(form.elements.namedItem('cadence').value, 'daily');
+  assert.equal(form.elements.namedItem('run_at').value, '2026-10-05T00:00');
+  rejectIntent(Object.assign(new Error('raw private provider detail'), { status: 500 }));
+  await flushAsyncEvents(20);
+  form = root.querySelector('[data-restap-network-intent]');
+  assert.equal(form.elements.namedItem('peer_token_ids').value, '12, 48');
+  assert.doesNotMatch(root.textContent, /raw private provider detail/i);
+  assert.match(root.querySelector('[data-restap-feedback]')?.textContent ?? '', /not saved/i);
 });

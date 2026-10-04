@@ -2,7 +2,7 @@ import { renderConsoleAgentThread } from './console-agent-thread.js';
 import { normalizeConsoleCodexState, renderConsoleCodexWorkspace } from './console-codex.js';
 import { createConsoleAgentGalleryModel } from './console-agent-gallery.js';
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
-import { createInitialConsoleRestapNetworkState, renderConsoleRestapNetworkPanel } from './console-restap-network.js';
+import { createInitialConsoleRestapNetworkState, getConsoleRestapNetworkStatus, renderConsoleRestapNetworkPanel } from './console-restap-network.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
@@ -72,7 +72,7 @@ export function createMultipassConsoleSnapshot({ state = {}, agents = [] } = {})
   const needsAgentSelection = walletAuthenticated && agentRoster.status === 'loaded' && activeAgentCount > 0 && !activeAgent?.tokenId;
   const showAgentGallery = walletAuthenticated && !activeAgent?.tokenId;
   const activeAgentWallet = activeAgent?.tokenId ? normalizeLooperAgentWallet(state.looperAgentWallet, activeAgent.tokenId) : null;
-  const requestedWorkspaceView = ['chat', 'wallet', 'multipass', 'codex'].includes(state.consoleWorkspaceView)
+  const requestedWorkspaceView = ['chat', 'wallet', 'multipass', 'codex', 'network'].includes(state.consoleWorkspaceView)
     ? state.consoleWorkspaceView
     : null;
   const workspaceView = activeAgent?.tokenId
@@ -280,7 +280,9 @@ function renderConsolePrimaryWorkspace(snapshot = {}) {
   } else if (snapshot.workspaceView === 'wallet' && snapshot.identityCard?.agentWallet) {
     workspace = renderConsoleWalletWorkspace(snapshot.identityCard);
   } else if (snapshot.workspaceView === 'multipass') {
-    workspace = renderIdentityCard(snapshot.identityCard) + renderConsoleRestapNetworkPanel(snapshot.restapNetwork);
+    workspace = renderIdentityCard(snapshot.identityCard);
+  } else if (snapshot.workspaceView === 'network') {
+    workspace = renderConsoleRestapNetworkPanel(snapshot.restapNetwork);
   } else {
     workspace = shouldGateConsoleChat(snapshot.agentThread)
       ? renderConsoleActivationGate(snapshot)
@@ -354,7 +356,8 @@ function renderConsoleMainRosterDrawer(snapshot = {}) {
 function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
   const agentAvailable = Boolean(snapshot.session?.activeAgentId);
   const walletAvailable = Boolean(agentAvailable && snapshot.identityCard?.agentWallet);
-  const view = ['wallet', 'multipass', 'codex'].includes(snapshot.workspaceView) ? snapshot.workspaceView : 'chat';
+  const view = ['wallet', 'multipass', 'codex', 'network'].includes(snapshot.workspaceView) ? snapshot.workspaceView : 'chat';
+  const networkStatus = getConsoleRestapNetworkStatus(snapshot.restapNetwork);
   const placementClass = mobile ? 'console-workspace-nav-mobile' : 'console-workspace-nav-sidebar';
   return `
     <nav class="console-workspace-nav ${placementClass}" aria-label="Console workspace${mobile ? ' mobile' : ''}">
@@ -369,6 +372,9 @@ function renderConsoleWorkspaceNav(snapshot = {}, { mobile = false } = {}) {
       </button>
       <button type="button" data-action="set-console-workspace-view" data-console-view="multipass" ${view === 'multipass' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
         <span>Multipass</span><small>Manage</small>
+      </button>
+      <button type="button" class="console-network-nav console-network-nav-${networkStatus.key}" data-action="set-console-workspace-view" data-console-view="network" aria-label="Network, RESTAP, ${networkStatus.label}" ${view === 'network' ? 'aria-current="page"' : ''} ${agentAvailable ? '' : 'disabled'}>
+        <span>Network</span><small><i aria-hidden="true"></i>RESTAP <b>${networkStatus.label}</b></small>
       </button>
     </nav>
   `;

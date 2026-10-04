@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { createMultipassConsoleSnapshot, normalizeConsoleCred, renderMultipassConsole } from '../src/multipass-console.js';
 
-test('Multipass workspace renders isolated RESTAP owner controls for the selected Looper', () => {
+test('Network is a fifth isolated workspace and Multipass contains no RESTAP controls', () => {
   const [agent] = sampleAgents();
   const snapshot = createMultipassConsoleSnapshot({
     agents: [agent],
@@ -13,13 +13,20 @@ test('Multipass workspace renders isolated RESTAP owner controls for the selecte
       walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
       consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
       consoleOwnedAgents: { status: 'loaded', agents: [agent] },
-      consoleSelectedAgentId: '1', consoleWorkspaceView: 'multipass',
+      consoleSelectedAgentId: '1', consoleWorkspaceView: 'network',
       consoleRestapNetwork: { status: 'unavailable', selectedTokenId: '1', requestId: 1, policy: null, intents: [], error: 'RESTAP network controls are unavailable for this Looper.' },
     },
   });
   const root = render(renderMultipassConsole(snapshot));
-  assert.ok(root.querySelector('.console-restap-network'));
-  assert.match(root.querySelector('.console-restap-network').textContent, /unavailable/i);
+  assert.match(root.querySelector('.console-restap-network')?.textContent ?? '', /Foundation installed/i);
+  assert.equal(root.querySelectorAll('.console-workspace-nav').length, 2);
+  for (const nav of root.querySelectorAll('.console-workspace-nav')) {
+    assert.equal(nav.querySelectorAll('button').length, 5);
+    assert.match(nav.querySelector('[data-console-view="network"]')?.textContent ?? '', /NetworkRESTAP.*Locked/i);
+    assert.equal(nav.querySelector('[data-console-view="network"]')?.getAttribute('aria-label'), 'Network, RESTAP, Locked');
+  }
+  const multipassRoot = render(renderMultipassConsole({ ...snapshot, workspaceView: 'multipass' }));
+  assert.equal(multipassRoot.querySelector('.console-basic-main .console-restap-network'), null);
   assert.equal(snapshot.restapNetwork.selectedTokenId, '1');
   assert.equal(Object.hasOwn(snapshot.agentThread, 'restapNetwork'), false);
 });
@@ -175,7 +182,7 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(Object.hasOwn(snapshot.identityCard.agentWallet, 'legacyAccount'), false);
 });
 
-test('mobile Console exposes a portrait agent switcher and four mutually exclusive workspaces', () => {
+test('mobile Console exposes a portrait agent switcher and five mutually exclusive workspaces', () => {
   const agents = Array.from({ length: 45 }, (_, index) => ({
     ...sampleAgents()[index % 2],
     tokenId: String(index + 1),
@@ -212,7 +219,7 @@ test('mobile Console exposes a portrait agent switcher and four mutually exclusi
   assert.equal(switcher.querySelector('img')?.src, 'https://example.test/fool-spec.png');
   assert.match(switcher.querySelector('summary')?.textContent ?? '', /Fool Spec/i);
   assert.match(switcher.querySelector('summary')?.textContent ?? '', /45 owned/i);
-  assert.equal(mobileNav?.querySelectorAll('button').length, 4);
+  assert.equal(mobileNav?.querySelectorAll('button').length, 5);
   assert.ok(mobileNav?.querySelector('[data-console-view="codex"]'));
   assert.match(mobileNav?.querySelector('[data-console-view="multipass"]')?.textContent ?? '', /MultipassManage/i);
   assert.equal(mobileNav?.querySelectorAll('[aria-current="page"]').length, 1);
@@ -258,7 +265,7 @@ test('selected Looper exposes Codex before activation and Chat shows an explicit
   const codexSnapshot = createMultipassConsoleSnapshot({ agents: sampleAgents(), state: { ...baseState, consoleWorkspaceView: 'codex' } });
   const codexRoot = render(renderMultipassConsole(codexSnapshot));
   for (const nav of codexRoot.querySelectorAll('.console-workspace-nav')) {
-    assert.equal(nav.querySelectorAll('button').length, 4);
+    assert.equal(nav.querySelectorAll('button').length, 5);
     assert.equal(nav.querySelectorAll('[aria-current="page"]').length, 1);
     assert.equal(nav.querySelector('[data-console-view="codex"]')?.getAttribute('aria-current'), 'page');
     assert.equal(nav.querySelector('[data-console-view="codex"]')?.disabled, false);

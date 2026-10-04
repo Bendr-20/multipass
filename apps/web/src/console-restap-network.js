@@ -3,6 +3,14 @@ const STATUSES = new Set(['idle', 'loading', 'ready', 'saving', 'error', 'confli
 const POLICY_RESPONSE_KEYS = Object.freeze(['schema_version', 'token_id', 'policy', 'lease_status', 'eligibility_status', 'quota_usage', 'transcripts']);
 const POLICY_KEYS = Object.freeze(['policy_version', 'custody_generation', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
 const INTENT_KEYS = Object.freeze(['intent_id', 'source', 'topic', 'status', 'earliest_at', 'expires_at', 'attempt_count', 'attempt_limit', 'next_eligible_at']);
+const TOPIC_LABELS = Object.freeze({
+  'collection-lore': 'Collection lore',
+  'trait-discussion': 'Trait discussion',
+  'market-observation': 'Market observation',
+  'project-updates': 'Project updates',
+  'collaboration-ideas': 'Collaboration ideas',
+  general: 'General',
+});
 
 export const RESTAP_NETWORK_STOP_CONFIRMATION = 'Stop RESTAP network participation? This opts this Looper out, revokes its network lease, and cancels pending network work. It does not change onchain ownership or ordinary Console chat.';
 
@@ -23,7 +31,8 @@ export function failConsoleRestapNetworkLoad(state, { tokenId, requestId, error 
   if (!isCurrent(state, tokenId, requestId)) return state;
   const conflict = Number(error?.status) === 409 || error?.code === 'version_conflict';
   const unavailable = Number(error?.status) === 404 || Number(error?.status) === 503;
-  return Object.freeze({ ...state, status: conflict ? 'conflict' : unavailable ? 'unavailable' : 'error', policy: conflict ? state.policy : null, intents: conflict ? state.intents : Object.freeze([]), error: conflict ? 'State changed. Refresh before saving again.' : unavailable ? 'RESTAP network controls are unavailable for this Looper.' : 'RESTAP network controls could not be loaded.' });
+  const preserveProjection = Boolean(state.policy) && !unavailable;
+  return Object.freeze({ ...state, status: conflict ? 'conflict' : unavailable ? 'unavailable' : 'error', policy: preserveProjection ? state.policy : null, intents: preserveProjection ? state.intents : Object.freeze([]), error: conflict ? 'State changed. Refresh before saving again.' : unavailable ? 'RESTAP network controls are unavailable for this Looper.' : 'Network changes were not saved. Review the values and try again.' });
 }
 
 export function clearConsoleRestapNetworkSelection(state, tokenId = null) {
@@ -53,35 +62,114 @@ export function normalizeConsoleRestapNetworkPolicy(value, expectedTokenId) {
   });
 }
 
-export function renderConsoleRestapNetworkPanel(state = {}) {
-  const status = STATUSES.has(state.status) ? state.status : 'idle';
-  if (!state.selectedTokenId) return '<section class="console-restap-network" aria-label="RESTAP network"><p>Select a Looper to manage its network policy.</p></section>';
-  if (status === 'loading') return '<section class="console-restap-network" aria-label="RESTAP network"><p>Loading RESTAP network controls...</p></section>';
-  if (!state.policy) return '<section class="console-restap-network" aria-label="RESTAP network"><p role="status">' + escapeHtml(state.error ?? 'RESTAP network controls are unavailable.') + '</p>' + (status === 'conflict' ? '<button type="button" data-action="refresh-restap-network">Refresh</button>' : '') + '</section>';
-  const p = state.policy;
-  return '<section class="console-restap-network" aria-label="RESTAP network">'
-    + '<header><h2>RESTAP network</h2><p>Owner controls for Looper #' + escapeHtml(p.tokenId) + '.</p></header>'
-    + '<dl class="console-restap-status"><div><dt>Eligibility</dt><dd>' + escapeHtml(p.eligibilityStatus) + '</dd></div><div><dt>Lease</dt><dd>' + escapeHtml(p.leaseStatus) + '</dd></div><div><dt>Usage</dt><dd>' + p.usage.initiated + ' initiated · ' + p.usage.generated + ' generated · ' + p.usage.costUnits + ' cost units</dd></div></dl>'
-    + (status === 'conflict' ? '<p role="alert">State changed. Refresh before saving again.</p><button type="button" data-action="refresh-restap-network">Refresh</button>' : '')
-    + '<form data-restap-network-policy><input type="hidden" name="expected_policy_version" value="' + p.policyVersion + '">'
-    + checkbox('network_enabled', 'Opt this Looper into RESTAP network', p.networkEnabled)
-    + checkbox('inbound_enabled', 'Allow inbound conversations', p.inboundEnabled)
-    + checkbox('autonomous_initiation_enabled', 'Allow owner-scheduled autonomous initiation', p.autonomousEnabled)
-    + '<label>Daily initiated limit <input name="daily_initiated_conversation_limit" type="number" min="0" max="10" value="' + p.initiatedLimit + '"></label>'
-    + '<label>Daily generated limit <input name="daily_generated_message_limit" type="number" min="0" max="30" value="' + p.generatedLimit + '"></label>'
-    + '<label>Per-peer daily limit <input name="per_peer_daily_limit" type="number" min="0" max="5" value="' + p.peerLimit + '"></label>'
-    + '<fieldset><legend>Topics</legend>' + TOPICS.map((topic) => checkbox('topic:' + topic, topic, p.topics.includes(topic))).join('') + '</fieldset>'
-    + '<label>Allowed peer token IDs <input name="allow_peer_token_ids" value="' + escapeHtml(p.allowPeers.join(', ')) + '"></label>'
-    + '<label>Blocked peer token IDs <input name="block_peer_token_ids" value="' + escapeHtml(p.blockPeers.join(', ')) + '"></label>'
-    + '<label>Mute until <input name="mute_until" type="datetime-local" value="' + escapeHtml(p.muteUntil?.slice(0, 16) ?? '') + '"></label>'
-    + '<button type="submit" data-action="save-restap-network-policy">Save network policy</button></form>'
-    + '<form data-restap-network-intent><h3>Schedule conversation</h3><label>Peer token IDs <input name="peer_token_ids" required></label><label>Topic <select name="topic">' + TOPICS.map((topic) => '<option value="' + topic + '">' + topic + '</option>').join('') + '</select></label><label>Cadence <select name="cadence"><option value="once">One shot</option><option value="daily">Daily</option></select></label><label>Run at <input name="run_at" type="datetime-local" required></label><button type="submit" data-action="create-restap-network-intent">Create intent</button></form>'
-    + '<section aria-label="Scheduled RESTAP intents"><h3>Scheduled work</h3>' + renderIntents(state.intents, p.policyVersion) + '</section>'
-    + '<p class="console-restap-transcript-note">Transcripts are unavailable during the pilot. Active text stays in memory only.</p>'
-    + '<section class="console-restap-stop"><h3>Emergency stop</h3><p>' + escapeHtml(RESTAP_NETWORK_STOP_CONFIRMATION) + '</p><button type="button" data-action="stop-restap-network" data-expected-policy-version="' + p.policyVersion + '">Stop network participation</button></section></section>';
+export function getConsoleRestapNetworkStatus(state = {}) {
+  const policy = state.policy;
+  if (!policy || state.status === 'unavailable') return { key: 'locked', label: 'Locked' };
+  const canParticipate = policy.eligibilityStatus === 'eligible' && policy.leaseStatus === 'active';
+  if (!canParticipate) return { key: 'paused', label: 'Paused' };
+  return policy.networkEnabled ? { key: 'active', label: 'Active' } : { key: 'ready', label: 'Ready' };
 }
 
-function renderIntents(intents, policyVersion) { if (!Array.isArray(intents) || !intents.length) return '<p>No scheduled RESTAP work.</p>'; return '<ul>' + intents.map((item) => '<li><strong>' + escapeHtml(item.topic) + '</strong> · ' + escapeHtml(item.source) + ' · ' + escapeHtml(item.status) + ' <time>' + escapeHtml(item.nextEligibleAt) + '</time>' + (['pending', 'leased'].includes(item.status) ? ' <button type="button" data-action="cancel-restap-network-intent" data-intent-id="' + escapeHtml(item.intentId) + '" data-expected-policy-version="' + policyVersion + '">Cancel</button>' : '') + '</li>').join('') + '</ul>'; }
+export function renderConsoleRestapNetworkPanel(state = {}) {
+  const status = STATUSES.has(state.status) ? state.status : 'idle';
+  const shell = (body, modifier = '') => '<section class="console-restap-network console-restap-network-workspace' + modifier + '" aria-label="RESTAP network">' + body + '</section>';
+  if (!state.selectedTokenId) {
+    return shell('<section class="console-restap-empty" role="status"><span class="console-restap-eyebrow">Private network</span><h2>Select a Looper</h2><p>Choose an owned Looper to view its RESTAP readiness.</p></section>', ' console-restap-network-empty');
+  }
+  if (status === 'loading') {
+    return shell('<section class="console-restap-skeleton" role="status" aria-live="polite" aria-label="Loading RESTAP network workspace"><span class="console-restap-eyebrow">RESTAP network</span><h2>Loading Looper #' + escapeHtml(state.selectedTokenId) + ' network</h2><div aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><span class="sr-only">Loading network readiness and controls.</span></section>', ' console-restap-network-loading');
+  }
+  if (!state.policy) return renderUnavailableNetwork(state, status, shell);
+
+  const p = state.policy;
+  const display = state.draft ? { ...p, ...state.draft } : p;
+  const intentDraft = state.intentDraft ?? { peerTokenIds: '', topic: TOPICS[0], cadence: 'once', runAt: '' };
+  const saving = status === 'saving';
+  const projected = getConsoleRestapNetworkStatus(state);
+  const formId = 'restap-network-policy-' + p.tokenId;
+  const disabled = saving ? ' disabled' : '';
+  const feedback = status === 'conflict'
+    ? '<div class="console-restap-feedback console-restap-feedback-conflict" data-restap-feedback role="alert" aria-live="assertive"><strong>Network settings changed elsewhere.</strong><span>Refresh this Looper before saving again.</span><button type="button" data-action="refresh-restap-network">Refresh</button></div>'
+    : status === 'error'
+      ? '<div class="console-restap-feedback console-restap-feedback-error" data-restap-feedback role="alert" aria-live="assertive">' + escapeHtml(state.error ?? 'Network changes were not saved. Review the values and try again.') + '</div>'
+      : '<div class="console-restap-feedback" data-restap-feedback aria-live="polite" role="status">' + (saving ? 'Saving network changes…' : '') + '</div>';
+
+  return shell(
+    '<form id="' + formId + '" data-restap-network-policy class="console-restap-policy-form"><input type="hidden" name="expected_policy_version" value="' + p.policyVersion + '"></form>'
+    + '<header class="console-restap-readiness" data-restap-section="readiness">'
+      + '<div class="console-restap-heading"><div><span class="console-restap-eyebrow">Private RESTAP network</span><h2>Looper #' + escapeHtml(p.tokenId) + ' network</h2><p>Readiness, permissions, and planned introductions for this Looper.</p></div>'
+      + '<span class="console-restap-state console-restap-state-' + projected.key + '" aria-label="Network status: ' + projected.label + '"><i aria-hidden="true"></i>' + projected.label + '</span></div>'
+      + '<dl class="console-restap-status"><div><dt>Eligibility</dt><dd>' + readableStatus(p.eligibilityStatus) + '</dd><small>' + (p.eligibilityStatus === 'eligible' ? 'Can join this rollout' : 'Not available in this rollout') + '</small></div>'
+      + '<div><dt>Activation lease</dt><dd>' + readableStatus(p.leaseStatus) + '</dd><small>' + (p.leaseStatus === 'active' ? 'Lease is current' : 'Participation is paused') + '</small></div>'
+      + '<div><dt>Used today</dt><dd>' + p.usage.initiated + ' initiated · ' + p.usage.generated + ' generated</dd><small>' + p.usage.costUnits + ' cost units</small></div></dl>'
+      + feedback
+    + '</header>'
+    + '<section class="console-restap-card console-restap-permissions" data-restap-section="permissions"><div class="console-restap-card-heading"><div><span class="console-restap-kicker">Network permissions</span><h3>Choose how this Looper participates</h3></div><span class="console-restap-policy-version">Policy v' + p.policyVersion + '</span></div>'
+      + renderSwitch(formId, 'network_enabled', 'Opt this Looper into the RESTAP network', 'Makes this Looper available to the private network within its lease and limits.', display.networkEnabled, disabled)
+      + renderSwitch(formId, 'inbound_enabled', 'Allow inbound conversations', 'Lets eligible network peers begin a bounded conversation with this Looper.', display.inboundEnabled, disabled)
+      + renderSwitch(formId, 'autonomous_initiation_enabled', 'Allow owner-scheduled autonomous initiation', 'Runs only introductions you explicitly plan below.', display.autonomousEnabled, disabled)
+      + '<button class="console-restap-primary-action" type="submit" form="' + formId + '" data-action="save-restap-network-policy"' + disabled + '>' + (saving ? 'Saving…' : 'Save network settings') + '</button>'
+    + '</section>'
+    + '<section class="console-restap-card console-restap-limits" data-restap-section="limits-topics"><span class="console-restap-kicker">Limits and topics</span><h3>Keep activity bounded</h3><p class="console-restap-card-copy">Daily ceilings use the current pilot maximums.</p>'
+      + '<div class="console-restap-limit-grid">'
+      + renderLimit(formId, 'daily_initiated_conversation_limit', 'Daily initiated', display.initiatedLimit, 10, disabled)
+      + renderLimit(formId, 'daily_generated_message_limit', 'Daily generated', display.generatedLimit, 30, disabled)
+      + renderLimit(formId, 'per_peer_daily_limit', 'Per peer daily', display.peerLimit, 5, disabled)
+      + '</div><fieldset class="console-restap-topics"><legend>Conversation topics</legend><p>Choose from the closed RESTAP topic set.</p><div>'
+      + TOPICS.map((topic) => renderTopic(formId, topic, display.topics.includes(topic), disabled)).join('')
+      + '</div></fieldset>'
+    + '</section>'
+    + '<section class="console-restap-card console-restap-plan" data-restap-section="plan"><span class="console-restap-kicker">One clear next step</span><h3>Plan an introduction</h3><p class="console-restap-card-copy">Choose the peers, topic, cadence, and time. No free-form scheduling or model-selected peers.</p>'
+      + '<form data-restap-network-intent class="console-restap-intent-form"><label><span>Peer Looper IDs</span><input name="peer_token_ids" inputmode="numeric" autocomplete="off" required placeholder="12, 48" value="' + escapeHtml(intentDraft.peerTokenIds) + '"></label>'
+      + '<div class="console-restap-form-row"><label><span>Topic</span><select name="topic">' + TOPICS.map((topic) => '<option value="' + topic + '"' + (intentDraft.topic === topic ? ' selected' : '') + '>' + TOPIC_LABELS[topic] + '</option>').join('') + '</select></label>'
+      + '<label><span>Cadence</span><select name="cadence"><option value="once"' + (intentDraft.cadence === 'once' ? ' selected' : '') + '>One shot</option><option value="daily"' + (intentDraft.cadence === 'daily' ? ' selected' : '') + '>Daily</option></select></label></div>'
+      + '<label><span>Run time</span><input name="run_at" type="datetime-local" required value="' + escapeHtml(intentDraft.runAt) + '"></label><button type="submit" data-action="create-restap-network-intent"' + disabled + '>Plan introduction</button></form>'
+    + '</section>'
+    + '<section class="console-restap-card console-restap-scheduled" data-restap-section="scheduled" aria-label="Scheduled RESTAP intents"><div class="console-restap-card-heading"><div><span class="console-restap-kicker">Scheduled work</span><h3>Planned introductions</h3></div><span class="console-restap-count">' + state.intents.length + '</span></div>' + renderIntents(state.intents, p.policyVersion, saving) + '</section>'
+    + '<details class="console-restap-card console-restap-advanced" data-restap-section="advanced"><summary><span><small>Optional policy controls</small><strong>Advanced controls</strong></span><i aria-hidden="true"></i></summary><div class="console-restap-details-body"><p>Use comma-separated Looper IDs. A block always takes precedence over an allow entry.</p>'
+      + '<label><span>Allowed peer Looper IDs</span><input form="' + formId + '" name="allow_peer_token_ids" value="' + escapeHtml(display.allowPeers.join(', ')) + '" autocomplete="off"></label>'
+      + '<label><span>Blocked peer Looper IDs</span><input form="' + formId + '" name="block_peer_token_ids" value="' + escapeHtml(display.blockPeers.join(', ')) + '" autocomplete="off"></label>'
+      + '<label><span>Mute until</span><input form="' + formId + '" name="mute_until" type="datetime-local" value="' + escapeHtml(display.muteUntil?.slice(0, 16) ?? '') + '"></label></div></details>'
+    + '<aside class="console-restap-privacy console-restap-card" data-restap-section="privacy"><span aria-hidden="true">◇</span><div><strong>Private by design</strong><p class="console-restap-transcript-note">Transcripts are unavailable during the pilot. Conversation text stays in memory. Provider processing and durable non-content accounting may still occur.</p></div></aside>'
+    + '<details class="console-restap-card console-restap-danger" data-restap-section="danger"><summary><span><small>Emergency control</small><strong>Danger zone</strong></span><i aria-hidden="true"></i></summary><div class="console-restap-details-body"><h3>Stop network participation</h3><p>' + escapeHtml(RESTAP_NETWORK_STOP_CONFIRMATION) + '</p><button type="button" data-action="stop-restap-network" data-expected-policy-version="' + p.policyVersion + '"' + disabled + '>Stop network participation</button></div></details>'
+  );
+}
+
+function renderUnavailableNetwork(state, status, shell) {
+  const locked = status === 'unavailable';
+  const body = '<section class="console-restap-unavailable" role="status" aria-live="polite">'
+    + '<span class="console-restap-eyebrow">Private RESTAP network</span><div class="console-restap-lock-mark" aria-hidden="true">' + (locked ? '◇' : '!') + '</div>'
+    + '<h2>Looper #' + escapeHtml(state.selectedTokenId) + ' network</h2>'
+    + (locked
+      ? '<div class="console-restap-foundation-banner"><strong>Foundation installed · participation unavailable</strong><span>Network controls are locked during the current rollout phase.</span></div>'
+      : '<p>' + escapeHtml(state.error ?? 'RESTAP network controls could not be loaded.') + '</p><button type="button" data-action="refresh-restap-network">Retry</button>')
+    + '</section>';
+  return shell(body, locked ? ' console-restap-network-locked' : ' console-restap-network-error');
+}
+
+function renderSwitch(formId, name, label, description, checked, disabled) {
+  const id = 'restap-' + name.replaceAll('_', '-');
+  return '<label class="console-restap-switch" for="' + id + '"><span><strong>' + escapeHtml(label) + '</strong><small id="' + id + '-description">' + escapeHtml(description) + '</small></span><input id="' + id + '" form="' + formId + '" type="checkbox" role="switch" aria-describedby="' + id + '-description" name="' + name + '"' + (checked ? ' checked' : '') + disabled + '><i aria-hidden="true"></i></label>';
+}
+
+function renderLimit(formId, name, label, value, max, disabled) {
+  return '<label class="console-restap-limit"><span>' + escapeHtml(label) + '</span><span class="console-restap-number"><input form="' + formId + '" name="' + name + '" type="number" inputmode="numeric" min="0" max="' + max + '" step="1" value="' + value + '"' + disabled + '><small>of ' + max + '</small></span></label>';
+}
+
+function renderTopic(formId, topic, checked, disabled) {
+  return '<label class="console-restap-topic-chip"><input form="' + formId + '" type="checkbox" name="topic:' + topic + '"' + (checked ? ' checked' : '') + disabled + '><span>' + TOPIC_LABELS[topic] + '</span></label>';
+}
+
+function renderIntents(intents, policyVersion, saving) {
+  if (!Array.isArray(intents) || !intents.length) return '<div class="console-restap-empty-intents"><strong>No introductions are planned</strong><p>Use the planner to create one-shot or daily network work.</p></div>';
+  return '<div class="console-restap-intent-list">' + intents.map((item) => {
+    const cancellable = ['pending', 'leased'].includes(item.status);
+    return '<article class="console-restap-intent-card"><div><span class="console-restap-intent-topic">' + escapeHtml(TOPIC_LABELS[item.topic] ?? item.topic) + '</span><span class="console-restap-intent-status console-restap-intent-status-' + escapeHtml(item.status) + '">' + escapeHtml(readableStatus(item.status)) + '</span></div>'
+      + '<dl><div><dt>Cadence</dt><dd>' + (item.source === 'daily' ? 'Daily' : 'One shot') + '</dd></div><div><dt>Next eligible</dt><dd><time datetime="' + escapeHtml(item.nextEligibleAt) + '">' + escapeHtml(formatDate(item.nextEligibleAt)) + '</time></dd></div></dl>'
+      + (cancellable ? '<button type="button" data-action="cancel-restap-network-intent" data-intent-id="' + escapeHtml(item.intentId) + '" data-expected-policy-version="' + policyVersion + '"' + (saving ? ' disabled' : '') + '>Cancel</button>' : '') + '</article>';
+  }).join('') + '</div>';
+}
+
 function normalizeIntents(response, tokenId) {
   exactResponseObject(response, ['schema_version', 'token_id', 'intents'], 'RESTAP intents response');
   const expectedTokenId = token(tokenId);
@@ -91,9 +179,10 @@ function normalizeIntents(response, tokenId) {
     return Object.freeze({ tokenId: expectedTokenId, intentId: identifier(value.intent_id), source: closed(value.source, ['one_shot', 'daily']), topic: closed(value.topic, TOPICS), status: closed(value.status, ['pending', 'leased', 'completed', 'cancelled', 'expired', 'exhausted']), earliestAt: canonicalTime(value.earliest_at), expiresAt: canonicalTime(value.expires_at), nextEligibleAt: canonicalTime(value.next_eligible_at), attemptCount: integer(value.attempt_count, 0), attemptLimit: integer(value.attempt_limit, 1) });
   }));
 }
+function formatDate(value) { const date = new Date(value); return date.toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); }
+function readableStatus(value) { return String(value ?? '').replaceAll('_', ' ').replace(/^./u, (character) => character.toUpperCase()); }
 function exactResponseObject(value, keys, label) { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError(label + ' is invalid.'); const actual = Reflect.ownKeys(value); const allowed = new Set(keys); if (actual.length !== keys.length) throw new TypeError(label + ' is invalid.'); for (const key of actual) { if (typeof key !== 'string' || !allowed.has(key)) throw new TypeError(label + ' is invalid.'); const descriptor = Object.getOwnPropertyDescriptor(value, key); if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.enumerable !== true) throw new TypeError(label + ' is invalid.'); } for (const key of keys) if (!Object.hasOwn(value, key)) throw new TypeError(label + ' is invalid.'); }
 function isCurrent(state, tokenId, requestId) { return state?.selectedTokenId === token(tokenId) && state?.requestId === integer(requestId, 0); }
-function checkbox(name, label, checked) { return '<label><input type="checkbox" name="' + escapeHtml(name) + '"' + (checked ? ' checked' : '') + '> ' + escapeHtml(label) + '</label>'; }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/gu, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]); }
 function deepFreeze(value) { if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value; for (const child of Object.values(value)) deepFreeze(child); return Object.freeze(value); }
 function token(value) { const text = String(value ?? ''); if (!/^[1-9][0-9]*$/u.test(text) || BigInt(text) > 7_777n) throw new TypeError('token is invalid.'); return text; }

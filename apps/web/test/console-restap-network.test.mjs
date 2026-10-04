@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import test from 'node:test';
 
-import { RESTAP_NETWORK_STOP_CONFIRMATION, beginConsoleRestapNetworkLoad, clearConsoleRestapNetworkSelection, createInitialConsoleRestapNetworkState, failConsoleRestapNetworkLoad, renderConsoleRestapNetworkPanel, resolveConsoleRestapNetworkLoad } from '../src/console-restap-network.js';
+import { RESTAP_NETWORK_STOP_CONFIRMATION, beginConsoleRestapNetworkLoad, clearConsoleRestapNetworkSelection, createInitialConsoleRestapNetworkState, failConsoleRestapNetworkLoad, getConsoleRestapNetworkStatus, renderConsoleRestapNetworkPanel, resolveConsoleRestapNetworkLoad } from '../src/console-restap-network.js';
 
 function response(patch = {}) {
   return { schema_version: '0.1.0', token_id: '1', policy: { policy_version: 3, custody_generation: 7, network_enabled: false, inbound_enabled: false, autonomous_initiation_enabled: false, daily_initiated_conversation_limit: 0, daily_generated_message_limit: 0, per_peer_daily_limit: 0, topics: [], allow_peer_token_ids: [], block_peer_token_ids: [], mute_until: null, ...patch }, lease_status: 'inactive', eligibility_status: 'eligible', quota_usage: { initiated: 1, generated: 2, cost_units: 3 }, transcripts: { available: false, reason: 'pilot_memory_only' } };
@@ -93,4 +93,81 @@ test('intent envelopes and entries require exact schemas and selected token bind
     const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 7 });
     assert.throws(() => resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 7, policyResponse: response(), intentsResponse }), /invalid/i);
   }
+});
+
+test('Network workspace renders semantic sections in the approved mobile order', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 8 });
+  const state = resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 8, policyResponse: response({ network_enabled: true, topics: ['general'] }), intentsResponse: intents() });
+  const root = render(state);
+  const workspace = root.querySelector('.console-restap-network-workspace');
+  assert.ok(workspace);
+  assert.match(workspace.querySelector('h2')?.textContent ?? '', /Looper #1 network/i);
+  assert.deepEqual([...workspace.querySelectorAll('[data-restap-section]')].map((node) => node.dataset.restapSection), [
+    'readiness', 'permissions', 'limits-topics', 'plan', 'scheduled', 'advanced', 'privacy', 'danger',
+  ]);
+  assert.equal(workspace.querySelector('[data-restap-section="advanced"]')?.tagName, 'DETAILS');
+  assert.equal(workspace.querySelector('[data-restap-section="danger"]')?.tagName, 'DETAILS');
+  assert.equal(workspace.querySelector('[data-restap-section="advanced"]')?.open, false);
+  assert.equal(workspace.querySelector('[data-restap-section="danger"]')?.open, false);
+  assert.match(workspace.querySelector('[data-restap-section="plan"] h3')?.textContent ?? '', /Plan an introduction/i);
+  assert.equal(workspace.querySelector('[data-action="create-restap-network-intent"]')?.textContent.trim(), 'Plan introduction');
+  assert.equal(workspace.querySelector('[data-action="save-restap-network-policy"]')?.textContent.trim(), 'Save network settings');
+  assert.equal(workspace.querySelectorAll('.console-restap-intent-card').length, 1);
+  assert.doesNotMatch(workspace.textContent, /intent-panel-/);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /text stays in memory/i);
+  assert.match(workspace.querySelector('.console-restap-transcript-note')?.textContent ?? '', /provider processing/i);
+});
+
+test('native switches chips limits and live regions remain accessible and contract compatible', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 9 });
+  const state = resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 9, policyResponse: response(), intentsResponse: { schema_version: '0.1.0', token_id: '1', intents: [] } });
+  const root = render(state);
+  for (const name of ['network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled']) {
+    const input = root.querySelector('[name="' + name + '"]');
+    assert.equal(input?.type, 'checkbox');
+    assert.equal(input?.getAttribute('role'), 'switch');
+    assert.ok(input?.getAttribute('aria-describedby'));
+  }
+  assert.equal(root.querySelectorAll('.console-restap-topic-chip input[type="checkbox"][name^="topic:"]').length, 6);
+  assert.equal(root.querySelector('[name="daily_initiated_conversation_limit"]')?.max, '10');
+  assert.equal(root.querySelector('[name="daily_generated_message_limit"]')?.max, '30');
+  assert.equal(root.querySelector('[name="per_peer_daily_limit"]')?.max, '5');
+  assert.equal(root.querySelector('[data-restap-feedback]')?.getAttribute('aria-live'), 'polite');
+  assert.match(root.querySelector('[aria-label="Scheduled RESTAP intents"]')?.textContent ?? '', /No introductions are planned/i);
+});
+
+test('navigation projection maps locked ready active and paused conservatively', () => {
+  const unavailable = failConsoleRestapNetworkLoad(beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 10 }), { tokenId: '1', requestId: 10, error: { status: 503 } });
+  assert.deepEqual(getConsoleRestapNetworkStatus(unavailable), { key: 'locked', label: 'Locked' });
+
+  const project = (patch = {}, responsePatch = {}) => {
+    const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 11 });
+    return resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 11, policyResponse: { ...response(patch), ...responsePatch }, intentsResponse: { schema_version: '0.1.0', token_id: '1', intents: [] } });
+  };
+  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: false }, { lease_status: 'active' })), { key: 'ready', label: 'Ready' });
+  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: true }, { lease_status: 'active' })), { key: 'active', label: 'Active' });
+  assert.deepEqual(getConsoleRestapNetworkStatus(project({ network_enabled: true }, { lease_status: 'unavailable' })), { key: 'paused', label: 'Paused' });
+});
+
+test('rollout locked and loading states never expose mutation controls', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 12 });
+  const loadingRoot = render(loading);
+  assert.ok(loadingRoot.querySelector('.console-restap-skeleton[role="status"]'));
+  assert.equal(loadingRoot.querySelector('form'), null);
+
+  const locked = failConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 12, error: { status: 404 } });
+  const lockedRoot = render(locked);
+  assert.match(lockedRoot.textContent, /Foundation installed · participation unavailable/i);
+  assert.equal(lockedRoot.querySelector('form'), null);
+  assert.equal(lockedRoot.querySelector('[data-action="stop-restap-network"]'), null);
+});
+
+test('saving state disables duplicate mutations without changing form names', () => {
+  const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '1', requestId: 13 });
+  const ready = resolveConsoleRestapNetworkLoad(loading, { tokenId: '1', requestId: 13, policyResponse: response(), intentsResponse: intents() });
+  const root = render({ ...ready, status: 'saving' });
+  assert.equal(root.querySelector('[data-action="save-restap-network-policy"]')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="create-restap-network-intent"]')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="cancel-restap-network-intent"]')?.disabled, true);
+  assert.equal(root.querySelector('[data-action="save-restap-network-policy"]')?.textContent.trim(), 'Saving…');
 });

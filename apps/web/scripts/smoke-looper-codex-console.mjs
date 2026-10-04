@@ -69,7 +69,7 @@ try {
     const drawerCount = await page.locator('details.console-codex-drawer').count();
     if (drawerCount !== 5) throw new Error(`expected five Codex drawers, got ${drawerCount}`);
     const navCount = await page.locator('.console-workspace-nav:visible button').count();
-    if (navCount !== 4) throw new Error(`expected four workspace buttons, got ${navCount}`);
+    if (navCount !== 5) throw new Error(`expected five workspace buttons, got ${navCount}`);
     await page.locator('[data-console-view="chat"]:visible').click();
     await page.waitForSelector('.console-activation-gate', { state:'visible' });
     activationActions += 1;
@@ -85,7 +85,7 @@ try {
       const rendered = await page.locator('body').innerText();
       if (!rendered.includes(expected)) throw new Error(`missing ${expected}; rendered tail: ${rendered.slice(-1200)}`);
     }
-    for (const view of ['chat','codex','wallet','multipass']) {
+    for (const view of ['chat','codex','wallet','multipass','network']) {
       await page.locator(`[data-console-view="${view}"]:visible`).click();
       const currents = await page.locator('.console-workspace-nav:visible [aria-current="page"]').count();
       if (currents !== 1) throw new Error(`workspace ${view} has ${currents} current buttons`);

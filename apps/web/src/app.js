@@ -195,7 +195,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleSidebarRosterOpen: false,
     consoleSelectedAgentId: consoleMockState?.consoleSelectedAgentId ?? null,
     consoleWorkspaceView: consoleMockState
-      ? (['chat', 'wallet', 'multipass', 'codex'].includes(consoleMockState.consoleWorkspaceView) ? consoleMockState.consoleWorkspaceView : 'chat')
+      ? (['chat', 'wallet', 'multipass', 'codex', 'network'].includes(consoleMockState.consoleWorkspaceView) ? consoleMockState.consoleWorkspaceView : 'chat')
       : null,
     consoleParticipantAgentIds: consoleMockState?.consoleParticipantAgentIds ?? [],
     consoleAgentThread: consoleMockState?.consoleAgentThread ?? createInitialConsoleAgentThreadState(),
@@ -1677,7 +1677,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function setConsoleWorkspaceView(event) {
     const view = String(event?.currentTarget?.dataset?.consoleView ?? '').trim();
-    if (!['chat', 'wallet', 'multipass', 'codex'].includes(view)) return;
+    if (!['chat', 'wallet', 'multipass', 'codex', 'network'].includes(view)) return;
     if (!state.consoleSelectedAgentId) return;
     state = { ...state, consoleWorkspaceView: view };
     render(root, state, handlers);
@@ -1785,17 +1785,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const current = state.consoleRestapNetwork?.policy;
     if (!tokenId || !current) return;
     const form = event?.currentTarget;
-    const topics = [...(form?.querySelectorAll?.('[name^="topic:"]:checked') ?? [])].map((input) => input.name.slice(6));
+    const topics = [...(form?.elements ?? [])].filter((input) => input.name?.startsWith('topic:') && input.checked).map((input) => input.name.slice(6));
     const splitTokens = (name) => String(form?.elements?.namedItem?.(name)?.value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
     const value = (name) => form?.elements?.namedItem?.(name);
+    const policy = {
+      expected_policy_version: current.policyVersion,
+      network_enabled: Boolean(value('network_enabled')?.checked), inbound_enabled: Boolean(value('inbound_enabled')?.checked), autonomous_initiation_enabled: Boolean(value('autonomous_initiation_enabled')?.checked),
+      daily_initiated_conversation_limit: Number(value('daily_initiated_conversation_limit')?.value), daily_generated_message_limit: Number(value('daily_generated_message_limit')?.value), per_peer_daily_limit: Number(value('per_peer_daily_limit')?.value),
+      topics, allow_peer_token_ids: splitTokens('allow_peer_token_ids'), block_peer_token_ids: splitTokens('block_peer_token_ids'), mute_until: value('mute_until')?.value ? new Date(value('mute_until').value).toISOString() : null,
+    };
+    const draft = {
+      networkEnabled: policy.network_enabled, inboundEnabled: policy.inbound_enabled, autonomousEnabled: policy.autonomous_initiation_enabled,
+      initiatedLimit: policy.daily_initiated_conversation_limit, generatedLimit: policy.daily_generated_message_limit, peerLimit: policy.per_peer_daily_limit,
+      topics: policy.topics, allowPeers: policy.allow_peer_token_ids, blockPeers: policy.block_peer_token_ids, muteUntil: policy.mute_until,
+    };
     return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
-      await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, signal, policy: {
-        expected_policy_version: current.policyVersion,
-        network_enabled: Boolean(value('network_enabled')?.checked), inbound_enabled: Boolean(value('inbound_enabled')?.checked), autonomous_initiation_enabled: Boolean(value('autonomous_initiation_enabled')?.checked),
-        daily_initiated_conversation_limit: Number(value('daily_initiated_conversation_limit')?.value), daily_generated_message_limit: Number(value('daily_generated_message_limit')?.value), per_peer_daily_limit: Number(value('per_peer_daily_limit')?.value),
-        topics, allow_peer_token_ids: splitTokens('allow_peer_token_ids'), block_peer_token_ids: splitTokens('block_peer_token_ids'), mute_until: value('mute_until')?.value ? new Date(value('mute_until').value).toISOString() : null,
-      } });
-    });
+      await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, signal, policy });
+    }, { draft });
   }
 
   async function createConsoleRestapNetworkIntent(event) {
@@ -1804,11 +1810,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     if (!tokenId) return;
     const form = event?.currentTarget;
     const value = (name) => form?.elements?.namedItem?.(name)?.value ?? '';
+    const intentDraft = { peerTokenIds: String(value('peer_token_ids')), topic: String(value('topic')), cadence: String(value('cadence')), runAt: String(value('run_at')) };
     return runConsoleRestapNetworkMutation(tokenId, async (signal) => {
       await activeRestapNetworkApi.createIntent({ tokenId, csrfToken: state.consoleCsrfToken, signal, intent: {
         peer_token_ids: String(value('peer_token_ids')).split(',').map((item) => item.trim()).filter(Boolean), topic: String(value('topic')), cadence: String(value('cadence')), run_at: new Date(value('run_at')).toISOString(), idempotency_key: 'console-intent-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14),
       } });
-    });
+    }, { intentDraft });
   }
 
   async function cancelConsoleRestapNetworkIntent(event) {
@@ -1830,10 +1837,15 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     });
   }
 
-  async function runConsoleRestapNetworkMutation(tokenId, operation) {
-    consoleRestapNetworkMutationAbortController?.abort();
+  async function runConsoleRestapNetworkMutation(tokenId, operation, { draft, intentDraft } = {}) {
+    if (consoleRestapNetworkMutationAbortController || state.consoleRestapNetwork?.status === 'saving') return;
     const controller = new AbortController();
     consoleRestapNetworkMutationAbortController = controller;
+    const projection = { ...state.consoleRestapNetwork, status: 'saving', error: null };
+    if (draft !== undefined) projection.draft = draft;
+    if (intentDraft !== undefined) projection.intentDraft = intentDraft;
+    state = { ...state, consoleRestapNetwork: projection };
+    render(root, state, handlers);
     const context = { tokenId, sessionGeneration: state.consoleSessionGeneration };
     const isCurrent = () => !controller.signal.aborted
       && consoleRestapNetworkMutationAbortController === controller
