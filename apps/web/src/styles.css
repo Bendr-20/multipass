@@ -11157,8 +11157,8 @@ h1 {
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
   grid-template-areas:
     "readiness readiness"
-    "permissions plan"
-    "limits scheduled"
+    "permissions limits"
+    "plan scheduled"
     "advanced privacy"
     "danger danger";
   align-content: start;
