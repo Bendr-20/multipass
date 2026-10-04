@@ -70,7 +70,7 @@ export function createCustodyReconciler({
       return markIneligible(normalizedTokenId, current, 'latest_authority_mismatch');
     }
     try {
-      replayEventHistory({ evidence, prior: fullRebuild ? null : current });
+      replayEventHistory({ evidence, prior: fullRebuild ? null : current, release });
     } catch {
       return markIneligible(normalizedTokenId, current, 'event_history_invalid');
     }
@@ -278,7 +278,7 @@ function normalizeEvent(event, { tokenId, release, range, safeBlock }) {
   };
 }
 
-function replayEventHistory({ evidence, prior }) {
+function replayEventHistory({ evidence, prior, release }) {
   const positions = new Set();
   const logIds = new Set();
   let owner = prior?.owner ?? evidence.events.find((event) => event.kind === 'transfer')?.from ?? evidence.safeOwner;
@@ -292,6 +292,7 @@ function replayEventHistory({ evidence, prior }) {
     if (event.kind === 'transfer') {
       if (event.from !== owner) throw new Error('Contradictory Transfer history.');
       owner = event.to;
+      if (release.controllerModel === 'erc721_owner') controller = event.to;
     } else {
       if (event.from !== controller) throw new Error('Contradictory controller history.');
       controller = event.to;

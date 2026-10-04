@@ -43,7 +43,7 @@ function observation(overrides = {}) {
     controller: CONTROLLER,
     moduleRegistry: RELEASE.moduleRegistry,
     moduleRegistryCode: REGISTRY_CODE,
-    registryPaused: false,
+    registryPaused: true,
     policyModule: ZERO,
     policyModuleOwner: ZERO,
     policyEpoch: '0',
@@ -81,8 +81,9 @@ test('pins the reviewed Base account release descriptor and deterministically de
     moduleRegistryRuntimeBytes: 1234,
     moduleRegistryRuntimeSha256: '0xc94fcea5df503e97852633cbe76e0ee76260595f3f25c2fdbbf99ef6aec253bb',
     controllerSource: getAddress('0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27'),
+    controllerModel: 'erc721_owner',
     policy: {
-      registryPaused: false,
+      registryPaused: true,
       module: ZERO,
       moduleOwner: ZERO,
       epoch: '0',
@@ -124,7 +125,7 @@ test('fails closed with fixed classes for exact integrity failures', async (t) =
     ['binding_mismatch', { accountToken: { chainId: 1, collection: RELEASE.collection, tokenId: '617' } }],
     ['ownership_mismatch', { accountOwner: CONTROLLER }],
     ['registry_mismatch', { moduleRegistryCode: '0x6000' }],
-    ['policy_mismatch', { registryPaused: true }],
+    ['policy_mismatch', { registryPaused: false }],
     ['policy_mismatch', { policyModule: CONTROLLER, policyModuleOwner: OWNER, policyModuleCode: '0x6003', policyModuleCodehash: keccak256('0x6003'), approvedModuleCodehash: ZERO_HASH }],
   ];
   for (const [status, patch] of cases) {

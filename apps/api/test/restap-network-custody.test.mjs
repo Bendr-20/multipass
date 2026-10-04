@@ -63,23 +63,36 @@ test('initial finalized build persists a ready deeply frozen custody epoch', asy
   assert.equal(f.store.readOne('SELECT status FROM restap_network_custody_epochs WHERE token_id = ?', [TOKEN_ID]).status, 'ready');
 });
 
-test('finalized transfers and controller changes replay monotonically including A to B to A and same-owner events', async (t) => {
+test('the pinned ERC-721 controller follows finalized ownership transfers', async (t) => {
+  const moved = evidence({
+    safeBlock: { number: 101, hash: HASH_101 },
+    safeOwner: B,
+    safeController: B,
+    latestOwner: B,
+    latestController: B,
+    range: { fromBlock: 0, toBlock: 101 },
+    events: [event('transfer', 101, 1, { from: A, to: B })],
+  });
+  const f = await fixture([moved, moved]); t.after(() => f.close());
+  assert.equal((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).status, 'ready');
+  assert.equal(f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID }).controller, B);
+});
+
+test('finalized ERC-721 transfers replay monotonically including A to B to A and same-owner events', async (t) => {
   const initial = evidence();
-  const toB = evidence({ safeBlock: { number: 101, hash: HASH_101 }, safeOwner: B, safeController: A, latestOwner: B, latestController: A, priorSafeHash: HASH_100, range: { fromBlock: 101, toBlock: 101 }, events: [event('transfer', 101, 1, { from: A, to: B })] });
+  const toB = evidence({ safeBlock: { number: 101, hash: HASH_101 }, safeOwner: B, safeController: B, latestOwner: B, latestController: B, priorSafeHash: HASH_100, range: { fromBlock: 101, toBlock: 101 }, events: [event('transfer', 101, 1, { from: A, to: B })] });
   const hash102 = '0x' + 'cc'.repeat(32);
   const backA = evidence({ safeBlock: { number: 102, hash: hash102 }, safeOwner: A, safeController: A, latestOwner: A, latestController: A, priorSafeHash: HASH_101, range: { fromBlock: 102, toBlock: 102 }, events: [event('transfer', 102, 2, { from: B, to: A, blockHash: hash102 })] });
   const hash103 = '0x' + 'dd'.repeat(32);
-  const controllerOnly = evidence({ safeBlock: { number: 103, hash: hash103 }, safeOwner: A, safeController: C, latestOwner: A, latestController: C, priorSafeHash: hash102, range: { fromBlock: 103, toBlock: 103 }, events: [event('controller', 103, 3, { from: A, to: C, blockHash: hash103 })] });
-  const hash104 = '0x' + 'ee'.repeat(32);
-  const sameOwner = evidence({ safeBlock: { number: 104, hash: hash104 }, safeOwner: A, safeController: C, latestOwner: A, latestController: C, priorSafeHash: hash103, range: { fromBlock: 104, toBlock: 104 }, events: [event('transfer', 104, 4, { from: A, to: A, blockHash: hash104 })] });
-  const p1 = providerSequence([initial, toB, backA, controllerOnly, sameOwner]);
-  const p2 = providerSequence([initial, toB, backA, controllerOnly, sameOwner]);
+  const sameOwner = evidence({ safeBlock: { number: 103, hash: hash103 }, safeOwner: A, safeController: A, latestOwner: A, latestController: A, priorSafeHash: hash102, range: { fromBlock: 103, toBlock: 103 }, events: [event('transfer', 103, 3, { from: A, to: A, blockHash: hash103 })] });
+  const p1 = providerSequence([initial, toB, backA, sameOwner]);
+  const p2 = providerSequence([initial, toB, backA, sameOwner]);
   const f = await fixture([p1, p2]); t.after(() => f.close());
   const generations = [];
-  for (let index = 0; index < 5; index += 1) generations.push((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).generation);
-  assert.deepEqual(generations, [1, 2, 3, 4, 5]);
+  for (let index = 0; index < 4; index += 1) generations.push((await f.reconciler.reconcileToken({ tokenId: TOKEN_ID })).generation);
+  assert.deepEqual(generations, [1, 2, 3, 4]);
   assert.equal(f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID }).owner, A);
-  assert.equal(f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID }).controller, C);
+  assert.equal(f.reconciler.getEpochSnapshot({ tokenId: TOKEN_ID }).controller, A);
 });
 
 test('incremental reconciliation requires prior-safe hash continuity', async (t) => {

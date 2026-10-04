@@ -25,8 +25,9 @@ export const RESTAP_NETWORK_ACCOUNT_RELEASE = deepFreeze({
   moduleRegistryRuntimeBytes: 1234,
   moduleRegistryRuntimeSha256: '0xc94fcea5df503e97852633cbe76e0ee76260595f3f25c2fdbbf99ef6aec253bb',
   controllerSource: getAddress('0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c27'),
+  controllerModel: 'erc721_owner',
   policy: {
-    registryPaused: false,
+    registryPaused: true,
     module: ZERO_ADDRESS,
     moduleOwner: ZERO_ADDRESS,
     epoch: '0',
@@ -217,9 +218,15 @@ function normalizeRelease(release) {
     moduleRegistryRuntimeBytes: normalizePositiveInteger(release.moduleRegistryRuntimeBytes),
     moduleRegistryRuntimeSha256: normalizeHash(release.moduleRegistryRuntimeSha256),
     controllerSource: getAddress(release.controllerSource),
+    controllerModel: normalizeControllerModel(release.controllerModel),
     policy: normalizePolicyRelease(release.policy),
   };
   return deepFreeze(normalized);
+}
+
+function normalizeControllerModel(value) {
+  if (value !== 'erc721_owner') throw new TypeError('Account controller model is invalid.');
+  return value;
 }
 
 function normalizePolicyRelease(policy) {
