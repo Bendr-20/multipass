@@ -159,7 +159,7 @@ export function createRestapNetworkVerifiedOpeningRuntime({
       const body = await response.json();
       const message = body?.choices?.[0]?.message;
       if (!message || Object.hasOwn(message, 'tool_calls') || typeof message.content !== 'string' || !validUsage(body?.usage)) throw unavailable();
-      const opening = message.content.trim();
+      const opening = message.content.trim().replace(/\s+/gu, ' ');
       if (!opening || /[\u0000-\u001f\u007f]/u.test(opening) || Buffer.byteLength(opening, 'utf8') > input.maxBytes) throw unavailable();
       return Object.freeze({
         message: opening,

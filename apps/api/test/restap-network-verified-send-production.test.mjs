@@ -78,6 +78,18 @@ async function fileContains(filename, sentinel) {
   try { return (await readFile(filename)).includes(Buffer.from(sentinel)); } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
 }
 
+test('verified opening normalizes provider line breaks into bounded plain text', async () => {
+  const runtime = createRestapNetworkVerifiedOpeningRuntime({
+    apiKey: '***', model: 'pinned-test-model', timeoutMs: 1_000,
+    fetchImpl: async () => response('Hello, #2431.\n\nYour signal profile looks sharp.'),
+  });
+  const result = await runtime.generate({
+    senderTokenId: '3802', recipientTokenId: '2431', topic: 'general', maxBytes: 2_000,
+    senderCodex: { identity: { tokenId: '3802' } }, recipientCodex: { identity: { tokenId: '2431' } },
+  });
+  assert.equal(result.message, 'Hello, #2431. Your signal profile looks sharp.');
+});
+
 test('verified-send production config is dormant and emergency-stopped by default with exact parsing', () => {
   const dormant = parseRestapNetworkProductionConfig({});
   assert.deepEqual(dormant.verifiedSend, { enabled: false, emergencyStop: true, recipientTokenIds: [] });
