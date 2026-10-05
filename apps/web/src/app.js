@@ -80,7 +80,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -1832,7 +1832,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
           };
           await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, signal, policy });
         }
-        return activeRestapNetworkApi.sendTalk({ tokenId, csrfToken: state.consoleCsrfToken, signal, recipientTokenId: sendDraft.recipientTokenId, topic: sendDraft.topic, idempotencyKey: sendIdempotencyKey });
+        let result = await activeRestapNetworkApi.sendTalk({ tokenId, csrfToken: state.consoleCsrfToken, signal, recipientTokenId: sendDraft.recipientTokenId, topic: sendDraft.topic, idempotencyKey: sendIdempotencyKey });
+        for (let attempt = 0; result?.status === 'processing' && attempt < 90; attempt += 1) {
+          await restapPollDelay(1_000);
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          result = await activeRestapNetworkApi.sendTalk({ tokenId, csrfToken: state.consoleCsrfToken, signal, recipientTokenId: sendDraft.recipientTokenId, topic: sendDraft.topic, idempotencyKey: sendIdempotencyKey });
+        }
+        return result;
       }, { sendDraft, sendDraftFingerprint, sendIdempotencyKey, sendResult: null });
     } catch {
       return setConsoleRestapNetworkValidationError('Choose a different recipient Looper and an allowed topic.');

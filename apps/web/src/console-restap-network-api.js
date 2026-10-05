@@ -2,7 +2,7 @@ const TOPICS = Object.freeze(['collection-lore', 'trait-discussion', 'market-obs
 const POLICY_KEYS = Object.freeze(['expected_policy_version', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
 const POLICY_RESPONSE_KEYS = Object.freeze(['schema_version', 'token_id', 'policy', 'lease_status', 'eligibility_status', 'quota_usage', 'transcripts']);
 const PROJECTED_POLICY_KEYS = Object.freeze(['policy_version', 'custody_generation', 'network_enabled', 'inbound_enabled', 'autonomous_initiation_enabled', 'daily_initiated_conversation_limit', 'daily_generated_message_limit', 'per_peer_daily_limit', 'topics', 'allow_peer_token_ids', 'block_peer_token_ids', 'mute_until']);
-const TALK_STATUSES = Object.freeze(['reserved', 'sender_dispatched', 'recipient_dispatched', 'committed', 'charged_unknown', 'cancelled_charged']);
+const TALK_STATUSES = Object.freeze(['processing', 'reserved', 'sender_dispatched', 'recipient_dispatched', 'committed', 'charged_unknown', 'cancelled_charged']);
 
 export class ConsoleRestapNetworkApiError extends Error {
   constructor({ status, code }) {

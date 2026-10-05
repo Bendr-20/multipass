@@ -290,6 +290,42 @@ test('owner talk route uses Console auth/CSRF, exact input, and never calls lega
   assert.equal(calls.length, 1);
 });
 
+test('owner talk route hands long sends to one background flight and polls the terminal result', async () => {
+  let finishSend;
+  let calls = 0;
+  const pending = new Promise((resolve) => { finishSend = resolve; });
+  const verified = { async send() { calls += 1; return pending; } };
+  const api = createMultipassApi({
+    store: createMemoryStore(), baseUrl: BASE, allowedOrigins: [BASE],
+    consoleAuthStore: { validateSession() { return { wallet: OWNER }; } },
+    loopersOwnedAgentLoader: async () => [],
+    loopersAuthorizer: async ({ tokenId, wallet }) => ({ chainId: 8453, contract: COLLECTION, tokenId, owner: wallet, controller: wallet, controllerVerified: true, erc8004AgentId: tokenId }),
+    restapVerifiedSendService: verified,
+  });
+  const request = async () => {
+    const response = await api.handleRequest(new Request(BASE + '/api/multipass/console/restap-network/1/talk', { method: 'POST', headers: { origin: BASE, cookie: COOKIE, 'x-csrf-token': CSRF, 'content-type': 'application/json' }, body: JSON.stringify({ recipient_token_id: '2', topic: 'general', idempotency_key: 'route-background-0001' }) }));
+    return { response, body: await response.json() };
+  };
+  const first = await request();
+  assert.equal(first.response.status, 202);
+  assert.equal(first.body.status, 'processing');
+  assert.equal(first.body.replayed, false);
+  assert.equal(calls, 1);
+  const second = await request();
+  assert.equal(second.response.status, 202);
+  assert.equal(second.body.status, 'processing');
+  assert.equal(second.body.replayed, true);
+  assert.equal(calls, 1);
+  finishSend({ schemaVersion: '0.1.0', operationId: 'op-' + 'a'.repeat(29), status: 'committed', senderTokenId: '1', recipientTokenId: '2', topic: 'general', openingDigest: 'a'.repeat(64), replyDigest: 'b'.repeat(64), usage: { sender: null, recipient: null }, replayed: false, reply: 'bounded reply' });
+  await pending;
+  await Promise.resolve();
+  const terminal = await request();
+  assert.equal(terminal.response.status, 200);
+  assert.equal(terminal.body.status, 'committed');
+  assert.equal(terminal.body.reply, 'bounded reply');
+  assert.equal(calls, 1);
+});
+
 test('verified-send core imports no legacy worker, grant, lease, intent, conversation, relay, or coordinator modules', async () => {
   const source = await readFile(new URL('../src/restap-network/verified-send.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /from ['"]\.\/(?:activation-leases|worker|grants|intents|conversations|relay|coordinator)\.js['"]/u);

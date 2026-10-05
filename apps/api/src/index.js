@@ -405,6 +405,7 @@ export function createMultipassApi({
     looperCodexRuntime: resolvedLooperCodexRuntime,
     restapNetworkService,
     restapVerifiedSendService,
+    restapVerifiedSendFlights: new Map(),
     logger,
     consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
       ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),
@@ -612,15 +613,49 @@ async function handleRestapVerifiedSendRequest(request, method, rawSenderTokenId
   await authorizeConsoleLooper({ tokenId: senderTokenId, wallet: session.wallet, context });
   const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
   const input = normalizeRestapVerifiedSendInput(body, senderTokenId);
+  const flightKey = [session.wallet, senderTokenId, input.idempotencyKey].join('|');
+  let flight = context.restapVerifiedSendFlights.get(flightKey);
+  const replayedFlight = Boolean(flight);
+  if (!flight) {
+    flight = { createdAt: Date.now(), settled: false, result: null, error: null, promise: null };
+    flight.promise = Promise.resolve()
+      .then(() => service.send({ ...input, owner: session.wallet }))
+      .then((result) => { flight.result = result; flight.settled = true; }, (error) => { flight.error = error; flight.settled = true; });
+    context.restapVerifiedSendFlights.set(flightKey, flight);
+    trimRestapVerifiedSendFlights(context.restapVerifiedSendFlights);
+  }
+  if (!flight.settled) {
+    await Promise.race([flight.promise, new Promise((resolve) => setTimeout(resolve, 250))]);
+  }
+  if (!flight.settled) return jsonResponse(projectPendingRestapVerifiedSend(input, session.wallet, replayedFlight), 202);
   try {
-    const result = await service.send({ ...input, owner: session.wallet });
-    const projected = projectRestapVerifiedSend(result);
+    if (flight.error) throw flight.error;
+    const projected = projectRestapVerifiedSend(flight.result);
     const status = projected.status === 'committed' ? 200 : projected.status === 'cancelled_charged' ? 409 : 202;
     return jsonResponse(projected, status);
   } catch (error) {
     if (error instanceof RestapVerifiedSendError) return errorResponse(error.status, error.code, error.message);
     if (error instanceof TypeError) return errorResponse(400, 'invalid_request', 'RESTAP verified send request is invalid.');
     return errorResponse(503, 'restap_verified_send_unavailable', 'RESTAP verified send is temporarily unavailable.');
+  }
+}
+
+function projectPendingRestapVerifiedSend(input, owner, replayed) {
+  const operationId = 'pending_' + createHash('sha256').update([owner, input.senderTokenId, input.idempotencyKey].join('|')).digest('hex').slice(0, 48);
+  return {
+    schema_version: '0.1.0', operation_id: operationId, status: 'processing',
+    sender_token_id: input.senderTokenId, recipient_token_id: input.recipientTokenId, topic: input.topic,
+    opening_sha256: null, reply_sha256: null, usage: { sender: null, recipient: null },
+    replayed: Boolean(replayed), reason: 'processing',
+  };
+}
+
+function trimRestapVerifiedSendFlights(flights) {
+  while (flights.size > 128) {
+    const settled = [...flights].find(([, value]) => value.settled);
+    const oldest = settled ?? flights.entries().next().value;
+    if (!oldest) break;
+    flights.delete(oldest[0]);
   }
 }
 
