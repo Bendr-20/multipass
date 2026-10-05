@@ -127,6 +127,38 @@ test('verified send succeeds with one provider request per side and persists met
   assert.equal(columns.some((name) => /message|reply_text|prompt|transcript|body_json/iu.test(name)), false);
 });
 
+test('custody reconciliation is serialized across sender and recipient', async (t) => {
+  const f = await fixture(); t.after(() => f.close());
+  let active = 0;
+  let maxActive = 0;
+  const order = [];
+  const custodyReconciler = {
+    async reconcileToken({ tokenId }) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      order.push('start:' + tokenId);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      order.push('end:' + tokenId);
+      active -= 1;
+      return { eligible: true, status: 'ready', generation: 1 };
+    },
+    getEpochSnapshot({ tokenId }) { return f.snapshots.get(tokenId); },
+  };
+  const service = createRestapVerifiedSendService({
+    store: f.store,
+    custodyReconciler,
+    policyReader: { get({ custody }) { return f.policies.get(custody.tokenId); } },
+    codexRuntime: { available: true, getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId) } }; } },
+    openingRuntime: { async generate() { return { message: 'serialized opening', usage: null }; } },
+    recipientTransport: { async talk() { return { reply: 'serialized reply', usage: null }; } },
+    now: () => NOW,
+  });
+  const result = await service.send({ ...f.input, idempotencyKey: 'send-serial-0001' });
+  assert.equal(result.status, 'committed');
+  assert.equal(maxActive, 1);
+  assert.deepEqual(order, ['start:1', 'end:1', 'start:2', 'end:2']);
+});
+
 test('mutual policy, explicit peer allowlists, and custody are fail-closed before dispatch', async (t) => {
   const denied = await fixture(); t.after(() => denied.close());
   denied.policies.set('2', policy('2', { inboundEnabled: false }));
