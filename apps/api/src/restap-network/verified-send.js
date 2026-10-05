@@ -55,10 +55,10 @@ export function createRestapVerifiedSendService({
     const timestamp = readTime(now);
     if (emergencyStop() === true) throw failure('emergency_stop', 'RESTAP verified send is stopped.', 503);
 
-    const reconciled = [
-      await custodyReconciler.reconcileToken({ tokenId: input.senderTokenId }),
-      await custodyReconciler.reconcileToken({ tokenId: input.recipientTokenId }),
-    ];
+    const reconciled = await Promise.all([
+      custodyReconciler.reconcileToken({ tokenId: input.senderTokenId }),
+      custodyReconciler.reconcileToken({ tokenId: input.recipientTokenId }),
+    ]);
     if (reconciled.some((value) => value?.eligible !== true || value?.status !== 'ready')) {
       throw failure('custody_unavailable', 'Current Looper custody could not be verified.', 503);
     }

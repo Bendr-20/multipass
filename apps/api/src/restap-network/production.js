@@ -17,6 +17,7 @@ const REVIEWED_BASE_PROVIDERS = Object.freeze({
   blast: 'https://base-mainnet.public.blastapi.io',
 });
 const REQUIRED_PROVIDER_IDS = Object.freeze(Object.keys(REVIEWED_BASE_PROVIDERS).sort());
+export const RESTAP_NETWORK_PRODUCTION_CUSTODY_RANGE = 20;
 const MAX_AUDIT_KEY_FILE_BYTES = 4_096;
 
 export function parseRestapNetworkProductionConfig(env = {}) {
@@ -89,7 +90,7 @@ export async function createRestapNetworkProductionFoundation({
     const providers = Object.freeze(clients.map((publicClient, index) => Object.freeze({
       approved: true,
       id: productionConfig.providerIds[index],
-      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true, maxRange: 500, rpcMinIntervalMs: 250 }),
+      ...createRestapNetworkBaseProvider({ publicClient, allowAnyCollectionToken: true, maxRange: RESTAP_NETWORK_PRODUCTION_CUSTODY_RANGE, rpcMinIntervalMs: 250 }),
     })));
     const offchainOwnerAuthority = config.gates.policy === true;
     const accountReader = createAccountIntegrityReader({

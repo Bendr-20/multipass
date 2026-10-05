@@ -6,11 +6,15 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { parseServerOptions, startServer } from '../src/server.js';
-import { createRestapNetworkProductionFoundation, parseRestapNetworkProductionConfig } from '../src/restap-network/production.js';
+import { createRestapNetworkProductionFoundation, parseRestapNetworkProductionConfig, RESTAP_NETWORK_PRODUCTION_CUSTODY_RANGE } from '../src/restap-network/production.js';
 import { composeRestapNetworkProductionPolicy } from '../src/restap-network/production-composition.js';
 import { createRestapNetworkDatabase } from '../src/restap-network/database.js';
 import { createRestapNetworkPublicKeyRegistry } from '../src/restap-network/grants.js';
 import { parseRestapNetworkServiceConfig, startRestapNetworkService } from '../src/restap-network/service.js';
+
+test('production custody range stays below the hosted RPC route deadline', () => {
+  assert.equal(RESTAP_NETWORK_PRODUCTION_CUSTODY_RANGE, 20);
+});
 
 test('production traffic config is collection-wide owner opt-in and protected relay files stay pinned', () => {
   const parsed = parseRestapNetworkProductionConfig({

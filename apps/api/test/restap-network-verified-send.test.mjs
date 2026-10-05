@@ -127,7 +127,7 @@ test('verified send succeeds with one provider request per side and persists met
   assert.equal(columns.some((name) => /message|reply_text|prompt|transcript|body_json/iu.test(name)), false);
 });
 
-test('custody reconciliation is serialized across sender and recipient', async (t) => {
+test('custody reconciliation overlaps sender and recipient to stay inside the route deadline', async (t) => {
   const f = await fixture(); t.after(() => f.close());
   let active = 0;
   let maxActive = 0;
@@ -155,8 +155,9 @@ test('custody reconciliation is serialized across sender and recipient', async (
   });
   const result = await service.send({ ...f.input, idempotencyKey: 'send-serial-0001' });
   assert.equal(result.status, 'committed');
-  assert.equal(maxActive, 1);
-  assert.deepEqual(order, ['start:1', 'end:1', 'start:2', 'end:2']);
+  assert.equal(maxActive, 2);
+  assert.deepEqual(order.slice(0, 2), ['start:1', 'start:2']);
+  assert.deepEqual([...order.slice(2)].sort(), ['end:1', 'end:2']);
 });
 
 test('mutual policy, explicit peer allowlists, and custody are fail-closed before dispatch', async (t) => {
