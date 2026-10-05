@@ -7764,6 +7764,36 @@ test('RESTAP mutations project saving state and suppress duplicate submissions',
   await flushAsyncEvents(30);
 });
 
+test('RESTAP Intro opts the selected peer in before sending', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const restap = createConsoleRestapApiFixture({
+    getPolicy: ({ tokenId }) => createConsoleRestapPolicyResponse(tokenId, { policy: { allow_peer_token_ids: ['3802'], block_peer_token_ids: ['2431'] } }),
+  });
+  const app = createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
+    fetchImpl: createConsoleOwnedAgentsFetch({ tokenIds: [617] }), consoleRestapNetworkApi: restap.api,
+    claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) },
+  });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
+  const form = root.querySelector('[data-restap-network-send]');
+  form.elements.namedItem('recipient_token_id').value = '2431';
+  form.elements.namedItem('topic').value = 'general';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(30);
+
+  const mutations = restap.calls.filter(([name]) => ['putPolicy', 'sendTalk'].includes(name));
+  assert.deepEqual(mutations.map(([name]) => name), ['putPolicy', 'sendTalk']);
+  assert.deepEqual(mutations[0][1].policy, {
+    expected_policy_version: 3, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: false,
+    daily_initiated_conversation_limit: 5, daily_generated_message_limit: 10, per_peer_daily_limit: 3,
+    topics: ['general'], allow_peer_token_ids: ['3802', '2431'], block_peer_token_ids: [], mute_until: null,
+  });
+  assert.equal(mutations[1][1].recipientTokenId, '2431');
+  assert.equal(mutations[0][1].signal, mutations[1][1].signal);
+});
+
 test('RESTAP send errors preserve the bounded recipient and topic draft', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   let rejectSend;

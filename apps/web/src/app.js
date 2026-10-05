@@ -1804,7 +1804,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function sendConsoleRestapNetworkTalk(event) {
     event?.preventDefault?.();
     const tokenId = state.consoleRestapNetwork?.selectedTokenId;
-    if (!tokenId || state.consoleRestapNetwork.status === 'conflict') return;
+    const current = state.consoleRestapNetwork?.policy;
+    if (!tokenId || !current || state.consoleRestapNetwork.status === 'conflict') return;
     const form = event?.currentTarget;
     const value = (name) => form?.elements?.namedItem?.(name)?.value ?? '';
     try {
@@ -1814,7 +1815,25 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const sendIdempotencyKey = state.consoleRestapNetwork.sendDraftFingerprint === sendDraftFingerprint && state.consoleRestapNetwork.sendIdempotencyKey
         ? state.consoleRestapNetwork.sendIdempotencyKey
         : restapIdempotencyKeyFactory();
-      return runConsoleRestapNetworkMutation(tokenId, 'send', (signal) => activeRestapNetworkApi.sendTalk({ tokenId, csrfToken: state.consoleCsrfToken, signal, recipientTokenId: sendDraft.recipientTokenId, topic: sendDraft.topic, idempotencyKey: sendIdempotencyKey }), { sendDraft, sendDraftFingerprint, sendIdempotencyKey, sendResult: null });
+      return runConsoleRestapNetworkMutation(tokenId, 'send', async (signal) => {
+        if (!current.allowPeers.includes(sendDraft.recipientTokenId) || current.blockPeers.includes(sendDraft.recipientTokenId)) {
+          const policy = {
+            expected_policy_version: current.policyVersion,
+            network_enabled: current.networkEnabled,
+            inbound_enabled: current.inboundEnabled,
+            autonomous_initiation_enabled: false,
+            daily_initiated_conversation_limit: current.initiatedLimit,
+            daily_generated_message_limit: current.generatedLimit,
+            per_peer_daily_limit: current.peerLimit,
+            topics: current.topics,
+            allow_peer_token_ids: [...new Set([...current.allowPeers, sendDraft.recipientTokenId])],
+            block_peer_token_ids: current.blockPeers.filter((peer) => peer !== sendDraft.recipientTokenId),
+            mute_until: current.muteUntil,
+          };
+          await activeRestapNetworkApi.putPolicy({ tokenId, csrfToken: state.consoleCsrfToken, signal, policy });
+        }
+        return activeRestapNetworkApi.sendTalk({ tokenId, csrfToken: state.consoleCsrfToken, signal, recipientTokenId: sendDraft.recipientTokenId, topic: sendDraft.topic, idempotencyKey: sendIdempotencyKey });
+      }, { sendDraft, sendDraftFingerprint, sendIdempotencyKey, sendResult: null });
     } catch {
       return setConsoleRestapNetworkValidationError('Choose a different recipient Looper and an allowed topic.');
     }
