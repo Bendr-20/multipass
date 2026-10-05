@@ -53,7 +53,7 @@ export async function createRestapNetworkProductionFoundation({
   if (verifiedSendEnabled && (!config.gates.policy || trafficEnabled || config.gates.transcripts || config.gates.ga)) {
     throw new Error('RESTAP verified send requires foundation and policy with all legacy traffic gates off.');
   }
-  if (verifiedSendEnabled && !sameStrings(productionConfig.verifiedSend.recipientTokenIds, ['3802'])) {
+  if (verifiedSendEnabled && !sameStrings(productionConfig.verifiedSend.recipientTokenIds, ['2431', '3802'])) {
     throw new Error('RESTAP verified send requires the exact reviewed same-process recipient roster.');
   }
   if (trafficEnabled && !productionConfig.keyRegistryFile) throw new Error('RESTAP network traffic requires a protected key registry file.');

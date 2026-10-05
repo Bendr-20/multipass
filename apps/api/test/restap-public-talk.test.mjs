@@ -19,6 +19,20 @@ function runtime({ inferenceClient, codexRuntime, sessionStore } = {}) {
 }
 function envelope(operation, input) { return Object.freeze({ schemaVersion: '1.0.0', artifactHash: PROFILE.artifactHash, codexVersion: 'traits-v1', operation, subjectIds: Object.freeze(input.tokenId ? [input.tokenId] : []), evidence: Object.freeze([]), result: operation === 'getCollectionSummary' ? { collection: { name: 'Loopers', chainId: 8453, count: 7777 }, traitTypes: [], versions: { traitCodexVersion: 'v1' } } : { identity: { tokenId: input.tokenId, canonicalName: 'Looper #' + input.tokenId, description: '' }, visualTraits: [], interpretation: { primaryClass: 'Builder', secondaryClass: 'Researcher', specialization: 'proofs' } } }); }
 
+test('runtime binds stateless replies to a selected recipient Looper', async () => {
+  const seen = [];
+  const runtime = createRestapPublicTalkRuntime({
+    tokenId: '2431',
+    codexRuntime: { available: true, getProfileContext(id) { assert.equal(id, 2431); return { ...PROFILE, identity: { tokenId: 2431, canonicalName: 'Looper #2431' } }; }, query(name, input) { return envelope(name, input); } },
+    sessionStore: sessions(),
+    inferenceClient: { async generate(input) { seen.push(input); return { reply: 'Hello from Looper #2431.' }; } },
+  });
+  const reply = await runtime.talk({ message: 'Hello', stateless: true, publicProjection: { ...PUBLIC, canonicalIdentity: { canonicalName: 'Looper #2431', imageUrl: 'https://helixa.xyz/2431.png' }, ownerPublicProfile: { ...PUBLIC.ownerPublicProfile, displayName: 'Looper #2431' } } });
+  assert.equal(reply.reply, 'Hello from Looper #2431.');
+  assert.equal(seen[0].tokenId, '2431');
+  assert.equal(seen[0].codexProfile.identity.tokenId, 2431);
+});
+
 test('constructor rejects missing or unavailable closed dependencies', () => {
   assert.throws(() => createRestapPublicTalkRuntime({}), /codex|session|inference/i);
   assert.throws(() => runtime({ codexRuntime: { available: false } }), /codex/i);
@@ -50,7 +64,7 @@ test('ordinary talk receives only bounded public projection and isolated history
   const second = await r.talk({ message: 'And your mission?', sessionId: first.session_id, publicProjection: PUBLIC });
   assert.equal(second.session_id, first.session_id);
   assert.equal(calls.length, 2);
-  assert.deepEqual(Object.keys(calls[0]).sort(), ['codexProfile', 'history', 'message', 'publicProjection']);
+  assert.deepEqual(Object.keys(calls[0]).sort(), ['codexProfile', 'history', 'message', 'publicProjection', 'tokenId']);
   assert.deepEqual(calls[0].history, []);
   assert.equal(calls[1].history.length, 1);
   assert.equal(JSON.stringify(calls).includes('wallet'), false);
@@ -121,7 +135,7 @@ test('prompt injection remains plain user text and cannot add private surfaces o
   const result = await r.talk({ message: injection, publicProjection: PUBLIC, consoleAgentRuntime: { explode() { throw new Error('private'); } } });
   assert.equal(result.reply, 'No private capability exists.');
   assert.equal(generated.length, 1);
-  assert.deepEqual(Object.keys(generated[0]).sort(), ['codexProfile', 'history', 'message', 'publicProjection']);
+  assert.deepEqual(Object.keys(generated[0]).sort(), ['codexProfile', 'history', 'message', 'publicProjection', 'tokenId']);
   const serialized = JSON.stringify(generated[0]);
   for (const secret of ['consoleAgentRuntime', 'private-key', 'owner-cookie']) assert.equal(serialized.includes(secret), false);
 });

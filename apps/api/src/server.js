@@ -347,6 +347,7 @@ export async function startServer(options = {}) {
     let restapAuthorityResolver;
     let restap3802Policy;
     let restapTalkRuntime;
+    let restapInferenceClient;
     let restapNewsAuthenticator;
 
     if (needsRestapPolicy) {
@@ -395,32 +396,50 @@ export async function startServer(options = {}) {
 
     if (needsRestapTalkRuntime) {
       restapPublicSessions = options.restapPublicSessions ?? restapPublicSessionStoreFactory();
-      const inferenceClient = options.restapInferenceClient ?? restapInferenceClientFactory({
+      restapInferenceClient = options.restapInferenceClient ?? restapInferenceClientFactory({
         apiKey: parsed.bankrLlmKey,
         model: parsed.restapTalkModel ?? undefined,
         timeoutMs: parsed.restapTalkTimeoutMs,
         fetchImpl: parsed.fetchImpl ?? fetch,
       });
-      if (!inferenceClient || typeof inferenceClient.generate !== 'function') {
+      if (!restapInferenceClient || typeof restapInferenceClient.generate !== 'function') {
         throw new Error('RESTAP talk requires a dedicated inference client.');
       }
       restapTalkRuntime = options.restapTalkRuntime ?? restapPublicTalkRuntimeFactory({
         codexRuntime: looperCodexRuntime,
         sessionStore: restapPublicSessions,
-        inferenceClient,
+        inferenceClient: restapInferenceClient,
       });
     }
 
     if (verifiedSendEnabled && restapVerifiedSendService === null) {
       const dependencies = restapNetworkProductionFoundation?.verifiedSendDependencies;
       if (!dependencies) throw new Error('RESTAP verified-send production dependencies are unavailable.');
+      const recipientRuntimes = Object.freeze(Object.fromEntries(dependencies.config.recipientTokenIds.map((tokenId) => [
+        tokenId,
+        tokenId === '3802' || options.restapTalkRuntime ? restapTalkRuntime : restapPublicTalkRuntimeFactory({
+          codexRuntime: looperCodexRuntime, sessionStore: restapPublicSessions, inferenceClient: restapInferenceClient, tokenId,
+        }),
+      ])));
       const composition = composeRestapVerifiedSendProduction({
         ...dependencies,
-        recipientRuntimes: Object.freeze({ '3802': restapTalkRuntime }),
+        recipientRuntimes,
         resolvePublicProjection: async ({ tokenId }) => {
-          if (tokenId !== '3802') throw new Error('RESTAP verified-send recipient is unavailable.');
-          const authorization = await restap3802Policy.authorize({ surface: 'talk' });
-          return authorization.publicProjection;
+          if (tokenId === '3802') {
+            const authorization = await restap3802Policy.authorize({ surface: 'talk' });
+            return authorization.publicProjection;
+          }
+          const profile = looperCodexRuntime.getProfileContext(Number(tokenId));
+          if (String(profile?.identity?.tokenId) !== tokenId || !profile?.identity?.canonicalName || !profile?.identity?.image?.url) throw new Error('RESTAP verified-send recipient is unavailable.');
+          return Object.freeze({
+            canonicalIdentity: Object.freeze({ canonicalName: profile.identity.canonicalName, imageUrl: profile.identity.image.url }),
+            ownerPublicProfile: Object.freeze({
+              displayName: profile.identity.canonicalName, publicConversationEnabled: true,
+              biography: 'Public RESTAP identity for ' + profile.identity.canonicalName + '.',
+              mission: 'Discuss verified Looper traits and collection context.',
+              voicePresentation: 'Concise, factual, and bounded.',
+            }),
+          });
         },
       });
       restapVerifiedSendService = composition.service;

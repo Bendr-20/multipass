@@ -144,12 +144,12 @@ test('production root constructs and injects the emergency-stopped verified-send
     MULTIPASS_RESTAP_NETWORK_BASE_PROVIDERS: 'blast,drpc',
     MULTIPASS_RESTAP_NETWORK_AUDIT_KEY_FILE: auditKeyPath,
     MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED: 'true',
-    MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS: '3802',
+    MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS: '2431,3802',
     MULTIPASS_RESTAP_3802_POLICY_PATH: '/isolated/rehearsal-policy.json',
     BANKR_LLM_KEY: 'phase-b-test-key',
   };
   const publicClient = { async getChainId() { throw new Error('not called'); }, async getBlock() { throw new Error('not called'); }, async readContract() { throw new Error('not called'); }, async getBytecode() { throw new Error('not called'); }, async getLogs() { throw new Error('not called'); } };
-  const codexRuntime = Object.freeze({ available: true, status: Object.freeze({ available: true, artifactHash: 'c'.repeat(64), count: 7777 }), getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId), canonicalName: 'Looper #' + tokenId } }; }, query() { return []; } });
+  const codexRuntime = Object.freeze({ available: true, status: Object.freeze({ available: true, artifactHash: 'c'.repeat(64), count: 7777 }), getProfileContext(tokenId) { return { identity: { tokenId: String(tokenId), canonicalName: 'Looper #' + tokenId, image: { url: 'https://example.test/' + tokenId + '.png' } } }; }, query() { return []; } });
   let injected = null;
   const server = await startServer({
     ...parseServerOptions([], env),
