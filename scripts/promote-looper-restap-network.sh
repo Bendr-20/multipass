@@ -11,6 +11,7 @@ SYSTEMD_ROOT=/etc/systemd/system
 usage() {
   cat <<'EOF'
 Usage: promote-looper-restap-network.sh --inspect | --rehearsal OPTIONS | --promote OPTIONS | --rollback --backup PATH
+Add --verified-send for the reviewed synchronous-send phase (foundation+policy only; recipient 3802; emergency stop open).
 Select --target isolated for closed Phase 0 or --target console for owner opt-in and later reviewed phases.
 Required mutation options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --unit PATH --static-root PATH --backup-root PATH --proof-root PATH --smoke-base-url HTTPS_ORIGIN/
 Promotion also requires --rehearsal-proof PATH. Gates are explicit and closed by default.
@@ -18,11 +19,12 @@ Rehearsal installs and starts the exact candidate, smokes it through the exact H
 EOF
 }
 
-mode='' target=isolated release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' smoke_base_url='' rehearsal_proof='' backup=''
+mode='' target=isolated verified_send=false release='' release_sha='' artifact='' policy='' key_registry='' signer='' database='' unit='' static_root='' backup_root='' proof_root='' smoke_base_url='' rehearsal_proof='' backup=''
 declare -A gates=([foundation]=false [policy]=false [discovery]=false [initiation]=false [replies]=false [transcripts]=false [pilot]=false [ga]=false)
 while (($#)); do
   case "$1" in
     --help) usage; exit 0 ;;
+    --verified-send) verified_send=true; shift ;;
     --inspect|--rehearsal|--promote|--rollback) [[ -z "$mode" ]] || { echo 'select exactly one mode' >&2; exit 2; }; mode=${1#--}; shift ;;
     --target|--release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--unit|--static-root|--backup-root|--proof-root|--smoke-base-url|--rehearsal-proof|--backup|--gate)
       flag=$1; shift; (($#)) || { echo "missing value for $flag" >&2; exit 2; }; value=$1; shift
@@ -132,7 +134,7 @@ tuple=$(gate_tuple)
 case "$tuple" in
   0,0,0,0,0,0,0,0) smoke_phase=phase0 ;;
   1,0,0,0,0,0,0,0) smoke_phase=foundation ;;
-  1,1,0,0,0,0,0,0) smoke_phase=holder-opt-in ;;
+  1,1,0,0,0,0,0,0) if $verified_send; then smoke_phase=verified-send; else smoke_phase=holder-opt-in; fi ;;
   1,1,1,1,1,0,1,0) smoke_phase=replies ;;
   *) echo 'gate tuple is not an exact reviewed production phase' >&2; exit 1 ;;
 esac
@@ -163,6 +165,9 @@ Environment=MULTIPASS_RESTAP_NETWORK_POLICY_FILE=$policy
 Environment=MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE=$key_registry
 Environment=MULTIPASS_RESTAP_NETWORK_SIGNER_FILE=$signer
 Environment=MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH=$artifact
+Environment=MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED=$verified_send
+Environment=MULTIPASS_RESTAP_VERIFIED_SEND_EMERGENCY_STOP=$([[ $verified_send == true ]] && echo false || echo true)
+Environment=MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS=$([[ $verified_send == true ]] && echo 3802 || echo '')
 EOF
   chmod 0600 "$destination"
 }
@@ -173,6 +178,7 @@ target=$target
 service_name=$SERVICE_NAME
 dropin_name=$DROPIN_NAME
 gate_tuple=$tuple
+verified_send=$verified_send
 smoke_base_url=$smoke_base_url
 release_path=$release
 artifact_path=$artifact

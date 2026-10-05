@@ -11158,7 +11158,7 @@ h1 {
   grid-template-areas:
     "readiness readiness"
     "permissions limits"
-    "plan scheduled"
+    "send send"
     "advanced privacy"
     "danger danger";
   align-content: start;
@@ -11179,7 +11179,7 @@ h1 {
   grid-template-areas:
     "readiness readiness"
     "permissions limits"
-    "plan privacy";
+    "send privacy";
   align-content: start;
 }
 .console-restap-network-preview :is(input, select) { cursor: not-allowed; opacity: 0.68; }
@@ -11190,7 +11190,7 @@ h1 {
 .console-restap-readiness { grid-area: readiness; min-width: 0; }
 .console-restap-permissions { grid-area: permissions; }
 .console-restap-limits { grid-area: limits; }
-.console-restap-plan { grid-area: plan; }
+.console-restap-plan { grid-area: send; }
 .console-restap-scheduled { grid-area: scheduled; }
 .console-restap-advanced { grid-area: advanced; }
 .console-restap-privacy { grid-area: privacy; }
@@ -11456,6 +11456,12 @@ h1 {
   font-size: 12px;
 }
 .console-restap-form-row { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.console-restap-send .console-restap-intent-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+.console-restap-send-result:empty { display: none; }
+.console-restap-send-result { margin-top: 12px; border: 1px solid rgba(110, 236, 216, 0.18); border-radius: 10px; background: rgba(110, 236, 216, 0.07); padding: 12px; color: rgba(244, 239, 231, 0.76); }
+.console-restap-send-result strong { color: #ecfffb; font-size: 12px; }
+.console-restap-send-result p { margin: 5px 0 0; color: rgba(244, 239, 231, 0.68); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.console-restap-send-warning { border-color: rgba(232, 189, 112, 0.28); background: rgba(232, 189, 112, 0.08); }
 
 .console-restap-intent-list { display: grid; min-width: 0; gap: 9px; margin-top: 14px; }
 .console-restap-intent-card { min-width: 0; border: 1px solid rgba(244, 239, 231, 0.075); border-radius: 11px; background: rgba(4, 8, 12, 0.22); padding: 12px; }
@@ -11531,8 +11537,7 @@ h1 {
       "readiness"
       "permissions"
       "limits"
-      "plan"
-      "scheduled"
+      "send"
       "advanced"
       "privacy"
       "danger";
@@ -11548,7 +11553,8 @@ h1 {
   .console-restap-heading { align-items: flex-start; }
   .console-restap-state { min-height: 28px; padding-inline: 8px; font-size: 9px; }
   .console-restap-limit-grid,
-  .console-restap-form-row { grid-template-columns: minmax(0, 1fr); }
+  .console-restap-form-row,
+  .console-restap-send .console-restap-intent-form { grid-template-columns: minmax(0, 1fr); }
   .console-restap-limit { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .console-restap-number { width: min(100%, 132px); }
   .console-restap-card { padding: 14px; }

@@ -16,14 +16,18 @@ export function createRestapPublicTalkRuntime({ codexRuntime, sessionStore, infe
   if (!sessionStore || typeof sessionStore.create !== 'function' || typeof sessionStore.resolve !== 'function' || typeof sessionStore.appendTurn !== 'function') throw new TypeError('RESTAP talk requires a public session store.');
   if (!inferenceClient || typeof inferenceClient.generate !== 'function') throw new TypeError('RESTAP talk requires a dedicated inference client.');
 
-  async function talk({ message, sessionId, publicProjection } = {}) {
+  async function talk({ message, sessionId, publicProjection, stateless = false } = {}) {
     const text = boundedText(message, 'message', MESSAGE_BYTES);
     const projection = normalizePublicProjection(publicProjection);
     const codexProfile = codexRuntime.getProfileContext(3802);
     if (String(codexProfile?.identity?.tokenId) !== '3802') throw new TypeError('RESTAP talk Codex profile must be token 3802.');
-    const session = sessionId === undefined ? sessionStore.create() : sessionStore.resolve(sessionId);
+    if (typeof stateless !== 'boolean' || (stateless && sessionId !== undefined)) throw new TypeError('RESTAP talk session mode is invalid.');
+    const session = stateless
+      ? Object.freeze({ history: Object.freeze([]) })
+      : sessionId === undefined ? sessionStore.create() : sessionStore.resolve(sessionId);
 
     let reply;
+    let usage = null;
     const intent = resolveConsoleCodexIntent(text, { selectedTokenId: 3802 });
     if (intent) {
       reply = formatConsoleCodexResult(executeConsoleCodexIntent(intent, { runtime: codexRuntime }));
@@ -42,8 +46,10 @@ export function createRestapPublicTalkRuntime({ codexRuntime, sessionStore, infe
         throw new RestapProviderUnavailableError();
       }
       reply = decodeReply(generated);
+      usage = generated.usage === undefined || generated.usage === null ? null : normalizeProviderUsage(generated.usage);
     }
     reply = capUtf8(reply, REPLY_BYTES);
+    if (stateless) return Object.freeze({ reply, ...(usage ? { usage } : {}) });
     sessionStore.appendTurn(session.sessionId, { user: text, assistant: reply });
     return Object.freeze({ reply, session_id: session.sessionId });
   }
@@ -85,7 +91,7 @@ export function createBankrRestapInferenceClient({
       if (!response.ok || response.headers?.get?.('x-privacy-tier') !== 'zdr' || !validUsage(body?.usage)) throw new RestapProviderUnavailableError();
       const content = body?.choices?.[0]?.message?.content ?? body?.content?.[0]?.text;
       if (typeof content !== 'string') throw new RestapProviderUnavailableError();
-      return Object.freeze({ reply: normalizeProviderReply(content) });
+      return Object.freeze({ reply: normalizeProviderReply(content), usage: normalizeProviderUsage(body.usage) });
     } catch (error) {
       if (error instanceof RestapProviderUnavailableError) throw error;
       throw new RestapProviderUnavailableError();
@@ -137,6 +143,14 @@ function decodeReply(value) {
 function validUsage(value) {
   return plain(value) && ['prompt_tokens', 'completion_tokens', 'total_tokens'].every((key) => Number.isSafeInteger(value[key]) && value[key] >= 0)
     && value.total_tokens === value.prompt_tokens + value.completion_tokens;
+}
+function normalizeProviderUsage(value) {
+  if (validUsage(value)) return Object.freeze({ input_tokens: value.prompt_tokens, output_tokens: value.completion_tokens, total_tokens: value.total_tokens });
+  if (plain(value) && ['input_tokens', 'output_tokens', 'total_tokens'].every((key) => Number.isSafeInteger(value[key]) && value[key] >= 0)
+    && value.total_tokens === value.input_tokens + value.output_tokens) {
+    return Object.freeze({ input_tokens: value.input_tokens, output_tokens: value.output_tokens, total_tokens: value.total_tokens });
+  }
+  throw new RestapProviderUnavailableError();
 }
 function normalizeProviderReply(value) {
   if (typeof value !== 'string') throw new TypeError('RESTAP reply is invalid.');

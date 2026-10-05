@@ -19,6 +19,7 @@ export const RESTAP_NETWORK_TABLES = Object.freeze([
   'restap_network_policy_peers',
   'restap_network_quota_buckets',
   'restap_network_replay_nonces',
+  'restap_network_verified_sends',
   'restap_network_worker_lease',
 ]);
 
@@ -38,6 +39,38 @@ const SCHEMA = [
     status TEXT NOT NULL CHECK (status IN ('ready','disputed','rebuilding','revoked')),
     updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
     PRIMARY KEY (chain_id, collection, token_id, generation)
+  ) STRICT`,
+  `CREATE TABLE IF NOT EXISTS restap_network_verified_sends (
+    operation_id TEXT PRIMARY KEY,
+    chain_id INTEGER NOT NULL CHECK (chain_id > 0),
+    collection TEXT NOT NULL CHECK (length(collection) = 42),
+    sender_token_id TEXT NOT NULL CHECK (length(sender_token_id) BETWEEN 1 AND 78),
+    recipient_token_id TEXT NOT NULL CHECK (length(recipient_token_id) BETWEEN 1 AND 78 AND recipient_token_id <> sender_token_id),
+    sender_custody_generation INTEGER NOT NULL CHECK (sender_custody_generation >= 0),
+    recipient_custody_generation INTEGER NOT NULL CHECK (recipient_custody_generation >= 0),
+    sender_policy_version INTEGER NOT NULL CHECK (sender_policy_version >= 0),
+    recipient_policy_version INTEGER NOT NULL CHECK (recipient_policy_version >= 0),
+    topic TEXT NOT NULL CHECK (length(topic) BETWEEN 1 AND 64),
+    idempotency_digest TEXT NOT NULL CHECK (length(idempotency_digest) = 64),
+    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64),
+    status TEXT NOT NULL CHECK (status IN ('reserved','sender_dispatched','recipient_dispatched','committed','charged_unknown','cancelled_charged')),
+    reason_class TEXT,
+    opening_digest TEXT CHECK (opening_digest IS NULL OR length(opening_digest) = 64),
+    reply_digest TEXT CHECK (reply_digest IS NULL OR length(reply_digest) = 64),
+    sender_input_tokens INTEGER CHECK (sender_input_tokens IS NULL OR sender_input_tokens >= 0),
+    sender_output_tokens INTEGER CHECK (sender_output_tokens IS NULL OR sender_output_tokens >= 0),
+    sender_total_tokens INTEGER CHECK (sender_total_tokens IS NULL OR sender_total_tokens >= 0),
+    recipient_input_tokens INTEGER CHECK (recipient_input_tokens IS NULL OR recipient_input_tokens >= 0),
+    recipient_output_tokens INTEGER CHECK (recipient_output_tokens IS NULL OR recipient_output_tokens >= 0),
+    recipient_total_tokens INTEGER CHECK (recipient_total_tokens IS NULL OR recipient_total_tokens >= 0),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0),
+    updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+    terminal_at INTEGER,
+    UNIQUE (chain_id, collection, sender_token_id, sender_custody_generation, idempotency_digest),
+    FOREIGN KEY (chain_id, collection, sender_token_id, sender_custody_generation)
+      REFERENCES restap_network_custody_epochs (chain_id, collection, token_id, generation) ON DELETE RESTRICT,
+    FOREIGN KEY (chain_id, collection, recipient_token_id, recipient_custody_generation)
+      REFERENCES restap_network_custody_epochs (chain_id, collection, token_id, generation) ON DELETE RESTRICT
   ) STRICT`,
   `CREATE TABLE IF NOT EXISTS restap_network_activation_leases (
     lease_id TEXT PRIMARY KEY,

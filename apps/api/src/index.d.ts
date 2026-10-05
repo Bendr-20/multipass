@@ -103,6 +103,7 @@ export interface MultipassApiOptions {
   };
   looperCodexRuntime?: LooperCodexRuntime;
   restapNetworkService?: { status: { enabled: boolean; gates: Record<string, boolean>; transcriptCapability: 'unavailable' }; close(): Promise<void> } | null;
+  restapVerifiedSendService?: RestapVerifiedSendService | null;
   logger?: MultipassLogger;
   consoleCodexWalletRateLimit?: { limit: number; windowMs: number };
   consoleCodexGlobalRateLimit?: { limit: number; windowMs: number };
@@ -124,6 +125,25 @@ export interface MultipassApiOptions {
   restapRateLimitNow?: () => number;
 }
 
+export interface RestapVerifiedSendResult {
+  schemaVersion: '0.1.0';
+  operationId: string;
+  status: 'reserved' | 'sender_dispatched' | 'recipient_dispatched' | 'committed' | 'charged_unknown' | 'cancelled_charged';
+  senderTokenId: string;
+  recipientTokenId: string;
+  topic: string;
+  openingDigest: string | null;
+  replyDigest: string | null;
+  usage: { sender: { inputTokens: number; outputTokens: number; totalTokens: number } | null; recipient: { inputTokens: number; outputTokens: number; totalTokens: number } | null };
+  replayed: boolean;
+  reason?: string;
+  reply?: string;
+}
+
+export interface RestapVerifiedSendService {
+  send(input: { senderTokenId: string; recipientTokenId: string; topic: string; idempotencyKey: string; owner: string }): Promise<RestapVerifiedSendResult>;
+}
+
 export interface MultipassApi {
   handleRequest(request: Request): Promise<Response>;
 }
@@ -139,3 +159,5 @@ export interface ApiErrorBody {
 
 export function createMemoryStore(input?: MemoryStoreInput): MemoryStore;
 export function createMultipassApi(options: MultipassApiOptions): MultipassApi;
+export function createRestapVerifiedSendService(options: Record<string, unknown>): RestapVerifiedSendService;
+export function createSameProcessRestapTalkTransport(options: Record<string, unknown>): { talk(input: { recipientTokenId: string; message: string }): Promise<unknown> };

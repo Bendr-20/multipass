@@ -81,6 +81,21 @@ test('keeps only bounded reply text and appends successful turns once', async ()
   assert.equal(store.resolve(result.session_id).history.length, 1);
 });
 
+test('stateless internal talk retains no session plaintext and returns bounded usage', async () => {
+  const calls = { create: 0, resolve: 0, append: 0 };
+  const sessionStore = {
+    create() { calls.create += 1; throw new Error('must remain stateless'); },
+    resolve() { calls.resolve += 1; throw new Error('must remain stateless'); },
+    appendTurn() { calls.append += 1; throw new Error('must remain stateless'); },
+  };
+  const result = await runtime({
+    sessionStore,
+    inferenceClient: { async generate() { return { reply: 'Stateless answer.', usage: { input_tokens: 9, output_tokens: 3, total_tokens: 12 } }; } },
+  }).talk({ message: 'hello', publicProjection: PUBLIC, stateless: true });
+  assert.deepEqual(result, { reply: 'Stateless answer.', usage: { input_tokens: 9, output_tokens: 3, total_tokens: 12 } });
+  assert.deepEqual(calls, { create: 0, resolve: 0, append: 0 });
+});
+
 test('dedicated Bankr client uses ZDR text-only inference with no tools or private context', async () => {
   const requests = [];
   const client = createBankrRestapInferenceClient({ apiKey: ['test', 'bankr', 'key'].join('-'), fetchImpl: async (url, init) => {
@@ -92,7 +107,7 @@ test('dedicated Bankr client uses ZDR text-only inference with no tools or priva
     };
   } });
   const output = await client.generate({ message: 'hello', history: [], codexProfile: PROFILE, publicProjection: PUBLIC });
-  assert.deepEqual(output, { reply: 'bounded public answer' });
+  assert.deepEqual(output, { reply: 'bounded public answer', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } });
   assert.equal(requests[0].url, 'https://llm.bankr.bot/zdr/v1/chat/completions');
   assert.equal(Object.hasOwn(requests[0].body, 'response_format'), false);
   const serialized = JSON.stringify(requests[0].body);

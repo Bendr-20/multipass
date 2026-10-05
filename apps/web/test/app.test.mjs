@@ -17,13 +17,14 @@ test('Console RESTAP network integration aborts stale selection reads and binds 
   assert.match(source, /consoleRestapNetworkAbortController\?\.abort\(\)/);
   assert.match(source, /clearConsoleRestapNetworkSelection/);
   assert.match(source, /activeRestapNetworkApi\.getPolicy/);
-  assert.match(source, /activeRestapNetworkApi\.listIntents/);
+  assert.doesNotMatch(source, /activeRestapNetworkApi\.(?:listIntents|createIntent|deleteIntent)/);
   assert.match(source, /saveConsoleRestapNetworkPolicy/);
-  assert.match(source, /cancelConsoleRestapNetworkIntent/);
+  assert.match(source, /activeRestapNetworkApi\.sendTalk/);
+  assert.match(source, /sendConsoleRestapNetworkTalk/);
   assert.match(source, /stopConsoleRestapNetwork/);
 });
 
-test('Console loads RESTAP policy before intents to avoid concurrent custody reconciliation', async () => {
+test('Console loads only RESTAP policy and never touches legacy intents', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   let resolvePolicy;
   const pendingPolicy = new Promise((resolve) => { resolvePolicy = resolve; });
@@ -36,10 +37,10 @@ test('Console loads RESTAP policy before intents to avoid concurrent custody rec
   });
   await app.start(); await flushAsyncEvents(20);
   assert.equal(restap.calls.filter(([name]) => name === 'getPolicy').length, 1);
-  assert.equal(restap.calls.filter(([name]) => name === 'listIntents').length, 0);
+  assert.equal(restap.calls.some(([name]) => ['listIntents', 'createIntent', 'deleteIntent'].includes(name)), false);
   resolvePolicy(createConsoleRestapPolicyResponse('617'));
   await flushAsyncEvents(20);
-  assert.equal(restap.calls.filter(([name]) => name === 'listIntents').length, 1);
+  assert.equal(restap.calls.some(([name]) => ['listIntents', 'createIntent', 'deleteIntent'].includes(name)), false);
 });
 
 test('Console session clearing drops owner-scoped RESTAP policy state', () => {
@@ -48,16 +49,16 @@ test('Console session clearing drops owner-scoped RESTAP policy state', () => {
     consoleSessionGeneration: 4,
     consoleRestapNetwork: {
       status: 'ready', selectedTokenId: '617', requestId: 9,
-      policy: { tokenId: '617', networkEnabled: true }, intents: [{ intentId: 'intent-private' }], error: null,
+      policy: { tokenId: '617', networkEnabled: true }, sendResult: { reply: 'private reply' }, error: null,
     },
   }, { walletSnapshot: { connected: true, address: '0x2222222222222222222222222222222222222222' } });
   assert.equal(cleared.consoleRestapNetwork.status, 'idle');
   assert.equal(cleared.consoleRestapNetwork.selectedTokenId, null);
   assert.equal(cleared.consoleRestapNetwork.policy, null);
-  assert.deepEqual(cleared.consoleRestapNetwork.intents, []);
+  assert.equal(cleared.consoleRestapNetwork.sendResult, null);
 });
 
-test('Console RESTAP forms invoke save create cancel stop and refresh through real DOM bindings', async () => {
+test('Console RESTAP forms invoke save send stop and refresh through real DOM bindings', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const restap = createConsoleRestapApiFixture();
   const app = createApp({
@@ -73,7 +74,6 @@ test('Console RESTAP forms invoke save create cancel stop and refresh through re
   assert.ok(form);
   form.elements.namedItem('network_enabled').checked = true;
   form.elements.namedItem('inbound_enabled').checked = true;
-  form.elements.namedItem('autonomous_initiation_enabled').checked = true;
   form.elements.namedItem('daily_initiated_conversation_limit').value = '4';
   form.elements.namedItem('daily_generated_message_limit').value = '9';
   form.elements.namedItem('per_peer_daily_limit').value = '2';
@@ -84,27 +84,21 @@ test('Console RESTAP forms invoke save create cancel stop and refresh through re
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);
   const save = restap.calls.find(([name]) => name === 'putPolicy')?.[1];
-  assert.deepEqual(save.policy, { expected_policy_version: 3, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: true, daily_initiated_conversation_limit: 4, daily_generated_message_limit: 9, per_peer_daily_limit: 2, topics: ['general'], allow_peer_token_ids: ['2', '3'], block_peer_token_ids: ['4'], mute_until: '2026-10-04T00:00:00.000Z' });
+  assert.deepEqual(save.policy, { expected_policy_version: 3, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: false, daily_initiated_conversation_limit: 4, daily_generated_message_limit: 9, per_peer_daily_limit: 2, topics: ['general'], allow_peer_token_ids: ['2', '3'], block_peer_token_ids: ['4'], mute_until: '2026-10-04T00:00:00.000Z' });
   assert.equal(save.csrfToken, 'test-csrf');
   assert.equal(typeof save.signal?.aborted, 'boolean');
 
-  form = root.querySelector('[data-restap-network-intent]');
-  form.elements.namedItem('peer_token_ids').value = '2';
+  form = root.querySelector('[data-restap-network-send]');
+  form.elements.namedItem('recipient_token_id').value = '3802';
   form.elements.namedItem('topic').value = 'general';
-  form.elements.namedItem('cadence').value = 'daily';
-  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);
-  const created = restap.calls.find(([name]) => name === 'createIntent')?.[1];
-  assert.deepEqual({ ...created.intent, idempotency_key: '<generated>' }, { peer_token_ids: ['2'], topic: 'general', cadence: 'daily', run_at: '2026-10-05T00:00:00.000Z', idempotency_key: '<generated>' });
-  assert.equal(typeof created.signal?.aborted, 'boolean');
-
-  root.querySelector('[data-action="cancel-restap-network-intent"]')?.click();
-  await flushAsyncEvents(20);
-  const cancelled = restap.calls.find(([name]) => name === 'deleteIntent')?.[1];
-  assert.equal(cancelled.intentId, 'intent-console-000000000000000000001');
-  assert.equal(cancelled.expectedPolicyVersion, 3);
-  assert.equal(typeof cancelled.signal?.aborted, 'boolean');
+  const sent = restap.calls.find(([name]) => name === 'sendTalk')?.[1];
+  assert.equal(sent.recipientTokenId, '3802');
+  assert.equal(sent.topic, 'general');
+  assert.match(sent.idempotencyKey, /^console-send-/u);
+  assert.equal(typeof sent.signal?.aborted, 'boolean');
+  assert.match(root.querySelector('[data-restap-send-result]')?.textContent ?? '', /Bounded reply/);
 
   const previousConfirm = globalThis.confirm;
   globalThis.confirm = () => true;
@@ -173,9 +167,9 @@ test('Looper selection aborts an in-flight RESTAP mutation and suppresses its st
 
 test('Console session boundary aborts an in-flight RESTAP mutation', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
-  let resolveIntent;
-  const pendingIntent = new Promise((resolve) => { resolveIntent = resolve; });
-  const restap = createConsoleRestapApiFixture({ createIntent: () => pendingIntent });
+  let resolveSend;
+  const pendingSend = new Promise((resolve) => { resolveSend = resolve; });
+  const restap = createConsoleRestapApiFixture({ sendTalk: () => pendingSend });
   const walletClient = createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } });
   const app = createApp({
     root, loadDemo: async () => sampleData(), walletClient,
@@ -184,17 +178,15 @@ test('Console session boundary aborts an in-flight RESTAP mutation', async () =>
   });
   await app.start(); await flushAsyncEvents(30);
   root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
-  const form = root.querySelector('[data-restap-network-intent]');
-  form.elements.namedItem('peer_token_ids').value = '2';
+  const form = root.querySelector('[data-restap-network-send]');
+  form.elements.namedItem('recipient_token_id').value = '3802';
   form.elements.namedItem('topic').value = 'general';
-  form.elements.namedItem('cadence').value = 'once';
-  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents();
-  const created = restap.calls.find(([name]) => name === 'createIntent')?.[1];
+  const sent = restap.calls.find(([name]) => name === 'sendTalk')?.[1];
   walletClient.setSnapshot({ connected: true, address: '0x2222222222222222222222222222222222222222', label: 'other' }, { notify: true });
-  assert.equal(created.signal.aborted, true);
-  resolveIntent({ schema_version: '0.1.0', token_id: '617', intent: createConsoleRestapIntent() });
+  assert.equal(sent.signal.aborted, true);
+  resolveSend(createConsoleRestapTalkResponse());
   await flushAsyncEvents(20);
   assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '');
 });
@@ -601,15 +593,15 @@ function createConsoleOwnedAgentsFetch({ wallet = '0x27E3286c2c1783F67d06f2ff4e3
 function createConsoleRestapPolicyResponse(tokenId = '617', patch = {}) {
   return {
     schema_version: '0.1.0', token_id: String(tokenId),
-    policy: { policy_version: 3, custody_generation: 7, network_enabled: false, inbound_enabled: false, autonomous_initiation_enabled: false, daily_initiated_conversation_limit: 0, daily_generated_message_limit: 0, per_peer_daily_limit: 0, topics: [], allow_peer_token_ids: [], block_peer_token_ids: [], mute_until: null, ...(patch.policy ?? {}) },
+    policy: { policy_version: 3, custody_generation: 7, network_enabled: true, inbound_enabled: true, autonomous_initiation_enabled: false, daily_initiated_conversation_limit: 5, daily_generated_message_limit: 10, per_peer_daily_limit: 3, topics: ['general'], allow_peer_token_ids: ['3802'], block_peer_token_ids: [], mute_until: null, ...(patch.policy ?? {}) },
     lease_status: patch.lease_status ?? 'inactive', eligibility_status: patch.eligibility_status ?? 'eligible',
     quota_usage: patch.quota_usage ?? { initiated: 1, generated: 2, cost_units: 3 },
     transcripts: { available: false, reason: 'pilot_memory_only' },
   };
 }
 
-function createConsoleRestapIntent() {
-  return { intent_id: 'intent-console-000000000000000000001', source: 'daily', topic: 'general', status: 'pending', earliest_at: '2026-10-03T00:00:00.000Z', expires_at: '2026-10-04T00:00:00.000Z', attempt_count: 0, attempt_limit: 3, next_eligible_at: '2026-10-03T00:00:00.000Z' };
+function createConsoleRestapTalkResponse(patch = {}) {
+  return { schema_version: '0.1.0', operation_id: 'vs_' + 'a'.repeat(48), status: 'committed', sender_token_id: '617', recipient_token_id: '3802', topic: 'general', opening_sha256: 'a'.repeat(64), reply_sha256: 'b'.repeat(64), usage: { sender: null, recipient: null }, replayed: false, reply: 'Bounded reply.', ...patch };
 }
 
 function createConsoleRestapApiFixture(overrides = {}) {
@@ -617,10 +609,8 @@ function createConsoleRestapApiFixture(overrides = {}) {
   const record = (name, input) => { calls.push([name, input]); };
   const api = {
     async getPolicy(input) { record('getPolicy', input); return overrides.getPolicy ? overrides.getPolicy(input) : createConsoleRestapPolicyResponse(input.tokenId); },
-    async listIntents(input) { record('listIntents', input); return overrides.listIntents ? overrides.listIntents(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intents: [createConsoleRestapIntent()] }; },
     async putPolicy(input) { record('putPolicy', input); return overrides.putPolicy ? overrides.putPolicy(input) : createConsoleRestapPolicyResponse(input.tokenId); },
-    async createIntent(input) { record('createIntent', input); return overrides.createIntent ? overrides.createIntent(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intent: createConsoleRestapIntent() }; },
-    async deleteIntent(input) { record('deleteIntent', input); return overrides.deleteIntent ? overrides.deleteIntent(input) : { schema_version: '0.1.0', token_id: String(input.tokenId), intent: { ...createConsoleRestapIntent(), status: 'cancelled' } }; },
+    async sendTalk(input) { record('sendTalk', input); return overrides.sendTalk ? overrides.sendTalk(input) : createConsoleRestapTalkResponse({ sender_token_id: String(input.tokenId), recipient_token_id: String(input.recipientTokenId), topic: input.topic }); },
     async stop(input) { record('stop', input); return overrides.stop ? overrides.stop(input) : createConsoleRestapPolicyResponse(input.tokenId); },
   };
   return { api, calls };
@@ -7774,11 +7764,11 @@ test('RESTAP mutations project saving state and suppress duplicate submissions',
   await flushAsyncEvents(30);
 });
 
-test('RESTAP introduction errors preserve the bounded planner draft', async () => {
+test('RESTAP send errors preserve the bounded recipient and topic draft', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
-  let rejectIntent;
-  const pendingIntent = new Promise((_resolve, reject) => { rejectIntent = reject; });
-  const restap = createConsoleRestapApiFixture({ createIntent: () => pendingIntent });
+  let rejectSend;
+  const pendingSend = new Promise((_resolve, reject) => { rejectSend = reject; });
+  const restap = createConsoleRestapApiFixture({ sendTalk: () => pendingSend });
   const app = createApp({
     root, loadDemo: async () => sampleData(),
     walletClient: createWalletClientFixture({ snapshot: { connected: true, address: '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea', label: 'owner' } }),
@@ -7787,35 +7777,31 @@ test('RESTAP introduction errors preserve the bounded planner draft', async () =
   });
   await app.start(); await flushAsyncEvents(30);
   root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
-  let form = root.querySelector('[data-restap-network-intent]');
-  form.elements.namedItem('peer_token_ids').value = '12, 48';
+  let form = root.querySelector('[data-restap-network-send]');
+  form.elements.namedItem('recipient_token_id').value = '3802';
   form.elements.namedItem('topic').value = 'collection-lore';
-  form.elements.namedItem('cadence').value = 'daily';
-  form.elements.namedItem('run_at').value = '2026-10-05T00:00';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents();
-  form = root.querySelector('[data-restap-network-intent]');
-  assert.equal(form.elements.namedItem('peer_token_ids').value, '12, 48');
+  form = root.querySelector('[data-restap-network-send]');
+  assert.equal(form.elements.namedItem('recipient_token_id').value, '3802');
   assert.equal(form.elements.namedItem('topic').value, 'collection-lore');
-  assert.equal(form.elements.namedItem('cadence').value, 'daily');
-  assert.equal(form.elements.namedItem('run_at').value, '2026-10-05T00:00');
-  rejectIntent(Object.assign(new Error('raw private provider detail'), { status: 500 }));
+  rejectSend(Object.assign(new Error('raw private provider detail'), { status: 500 }));
   await flushAsyncEvents(20);
-  form = root.querySelector('[data-restap-network-intent]');
-  assert.equal(form.elements.namedItem('peer_token_ids').value, '12, 48');
+  form = root.querySelector('[data-restap-network-send]');
+  assert.equal(form.elements.namedItem('recipient_token_id').value, '3802');
   assert.doesNotMatch(root.textContent, /raw private provider detail/i);
-  assert.match(root.querySelector('[data-restap-feedback]')?.textContent ?? '', /not saved/i);
+  assert.match(root.querySelector('[data-restap-feedback]')?.textContent ?? '', /did not complete/i);
 });
 
-test('RESTAP unchanged intent retries reuse identity and substantive edits rotate it', async () => {
+test('RESTAP unchanged send retries reuse identity and substantive edits rotate it', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   let attempts = 0;
-  const restap = createConsoleRestapApiFixture({ createIntent: async (input) => {
+  const restap = createConsoleRestapApiFixture({ sendTalk: async (input) => {
     attempts += 1;
     if (attempts < 3) throw Object.assign(new Error('ambiguous transport failure'), { status: 500 });
-    return { schema_version: '0.1.0', token_id: String(input.tokenId), intent: createConsoleRestapIntent() };
+    return createConsoleRestapTalkResponse({ sender_token_id: String(input.tokenId), recipient_token_id: input.recipientTokenId, topic: input.topic });
   } });
-  const keys = ['intent-retry-0000000000000001', 'intent-retry-0000000000000002'];
+  const keys = ['send-retry-0000000000000001', 'send-retry-0000000000000002'];
   const issued = [];
   const app = createApp({
     root, loadDemo: async () => sampleData(),
@@ -7826,21 +7812,18 @@ test('RESTAP unchanged intent retries reuse identity and substantive edits rotat
   });
   await app.start(); await flushAsyncEvents(30);
   root.querySelector('[data-console-view="network"]')?.click(); await flushAsyncEvents();
-  const submit = async (peers, topic = 'general') => {
-    const form = root.querySelector('[data-restap-network-intent]');
-    form.elements.namedItem('peer_token_ids').value = peers;
+  const submit = async (recipient, topic = 'general') => {
+    const form = root.querySelector('[data-restap-network-send]');
+    form.elements.namedItem('recipient_token_id').value = recipient;
     form.elements.namedItem('topic').value = topic;
-    form.elements.namedItem('cadence').value = 'daily';
-    form.elements.namedItem('run_at').value = '2026-10-05T00:00';
     form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     await flushAsyncEvents(20);
   };
-  await submit('48, 12');
-  await submit(' 12, 48 ');
-  await submit('12, 77');
-  const calls = restap.calls.filter(([name]) => name === 'createIntent').map(([, input]) => input.intent);
-  assert.equal(calls[0].idempotency_key, calls[1].idempotency_key);
-  assert.notEqual(calls[1].idempotency_key, calls[2].idempotency_key);
-  assert.deepEqual(calls[0].peer_token_ids, ['12', '48']);
+  await submit('3802');
+  await submit('3802');
+  await submit('3802', 'collection-lore');
+  const calls = restap.calls.filter(([name]) => name === 'sendTalk').map(([, input]) => input);
+  assert.equal(calls[0].idempotencyKey, calls[1].idempotencyKey);
+  assert.notEqual(calls[1].idempotencyKey, calls[2].idempotencyKey);
   assert.deepEqual(issued, keys);
 });

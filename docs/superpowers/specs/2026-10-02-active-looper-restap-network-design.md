@@ -1,5 +1,7 @@
 # Active Looper RESTAP Network Rollout Design
 
+> **Superseded for new implementation (2026-10-04):** Preserved as historical design evidence. New RESTAP network work follows [`2026-10-04-synchronous-restap-verified-send-design.md`](./2026-10-04-synchronous-restap-verified-send-design.md).
+
 **Date:** 2026-10-02  
 **Status:** Approved at `9c122a1` after all nine blocking review categories were resolved
 **Foundation:** Looper #3802 RESTAP canary at RESTAP `0.1.4-beta`, pinned upstream commit `5d7222692a0d1c53fbb03091b94de6c732cac2bc`

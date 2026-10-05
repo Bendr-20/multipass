@@ -5,7 +5,7 @@ import { isAbsolute } from 'node:path';
 import { createLoopersPublicClients } from '../loopers-owned-agents.js';
 import { createAccountIntegrityReader } from './account-integrity.js';
 import { createRestapNetworkBaseProvider } from './base-provider.js';
-import { createRestapNetworkBankrGateway } from './bankr-provider.js';
+import { createRestapNetworkBankrGateway, createRestapNetworkVerifiedOpeningRuntime } from './bankr-provider.js';
 import { RESTAP_NETWORK_LIMITS } from './constants.js';
 import { createCustodyReconciler } from './custody-reconciler.js';
 import { createRestapNetworkDatabase } from './database.js';
@@ -26,7 +26,12 @@ export function parseRestapNetworkProductionConfig(env = {}) {
   const keyRegistryFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE, 'MULTIPASS_RESTAP_NETWORK_KEY_REGISTRY_FILE');
   const signerFile = optionalText(env.MULTIPASS_RESTAP_NETWORK_SIGNER_FILE, 'MULTIPASS_RESTAP_NETWORK_SIGNER_FILE');
   const maxFinalizedHeadSkew = parsePinnedFinalizedHeadSkew(env.MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW);
-  return Object.freeze({ providerIds, tokenIds, auditKeyFile, keyRegistryFile, signerFile, maxFinalizedHeadSkew });
+  const verifiedSend = Object.freeze({
+    enabled: parseExactBoolean(env.MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED, 'MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED') ?? false,
+    emergencyStop: parseExactBoolean(env.MULTIPASS_RESTAP_VERIFIED_SEND_EMERGENCY_STOP, 'MULTIPASS_RESTAP_VERIFIED_SEND_EMERGENCY_STOP') ?? true,
+    recipientTokenIds: parsePositiveTokenIds(env.MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS, 'MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS'),
+  });
+  return Object.freeze({ providerIds, tokenIds, auditKeyFile, keyRegistryFile, signerFile, maxFinalizedHeadSkew, verifiedSend });
 }
 
 export async function createRestapNetworkProductionFoundation({
@@ -43,9 +48,17 @@ export async function createRestapNetworkProductionFoundation({
   if (productionConfig.maxFinalizedHeadSkew !== RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks) throw new Error('RESTAP network production finalized-head skew is not pinned.');
   if (!productionConfig.auditKeyFile) throw new Error('RESTAP network foundation requires a protected audit key file.');
   const trafficEnabled = config.gates.discovery || config.gates.initiation || config.gates.replies || config.gates.pilot;
+  const verifiedSendEnabled = productionConfig.verifiedSend?.enabled === true;
+  if (verifiedSendEnabled && (!config.gates.policy || trafficEnabled || config.gates.transcripts || config.gates.ga)) {
+    throw new Error('RESTAP verified send requires foundation and policy with all legacy traffic gates off.');
+  }
+  if (verifiedSendEnabled && !sameStrings(productionConfig.verifiedSend.recipientTokenIds, ['3802'])) {
+    throw new Error('RESTAP verified send requires the exact reviewed same-process recipient roster.');
+  }
   if (trafficEnabled && !productionConfig.keyRegistryFile) throw new Error('RESTAP network traffic requires a protected key registry file.');
   if (trafficEnabled && !productionConfig.signerFile) throw new Error('RESTAP network traffic requires a protected signer file.');
   if (trafficEnabled && !bankrLlmKey) throw new Error('RESTAP network traffic requires a protected Bankr LLM key.');
+  if (verifiedSendEnabled && !bankrLlmKey) throw new Error('RESTAP verified send requires a protected Bankr LLM key.');
 
   const { auditKey, auditKeyId } = await loadAuditKeyFile({ filePath: productionConfig.auditKeyFile });
   let database;
@@ -60,6 +73,12 @@ export async function createRestapNetworkProductionFoundation({
     const bankrGateway = trafficEnabled ? Object.freeze({
       generatePublicReply: (projection) => inferenceGateway.generatePublicReply(projection),
       readUsageTotals: async () => Object.freeze({ totalRequests: inferenceGateway.readDispatchedTotal() }),
+    }) : null;
+    const verifiedOpeningRuntime = verifiedSendEnabled ? createRestapNetworkVerifiedOpeningRuntime({
+      apiKey: bankrLlmKey,
+      model: bankrModel ?? undefined,
+      timeoutMs: Math.min(config.providerTimeoutMs, 15_000),
+      fetchImpl,
     }) : null;
     const clients = publicClients ?? createLoopersPublicClients({
       rpcUrls: productionConfig.providerIds.map((id) => REVIEWED_BASE_PROVIDERS[id]),
@@ -98,6 +117,15 @@ export async function createRestapNetworkProductionFoundation({
       ...composition,
       store: database,
       custodyReconciler: custody,
+      verifiedSendDependencies: verifiedSendEnabled ? Object.freeze({
+        config: productionConfig.verifiedSend,
+        store: database,
+        custodyReconciler: custody,
+        policyReader: composition.policyReader,
+        codexRuntime,
+        openingRuntime: verifiedOpeningRuntime,
+        now,
+      }) : null,
       closeOnStartupFailure() { database.close(); },
     });
   } catch (error) {
@@ -162,6 +190,20 @@ function parsePinnedFinalizedHeadSkew(value) {
     throw new TypeError('MULTIPASS_RESTAP_NETWORK_MAX_FINALIZED_HEAD_SKEW must equal ' + RESTAP_NETWORK_LIMITS.finalizedHeadSkewBlocks + '.');
   }
   return parsed;
+}
+function parseExactBoolean(value, label) {
+  if (value === undefined || value === null || value === '') return null;
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  throw new TypeError(label + ' must be an exact boolean.');
+}
+function parsePositiveTokenIds(value, label) {
+  if (value === undefined || value === null || value === '') return Object.freeze([]);
+  const ids = String(value).split(',').map((item) => item.trim()).filter(Boolean);
+  if (ids.length === 0 || ids.length > 16 || ids.some((id) => !/^[1-9][0-9]*$/u.test(id)) || new Set(ids).size !== ids.length) {
+    throw new TypeError(label + ' is invalid or contains a duplicate.');
+  }
+  return Object.freeze(ids.sort((a, b) => BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
 }
 function sameStrings(left, right) { return Array.isArray(left) && left.length === right.length && left.every((value, index) => value === right[index]); }
 function isPlainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }

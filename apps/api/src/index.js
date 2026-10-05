@@ -38,6 +38,8 @@ import {
   normalizeRestapTalkRequest,
 } from './restap-3802-contracts.js';
 import { RestapPolicyNotAuthorizedError } from './restap-3802-policy.js';
+import { RestapVerifiedSendError } from './restap-network/verified-send.js';
+export { createRestapVerifiedSendService, createSameProcessRestapTalkTransport } from './restap-network/verified-send.js';
 import {
   normalizeRestapNetworkIntentCancel,
   normalizeRestapNetworkIntentInput,
@@ -277,6 +279,7 @@ export function createMultipassApi({
   consoleWalletContextLoader,
   looperCodexRuntime,
   restapNetworkService = null,
+  restapVerifiedSendService = null,
   logger = console,
   consoleCodexWalletRateLimit,
   consoleCodexGlobalRateLimit,
@@ -401,6 +404,7 @@ export function createMultipassApi({
     consoleWalletContextLoader: walletContextLoader,
     looperCodexRuntime: resolvedLooperCodexRuntime,
     restapNetworkService,
+    restapVerifiedSendService,
     logger,
     consoleCodexWalletRateLimiter: createBoundedFixedWindowRateLimiter({
       ...(consoleCodexWalletRateLimit ?? CONSOLE_CODEX_WALLET_RATE_LIMIT),
@@ -540,7 +544,10 @@ async function handleRestapNetworkConsoleRequest(request, method, parts, context
   const intentsRoute = parts[5] === 'intents' && parts.length === 6;
   const intentRoute = parts[5] === 'intents' && parts[6] && parts.length === 7;
   const stopRoute = parts[5] === 'stop' && parts.length === 6;
-  if (!policyRoute && !intentsRoute && !intentRoute && !stopRoute) return errorResponse(404, 'not_found', 'Route not found.');
+  const talkRoute = parts[5] === 'talk' && parts.length === 6;
+  if (!policyRoute && !intentsRoute && !intentRoute && !stopRoute && !talkRoute) return errorResponse(404, 'not_found', 'Route not found.');
+
+  if (talkRoute) return handleRestapVerifiedSendRequest(request, method, parts[4], context);
 
   const service = context.restapNetworkService;
   const policyEnabled = service?.status?.enabled === true && service.status.gates?.policy === true;
@@ -594,6 +601,90 @@ async function handleRestapNetworkConsoleRequest(request, method, parts, context
     if (/version|stale|conflict/iu.test(error?.message ?? '')) return errorResponse(409, 'version_conflict', 'RESTAP network state changed. Refresh and retry.');
     return errorResponse(503, 'restap_network_unavailable', 'RESTAP network controls are temporarily unavailable.');
   }
+}
+
+async function handleRestapVerifiedSendRequest(request, method, rawSenderTokenId, context) {
+  const service = context.restapVerifiedSendService;
+  if (!service || typeof service.send !== 'function') return errorResponse(404, 'not_found', 'Route not found.');
+  if (method !== 'POST') return errorResponse(405, 'method_not_allowed', 'Method not allowed.');
+  const senderTokenId = normalizeRestapConsoleTokenId(rawSenderTokenId);
+  const session = requireConsoleSession(request, context, { requireCsrf: true });
+  await authorizeConsoleLooper({ tokenId: senderTokenId, wallet: session.wallet, context });
+  const body = await readBoundedJsonBody(request, RESTAP_NETWORK_CONSOLE_REQUEST_MAX_BYTES);
+  const input = normalizeRestapVerifiedSendInput(body, senderTokenId);
+  try {
+    const result = await service.send({ ...input, owner: session.wallet });
+    const projected = projectRestapVerifiedSend(result);
+    const status = projected.status === 'committed' ? 200 : projected.status === 'cancelled_charged' ? 409 : 202;
+    return jsonResponse(projected, status);
+  } catch (error) {
+    if (error instanceof RestapVerifiedSendError) return errorResponse(error.status, error.code, error.message);
+    if (error instanceof TypeError) return errorResponse(400, 'invalid_request', 'RESTAP verified send request is invalid.');
+    return errorResponse(503, 'restap_verified_send_unavailable', 'RESTAP verified send is temporarily unavailable.');
+  }
+}
+
+function normalizeRestapVerifiedSendInput(value, senderTokenId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new ApiInputError('invalid_request', 'RESTAP verified send body must be an object.');
+  }
+  const expected = ['idempotency_key', 'recipient_token_id', 'topic'];
+  const actual = Object.keys(value).sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new ApiInputError('invalid_request', 'RESTAP verified send contains unknown or missing fields.');
+  }
+  const recipientTokenId = normalizeRestapConsoleTokenId(value.recipient_token_id);
+  if (recipientTokenId === senderTokenId) throw new ApiInputError('invalid_request', 'Sender and recipient must be different Loopers.');
+  if (typeof value.topic !== 'string' || !['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general'].includes(value.topic)) {
+    throw new ApiInputError('invalid_request', 'RESTAP topic is not allowlisted.');
+  }
+  if (typeof value.idempotency_key !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(value.idempotency_key)) {
+    throw new ApiInputError('invalid_request', 'RESTAP idempotency key is invalid.');
+  }
+  return Object.freeze({ senderTokenId, recipientTokenId, topic: value.topic, idempotencyKey: value.idempotency_key });
+}
+
+function projectRestapVerifiedSend(value) {
+  if (!value || typeof value !== 'object') throw new Error('invalid service response');
+  const statuses = ['reserved', 'sender_dispatched', 'recipient_dispatched', 'committed', 'charged_unknown', 'cancelled_charged'];
+  const status = boundedStatus(value.status, statuses);
+  const operationId = String(value.operationId ?? '');
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(operationId)) throw new Error('invalid service response');
+  const hash = (input) => {
+    if (input === null || input === undefined) return null;
+    if (typeof input !== 'string' || !/^[0-9a-f]{64}$/u.test(input)) throw new Error('invalid service response');
+    return input;
+  };
+  const usage = (input) => {
+    if (input === null || input === undefined) return null;
+    if (!input || typeof input !== 'object') throw new Error('invalid service response');
+    return {
+      input_tokens: boundedServiceInteger(input.inputTokens, 0),
+      output_tokens: boundedServiceInteger(input.outputTokens, 0),
+      total_tokens: boundedServiceInteger(input.totalTokens, 0),
+    };
+  };
+  const projected = {
+    schema_version: '0.1.0',
+    operation_id: operationId,
+    status,
+    sender_token_id: normalizeRestapConsoleTokenId(value.senderTokenId),
+    recipient_token_id: normalizeRestapConsoleTokenId(value.recipientTokenId),
+    topic: boundedStatus(value.topic, ['collection-lore', 'trait-discussion', 'market-observation', 'project-updates', 'collaboration-ideas', 'general']),
+    opening_sha256: hash(value.openingDigest),
+    reply_sha256: hash(value.replyDigest),
+    usage: { sender: usage(value.usage?.sender), recipient: usage(value.usage?.recipient) },
+    replayed: boundedServiceBoolean(value.replayed),
+  };
+  if (value.reason !== undefined) {
+    if (typeof value.reason !== 'string' || !/^[a-z0-9_]{1,64}$/u.test(value.reason)) throw new Error('invalid service response');
+    projected.reason = value.reason;
+  }
+  if (value.reply !== undefined) {
+    if (status !== 'committed' || typeof value.reply !== 'string' || !value.reply || /[\u0000-\u001f\u007f]/u.test(value.reply) || Buffer.byteLength(value.reply, 'utf8') > 4_096) throw new Error('invalid service response');
+    projected.reply = value.reply;
+  }
+  return projected;
 }
 
 function normalizeRestapConsoleTokenId(value) {

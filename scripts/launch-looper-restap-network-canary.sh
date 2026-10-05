@@ -7,7 +7,7 @@ usage() {
 Usage: launch-looper-restap-network-canary.sh [start options] | --stop --identity-file PATH | --replace [start options]
 Starts an unrouted RESTAP network canary on loopback 127.0.0.1 only.
 Required start options: --release PATH --release-sha SHA --artifact PATH --policy PATH --key-registry PATH --signer PATH --database PATH --identity-file PATH --pid-file PATH --log-file PATH --port N
-Optional: --server-entry PATH --gate NAME --dry-run --replace
+Optional: --server-entry PATH --gate NAME --verified-send --dry-run --replace
 EOF
 }
 
@@ -34,6 +34,7 @@ replies=false
 transcripts=false
 pilot=false
 ga=false
+verified_send=false
 
 while (($#)); do
   case "$1" in
@@ -41,6 +42,7 @@ while (($#)); do
     --stop) mode=stop; shift ;;
     --replace) replace=true; shift ;;
     --dry-run) dry_run=true; shift ;;
+    --verified-send) verified_send=true; shift ;;
     --release|--release-sha|--artifact|--policy|--key-registry|--signer|--database|--identity-file|--pid-file|--log-file|--port|--server-entry|--gate)
       flag=$1; shift; (($#)) || { echo "missing value for $flag" >&2; exit 2; }; value=$1; shift
       case "$flag" in
@@ -124,8 +126,9 @@ $transcripts && MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED=true
 $pilot && MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED=true
 $ga && MULTIPASS_RESTAP_NETWORK_GA_ENABLED=true
 
+if $verified_send && { ! $foundation || ! $policy_gate || $discovery || $initiation || $replies || $transcripts || $pilot || $ga; }; then echo 'verified send requires foundation and policy only' >&2; exit 1; fi
 if $dry_run; then
-  printf '{"mode":"dry-run","host":"127.0.0.1","port":%s,"release_sha":"%s","gates":"%s,%s,%s,%s,%s,%s,%s,%s"}\n' "$port" "$release_sha" "$foundation" "$policy_gate" "$discovery" "$initiation" "$replies" "$transcripts" "$pilot" "$ga"
+  printf '{"mode":"dry-run","host":"127.0.0.1","port":%s,"release_sha":"%s","gates":"%s,%s,%s,%s,%s,%s,%s,%s","verified_send":%s}\n' "$port" "$release_sha" "$foundation" "$policy_gate" "$discovery" "$initiation" "$replies" "$transcripts" "$pilot" "$ga" "$verified_send"
   exit 0
 fi
 
@@ -143,6 +146,9 @@ env HOST=127.0.0.1 PORT="$port" \
   MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED="$MULTIPASS_RESTAP_NETWORK_TRANSCRIPTS_ENABLED" \
   MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED="$MULTIPASS_RESTAP_NETWORK_PILOT_ENABLED" \
   MULTIPASS_RESTAP_NETWORK_GA_ENABLED="$MULTIPASS_RESTAP_NETWORK_GA_ENABLED" \
+  MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED="$verified_send" \
+  MULTIPASS_RESTAP_VERIFIED_SEND_EMERGENCY_STOP="$([[ $verified_send == true ]] && echo false || echo true)" \
+  MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS="$([[ $verified_send == true ]] && echo 3802 || echo '')" \
   node --env-file="$policy" "$server_entry" >>"$log_file" 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$pid_file"

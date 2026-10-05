@@ -49,6 +49,8 @@ export function hasRestapNetworkEnvironment(env = {}) {
     'MULTIPASS_RESTAP_NETWORK_TOPICS', 'MULTIPASS_RESTAP_NETWORK_CADENCES',
     'MULTIPASS_RESTAP_NETWORK_PILOT_ROSTER', 'MULTIPASS_RESTAP_NETWORK_GA_APPROVED',
     'MULTIPASS_RESTAP_NETWORK_GA_ROSTER_REMOVAL_APPROVED',
+    'MULTIPASS_RESTAP_VERIFIED_SEND_ENABLED', 'MULTIPASS_RESTAP_VERIFIED_SEND_EMERGENCY_STOP',
+    'MULTIPASS_RESTAP_VERIFIED_SEND_RECIPIENT_TOKEN_IDS',
   ].some((key) => Object.hasOwn(env, key));
 }
 
@@ -73,6 +75,8 @@ export async function startRestapNetworkService(input = {}) {
     if (config.gates.initiation) {
       workerStarted = true;
       await dependencies.worker.start();
+    } else if (typeof dependencies.releaseLegacyWorkerLease === 'function') {
+      await dependencies.releaseLegacyWorkerLease();
     }
   } catch (error) {
     try {

@@ -28,21 +28,10 @@ function policyResponse() {
   };
 }
 
-function intentResponse() {
-  return {
-    schema_version: '0.1.0', token_id: '617',
-    intents: [{
-      intent_id: 'intent-browser-proof-000000000000001', source: 'daily', topic: 'collection-lore', status: 'pending',
-      earliest_at: '2026-10-04T16:30:00.000Z', expires_at: '2026-10-11T16:30:00.000Z',
-      attempt_count: 0, attempt_limit: 3, next_eligible_at: '2026-10-04T16:30:00.000Z',
-    }],
-  };
-}
-
 function networkState(kind = 'active') {
   const loading = beginConsoleRestapNetworkLoad(createInitialConsoleRestapNetworkState(), { tokenId: '617', requestId: 1 });
   if (kind === 'locked') return failConsoleRestapNetworkLoad(loading, { tokenId: '617', requestId: 1, error: { status: 503 } });
-  return resolveConsoleRestapNetworkLoad(loading, { tokenId: '617', requestId: 1, policyResponse: policyResponse(), intentsResponse: intentResponse() });
+  return resolveConsoleRestapNetworkLoad(loading, { tokenId: '617', requestId: 1, policyResponse: policyResponse() });
 }
 
 function markup(css, kind = 'active', view = 'network') {
@@ -91,14 +80,14 @@ test('RESTAP Network workspace fits desktop, 390px and 320px deterministic state
     const visibleNav = page.locator('.console-workspace-nav:visible');
     assert.equal(await visibleNav.locator('button').count(), 5);
     assert.equal(await visibleNav.locator('[data-console-view="network"]').getAttribute('aria-current'), 'page');
-    assert.match(await visibleNav.locator('[data-console-view="network"]').innerText(), /Network[\s\S]*RESTAP[\s\S]*Active/i);
+    assert.match(await visibleNav.locator('[data-console-view="network"]').innerText(), /Network[\s\S]*RESTAP[\s\S]*Ready/i);
     assert.match(await page.locator('.console-restap-heading h2').innerText(), /Looper #617 network/);
-    assert.equal(await page.locator('[data-restap-section]').count(), 8);
-    assert.equal(await page.locator('body').innerText().then((text) => text.includes('intent-browser-proof')), false);
+    assert.equal(await page.locator('[data-restap-section]').count(), 7);
+    assert.equal(await page.locator('body').innerText().then((text) => /cadence|run time|planned introductions/i.test(text)), false);
     assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })), { local: 0, session: 0 });
     assert.equal(await page.locator('[data-action="save-restap-network-policy"]').getAttribute('data-action'), 'save-restap-network-policy');
-    assert.equal(await page.locator('[data-action="create-restap-network-intent"]').getAttribute('data-action'), 'create-restap-network-intent');
-    assert.equal(await page.locator('[data-action="cancel-restap-network-intent"]').count(), 1);
+    assert.equal(await page.locator('[data-action="send-restap-network-talk"]').getAttribute('data-action'), 'send-restap-network-talk');
+    assert.equal(await page.locator('[data-action="cancel-restap-network-intent"]').count(), 0);
     assert.equal(await page.locator('[data-action="stop-restap-network"]').count(), 1);
 
     const actionHeights = await page.locator('.console-restap-network-workspace button:visible, .console-restap-network-workspace input:visible:not([name^="topic:"]), .console-restap-network-workspace .console-restap-topic-chip span, .console-restap-network-workspace select:visible, .console-restap-network-workspace summary:visible').evaluateAll((nodes) => nodes.map((node) => ({ tag: node.tagName, height: node.getBoundingClientRect().height, type: node.getAttribute('type') })));
@@ -117,15 +106,15 @@ test('RESTAP Network workspace fits desktop, 390px and 320px deterministic state
   const lockedText = await lockedWorkspace.innerText();
   assert.match(lockedText, /Network participation is unavailable/i);
   assert.match(lockedText, /Read-only preview/i);
-  assert.match(lockedText, /Network permissions/i);
-  assert.match(lockedText, /Activity limits/i);
-  assert.match(lockedText, /Plan an introduction/i);
+  assert.match(lockedText, /Owner controls/i);
+  assert.match(lockedText, /Bounded policy/i);
+  assert.match(lockedText, /Send one introduction now/i);
   assert.doesNotMatch(lockedText, /foundation|install|root cause/i);
   assert.equal(await lockedWorkspace.locator('[data-restap-section]').count(), 5);
-  assert.ok(await lockedWorkspace.locator('input, select').count() >= 10);
-  assert.equal(await lockedWorkspace.locator('input:not(:disabled), select:not(:disabled)').count(), 0);
-  assert.equal(await lockedWorkspace.locator('[data-restap-network-policy], [data-restap-network-intent], [data-action]').count(), 0);
-  assert.equal(await lockedWorkspace.locator('form, button').count(), 0);
+  assert.ok(await lockedWorkspace.locator('input, button').count() >= 2);
+  assert.equal(await lockedWorkspace.locator('input:not(:disabled), button:not(:disabled)').count(), 0);
+  assert.equal(await lockedWorkspace.locator('[data-restap-network-policy], [data-restap-network-send], [data-action]').count(), 0);
+  assert.equal(await lockedWorkspace.locator('form').count(), 0);
   await assertNoOverflow(locked);
   await locked.screenshot({ path: join(OUTPUT, 'restap-network-locked-390.png'), fullPage: true });
 

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const GATES = Object.freeze(['foundation', 'policy', 'discovery', 'initiation', 'replies', 'transcripts', 'pilot', 'ga']);
-const PHASES = Object.freeze(['phase0', 'foundation', 'holder-opt-in', 'internal-discovery', 'one-shot', 'daily', 'replies']);
+const PHASES = Object.freeze(['phase0', 'foundation', 'holder-opt-in', 'verified-send', 'internal-discovery', 'one-shot', 'daily', 'replies']);
 const VALUE_FLAGS = new Map([
   ['--mode', 'mode'], ['--phase', 'phase'], ['--expected-gates', 'expectedGates'], ['--release-sha', 'releaseSha'],
   ['--release', 'release'], ['--artifact', 'artifact'], ['--policy', 'policy'], ['--key-registry', 'keyRegistry'],
@@ -34,7 +34,7 @@ export function parseRestapNetworkSmokeArgs(argv) {
   if (!PHASES.includes(values.phase)) throw new TypeError('Smoke phase is invalid.');
   if (!/^[0-9a-f]{40}$/u.test(values.releaseSha)) throw new TypeError('Release SHA is invalid.');
   const expectedGates = parseGateTuple(values.expectedGates);
-  const requiredTuple = { phase0: '0,0,0,0,0,0,0,0', foundation: '1,0,0,0,0,0,0,0', 'holder-opt-in': '1,1,0,0,0,0,0,0', 'internal-discovery': '1,1,1,0,0,0,1,0', 'one-shot': '1,1,1,1,0,0,1,0', daily: '1,1,1,1,0,0,1,0', replies: '1,1,1,1,1,0,1,0' }[values.phase];
+  const requiredTuple = { phase0: '0,0,0,0,0,0,0,0', foundation: '1,0,0,0,0,0,0,0', 'holder-opt-in': '1,1,0,0,0,0,0,0', 'verified-send': '1,1,0,0,0,0,0,0', 'internal-discovery': '1,1,1,0,0,0,1,0', 'one-shot': '1,1,1,1,0,0,1,0', daily: '1,1,1,1,0,0,1,0', replies: '1,1,1,1,1,0,1,0' }[values.phase];
   if (values.expectedGates !== requiredTuple) throw new TypeError('Expected gate tuple does not match the selected phase.');
   if (values.fixtureKeyRefs.length === 0) throw new TypeError('At least one fixture key reference is required.');
   if (values.mode === 'remote' && !values.baseUrl) throw new TypeError('Remote smoke requires --base-url.');
@@ -66,6 +66,8 @@ export async function runRestapNetworkSmoke(config, dependencies = defaultDepend
   if (closedDefaultsRequired) {
     add('policy_closed_defaults', database.policyDefaults === 'closed');
     add('leases_inactive', database.leases === 'inactive');
+  } else if (config.phase === 'verified-send') {
+    add('verified_send_policy', database.verifiedSendState === 'valid', { enabledPolicies: database.enabledPolicies });
   } else {
     add('owner_opt_in_state', database.ownerState === 'valid', { enabledPolicies: database.enabledPolicies, activeLeases: database.activeLeases });
   }
@@ -75,6 +77,7 @@ export async function runRestapNetworkSmoke(config, dependencies = defaultDepend
   add('signer_registry', keys.ready === true && /^[0-9a-f]{64}$/u.test(keys.registryHash), { registryHash: keys.registryHash });
   const routes = await dependencies.inspectRoutes(config);
   add('no_public_network_route', routes.publicNetworkRoutes === 0);
+  if (config.phase === 'verified-send') add('verified_send_owner_route', routes.verifiedSendOwnerRoute === true);
   add('transcript_unavailable', config.expectedGates[GATES.indexOf('transcripts')] === false);
   add('restap_3802_golden', routes.restap3802Golden === true);
 
@@ -115,7 +118,29 @@ function defaultDependencies() {
         const integrity = db.prepare('PRAGMA integrity_check').all().map((row) => row.integrity_check).join(',');
         const openPolicies = Number(db.prepare('SELECT count(*) AS count FROM restap_network_owner_policies WHERE network_enabled <> 0 OR inbound_enabled <> 0 OR autonomous_enabled <> 0').get().count);
         const activeLeases = Number(db.prepare("SELECT count(*) AS count FROM restap_network_activation_leases WHERE status = 'active'").get().count);
-        const workerHolders = Number(db.prepare('SELECT count(*) AS count FROM restap_network_worker_lease').get().count);
+        const workerHolders = Number(db.prepare('SELECT count(*) AS count FROM restap_network_worker_lease WHERE expires_at > ?').get(Date.now()).count);
+        const verifiedPolicies = Number(db.prepare(`
+          WITH current AS (
+            SELECT p.* FROM restap_network_owner_policies p
+            JOIN restap_network_custody_epochs c ON c.chain_id=p.chain_id AND c.collection=p.collection AND c.token_id=p.token_id AND c.generation=p.custody_generation
+            WHERE p.token_id IN ('617','3802') AND c.status='ready'
+              AND c.generation=(SELECT MAX(c2.generation) FROM restap_network_custody_epochs c2 WHERE c2.chain_id=c.chain_id AND c2.collection=c.collection AND c2.token_id=c.token_id)
+              AND p.policy_version=(SELECT MAX(p2.policy_version) FROM restap_network_owner_policies p2 WHERE p2.chain_id=p.chain_id AND p2.collection=p.collection AND p2.token_id=p.token_id AND p2.custody_generation=p.custody_generation)
+          )
+          SELECT count(*) AS count FROM current p
+          WHERE p.network_enabled=1 AND p.inbound_enabled=1 AND p.initiated_daily_limit>0 AND p.generated_daily_limit>0 AND p.peer_daily_limit>0 AND (p.topic_mask & 32) <> 0
+        `).get().count);
+        const verifiedPeers = Number(db.prepare(`
+          WITH current AS (
+            SELECT p.chain_id,p.collection,p.token_id,p.custody_generation,p.policy_version FROM restap_network_owner_policies p
+            JOIN restap_network_custody_epochs c ON c.chain_id=p.chain_id AND c.collection=p.collection AND c.token_id=p.token_id AND c.generation=p.custody_generation
+            WHERE p.token_id IN ('617','3802') AND c.status='ready'
+              AND c.generation=(SELECT MAX(c2.generation) FROM restap_network_custody_epochs c2 WHERE c2.chain_id=c.chain_id AND c2.collection=c.collection AND c2.token_id=c.token_id)
+              AND p.policy_version=(SELECT MAX(p2.policy_version) FROM restap_network_owner_policies p2 WHERE p2.chain_id=p.chain_id AND p2.collection=p.collection AND p2.token_id=p.token_id AND p2.custody_generation=p.custody_generation)
+          )
+          SELECT count(*) AS count FROM current p JOIN restap_network_policy_peers peer USING(chain_id,collection,token_id,custody_generation,policy_version)
+          WHERE peer.relation='allow' AND ((p.token_id='617' AND peer.peer_token_id='3802') OR (p.token_id='3802' AND peer.peer_token_id='617'))
+        `).get().count);
         const invalidEnabledPolicies = Number(db.prepare(`
           WITH latest AS (
             SELECT p.* FROM restap_network_owner_policies p
@@ -147,7 +172,7 @@ function defaultDependencies() {
         `).get(Date.now()).count);
         return {
           integrity, policyDefaults: openPolicies === 0 ? 'closed' : 'open', leases: activeLeases === 0 ? 'inactive' : 'active', workerHolders,
-          ownerState: invalidEnabledPolicies === 0 && invalidActiveLeases === 0 ? 'valid' : 'invalid', enabledPolicies: openPolicies, activeLeases,
+          ownerState: invalidEnabledPolicies === 0 && invalidActiveLeases === 0 ? 'valid' : 'invalid', verifiedSendState: verifiedPolicies === 2 && verifiedPeers === 2 ? 'valid' : 'invalid', enabledPolicies: openPolicies, activeLeases,
         };
       } finally { db.close(); }
     },
@@ -157,12 +182,17 @@ function defaultDependencies() {
       return { ready: Array.isArray(parsed?.keys) && parsed.keys.some((key) => ['signing', 'overlap'].includes(key.status)), registryHash: createHash('sha256').update(bytes).digest('hex') };
     },
     async inspectRoutes(config) {
-      if (!config.baseUrl) return { publicNetworkRoutes: 0, restap3802Golden: true };
+      if (!config.baseUrl) return { publicNetworkRoutes: 0, restap3802Golden: true, verifiedSendOwnerRoute: config.phase === 'verified-send' };
       const guesses = ['/api/restap/network/discovery', '/api/restap/network/opening', '/api/restap/network/reply'];
       const responses = await Promise.all(guesses.map((path) => fetch(new URL(path.slice(1), config.baseUrl))));
       const publicNetworkRoutes = responses.filter((response) => response.status !== 404).length;
       const golden = await fetch(new URL('api/restap/loopers/3802/.well-known/restap.json', config.baseUrl));
-      return { publicNetworkRoutes, restap3802Golden: golden.status === 200 };
+      let verifiedSendOwnerRoute = false;
+      if (config.phase === 'verified-send') {
+        const probe = await fetch(new URL('api/multipass/console/restap-network/617/talk', config.baseUrl), { method: 'POST', headers: { origin: new URL(config.baseUrl).origin, 'content-type': 'application/json' }, body: JSON.stringify({ recipient_token_id: '3802', topic: 'general', idempotency_key: 'smoke-owner-auth-0001' }) });
+        verifiedSendOwnerRoute = probe.status === 401 || probe.status === 403;
+      }
+      return { publicNetworkRoutes, restap3802Golden: golden.status === 200, verifiedSendOwnerRoute };
     },
     async callProvider() { throw new Error('Live provider smoke requires an injected reviewed provider proof adapter.'); },
     async mutate() { throw new Error('Phase mutation requires an injected reviewed mutation adapter.'); },
@@ -185,7 +215,7 @@ function parseGateTuple(value) {
 function deepFreeze(value) { if (value && typeof value === 'object' && !Object.isFrozen(value)) { for (const child of Object.values(value)) deepFreeze(child); Object.freeze(value); } return value; }
 
 function help() {
-  return 'Usage: smoke-looper-restap-network.mjs --mode local|remote --phase phase0|foundation|holder-opt-in|internal-discovery|one-shot|daily|replies --expected-gates 0,0,0,0,0,0,0,0 --release-sha SHA --release PATH --artifact PATH --policy PATH --key-registry PATH --database PATH --fixture-key-ref name=/path [--base-url https://host] [--execute] [--allow-provider-call]';
+  return 'Usage: smoke-looper-restap-network.mjs --mode local|remote --phase phase0|foundation|holder-opt-in|verified-send|internal-discovery|one-shot|daily|replies --expected-gates 0,0,0,0,0,0,0,0 --release-sha SHA --release PATH --artifact PATH --policy PATH --key-registry PATH --database PATH --fixture-key-ref name=/path [--base-url https://host] [--execute] [--allow-provider-call]';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

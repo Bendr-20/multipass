@@ -51,6 +51,22 @@ test('holder opt-in is a separate foundation-plus-policy phase with all traffic 
   assert.equal(parsed.allowProviderCall, false);
 });
 
+test('verified send shares foundation-plus-policy gates but proves the owner route and no worker', async () => {
+  const args = [...BASE_ARGS];
+  args[3] = 'verified-send';
+  args[5] = '1,1,0,0,0,0,0,0';
+  const result = await runRestapNetworkSmoke(parseRestapNetworkSmokeArgs(args), {
+    inspectRelease: async () => ({ immutable: true }), inspectArtifact: async () => ({ count: 7777, hash: 'b'.repeat(64) }),
+    inspectDatabase: async () => ({ integrity: 'ok', verifiedSendState: 'valid', enabledPolicies: 2, activeLeases: 0, workerHolders: 0 }),
+    inspectKeys: async () => ({ ready: true, registryHash: 'c'.repeat(64) }), inspectRoutes: async () => ({ publicNetworkRoutes: 0, restap3802Golden: true, verifiedSendOwnerRoute: true }),
+    callProvider: async () => { throw new Error('forbidden'); }, mutate: async () => { throw new Error('forbidden'); },
+  });
+  assert.equal(result.providerCalled, false);
+  assert.equal(result.mutated, false);
+  assert.equal(result.checks.some((entry) => entry.name === 'verified_send_owner_route'), true);
+  assert.equal(result.checks.some((entry) => entry.name === 'worker_stopped'), true);
+});
+
 test('pilot phases require explicit provider approval and include revocation accounting proof', async () => {
   const pilotArgs = [...BASE_ARGS];
   pilotArgs[3] = 'one-shot';

@@ -61,6 +61,9 @@ export function composeRestapNetworkProductionPolicy({
     activationLeases: createStartupLeaseAdapter({ activationLeases, custodyReconciler }),
     policy,
     management,
+    releaseLegacyWorkerLease() {
+      store.transaction('legacy_worker_release', (tx) => { tx.run('DELETE FROM restap_network_worker_lease WHERE singleton = 1'); });
+    },
   });
   if (config.gates.discovery) composeSignedPilot({
     config, store, custodyReconciler, accountReader, providers, codexRuntime, signer, keyRegistry,
@@ -69,6 +72,7 @@ export function composeRestapNetworkProductionPolicy({
   return Object.freeze({
     dependencies: Object.freeze(dependencies),
     activationLeaseService: activationLeases,
+    policyReader: policy,
   });
 }
 

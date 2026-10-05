@@ -1,5 +1,7 @@
 # Active Looper RESTAP Network Implementation Plan
 
+> **Superseded for new implementation (2026-10-04):** Preserved as historical execution evidence. New work follows [`2026-10-04-synchronous-restap-verified-send-migration.md`](./2026-10-04-synchronous-restap-verified-send-migration.md).
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the approved opt-in, relay-mediated RESTAP communication network for active Loopers through foundation and closed-pilot readiness, without enabling public network traffic or live pilot enrollment.

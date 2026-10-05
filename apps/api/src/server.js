@@ -25,6 +25,7 @@ import { createBankrRestapInferenceClient, createRestapPublicTalkRuntime } from 
 import { loadRestapNetworkFileSigner } from './restap-network/grants.js';
 import { createRestapNetworkProductionFoundation, parseRestapNetworkProductionConfig } from './restap-network/production.js';
 import { hasRestapNetworkEnvironment, parseRestapNetworkServiceConfig, startRestapNetworkService } from './restap-network/service.js';
+import { composeRestapVerifiedSendProduction } from './restap-network/verified-send-production.js';
 
 const DEFAULT_FIXTURE = 'generic';
 const DEFAULT_HOST = '127.0.0.1';
@@ -228,6 +229,7 @@ export async function startServer(options = {}) {
   let restapNetworkSigner;
   let restapNetworkService;
   let restapNetworkProductionFoundation;
+  let restapVerifiedSendService = options.restapVerifiedSendService ?? null;
   let closePromise = null;
 
   const nodeServer = http.createServer(async (req, res) => {
@@ -337,7 +339,9 @@ export async function startServer(options = {}) {
       if (!isRestapNetworkSigner(restapNetworkSigner)) throw new Error('RESTAP network signer unavailable.');
     }
 
-    const needsRestapPolicy = parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled || parsed.restapNewsWriteEnabled;
+    const verifiedSendEnabled = parsed.restapNetworkProductionConfig?.verifiedSend?.enabled === true;
+    const needsRestapPolicy = parsed.restapDiscoveryEnabled || parsed.restapTalkEnabled || parsed.restapNewsWriteEnabled || verifiedSendEnabled;
+    const needsRestapTalkRuntime = parsed.restapTalkEnabled || verifiedSendEnabled;
     const needsRestapNews = parsed.restapNewsWriteEnabled || parsed.restapNewsReadEnabled;
     let restapPolicy;
     let restapAuthorityResolver;
@@ -389,7 +393,7 @@ export async function startServer(options = {}) {
       await authorize({ surface: 'startup' });
     }
 
-    if (parsed.restapTalkEnabled) {
+    if (needsRestapTalkRuntime) {
       restapPublicSessions = options.restapPublicSessions ?? restapPublicSessionStoreFactory();
       const inferenceClient = options.restapInferenceClient ?? restapInferenceClientFactory({
         apiKey: parsed.bankrLlmKey,
@@ -405,6 +409,21 @@ export async function startServer(options = {}) {
         sessionStore: restapPublicSessions,
         inferenceClient,
       });
+    }
+
+    if (verifiedSendEnabled && restapVerifiedSendService === null) {
+      const dependencies = restapNetworkProductionFoundation?.verifiedSendDependencies;
+      if (!dependencies) throw new Error('RESTAP verified-send production dependencies are unavailable.');
+      const composition = composeRestapVerifiedSendProduction({
+        ...dependencies,
+        recipientRuntimes: Object.freeze({ '3802': restapTalkRuntime }),
+        resolvePublicProjection: async ({ tokenId }) => {
+          if (tokenId !== '3802') throw new Error('RESTAP verified-send recipient is unavailable.');
+          const authorization = await restap3802Policy.authorize({ surface: 'talk' });
+          return authorization.publicProjection;
+        },
+      });
+      restapVerifiedSendService = composition.service;
     }
 
     if (needsRestapNews) {
@@ -476,6 +495,7 @@ export async function startServer(options = {}) {
       consoleAgentRuntime: consoleBootstrap.runtime,
       looperCodexRuntime,
       restapNetworkService,
+      restapVerifiedSendService,
       restapDiscoveryEnabled: parsed.restapDiscoveryEnabled,
       restapTalkEnabled: parsed.restapTalkEnabled,
       restap3802Policy,
@@ -530,6 +550,7 @@ export async function startServer(options = {}) {
     loopersAllowlistSnapshotPath: parsed.loopersAllowlistSnapshotPath,
     console: consoleBootstrap,
     restapNetwork: restapNetworkService,
+    restapVerifiedSend: restapVerifiedSendService,
     server: nodeServer,
     close() {
       if (!closePromise) {
