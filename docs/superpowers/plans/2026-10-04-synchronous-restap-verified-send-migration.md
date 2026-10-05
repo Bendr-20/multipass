@@ -27,8 +27,8 @@
 
 ## Phase C — migration gate (requires explicit live approval)
 
-- [ ] Leave legacy worker/initiation/reply gates off and ensure the new route does not consult them.
-- [ ] Back up the database and deploy additive schema/code with the verified-send emergency stop on.
+- [x] Leave legacy worker/initiation/reply gates off and ensure the new route does not consult them.
+- [x] Back up the database, deploy the additive schema/code from immutable release `c0b3f49fec9540da2491c498ee10a42afa1be38e`, and prove the owner-authenticated route boundary locally and publicly.
 - [ ] Treat rollback as forward-compatible code/config rollback: the prior binary rejects the additive table through exact-schema enforcement, so preserve the database backup and do not restart the old binary against the migrated file.
 - [ ] Enable one owner/peer/topic tuple and execute one bounded proof.
 - [ ] Verify request count (maximum one provider call per side), terminal row, custody/policy generations, and content hashes.
