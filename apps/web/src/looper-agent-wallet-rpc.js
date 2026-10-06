@@ -39,8 +39,13 @@ export const BASE_RPC_ORIGINS = Object.freeze([
 ]);
 export const BLOCKSCOUT_ORIGIN = 'https://base.blockscout.com';
 const PUBLICNODE_ORIGIN = 'https://base-rpc.publicnode.com';
-const CONSOLE_RPC_ORIGINS = Object.freeze([BASE_RPC_ORIGINS[1], PUBLICNODE_ORIGIN]);
+const BLASTAPI_ORIGIN = 'https://base-mainnet.public.blastapi.io';
+const CONSOLE_RPC_ORIGINS = Object.freeze([BLASTAPI_ORIGIN, PUBLICNODE_ORIGIN]);
 const ALL_RPC_ORIGINS = Object.freeze([...BASE_RPC_ORIGINS, PUBLICNODE_ORIGIN]);
+const RPC_BATCH_CAPS = Object.freeze({
+  [BLASTAPI_ORIGIN]: 10,
+  [PUBLICNODE_ORIGIN]: 10,
+});
 export const RPC_ROUTES = deepFreeze({
   [BASE_RPC_ORIGINS[0]]: ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt'],
   [BASE_RPC_ORIGINS[1]]: ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt', 'trace'],
@@ -876,13 +881,54 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     functionName,
     args,
   });
-  const [owner, collectionRegistry, collectionImplementation, collectionSalt, legacyAccount, operatorCode] = await Promise.all([
+  const normalizedImplementation = reviewedRelease.implementation;
+  const normalizedAccount = normalizedImplementation
+    ? deriveLooperAccount({ implementation: normalizedImplementation, tokenId })
+    : null;
+  const [
+    owner,
+    collectionRegistry,
+    collectionImplementation,
+    collectionSalt,
+    legacyAccount,
+    operatorCode,
+    rawImplementationCode,
+    rawRegistryAccount,
+    rawAccountCode,
+    rawNativeBalance,
+    rawReviewedModuleRegistryCode,
+    rawTokenBalances,
+  ] = await Promise.all([
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'ownerOf', [tokenId]),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Registry'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Implementation'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'erc6551Salt'),
     call(LOOPERS_COLLECTION, LOOPERS_ABI, 'tokenBoundAccount', [tokenId]),
     request({ origin, method: 'eth_getCode', params: [expectedOwner, anchor.blockRef] }),
+    normalizedImplementation
+      ? request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.blockRef] })
+      : null,
+    normalizedImplementation
+      ? call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
+        normalizedImplementation,
+        ACCOUNT_SALT,
+        BigInt(BASE_CHAIN_ID),
+        LOOPERS_COLLECTION,
+        tokenId,
+      ])
+      : null,
+    normalizedAccount
+      ? request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.blockRef] })
+      : null,
+    normalizedAccount
+      ? request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.blockRef] })
+      : null,
+    reviewedRelease.moduleRegistry
+      ? request({ origin, method: 'eth_getCode', params: [reviewedRelease.moduleRegistry, anchor.blockRef] })
+      : null,
+    normalizedAccount
+      ? Promise.all(CONFIGURED_TOKENS.map((token) => call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount])))
+      : [],
   ]);
   const normalizedCollectionRegistry = getAddress(collectionRegistry);
   const normalizedCollectionImplementation = getAddress(collectionImplementation);
@@ -927,10 +973,6 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     ]));
   }
 
-  const normalizedImplementation = reviewedRelease.implementation;
-  const normalizedAccount = normalizedImplementation
-    ? deriveLooperAccount({ implementation: normalizedImplementation, tokenId })
-    : null;
   let implementationCode = null;
   let implementationRuntimeSha256 = null;
   let registryAccount = null;
@@ -938,18 +980,6 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
   let nativeBalance = '0x0';
   let expectedAccountCode = null;
   if (normalizedImplementation && normalizedAccount) {
-    const [rawImplementationCode, rawRegistryAccount, rawAccountCode, rawNativeBalance] = await Promise.all([
-      request({ origin, method: 'eth_getCode', params: [normalizedImplementation, anchor.blockRef] }),
-      call(ERC6551_REGISTRY, REGISTRY_ABI, 'account', [
-        normalizedImplementation,
-        ACCOUNT_SALT,
-        BigInt(BASE_CHAIN_ID),
-        LOOPERS_COLLECTION,
-        tokenId,
-      ]),
-      request({ origin, method: 'eth_getCode', params: [normalizedAccount, anchor.blockRef] }),
-      request({ origin, method: 'eth_getBalance', params: [normalizedAccount, anchor.blockRef] }),
-    ]);
     implementationCode = canonicalCode(rawImplementationCode, 'implementation runtime');
     implementationRuntimeSha256 = sha256(implementationCode);
     registryAccount = getAddress(rawRegistryAccount);
@@ -994,12 +1024,7 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
     && implementationRuntimeSha256 === reviewedRelease.runtimeSha256;
   if (accountCode === '0x' && implementationTrusted) {
     moduleRegistry = reviewedRelease.moduleRegistry;
-    const rawRegistryCode = await request({
-      origin,
-      method: 'eth_getCode',
-      params: [moduleRegistry, anchor.blockRef],
-    });
-    moduleRegistryCode = canonicalCode(rawRegistryCode, 'module registry runtime', { allowEmpty: true });
+    moduleRegistryCode = canonicalCode(rawReviewedModuleRegistryCode, 'module registry runtime', { allowEmpty: true });
     moduleRegistryRuntimeSha256 = moduleRegistryCode === '0x' ? null : sha256(moduleRegistryCode);
   }
   if (accountCode !== '0x' && accountCodeMatches && implementationTrusted) {
@@ -1068,8 +1093,8 @@ async function readOriginSnapshot({ request, origin, anchor, tokenId, expectedOw
 
   const tokens = [];
   if (normalizedAccount) {
-    for (const token of CONFIGURED_TOKENS) {
-      const balance = await call(token.address, ERC20_ABI, 'balanceOf', [normalizedAccount]);
+    for (const [index, token] of CONFIGURED_TOKENS.entries()) {
+      const balance = rawTokenBalances[index];
       tokens.push({
         contract: token.address,
         symbol: token.symbol,
@@ -2262,17 +2287,51 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
           throw new Error('Base RPC returned an invalid envelope.');
         }
         const byId = new Map();
+        const seenIds = new Set();
+        let transientRpcError = null;
         for (const envelope of envelopes) {
           const keys = envelope && typeof envelope === 'object' && !Array.isArray(envelope)
             ? Object.keys(envelope).sort()
             : [];
           if (envelope?.jsonrpc !== '2.0'
             || !Number.isSafeInteger(envelope?.id)
-            || keys.join(',') !== 'id,jsonrpc,result'
-            || byId.has(envelope.id)) {
+            || seenIds.has(envelope.id)) {
             throw new Error('Base RPC returned an invalid envelope.');
           }
+          seenIds.add(envelope.id);
+          if (keys.join(',') === 'error,id,jsonrpc') {
+            const errorKeys = envelope.error && typeof envelope.error === 'object' && !Array.isArray(envelope.error)
+              ? Object.keys(envelope.error).sort()
+              : [];
+            if (errorKeys.join(',') !== 'code,message'
+              || !Number.isSafeInteger(envelope.error.code)
+              || typeof envelope.error.message !== 'string'
+              || envelope.error.message.length > 512) {
+              throw new Error('Base RPC returned an invalid envelope.');
+            }
+            const retryable = [-32005, -32016].includes(envelope.error.code)
+              || /rate|limit|busy|capacity|temporar/i.test(envelope.error.message);
+            if (!retryable) {
+              throw Object.assign(new Error(`Base RPC error ${envelope.error.code}.`), {
+                rpcError: structuredClone(envelope.error),
+                transient: false,
+              });
+            }
+            transientRpcError ??= envelope.error;
+            continue;
+          }
+          if (keys.join(',') !== 'id,jsonrpc,result') throw new Error('Base RPC returned an invalid envelope.');
           byId.set(envelope.id, envelope.result);
+        }
+        if (transientRpcError) {
+          if (attempt < 4) {
+            await wait(Math.min(2_000, 250 * (attempt + 1)));
+            continue;
+          }
+          throw Object.assign(new Error(`Base RPC error ${transientRpcError.code}.`), {
+            rpcError: structuredClone(transientRpcError),
+            transient: true,
+          });
         }
         if (entries.some(({ id }) => !byId.has(id))) throw new Error('Base RPC returned an invalid envelope.');
         return entries.map(({ id }) => byId.get(id));
@@ -2291,8 +2350,9 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
     const previous = originTails.get(origin) ?? Promise.resolve();
     const pending = previous.catch(() => {}).then(async () => {
       const results = [];
-      for (let index = 0; index < entries.length; index += 3) {
-        results.push(...await requestBatch(origin, entries.slice(index, index + 3)));
+      const batchCap = RPC_BATCH_CAPS[origin];
+      for (let index = 0; index < entries.length; index += batchCap) {
+        results.push(...await requestBatch(origin, entries.slice(index, index + batchCap)));
       }
       return results;
     });

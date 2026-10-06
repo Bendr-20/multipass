@@ -248,7 +248,7 @@ function requester({
     if (method === 'eth_chainId') return '0x2105';
     if (method === 'eth_blockNumber') return '0x64';
     if (method === 'eth_getBlockByNumber') {
-      const hash = disagreeBlockHash && origin === BASE_RPC_ORIGINS[1]
+      const hash = disagreeBlockHash && origin === 'https://base-rpc.publicnode.com'
         ? `0x${'cc'.repeat(32)}`
         : BLOCK_HASH;
       return { number: '0x64', hash };
@@ -257,18 +257,18 @@ function requester({
       const address = params[0].toLowerCase();
       if (address === OWNER.toLowerCase()) return ownerCode;
       if (address === IMPLEMENTATION.toLowerCase()) {
-        return disagreeImplementationCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : IMPLEMENTATION_CODE;
+        return disagreeImplementationCode && origin === 'https://base-rpc.publicnode.com' ? '0x6000' : IMPLEMENTATION_CODE;
       }
       if (address === LEGACY_ACCOUNT_IMPLEMENTATION.toLowerCase()) return '0x6000';
       if (address === MODULE_REGISTRY.toLowerCase()) {
-        return disagreeRegistryCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : REGISTRY_CODE;
+        return disagreeRegistryCode && origin === 'https://base-rpc.publicnode.com' ? '0x6000' : REGISTRY_CODE;
       }
       if (address === POLICY_MODULE.toLowerCase()) {
-        return disagreeModuleCode && origin === BASE_RPC_ORIGINS[1] ? '0x6000' : MODULE_CODE;
+        return disagreeModuleCode && origin === 'https://base-rpc.publicnode.com' ? '0x6000' : MODULE_CODE;
       }
       if (address === account.toLowerCase()) {
         if (inactiveAccount) return '0x';
-        return disagreeProxyCode && origin === BASE_RPC_ORIGINS[1] ? `${accountCode.slice(0, -2)}00` : accountCode;
+        return disagreeProxyCode && origin === 'https://base-rpc.publicnode.com' ? `${accountCode.slice(0, -2)}00` : accountCode;
       }
       if (address === legacyAccount.toLowerCase()) return legacyAccountCode;
       throw new Error(`Unexpected code address ${params[0]}`);
@@ -278,7 +278,7 @@ function requester({
     const call = params[0];
     const selector = call.data.slice(0, 10);
     if (selector === selectors.ownerOf) {
-      const owner = disagreeOwner && origin === BASE_RPC_ORIGINS[1]
+      const owner = disagreeOwner && origin === 'https://base-rpc.publicnode.com'
         ? '0x3333333333333333333333333333333333333333'
         : OWNER;
       return output('address', owner);
@@ -312,10 +312,10 @@ function requester({
     }
     if (selector === selectors.policyEpoch) return output('uint256', 9n);
     if (selector === selectors.globallyPaused) {
-      return output('bool', disagreeRegistryPause && origin === BASE_RPC_ORIGINS[1]);
+      return output('bool', disagreeRegistryPause && origin === 'https://base-rpc.publicnode.com');
     }
     if (selector === selectors.approvedModuleCodehash) {
-      const hash = disagreeApproval && origin === BASE_RPC_ORIGINS[1]
+      const hash = disagreeApproval && origin === 'https://base-rpc.publicnode.com'
         ? `0x${'aa'.repeat(32)}`
         : keccak256(MODULE_CODE);
       return output('bytes32', hash);
@@ -677,8 +677,8 @@ async function mockedRpcSuccess(baseRequest, origin, options) {
   };
 }
 
-test('fixed requester batches concurrent snapshot reads per public RPC origin', async () => {
-  const baseRequest = requester();
+test('fixed requester batches concurrent activation reads per public RPC origin', async () => {
+  const baseRequest = requester({ inactiveAccount: true, ownerCode: DELEGATED_OWNER_CODE });
   let largestBatch = 0;
   let fetches = 0;
   const reader = createLooperWalletRpcClient({
@@ -694,8 +694,38 @@ test('fixed requester batches concurrent snapshot reads per public RPC origin', 
 
   await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase: 'readiness' });
 
-  assert.equal(largestBatch, 3);
-  assert.ok(fetches <= 30, `expected at most 30 HTTP requests, received ${fetches}`);
+  assert.equal(largestBatch, 10);
+  assert.ok(fetches <= 18, `expected at most 18 HTTP requests, received ${fetches}`);
+});
+
+test('full activation snapshot sequence stays within high-capacity provider budgets', async () => {
+  const baseRequest = requester({ inactiveAccount: true, ownerCode: DELEGATED_OWNER_CODE });
+  const fetchesByOrigin = new Map();
+  const largestBatchByOrigin = new Map();
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      const batchSize = Array.isArray(body) ? body.length : 1;
+      fetchesByOrigin.set(origin, (fetchesByOrigin.get(origin) ?? 0) + 1);
+      largestBatchByOrigin.set(origin, Math.max(largestBatchByOrigin.get(origin) ?? 0, batchSize));
+      return mockedRpcSuccess(baseRequest, origin, options);
+    },
+  });
+
+  for (const phase of ['readiness', 'pre_sign', 'pre_sign']) {
+    await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase });
+  }
+
+  assert.deepEqual([...fetchesByOrigin.keys()].sort(), [
+    'https://base-mainnet.public.blastapi.io',
+    'https://base-rpc.publicnode.com',
+  ]);
+  assert.equal(largestBatchByOrigin.get('https://base-mainnet.public.blastapi.io'), 10);
+  assert.equal(largestBatchByOrigin.get('https://base-rpc.publicnode.com'), 10);
+  assert.ok(fetchesByOrigin.get('https://base-mainnet.public.blastapi.io') <= 18);
+  assert.ok(fetchesByOrigin.get('https://base-rpc.publicnode.com') <= 18);
 });
 
 test('fixed requester retries a transient public RPC rate limit', async () => {
@@ -722,6 +752,41 @@ test('fixed requester retries a transient public RPC rate limit', async () => {
 
   assert.equal(result.account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
   assert.ok(retries > 0);
+});
+
+test('fixed requester retries transient JSON-RPC rate-limit envelopes', async () => {
+  const baseRequest = requester({ inactiveAccount: true, ownerCode: DELEGATED_OWNER_CODE });
+  let rateLimited = false;
+  let retries = 0;
+  const waits = [];
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async (milliseconds) => waits.push(milliseconds),
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      const requests = Array.isArray(body) ? body : [body];
+      if (!rateLimited && origin === 'https://base-mainnet.public.blastapi.io' && requests.some(({ method }) => method === 'eth_call')) {
+        rateLimited = true;
+        const responses = requests.map((entry, index) => index === 0
+          ? { jsonrpc: '2.0', id: entry.id, error: { code: -32016, message: 'over rate limit' } }
+          : { jsonrpc: '2.0', id: entry.id, result: '0x' });
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => Array.isArray(body) ? responses : responses[0],
+        };
+      }
+      retries += rateLimited ? 1 : 0;
+      return mockedRpcSuccess(baseRequest, origin, options);
+    },
+  });
+
+  const result = await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase: 'readiness' });
+
+  assert.equal(result.account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
+  assert.ok(retries > 0);
+  assert.ok(waits.some((milliseconds) => milliseconds >= 250));
 });
 
 test('fixed requester survives a short burst of public RPC rate limits', async () => {
@@ -795,15 +860,15 @@ test('fixed requester serializes bursty reads per public RPC origin', async () =
   assert.deepEqual([...maxActiveByOrigin.values()], [1, 1]);
 });
 
-test('fixed requester rejects noncanonical JSON-RPC envelopes before consuming results', async () => {
-  const malformedBodies = [
-    ({ id }) => ({ jsonrpc: '2.0', id: id + 1, result: '0x2105' }),
-    ({ id }) => ({ jsonrpc: '1.0', id, result: '0x2105' }),
-    ({ id }) => ({ jsonrpc: '2.0', id, result: '0x2105', extra: true }),
-    ({ id }) => ({ jsonrpc: '2.0', id, error: { code: -32000, message: 'failed' } }),
-    ({ id }) => ({ jsonrpc: '2.0', id }),
+test('fixed requester rejects noncanonical envelopes and permanent RPC errors before consuming results', async () => {
+  const rejectedBodies = [
+    [({ id }) => ({ jsonrpc: '2.0', id: id + 1, result: '0x2105' }), /envelope/i],
+    [({ id }) => ({ jsonrpc: '1.0', id, result: '0x2105' }), /envelope/i],
+    [({ id }) => ({ jsonrpc: '2.0', id, result: '0x2105', extra: true }), /envelope/i],
+    [({ id }) => ({ jsonrpc: '2.0', id, error: { code: -32000, message: 'failed' } }), /Base RPC error -32000/i],
+    [({ id }) => ({ jsonrpc: '2.0', id }), /envelope/i],
   ];
-  for (const makeBody of malformedBodies) {
+  for (const [makeBody, expected] of rejectedBodies) {
     const reader = createLooperWalletRpcClient({
       releaseConfig: RELEASE_CONFIG,
       fetchImpl: async (_origin, options) => {
@@ -814,7 +879,7 @@ test('fixed requester rejects noncanonical JSON-RPC envelopes before consuming r
     await assert.rejects(reader.readSnapshot({
       selection: { tokenId: TOKEN_ID, owner: OWNER },
       phase: 'readiness',
-    }), /envelope/i);
+    }), expected);
   }
 });
 
