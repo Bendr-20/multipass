@@ -2234,7 +2234,7 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
 
       const id = nextId;
       nextId += 1;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10_000);
         try {
@@ -2247,8 +2247,8 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
             signal: controller.signal,
           });
           if (!response.ok) {
-            const retryable = response.status === 429 || response.status >= 500;
-            if (retryable && attempt < 2) {
+            const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+            if (retryable && attempt < 4) {
               const retryAfter = Number(response.headers?.get?.('retry-after'));
               const delayMs = Math.min(2_000, Math.max(
                 250 * (attempt + 1),

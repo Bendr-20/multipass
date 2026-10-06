@@ -694,6 +694,63 @@ test('fixed requester retries a transient public RPC rate limit', async () => {
   assert.ok(retries > 0);
 });
 
+test('fixed requester survives a short burst of public RPC rate limits', async () => {
+  const baseRequest = requester();
+  const rateLimits = new Map();
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      const limited = rateLimits.get(origin) ?? 0;
+      if (limited < 4) {
+        rateLimits.set(origin, limited + 1);
+        return { ok: false, status: 429, headers: { get: () => null } };
+      }
+      const result = await baseRequest({ origin, method: body.method, params: body.params });
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) };
+    },
+  });
+
+  const result = await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase: 'readiness' });
+
+  assert.equal(result.account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
+  assert.deepEqual([...rateLimits.values()], [4, 4]);
+});
+
+test('fixed requester retries a transient public RPC request timeout', async () => {
+  const baseRequest = requester();
+  let timedOut = false;
+  let retries = 0;
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      if (!timedOut) {
+        timedOut = true;
+        return { ok: false, status: 408, headers: { get: () => null } };
+      }
+      retries += 1;
+      const result = await baseRequest({ origin, method: body.method, params: body.params });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
+      };
+    },
+  });
+
+  const result = await reader.readSnapshot({
+    selection: { tokenId: TOKEN_ID, owner: OWNER },
+    phase: 'readiness',
+  });
+
+  assert.equal(result.account, deriveLooperAccount({ implementation: IMPLEMENTATION, tokenId: TOKEN_ID }));
+  assert.ok(retries > 0);
+});
+
 test('fixed requester serializes bursty reads per public RPC origin', async () => {
   const baseRequest = requester();
   const activeByOrigin = new Map();
