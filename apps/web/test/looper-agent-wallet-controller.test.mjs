@@ -216,6 +216,21 @@ test('activation exposes a recoverable wrong-chain state when the mobile wallet 
   assert.equal(f.controller.getSnapshot().reason, 'wrong_chain');
 });
 
+test('transient activation pre-sign failure keeps activation retry available', async () => {
+  const transient = Object.assign(new Error('Base RPC failed with 429.'), { transient: true });
+  const f = controllerFixture({ snapshots: [snapshot(), snapshot(), transient, snapshot()] });
+
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareActivation();
+  await assert.rejects(f.controller.submitPrepared(prepared.id, { confirmed: true }), /429/);
+
+  const failed = f.controller.getSnapshot();
+  assert.equal(failed.mode, 'inactive');
+  assert.equal(failed.canTransact, true);
+  assert.equal(failed.activation.state, 'invalidated');
+  await assert.doesNotReject(f.controller.prepareActivation());
+});
+
 test('inactive activation passes EOA gates at readiness, pre-sign and receipt before attribution', async () => {
   const active = deployedSnapshot();
   const f = controllerFixture({

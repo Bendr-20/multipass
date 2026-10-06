@@ -2221,59 +2221,103 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
   let nextId = 1;
   const originTails = new Map();
   const originLastStartedAt = new Map();
+  const originQueues = new Map();
+  const scheduledOrigins = new Set();
+
+  async function requestBatch(origin, entries) {
+    const throttleMs = Math.max(0, 125 - (Date.now() - (originLastStartedAt.get(origin) ?? 0)));
+    if (throttleMs > 0) await wait(throttleMs);
+    originLastStartedAt.set(origin, Date.now());
+    const payload = entries.map(({ id, method, params }) => ({ jsonrpc: '2.0', id, method, params }));
+    const requestBody = payload.length === 1 ? payload[0] : payload;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetchImpl(origin, {
+          method: 'POST',
+          redirect: 'error',
+          credentials: 'omit',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+          if (retryable && attempt < 4) {
+            const retryAfter = Number(response.headers?.get?.('retry-after'));
+            const delayMs = Math.min(2_000, Math.max(
+              250 * (attempt + 1),
+              Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.ceil(retryAfter * 1_000) : 0,
+            ));
+            await wait(delayMs);
+            continue;
+          }
+          throw Object.assign(new Error(`Base RPC failed with ${response.status}.`), { transient: retryable });
+        }
+        const body = await response.json();
+        const envelopes = entries.length === 1 ? [body] : body;
+        if (!Array.isArray(envelopes) || envelopes.length !== entries.length) {
+          throw new Error('Base RPC returned an invalid envelope.');
+        }
+        const byId = new Map();
+        for (const envelope of envelopes) {
+          const keys = envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+            ? Object.keys(envelope).sort()
+            : [];
+          if (envelope?.jsonrpc !== '2.0'
+            || !Number.isSafeInteger(envelope?.id)
+            || keys.join(',') !== 'id,jsonrpc,result'
+            || byId.has(envelope.id)) {
+            throw new Error('Base RPC returned an invalid envelope.');
+          }
+          byId.set(envelope.id, envelope.result);
+        }
+        if (entries.some(({ id }) => !byId.has(id))) throw new Error('Base RPC returned an invalid envelope.');
+        return entries.map(({ id }) => byId.get(id));
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw new Error('Base RPC retry budget exhausted.');
+  }
+
+  function flush(origin) {
+    scheduledOrigins.delete(origin);
+    const entries = originQueues.get(origin) ?? [];
+    originQueues.delete(origin);
+    if (!entries.length) return;
+    const previous = originTails.get(origin) ?? Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      const results = [];
+      for (let index = 0; index < entries.length; index += 3) {
+        results.push(...await requestBatch(origin, entries.slice(index, index + 3)));
+      }
+      return results;
+    });
+    originTails.set(origin, pending.catch(() => {}));
+    pending.then(
+      (results) => entries.forEach((entry, index) => entry.resolve(results[index])),
+      (error) => entries.forEach((entry) => entry.reject(error)),
+    );
+  }
 
   return ({ origin, method, params }) => {
     if (typeof fetchImpl !== 'function') throw new Error('Base RPC fetch is unavailable.');
     if (typeof wait !== 'function') throw new Error('Base RPC wait dependency is unavailable.');
     if (!CONSOLE_RPC_ORIGINS.includes(origin)) throw new Error('Unapproved Base RPC origin.');
-    const previous = originTails.get(origin) ?? Promise.resolve();
-    const pending = previous.catch(() => {}).then(async () => {
-      const throttleMs = Math.max(0, 125 - (Date.now() - (originLastStartedAt.get(origin) ?? 0)));
-      if (throttleMs > 0) await wait(throttleMs);
-      originLastStartedAt.set(origin, Date.now());
-
-      const id = nextId;
-      nextId += 1;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10_000);
-        try {
-          const response = await fetchImpl(origin, {
-            method: 'POST',
-            redirect: 'error',
-            credentials: 'omit',
-            headers: { 'content-type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-            if (retryable && attempt < 4) {
-              const retryAfter = Number(response.headers?.get?.('retry-after'));
-              const delayMs = Math.min(2_000, Math.max(
-                250 * (attempt + 1),
-                Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.ceil(retryAfter * 1_000) : 0,
-              ));
-              await wait(delayMs);
-              continue;
-            }
-            throw new Error(`Base RPC failed with ${response.status}.`);
-          }
-          const body = await response.json();
-          const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort() : [];
-          if (body?.jsonrpc !== '2.0'
-            || body?.id !== id
-            || keys.join(',') !== 'id,jsonrpc,result') {
-            throw new Error('Base RPC returned an invalid envelope.');
-          }
-          return body.result;
-        } finally {
-          clearTimeout(timeout);
-        }
-      }
-      throw new Error('Base RPC retry budget exhausted.');
+    const id = nextId;
+    nextId += 1;
+    const pending = new Promise((resolve, reject) => {
+      const queue = originQueues.get(origin) ?? [];
+      queue.push({ id, method, params, resolve, reject });
+      originQueues.set(origin, queue);
     });
-    originTails.set(origin, pending.catch(() => {}));
+    if (!scheduledOrigins.has(origin)) {
+      scheduledOrigins.add(origin);
+      queueMicrotask(() => flush(origin));
+    }
     return pending;
   };
 }

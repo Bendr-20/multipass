@@ -661,6 +661,43 @@ test('strictly attributes one Coinbase v0.6 UserOperation to the exact Looper ca
   }), /Looper receipt event|receipt ordinal/i);
 });
 
+async function mockedRpcSuccess(baseRequest, origin, options) {
+  const body = JSON.parse(options.body);
+  const requests = Array.isArray(body) ? body : [body];
+  const responses = await Promise.all(requests.map(async (entry) => ({
+    jsonrpc: '2.0',
+    id: entry.id,
+    result: await baseRequest({ origin, method: entry.method, params: entry.params }),
+  })));
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    json: async () => Array.isArray(body) ? responses : responses[0],
+  };
+}
+
+test('fixed requester batches concurrent snapshot reads per public RPC origin', async () => {
+  const baseRequest = requester();
+  let largestBatch = 0;
+  let fetches = 0;
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      largestBatch = Math.max(largestBatch, Array.isArray(body) ? body.length : 1);
+      fetches += 1;
+      return mockedRpcSuccess(baseRequest, origin, options);
+    },
+  });
+
+  await reader.readSnapshot({ selection: { tokenId: TOKEN_ID, owner: OWNER }, phase: 'readiness' });
+
+  assert.equal(largestBatch, 3);
+  assert.ok(fetches <= 30, `expected at most 30 HTTP requests, received ${fetches}`);
+});
+
 test('fixed requester retries a transient public RPC rate limit', async () => {
   const baseRequest = requester();
   let rateLimited = false;
@@ -669,19 +706,12 @@ test('fixed requester retries a transient public RPC rate limit', async () => {
     releaseConfig: RELEASE_CONFIG,
     wait: async () => {},
     fetchImpl: async (origin, options) => {
-      const body = JSON.parse(options.body);
       if (!rateLimited) {
         rateLimited = true;
         return { ok: false, status: 429, headers: { get: () => null } };
       }
       retries += 1;
-      const result = await baseRequest({ origin, method: body.method, params: body.params });
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
-      };
+      return mockedRpcSuccess(baseRequest, origin, options);
     },
   });
 
@@ -701,14 +731,12 @@ test('fixed requester survives a short burst of public RPC rate limits', async (
     releaseConfig: RELEASE_CONFIG,
     wait: async () => {},
     fetchImpl: async (origin, options) => {
-      const body = JSON.parse(options.body);
       const limited = rateLimits.get(origin) ?? 0;
       if (limited < 4) {
         rateLimits.set(origin, limited + 1);
         return { ok: false, status: 429, headers: { get: () => null } };
       }
-      const result = await baseRequest({ origin, method: body.method, params: body.params });
-      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) };
+      return mockedRpcSuccess(baseRequest, origin, options);
     },
   });
 
@@ -726,19 +754,12 @@ test('fixed requester retries a transient public RPC request timeout', async () 
     releaseConfig: RELEASE_CONFIG,
     wait: async () => {},
     fetchImpl: async (origin, options) => {
-      const body = JSON.parse(options.body);
       if (!timedOut) {
         timedOut = true;
         return { ok: false, status: 408, headers: { get: () => null } };
       }
       retries += 1;
-      const result = await baseRequest({ origin, method: body.method, params: body.params });
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
-      };
+      return mockedRpcSuccess(baseRequest, origin, options);
     },
   });
 
@@ -763,18 +784,9 @@ test('fixed requester serializes bursty reads per public RPC origin', async () =
       activeByOrigin.set(origin, active);
       maxActiveByOrigin.set(origin, Math.max(maxActiveByOrigin.get(origin) ?? 0, active));
       await new Promise((resolve) => setTimeout(resolve, 1));
-      const body = JSON.parse(options.body);
-      const result = active > 1
-        ? null
-        : await baseRequest({ origin, method: body.method, params: body.params });
       activeByOrigin.set(origin, active - 1);
       if (active > 1) return { ok: false, status: 429, headers: { get: () => null } };
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        json: async () => ({ jsonrpc: '2.0', id: body.id, result }),
-      };
+      return mockedRpcSuccess(baseRequest, origin, options);
     },
   });
 

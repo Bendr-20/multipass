@@ -179,6 +179,7 @@ export function createLooperAgentWalletController({
     });
     return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
       if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      const retryableSnapshot = current;
       let expectedTransaction;
       try {
         const persisted = loadAttempt(scope, record.kind);
@@ -236,7 +237,10 @@ export function createLooperAgentWalletController({
         }
       } catch (error) {
         invalidateAttempt(record);
-        if (sameSelection(selection, boundSelection)) forceReadOnly(current.reason ?? 'pre_sign_invalidated');
+        if (sameSelection(selection, boundSelection)) {
+          if (error?.transient === true) current = attachAttempts(retryableSnapshot);
+          else forceReadOnly(current.reason ?? 'pre_sign_invalidated');
+        }
         throw error;
       }
 
