@@ -5,6 +5,7 @@ node_modules/
 # env and secrets
 .env
 .env.*
+!apps/web/.env.production
 *.pem
 *.key
 *.p12
