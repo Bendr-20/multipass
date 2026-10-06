@@ -6,7 +6,7 @@ export const LOOPERS_MAINNET_ADAPTER = '0x270d25D2c59A8bcA1B0f40ad95fF7806c0025c
 export const LOOPERS_MAINNET_CHAIN_ID = 8453;
 const DEFAULT_RPC_URLS = [
   'https://base-rpc.publicnode.com',
-  'https://base.drpc.org',
+  'https://base-mainnet.public.blastapi.io',
   'https://mainnet.base.org',
 ];
 const DEFAULT_RPC_TIMEOUT_MS = 5_000;
@@ -14,7 +14,8 @@ const DEFAULT_INDEXER_TIMEOUT_MS = 5_000;
 const DEFAULT_METADATA_BASE_URL = 'https://helixa.xyz/loopers/metadata-hotfix/';
 const DEFAULT_IMAGE_BASE_URL = 'https://helixa.xyz/loopers/images/';
 const DEFAULT_INDEXER_BASE_URL = 'https://base.blockscout.com/api/v2';
-const DEFAULT_OWNER_CHUNK_SIZE = 50;
+const DEFAULT_OWNER_CHUNK_SIZE = 500;
+const DEFAULT_METADATA_CONCURRENCY = 8;
 const LOOPERS_READ_ABI = [
   {
     type: 'function',
@@ -165,18 +166,17 @@ export async function loadOwnedLooperAgents({
     tokenIds: ownedTokenIds,
     wallet: owner,
   });
-  const hydrated = [];
-  for (const tokenId of ownedTokenIds) {
+  const hydrated = await mapWithConcurrency(ownedTokenIds, DEFAULT_METADATA_CONCURRENCY, async (tokenId) => {
     const authorization = authorizations.get(String(tokenId));
-    hydrated.push(await hydrateOwnedLooper({
+    return hydrateOwnedLooper({
       tokenId,
       owner,
       authorization,
       fetchImpl,
       metadataBaseUrl,
       imageBaseUrl,
-    }));
-  }
+    });
+  });
   return hydrated.sort(compareTokenIds);
 }
 
@@ -197,7 +197,7 @@ async function authorizeLooperControls({ tokenIds, wallet, publicClients, contra
       args: [tokenId],
     },
   ]);
-  const ownershipAndIdentity = await completeMulticallWithFallback(publicClients, ownershipAndIdentityReads);
+  const ownershipAndIdentity = await completeMulticallWithDirectFallback(publicClients, ownershipAndIdentityReads);
   const identities = normalizedTokenIds.map((tokenId, index) => {
     const ownerResult = ownershipAndIdentity[index * 2];
     const identityResult = ownershipAndIdentity[index * 2 + 1];
@@ -222,7 +222,7 @@ async function authorizeLooperControls({ tokenIds, wallet, publicClients, contra
     functionName: 'isController',
     args: [agentId, owner],
   }));
-  const controllerResults = await completeMulticallWithFallback(publicClients, controllerReads);
+  const controllerResults = await completeMulticallWithDirectFallback(publicClients, controllerReads);
   return new Map(identities.map(({ tokenId, actualOwner, agentId }, index) => {
     const controllerResult = controllerResults[index];
     if (controllerResult?.status !== 'success') {
@@ -388,7 +388,7 @@ async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expe
   const max = Number(totalMinted);
   const targetCount = Number(expectedBalance);
   if (!Number.isSafeInteger(max) || max < 0 || max > 7_777) throw new Error('Looper total supply is outside the bounded scan range.');
-  const chunkSize = Math.max(1, Math.min(Number(ownerChunkSize) || DEFAULT_OWNER_CHUNK_SIZE, 100));
+  const chunkSize = Math.max(1, Math.min(Number(ownerChunkSize) || DEFAULT_OWNER_CHUNK_SIZE, 500));
   for (let end = max; end >= 1 && owned.length < targetCount; end -= chunkSize) {
     const start = Math.max(1, end - chunkSize + 1);
     const contracts = [];
@@ -419,28 +419,53 @@ async function findOwnedTokenIdsByOwnerOf({ publicClients, contract, owner, expe
 
 async function completeMulticallWithFallback(clients, contracts) {
   const merged = Array.from({ length: contracts.length }, () => null);
-  const responses = await Promise.allSettled(clients.map((client) => client.multicall({ contracts, allowFailure: true })));
+  const groups = [clients.slice(0, 2), clients.slice(2)].filter((group) => group.length);
   let completedResponse = false;
   let lastError = null;
-  for (const response of responses) {
-    if (response.status === 'rejected') {
-      lastError = response.reason;
-      continue;
+
+  for (const group of groups) {
+    const pending = new Map(group.map((client, index) => [
+      index,
+      Promise.resolve().then(() => client.multicall({ contracts, allowFailure: true })).then(
+        (value) => ({ index, status: 'fulfilled', value }),
+        (reason) => ({ index, status: 'rejected', reason }),
+      ),
+    ]));
+    while (pending.size) {
+      const response = await Promise.race(pending.values());
+      pending.delete(response.index);
+      if (response.status === 'rejected') {
+        lastError = response.reason;
+        continue;
+      }
+      const results = response.value;
+      if (!Array.isArray(results) || results.length !== contracts.length) {
+        lastError = new Error('RPC returned an incomplete ownership chunk.');
+        continue;
+      }
+      completedResponse = true;
+      results.forEach((result, index) => {
+        if (result?.status === 'success') merged[index] = result;
+      });
+      if (merged.every((result) => result?.status === 'success')) return merged;
     }
-    const results = response.value;
-    if (!Array.isArray(results) || results.length !== contracts.length) {
-      lastError = new Error('RPC returned an incomplete ownership chunk.');
-      continue;
-    }
-    completedResponse = true;
-    results.forEach((result, index) => {
-      if (result?.status === 'success') merged[index] = result;
-    });
   }
   if (!completedResponse) {
     throw new Error(`Looper ownership scan incomplete: ${lastError?.message ?? 'all providers failed'}`);
   }
   return merged.map((result) => result ?? { status: 'failure' });
+}
+
+async function completeMulticallWithDirectFallback(clients, contracts) {
+  const results = await completeMulticallWithFallback(clients, contracts);
+  return Promise.all(results.map(async (result, index) => {
+    if (result?.status === 'success') return result;
+    try {
+      return { status: 'success', result: await readWithFallback(clients, contracts[index]) };
+    } catch (error) {
+      return { status: 'failure', error };
+    }
+  }));
 }
 
 async function readWithFallback(clients, request) {
@@ -612,6 +637,21 @@ function createWatchBody({ specialization, role }) {
 
 function compareTokenIds(left, right) {
   return Number(left.tokenId) - Number(right.tokenId);
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+  const items = [...values];
+  const results = Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function normalizeClients(publicClients, publicClient) {

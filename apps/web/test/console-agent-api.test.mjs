@@ -92,6 +92,22 @@ test('owned loading and agent writes rely on cookie session instead of a wallet 
   assert.equal(calls[3].init.headers['x-csrf-token'], 'csrf-1');
 });
 
+test('owned Looper loading aborts a stalled roster request within its deadline', async () => {
+  let signal;
+  await assert.rejects(
+    fetchOwnedLooperAgents({
+      apiBase: 'https://helixa.test',
+      timeoutMs: 5,
+      fetchImpl: async (_url, init) => {
+        signal = init.signal;
+        return new Promise(() => {});
+      },
+    }),
+    /timed out/i,
+  );
+  assert.equal(signal.aborted, true);
+});
+
 test('owned Looper browser model keeps canonical stale CRED and ignores ambiguous legacy scores', async () => {
   const calls = [];
   const cred = {

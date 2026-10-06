@@ -45,8 +45,54 @@ function createOwnershipClient({ incomplete = false, owns617 = false, failedToke
 test('owned Looper clients include a third live Base fallback', () => {
   assert.deepEqual(
     createLoopersPublicClients().map((client) => client.transport.url),
-    ['https://base-rpc.publicnode.com', 'https://base.drpc.org', 'https://mainnet.base.org'],
+    ['https://base-rpc.publicnode.com', 'https://base-mainnet.public.blastapi.io', 'https://mainnet.base.org'],
   );
+});
+
+test('owned Looper scan does not wait for a stalled provider after a complete provider succeeds', { timeout: 500 }, async () => {
+  const fast = createOwnershipClient({ owns617: true });
+  const stalled = {
+    readContract: fast.readContract,
+    multicall: async () => new Promise(() => {}),
+  };
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClients: [fast, stalled],
+    fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper fallback scans the full collection in bounded large chunks', async () => {
+  let ownershipBatches = 0;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return 1n;
+      if (functionName === 'totalMinted') return 7_777n;
+      throw new Error('unexpected direct read');
+    },
+    async multicall({ contracts }) {
+      const isOwnershipScan = contracts.every(({ functionName }) => functionName === 'ownerOf');
+      if (isOwnershipScan) ownershipBatches += 1;
+      return contracts.map(({ functionName, args }) => {
+        if (functionName === 'ownerOf') return { status: 'success', result: args[0] === 1n ? WALLET : OTHER_WALLET };
+        if (functionName === 'erc8004AgentIdByLooper') return { status: 'success', result: 90_001n };
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    indexerBaseUrl: null,
+    fetchImpl: async () => new Response(JSON.stringify({ name: 'Looper #1', attributes: [] })),
+  });
+
+  assert.deepEqual(agents.map(({ tokenId }) => tokenId), ['1']);
+  assert.ok(ownershipBatches <= 16, `expected no more than 16 ownership batches, received ${ownershipBatches}`);
 });
 
 test('owned Looper scan falls back after an RPC drops a chunk and resolves the canonical identity', async () => {
@@ -85,6 +131,43 @@ test('owned Looper scan retries a dropped owner slot with a direct chain read', 
 
   assert.equal(agents.length, 1);
   assert.equal(agents[0].tokenId, '617');
+});
+
+test('owned Looper authorization retries unresolved multicall slots with direct reads', async () => {
+  let droppedAuthorizationOwner = false;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return 1n;
+      if (functionName === 'totalMinted') return 7_777n;
+      if (functionName === 'ownerOf') return WALLET;
+      if (functionName === 'erc8004AgentIdByLooper') return 90_617n;
+      if (functionName === 'isController') return true;
+      throw new Error(`unexpected read ${functionName}`);
+    },
+    async multicall({ contracts }) {
+      return contracts.map(({ functionName }) => {
+        if (functionName === 'ownerOf' && !droppedAuthorizationOwner) {
+          droppedAuthorizationOwner = true;
+          return { status: 'failure', error: new Error('transient RPC slot failure') };
+        }
+        if (functionName === 'ownerOf') return { status: 'success', result: WALLET };
+        if (functionName === 'erc8004AgentIdByLooper') return { status: 'success', result: 90_617n };
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    fetchImpl: async (url) => String(url).includes('/instances?')
+      ? new Response(JSON.stringify({ items: [{ id: '617' }], next_page_params: null }))
+      : new Response(JSON.stringify({ name: 'Looper #617', attributes: [] })),
+  });
+
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].controllerVerified, true);
 });
 
 test('owned Looper loader abandons a stalled indexer and uses the bounded chain fallback', { timeout: 1_000 }, async () => {
@@ -225,6 +308,46 @@ test('owned Looper loader batches authorization for wallets with many agents', a
   assert.equal(agents.length, 45);
   assert.equal(multicallCalls, 2);
   assert.equal(agents[44].erc8004AgentId, '90045');
+});
+
+test('owned Looper loader hydrates high-cardinality metadata concurrently within a bound', async () => {
+  const tokenIds = Array.from({ length: 24 }, (_, index) => BigInt(index + 1));
+  let activeMetadata = 0;
+  let maxActiveMetadata = 0;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return BigInt(tokenIds.length);
+      if (functionName === 'totalMinted') return 7_777n;
+      throw new Error(`unexpected read ${functionName}`);
+    },
+    async multicall({ contracts }) {
+      return contracts.map(({ functionName, args }) => {
+        if (functionName === 'ownerOf') return { status: 'success', result: WALLET };
+        if (functionName === 'erc8004AgentIdByLooper') return { status: 'success', result: 90_000n + args[0] };
+        if (functionName === 'isController') return { status: 'success', result: true };
+        throw new Error(`unexpected multicall ${functionName}`);
+      });
+    },
+  };
+
+  const agents = await loadOwnedLooperAgents({
+    address: WALLET,
+    publicClient,
+    fetchImpl: async (url) => {
+      if (String(url).includes('/instances?')) {
+        return new Response(JSON.stringify({ items: tokenIds.map((tokenId) => ({ id: tokenId.toString() })), next_page_params: null }));
+      }
+      activeMetadata += 1;
+      maxActiveMetadata = Math.max(maxActiveMetadata, activeMetadata);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      activeMetadata -= 1;
+      return new Response(JSON.stringify({ name: `Looper #${String(url).match(/(\d+)\.json$/)?.[1]}`, attributes: [] }));
+    },
+  });
+
+  assert.equal(agents.length, tokenIds.length);
+  assert.ok(maxActiveMetadata > 1);
+  assert.ok(maxActiveMetadata <= 8);
 });
 
 test('owned Looper scan refuses silent empty success when balance and scan disagree', async () => {

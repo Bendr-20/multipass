@@ -1,12 +1,31 @@
 import { SavedMultipassError, joinApiPath } from './saved-multipass-api.js';
 
-export async function fetchOwnedLooperAgents({ apiBase = '', fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(joinApiPath(apiBase, '/api/loopers/owned'), {
-    method: 'GET',
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-  });
-  const body = await response.json().catch(() => null);
+const DEFAULT_OWNED_LOOPERS_TIMEOUT_MS = 12_000;
+
+export async function fetchOwnedLooperAgents({ apiBase = '', fetchImpl = fetch, timeoutMs = DEFAULT_OWNED_LOOPERS_TIMEOUT_MS } = {}) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+    throw new TypeError('Owned Loopers request timeout is invalid.');
+  }
+  const controller = new AbortController();
+  let timer;
+  const { response, body } = await Promise.race([
+    (async () => {
+      const response = await fetchImpl(joinApiPath(apiBase, '/api/loopers/owned'), {
+        method: 'GET',
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      const body = await response.json().catch(() => null);
+      return { response, body };
+    })(),
+    new Promise((_, reject) => {
+      timer = globalThis.setTimeout(() => {
+        controller.abort();
+        reject(new SavedMultipassError('Owned Loopers request timed out.'));
+      }, timeoutMs);
+    }),
+  ]).finally(() => globalThis.clearTimeout(timer));
   if (!response.ok) {
     throw new SavedMultipassError(body?.error?.message ?? `Owned Loopers request failed with ${response.status}`, { status: response.status, body });
   }
