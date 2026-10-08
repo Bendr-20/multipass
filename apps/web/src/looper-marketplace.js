@@ -243,7 +243,13 @@ function renderList(snapshot, state) {
   const items = selectLooperMarketplaceItems(snapshot, state);
   const listingsUnavailable = snapshot.listingsStatus !== 'available';
   return     '<section class="looper-marketplace" aria-labelledby="looper-marketplace-title">' +
-      '<div class="looper-marketplace-hero"><p class="eyebrow">Activated on Base</p><h1 id="looper-marketplace-title">The Loop</h1><p>Discover activated Loopers on Base.</p></div>' +
+      '<div class="looper-marketplace-hero">' +
+        '<div class="looper-marketplace-hero-topline"><p class="eyebrow">ONCHAIN AGENTS // ON BASE</p><span class="looper-marketplace-signal-badge">THE LOOP // MULTIPASS</span></div>' +
+        '<h1 id="looper-marketplace-title"><span>THE</span><strong>LOOP<i aria-hidden="true">/</i></strong></h1>' +
+        '<p class="looper-marketplace-hero-lede"><strong>Discover the agents.</strong><br>Collect the signal. Enter the loop.</p>' +
+        '<div class="looper-marketplace-signal-line" aria-hidden="true"><span></span></div>' +
+        '<div class="looper-marketplace-pillars" aria-label="Discover, collect, connect"><div class="looper-marketplace-pillar"><strong>DISCOVER</strong><span>CURATED AGENTS</span></div><div class="looper-marketplace-pillar"><strong>COLLECT</strong><span>ONCHAIN IDENTITY</span></div><div class="looper-marketplace-pillar"><strong>CONNECT</strong><span>ENTER THE LOOP</span></div></div>' +
+      '</div>' +
       renderMetrics(metrics) +
       (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning" role="status">Marketplace data is stale. Confirm the listing on OpenSea before acting.</p>' : '') +
       (listingsUnavailable ? '<div class="looper-marketplace-warning" role="status"><strong>Marketplace listings unavailable.</strong> Listing status is not inferred. <button type="button" data-action="retry-looper-marketplace">Retry</button></div>' : '') +
@@ -285,7 +291,7 @@ function renderCard(item, listingsUnavailable) {
   const listing = item.listing;
   const listingText = listing ? escapeHtml(listing.amount + ' ' + listing.currency) : (listingsUnavailable ? 'Listing unavailable' : 'Not listed');
   const openSea = listing ? '<a class="looper-marketplace-external" href="' + escapeAttribute(listing.itemUrl) + '" target="_blank" rel="noopener noreferrer">View on OpenSea</a>' : '';
-  return '<article class="looper-marketplace-card"><a class="looper-marketplace-image" href="' + escapeAttribute(item.detailHref) + '"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(item.tokenId) + '" loading="lazy" decoding="async"></a><div class="looper-marketplace-card-body"><div class="looper-marketplace-card-title"><h2>Looper #' + escapeHtml(item.tokenId) + '</h2><span>Activated</span></div><p class="looper-marketplace-price">' + listingText + '</p><div class="looper-marketplace-actions"><a href="' + escapeAttribute(item.detailHref) + '">View Multipass</a>' + openSea + '</div></div></article>';
+  return '<article class="looper-marketplace-card"><a class="looper-marketplace-image" href="' + escapeAttribute(item.detailHref) + '"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(item.tokenId) + '" loading="lazy" decoding="async"></a><div class="looper-marketplace-card-body"><div class="looper-marketplace-card-title"><h2>Looper #' + escapeHtml(item.tokenId) + '</h2><span>Agent collectible</span></div><p class="looper-marketplace-price">' + listingText + '</p><div class="looper-marketplace-actions"><a href="' + escapeAttribute(item.detailHref) + '">View Multipass</a>' + openSea + '</div></div></article>';
 }
 
 function renderDetail(snapshot, tokenId) {
@@ -295,7 +301,7 @@ function renderDetail(snapshot, tokenId) {
   const listingText = item.listing ? escapeHtml(item.listing.amount + ' ' + item.listing.currency) : (listingUnavailable ? 'Listing unavailable' : 'Not listed');
   const external = item.listing ? '<a href="' + escapeAttribute(item.listing.itemUrl) + '" target="_blank" rel="noopener noreferrer">View on OpenSea</a>' : '';
   const freshness = snapshot.observedAt ? escapeHtml(snapshot.feedStatus + ' · ' + snapshot.observedAt) : 'Unavailable';
-  return '<article class="looper-marketplace-detail"><a class="looper-marketplace-back" href="' + LOOPERS_MARKETPLACE_PATH + '">Back to marketplace</a>' + (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning">Marketplace data is stale. Confirm on OpenSea.</p>' : '') + '<div class="looper-marketplace-detail-grid"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(tokenId) + '" loading="lazy" decoding="async"><div><p class="eyebrow">Activated Looper</p><h1>Looper #' + escapeHtml(tokenId) + '</h1><dl><div><dt>Activation</dt><dd>Activated</dd></div><div><dt>Listing</dt><dd>' + listingText + '</dd></div><div><dt>Freshness</dt><dd>' + freshness + '</dd></div></dl><div class="looper-marketplace-actions">' + external + '</div></div></div></article>';
+  return '<article class="looper-marketplace-detail"><a class="looper-marketplace-back" href="' + LOOPERS_MARKETPLACE_PATH + '">Back to marketplace</a>' + (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning">Marketplace data is stale. Confirm on OpenSea.</p>' : '') + '<div class="looper-marketplace-detail-grid"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(tokenId) + '" loading="lazy" decoding="async"><div><p class="eyebrow">ONCHAIN AGENT // BASE</p><h1>Looper #' + escapeHtml(tokenId) + '</h1><dl><div><dt>Activation</dt><dd>Activated</dd></div><div><dt>Listing</dt><dd>' + listingText + '</dd></div><div><dt>Freshness</dt><dd>' + freshness + '</dd></div></dl><div class="looper-marketplace-actions">' + external + '</div></div></div></article>';
 }
 
 function renderStatus(title, body, retry, live = null, back = false) {

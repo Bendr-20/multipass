@@ -236,6 +236,28 @@ test('detail renders non-3802 token and safe missing/invalid states', () => {
   assert.match(renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'invalid', tokenId: null }), status: 'invalid' }), /Looper route not found/);
 });
 
+test('list view carries the approved Multipass collectible brand without replacing live marketplace data', () => {
+  const snapshot = joinLooperMarketplaceSnapshot({ activation: activation('617', '3802'), listings: feed([listing('617', '25', '0.25')]) });
+  const root = domRoot();
+  root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot, view: 'all' });
+
+  assert.equal(root.querySelector('.looper-marketplace-hero .eyebrow')?.textContent, 'ONCHAIN AGENTS // ON BASE');
+  assert.equal(root.querySelector('#looper-marketplace-title')?.textContent.replace(/\s+/gu, ''), 'THELOOP/');
+  assert.match(root.querySelector('.looper-marketplace-hero-lede')?.textContent ?? '', /Discover the agents\.Collect the signal\. Enter the loop\./u);
+  assert.deepEqual([...root.querySelectorAll('.looper-marketplace-pillar strong')].map((node) => node.textContent), ['DISCOVER', 'COLLECT', 'CONNECT']);
+  assert.equal(root.querySelector('.looper-marketplace-signal-badge')?.textContent, 'THE LOOP // MULTIPASS');
+  assert.equal(root.querySelector('.looper-marketplace-card-title span')?.textContent, 'Agent collectible');
+  assert.match(root.textContent, /Activated2/u);
+  assert.match(root.textContent, /Listed activated1/u);
+
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /--loop-cream:\s*#f3efe5/iu);
+  assert.match(css, /--loop-navy:\s*#071a3f/iu);
+  assert.match(css, /--loop-cyan:\s*#22d9e6/iu);
+  assert.match(css, /--loop-pink:\s*#f63793/iu);
+  assert.match(css, /\.looper-marketplace-card\s*\{[^}]*border:\s*3px solid var\(--loop-navy\)[^}]*box-shadow:\s*8px 9px 0/isu);
+});
+
 test('marketplace styles provide responsive grid, touch targets, and overflow containment', () => {
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.looper-marketplace-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%,\s*240px\),\s*1fr\)\)/s);

@@ -4665,7 +4665,7 @@ function renderLooperMarketplacePage(root, state, handlers = {}) {
     : null;
   root.innerHTML = `
     <div class="record-shell looper-marketplace-shell">
-      ${renderRecordHeader('Activated Loopers')}
+      ${renderRecordHeader('Agent Collectibles')}
       ${renderLooperMarketplace(state.looperMarketplace)}
     </div>
   `;
