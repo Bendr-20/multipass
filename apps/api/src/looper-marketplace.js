@@ -183,16 +183,7 @@ async function readBoundedBody(response, maxBytes) {
       throw safeUpstreamError();
     }
   }
-  if (typeof response.text !== 'function') throw safeUpstreamError();
-  let text;
-  try {
-    text = await response.text();
-  } catch {
-    throw safeUpstreamError();
-  }
-  const bytes = new TextEncoder().encode(text).byteLength;
-  if (bytes > maxBytes) throw safeUpstreamError();
-  return { text, bytes };
+  throw safeUpstreamError();
 }
 
 function normalizeListing(value, nowSeconds) {
@@ -216,13 +207,13 @@ function normalizeListing(value, nowSeconds) {
     const currentPrice = value.price?.current;
     if (!isPlainObject(currentPrice) || currentPrice.decimals !== 18) return null;
     const quotedValue = canonicalUint(currentPrice.value);
-    if (quotedValue === null || quotedValue === 0n || quotedValue !== payment.baseUnits) return null;
-    const baseUnits = payment.baseUnits.toString();
+    if (quotedValue === null || quotedValue === 0n) return null;
+    const baseUnits = quotedValue.toString();
     return {
       token_id: tokenId,
       price: {
         currency: payment.currency,
-        amount: formatUnits18(payment.baseUnits),
+        amount: formatUnits18(quotedValue),
         base_units: baseUnits,
         decimals: 18,
       },
@@ -236,7 +227,8 @@ function normalizeListing(value, nowSeconds) {
 function normalizeConsideration(value) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 100) return null;
   let currency = null;
-  let total = 0n;
+  let totalStart = 0n;
+  let totalEnd = 0n;
   for (const item of value) {
     if (!isPlainObject(item) || !ADDRESS_PATTERN.test(String(item.recipient ?? ''))) return null;
     const token = normalizeAddress(item.token);
@@ -248,11 +240,12 @@ function normalizeConsideration(value) {
     currency = itemCurrency;
     const start = canonicalUint(item.startAmount);
     const end = canonicalUint(item.endAmount);
-    if (start === null || end === null || start === 0n || start !== end) return null;
-    total += start;
-    if (total > MAX_UINT256) return null;
+    if (start === null || end === null || start === 0n || end === 0n) return null;
+    totalStart += start;
+    totalEnd += end;
+    if (totalStart > MAX_UINT256 || totalEnd > MAX_UINT256) return null;
   }
-  return total > 0n ? { currency, baseUnits: total } : null;
+  return { currency };
 }
 
 function dedupeAndSort(values) {

@@ -108,16 +108,44 @@ test('derives ETH and WETH from exact item types and pinned addresses rather tha
   assert.deepEqual(result.listings.map(({ token_id, price }) => [token_id, price.currency]), [['1', 'ETH'], ['2', 'WETH']]);
 });
 
-test('rejects mixed, malformed, zero, or price-inconsistent consideration', async () => {
+test('accepts dynamic-price consideration and normalizes the current buyer price', async () => {
+  const result = await loaderForPages([page([listing({
+    tokenId: '1',
+    priceValue: '1500000000000000000',
+    consideration: [{
+      itemType: 0, token: ZERO_ADDRESS,
+      startAmount: '2000000000000000000', endAmount: '1000000000000000000', recipient: RECIPIENT,
+    }],
+  })])]).load();
+  assert.deepEqual(result.listings.map(({ token_id, price }) => [token_id, price.base_units, price.amount]), [
+    ['1', '1500000000000000000', '1.5'],
+  ]);
+});
+
+test('accepts fee-adjusted consideration and normalizes the current buyer price', async () => {
+  const result = await loaderForPages([page([listing({
+    tokenId: '2',
+    priceValue: '1000000000000000000',
+    consideration: [
+      { itemType: 0, token: ZERO_ADDRESS, startAmount: '1000000000000000000', endAmount: '1000000000000000000', recipient: RECIPIENT },
+      { itemType: 0, token: ZERO_ADDRESS, startAmount: '25000000000000000', endAmount: '25000000000000000', recipient: '0x2222222222222222222222222222222222222222' },
+    ],
+  })])]).load();
+  assert.deepEqual(result.listings.map(({ token_id, price }) => [token_id, price.base_units, price.amount]), [
+    ['2', '1000000000000000000', '1'],
+  ]);
+});
+
+test('rejects mixed, malformed, or zero consideration', async () => {
   const part = { itemType: 0, token: ZERO_ADDRESS, startAmount: '500000000000000000', endAmount: '500000000000000000', recipient: RECIPIENT };
   const split = [part, { ...part, recipient: '0x2222222222222222222222222222222222222222' }];
   const result = await loaderForPages([page([
     listing({ tokenId: '1', consideration: [part, { ...part, itemType: 1, token: BASE_WETH }] }),
     listing({ tokenId: '2', consideration: [{ ...part, startAmount: '1e18' }] }),
-    listing({ tokenId: '3', consideration: [{ ...part, endAmount: '499999999999999999' }] }),
+    listing({ tokenId: '3', consideration: [{ ...part, endAmount: 'not-a-uint' }] }),
     listing({ tokenId: '4', consideration: [], baseUnits: '0', priceValue: '0' }),
     listing({ tokenId: '5', consideration: [{ ...part, recipient: 'bad' }], baseUnits: part.startAmount, priceValue: part.startAmount }),
-    listing({ tokenId: '6', consideration: split, priceValue: '999999999999999999' }),
+    listing({ tokenId: '6', consideration: [{ ...part, startAmount: '0' }], baseUnits: part.startAmount, priceValue: part.startAmount }),
     listing({ tokenId: '7', consideration: split }),
   ])]).load();
   assert.deepEqual(result.listings.map(({ token_id }) => token_id), ['7']);
@@ -166,6 +194,24 @@ test('enforces declared actual per-page and cumulative byte bounds', async () =>
   const first = page([], 'next'); const second = page([]);
   const total = Buffer.byteLength(JSON.stringify(first)) + Buffer.byteLength(JSON.stringify(second));
   await assert.rejects(loaderForPages([first, second], { maxPageBytes: 256, maxTotalBytes: total - 1 }).load(), /upstream unavailable/i);
+});
+
+test('rejects a hostile oversized response without calling an unbounded text fallback', async () => {
+  let textCalled = false;
+  const load = createLooperMarketplaceListingsLoader({
+    apiKey: '***', now: () => NOW_MS, maxPageBytes: 128,
+    fetchImpl: async () => ({
+      ok: true,
+      headers: new Headers(),
+      body: null,
+      async text() {
+        textCalled = true;
+        return 'x'.repeat(1_000_000);
+      },
+    }),
+  });
+  await assert.rejects(load(), { message: 'Looper marketplace upstream unavailable.' });
+  assert.equal(textCalled, false);
 });
 
 test('aborts timed-out requests and exposes only a safe error', async () => {
