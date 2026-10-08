@@ -99,6 +99,8 @@ export function joinLooperMarketplaceSnapshot({ activation, listings } = {}) {
   if (!activationAvailable) {
     return {
       activationStatus: 'unavailable',
+      activationSource: null,
+      activationObservedBlock: null,
       listingsStatus: normalizedFeed ? 'available' : 'unavailable',
       feedStatus: normalizedFeed?.status ?? 'unavailable',
       observedAt: normalizedFeed?.observedAt ?? null,
@@ -113,6 +115,8 @@ export function joinLooperMarketplaceSnapshot({ activation, listings } = {}) {
   const byToken = new Map((normalizedFeed?.listings ?? []).map((entry) => [entry.tokenId, entry]));
   return {
     activationStatus: 'available',
+    activationSource: activation.source ?? 'live-chain',
+    activationObservedBlock: Number.isSafeInteger(activation.observedBlock) ? activation.observedBlock : null,
     listingsStatus: normalizedFeed ? 'available' : 'unavailable',
     feedStatus: normalizedFeed?.status ?? 'unavailable',
     observedAt: normalizedFeed?.observedAt ?? null,
@@ -250,31 +254,34 @@ function renderList(snapshot, state) {
         '<div class="looper-marketplace-signal-line" aria-hidden="true"><span></span></div>' +
         '<div class="looper-marketplace-pillars" aria-label="Discover, collect, connect"><div class="looper-marketplace-pillar"><strong>DISCOVER</strong><span>CURATED AGENTS</span></div><div class="looper-marketplace-pillar"><strong>COLLECT</strong><span>ONCHAIN IDENTITY</span></div><div class="looper-marketplace-pillar"><strong>CONNECT</strong><span>ENTER THE LOOP</span></div></div>' +
       '</div>' +
-      renderMetrics(metrics) +
+      renderMetrics(metrics, snapshot) +
+      (snapshot.activationSource === 'pinned-verified-snapshot' ? '<p class="looper-marketplace-warning" role="status"><strong>Activation snapshot.</strong> Verified at Base block ' + escapeHtml(snapshot.activationObservedBlock?.toLocaleString('en-US') ?? 'unknown') + '. Current activations may be higher.</p>' : '') +
       (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning" role="status">Marketplace data is stale. Confirm the listing on OpenSea before acting.</p>' : '') +
       (listingsUnavailable ? '<div class="looper-marketplace-warning" role="status"><strong>Marketplace listings unavailable.</strong> Listing status is not inferred. <button type="button" data-action="retry-looper-marketplace">Retry</button></div>' : '') +
-      renderControls(state) +
+      renderControls(state, snapshot) +
       (items.length ? '<div class="looper-marketplace-grid">' + items.map((item) => renderCard(item, listingsUnavailable)).join('') + '</div>' : renderEmpty(state, listingsUnavailable)) +
     '</section>';
 }
 
-function renderMetrics(metrics) {
+function renderMetrics(metrics, snapshot) {
   const listingsUnavailable = metrics.listedActivatedCount === null;
   const floor = listingsUnavailable ? 'Unavailable' : (metrics.floor ? escapeHtml(metrics.floor.amount + ' ' + metrics.floor.currency) : '—');
   const freshness = metrics.observedAt ? '<time datetime="' + escapeAttribute(metrics.observedAt) + '">' + escapeHtml(metrics.observedAt) + '</time>' : 'Unavailable';
+  const snapshotRoster = snapshot?.activationSource === 'pinned-verified-snapshot';
   return '<dl class="looper-marketplace-metrics">' +
-    metric('Activated', String(metrics.activatedCount)) +
-    metric('Listed activated', listingsUnavailable ? 'Unavailable' : String(metrics.listedActivatedCount)) +
-    metric('Activated floor', floor, true) +
-    metric('Freshness', escapeHtml(metrics.freshnessStatus) + '<small>' + freshness + '</small>', true) +
+    metric(snapshotRoster ? 'Activated snapshot' : 'Activated', String(metrics.activatedCount)) +
+    metric(snapshotRoster ? 'Listed from snapshot' : 'Listed activated', listingsUnavailable ? 'Unavailable' : String(metrics.listedActivatedCount)) +
+    metric(snapshotRoster ? 'Snapshot floor' : 'Activated floor', floor, true) +
+    metric('Listing freshness', escapeHtml(metrics.freshnessStatus) + '<small>' + freshness + '</small>', true) +
   '</dl>';
 }
 
 function metric(label, value, html = false) { return '<div><dt>' + escapeHtml(label) + '</dt><dd>' + (html ? value : escapeHtml(value)) + '</dd></div>'; }
 
-function renderControls(state) {
+function renderControls(state, snapshot) {
+  const snapshotRoster = snapshot?.activationSource === 'pinned-verified-snapshot';
   return '<div class="looper-marketplace-controls" aria-label="Marketplace controls">' +
-    '<div class="looper-marketplace-toggle"><button type="button" data-marketplace-view="listed" aria-pressed="' + String(state.view !== 'all') + '">Listed activated</button><button type="button" data-marketplace-view="all" aria-pressed="' + String(state.view === 'all') + '">All activated</button></div>' +
+    '<div class="looper-marketplace-toggle"><button type="button" data-marketplace-view="listed" aria-pressed="' + String(state.view !== 'all') + '">' + (snapshotRoster ? 'Listed snapshot' : 'Listed activated') + '</button><button type="button" data-marketplace-view="all" aria-pressed="' + String(state.view === 'all') + '">' + (snapshotRoster ? 'All snapshot' : 'All activated') + '</button></div>' +
     '<label>Token ID<input data-marketplace-search inputmode="numeric" pattern="[1-9][0-9]*" value="' + escapeAttribute(state.search ?? '') + '" placeholder="e.g. 617"></label>' +
     '<label>Sort<select data-marketplace-sort>' + [['token-asc','Token ID: low to high'],['token-desc','Token ID: high to low'],['price-asc','Price: low to high'],['price-desc','Price: high to low']].map(([value,label]) => '<option value="' + value + '"' + (state.sort === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label>' +
   '</div>';

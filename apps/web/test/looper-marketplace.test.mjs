@@ -167,16 +167,27 @@ test('join trusts activation IDs, ignores unsafe listings, and pins URLs', () =>
   assert.equal(snapshot.items[1].listing.itemUrl, OPENSEA_ROOT + '/617');
 });
 
-test('snapshot falls back to the pinned verified 328-Looper activation roster', async () => {
+test('snapshot fallback is visibly labeled with its frozen block instead of presented as live', async () => {
   const snapshot = await loadLooperMarketplaceSnapshot({
     locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
     activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set() }),
     listingsLoader: async () => feed([listing('2431', '1')]),
   });
   assert.equal(snapshot.activationStatus, 'available');
+  assert.equal(snapshot.activationSource, 'pinned-verified-snapshot');
+  assert.equal(snapshot.activationObservedBlock, 52_313_206);
   assert.equal(snapshot.items.length, 328);
   assert.equal(snapshot.items.some((item) => item.tokenId === '2431'), true);
   assert.equal(snapshot.items.find((item) => item.tokenId === '2431')?.listing?.baseUnits, '1');
+
+  const root = domRoot();
+  root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot, view: 'listed' });
+  assert.match(root.textContent, /Activated snapshot328/u);
+  assert.match(root.textContent, /Base block 52,313,206/u);
+  assert.match(root.textContent, /Current activations may be higher/u);
+  assert.match(root.textContent, /Listing freshnessfresh/u);
+  assert.deepEqual([...root.querySelectorAll('[data-marketplace-view]')].map((button) => button.textContent), ['Listed snapshot', 'All snapshot']);
+  assert.doesNotMatch(root.textContent, /(?:^|\s)Activated328/u);
 });
 
 test('activation failure suppresses partial roster and listing failure cannot invent listings', async () => {

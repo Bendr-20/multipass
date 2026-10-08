@@ -3,6 +3,7 @@ export const ACTIVATED_LOOPER_ROSTER_SOURCE = Object.freeze({
   commit: '500654a',
   reconciliationSha256: '391a7ce20a883254b2164d3296533059750fe8436aa894f72e1df2f08a691b98',
   count: 328,
+  observedBlock: 52_313_206,
 });
 
 export const ACTIVATED_LOOPER_TOKEN_IDS = Object.freeze([
@@ -30,5 +31,5 @@ export const ACTIVATED_LOOPER_TOKEN_IDS = Object.freeze([
 ]);
 
 export function loadPinnedActivatedLooperTokenIds() {
-  return { status: 'available', source: 'pinned-verified-snapshot', tokenIds: new Set(ACTIVATED_LOOPER_TOKEN_IDS) };
+  return { status: 'available', source: 'pinned-verified-snapshot', observedBlock: ACTIVATED_LOOPER_ROSTER_SOURCE.observedBlock, tokenIds: new Set(ACTIVATED_LOOPER_TOKEN_IDS) };
 }
