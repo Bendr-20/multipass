@@ -2,7 +2,7 @@ import { getApiBaseFromLocation } from './api.js';
 import { readBoundedResponseBody } from './bounded-response-body.js';
 import { compareLooperTokenIds, loadReleasedLooperTokenIds, normalizeLooperTokenId } from './console-looper-selection.js';
 
-export const LOOPERS_MARKETPLACE_PATH = '/multipass/loopers';
+export const LOOPERS_MARKETPLACE_PATH = '/multipass/the-loop';
 const LOOPERS_CONTRACT = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
 const LOOPERS_COLLECTION = 'loopers-639312714';
 const OPENSEA_ROOT = 'https://opensea.io/assets/base/' + LOOPERS_CONTRACT.toLowerCase();
@@ -15,7 +15,7 @@ export function getLooperMarketplaceRoute(locationUrl) {
   const path = locationUrl?.pathname;
   if (path === LOOPERS_MARKETPLACE_PATH) return { kind: 'list', tokenId: null };
   if (!String(path ?? '').startsWith(LOOPERS_MARKETPLACE_PATH + '/')) return null;
-  const match = String(path).match(/^\/multipass\/loopers\/([^/]+)$/u);
+  const match = String(path).match(/^\/multipass\/the-loop\/([^/]+)$/u);
   const tokenId = match ? normalizeLooperTokenId(match[1]) : null;
   return tokenId && match[1] === tokenId ? { kind: 'detail', tokenId } : { kind: 'invalid', tokenId: null };
 }
@@ -233,7 +233,7 @@ function renderList(snapshot, state) {
   const items = selectLooperMarketplaceItems(snapshot, state);
   const listingsUnavailable = snapshot.listingsStatus !== 'available';
   return     '<section class="looper-marketplace" aria-labelledby="looper-marketplace-title">' +
-      '<div class="looper-marketplace-hero"><p class="eyebrow">Activated on Base</p><h1 id="looper-marketplace-title">Looper marketplace</h1><p>Browse verified activated Loopers and current OpenSea listings.</p></div>' +
+      '<div class="looper-marketplace-hero"><p class="eyebrow">Activated on Base</p><h1 id="looper-marketplace-title">The Loop</h1><p>Discover activated Loopers on Base.</p></div>' +
       renderMetrics(metrics) +
       (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning" role="status">Marketplace data is stale. Confirm the listing on OpenSea before acting.</p>' : '') +
       (listingsUnavailable ? '<div class="looper-marketplace-warning" role="status"><strong>Marketplace listings unavailable.</strong> Listing status is not inferred. <button type="button" data-action="retry-looper-marketplace">Retry</button></div>' : '') +

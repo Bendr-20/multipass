@@ -35,18 +35,19 @@ function streamedJsonResponse(value, { headers = {} } = {}) {
 }
 
 test('recognizes exact list and canonical detail routes including a non-3802 token', () => {
-  assert.equal(LOOPERS_MARKETPLACE_PATH, '/multipass/loopers');
-  assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/loopers')), { kind: 'list', tokenId: null });
-  assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/loopers/617')), { kind: 'detail', tokenId: '617' });
-  for (const path of ['/multipass/loopers/', '/multipass/loopers/0617', '/multipass/loopers/0', '/multipass/loopers/7778', '/multipass/loopers/617/more']) assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz' + path)), { kind: 'invalid', tokenId: null });
+  assert.equal(LOOPERS_MARKETPLACE_PATH, '/multipass/the-loop');
+  assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/the-loop')), { kind: 'list', tokenId: null });
+  assert.equal(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/loopers')), null);
+  assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/the-loop/617')), { kind: 'detail', tokenId: '617' });
+  for (const path of ['/multipass/the-loop/', '/multipass/the-loop/0617', '/multipass/the-loop/0', '/multipass/the-loop/7778', '/multipass/the-loop/617/more']) assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz' + path)), { kind: 'invalid', tokenId: null });
   assert.equal(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/agents')), null);
 });
 
 test('loader uses exact default API boundary and injected fetch', async () => {
-  assert.equal(getApiBaseFromLocation(new URL('https://helixa.xyz/multipass/loopers')), '/multipass-api');
+  assert.equal(getApiBaseFromLocation(new URL('https://helixa.xyz/multipass/the-loop')), '/multipass-api');
   const calls = [];
   const controller = new AbortController();
-  const result = await loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), signal: controller.signal, fetchImpl: async (url, init) => { calls.push([String(url), init]); return streamedJsonResponse(feed([listing('617', '1000000000000000000', '1')])); } });
+  const result = await loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), signal: controller.signal, fetchImpl: async (url, init) => { calls.push([String(url), init]); return streamedJsonResponse(feed([listing('617', '1000000000000000000', '1')])); } });
   assert.equal(calls[0][0], '/multipass-api/api/loopers/marketplace/listings');
   assert.equal(calls[0][1].method, 'GET'); assert.equal(calls[0][1].credentials, 'omit');
   assert.equal(calls[0][1].signal, controller.signal);
@@ -74,7 +75,7 @@ test('listing loader counts hostile stream bytes, cancels over the cap, and neve
   };
 
   await assert.rejects(
-    loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), fetchImpl: async () => response }),
+    loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), fetchImpl: async () => response }),
     /Marketplace listings unavailable/,
   );
   assert.equal(cancelled, true);
@@ -84,7 +85,7 @@ test('listing loader rejects invalid lengths and non-stream bodies without text 
   for (const contentLength of ['not-a-size', '-1', '1000001']) {
     await assert.rejects(
       loadLooperMarketplaceListings({
-        locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+        locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
         fetchImpl: async () => ({
           ok: true,
           headers: new Headers({ 'content-length': contentLength }),
@@ -98,7 +99,7 @@ test('listing loader rejects invalid lengths and non-stream bodies without text 
 
   await assert.rejects(
     loadLooperMarketplaceListings({
-      locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+      locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
       fetchImpl: async () => ({ ok: true, headers: new Headers(), body: null, async text() { assert.fail('response.text() must not be called'); } }),
     }),
     /Marketplace listings unavailable/,
@@ -107,7 +108,7 @@ test('listing loader rejects invalid lengths and non-stream bodies without text 
 
 test('snapshot loader composes the default listing loader with activation', async () => {
   const snapshot = await loadLooperMarketplaceSnapshot({
-    locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
     activationLoader: async () => activation('617'),
     fetchImpl: async () => streamedJsonResponse(feed([listing('617', '9')])),
   });
@@ -118,7 +119,7 @@ test('snapshot loader composes the default listing loader with activation', asyn
 test('snapshot timeout aborts and cancels the default listing body reader', async () => {
   let cancelled = false;
   const snapshot = await loadLooperMarketplaceSnapshot({
-    locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
     timeoutMs: 5,
     activationLoader: async () => activation('617'),
     fetchImpl: async () => ({
@@ -144,7 +145,7 @@ test('snapshot loader bounds hanging listing reads and passes one abort signal t
   let activationSignal;
   let listingsSignal;
   const snapshot = await loadLooperMarketplaceSnapshot({
-    locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
     timeoutMs: 5,
     activationLoader: async ({ signal }) => { activationSignal = signal; return activation('617'); },
     listingsLoader: ({ signal }) => { listingsSignal = signal; return new Promise(() => {}); },
@@ -162,14 +163,14 @@ test('join trusts activation IDs, ignores unsafe listings, and pins URLs', () =>
   assert.deepEqual(snapshot.items.map((x) => x.tokenId), ['2', '617', '3802']);
   assert.equal(snapshot.items[0].listing, null); assert.equal(snapshot.items[2].listing, null);
   assert.equal(snapshot.items[1].imageUrl, 'https://helixa.xyz/loopers/images/617.png');
-  assert.equal(snapshot.items[1].detailHref, '/multipass/loopers/617');
+  assert.equal(snapshot.items[1].detailHref, '/multipass/the-loop/617');
   assert.equal(snapshot.items[1].listing.itemUrl, OPENSEA_ROOT + '/617');
 });
 
 test('activation failure suppresses partial roster and listing failure cannot invent listings', async () => {
-  const a = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set(['617']) }), listingsLoader: async () => feed([listing('617', '1')]) });
+  const a = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set(['617']) }), listingsLoader: async () => feed([listing('617', '1')]) });
   assert.equal(a.activationStatus, 'unavailable'); assert.deepEqual(a.items, []);
-  const b = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), activationLoader: async () => activation('617'), listingsLoader: async () => { throw new Error('private'); } });
+  const b = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), activationLoader: async () => activation('617'), listingsLoader: async () => { throw new Error('private'); } });
   assert.equal(b.listingsStatus, 'unavailable'); assert.equal(b.items[0].listing, null);
 });
 
@@ -207,7 +208,7 @@ test('renderer covers loading stale unavailable empty cards and safe links witho
   const root = domRoot(); root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot, view: 'all' });
   assert.match(root.textContent, /Marketplace data is stale/); assert.match(root.textContent, /Activated2/); assert.match(root.textContent, /Listed activated1/); assert.match(root.textContent, /Not listed/);
   const image = root.querySelector('img[src="https://helixa.xyz/loopers/images/617.png"]'); assert.equal(image?.getAttribute('loading'), 'lazy'); assert.equal(image?.getAttribute('decoding'), 'async');
-  assert.ok(root.querySelector('a[href="/multipass/loopers/617"]'));
+  assert.ok(root.querySelector('a[href="/multipass/the-loop/617"]'));
   const external = root.querySelector('a[href="' + OPENSEA_ROOT + '/617"]'); assert.equal(external?.target, '_blank'); assert.equal(external?.rel, 'noopener noreferrer');
   assert.doesNotMatch(root.textContent, /CRED|Season/iu);
   const unavailable = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot: { activationStatus: 'unavailable', listingsStatus: 'available', items: [] } });
@@ -218,7 +219,7 @@ test('renderer covers loading stale unavailable empty cards and safe links witho
 test('detail renders non-3802 token and safe missing/invalid states', () => {
   const snapshot = joinLooperMarketplaceSnapshot({ activation: activation('617'), listings: feed([listing('617', '1')]) });
   const root = domRoot(); root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'detail', tokenId: '617' }), status: 'ready', snapshot });
-  assert.match(root.textContent, /Looper #617/); assert.match(root.textContent, /Activated/); assert.ok(root.querySelector('a[href="/multipass/loopers"]')); assert.ok(root.querySelector('img[src="https://helixa.xyz/loopers/images/617.png"]'));
+  assert.match(root.textContent, /Looper #617/); assert.match(root.textContent, /Activated/); assert.ok(root.querySelector('a[href="/multipass/the-loop"]')); assert.ok(root.querySelector('img[src="https://helixa.xyz/loopers/images/617.png"]'));
   assert.match(renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'detail', tokenId: '618' }), status: 'ready', snapshot }), /Looper unavailable/);
   assert.match(renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'invalid', tokenId: null }), status: 'invalid' }), /Looper route not found/);
 });

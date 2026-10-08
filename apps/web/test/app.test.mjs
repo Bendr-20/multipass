@@ -13,7 +13,7 @@ const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-
 const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
 
 test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve other routes', async () => {
-  for (const [path, expected] of [['/multipass/loopers', 'Looper marketplace'], ['/multipass/loopers/617', 'Looper #617']]) {
+  for (const [path, expected] of [['/multipass/the-loop', 'The Loop'], ['/multipass/the-loop/617', 'Looper #617']]) {
     const root = setupDom('https://helixa.xyz' + path);
     let demoCalls = 0;
     const app = createApp({
@@ -38,7 +38,7 @@ test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve 
 });
 
 test('Looper marketplace search preserves focus and selection through multi-digit DOM input', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  const root = setupDom('https://helixa.xyz/multipass/the-loop');
   const app = createApp({
     root,
     releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617']) }),
@@ -67,7 +67,7 @@ test('Looper marketplace search preserves focus and selection through multi-digi
 });
 
 test('Looper marketplace timeout renders unavailable listing metrics and retries successfully', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  const root = setupDom('https://helixa.xyz/multipass/the-loop');
   let attempts = 0;
   const app = createApp({
     root, marketplaceTimeoutMs: 5,
@@ -96,7 +96,7 @@ test('Looper marketplace timeout renders unavailable listing metrics and retries
 });
 
 test('Looper marketplace ignores stale completion after a newer refresh', async () => {
-  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  const root = setupDom('https://helixa.xyz/multipass/the-loop');
   let firstResolve;
   let listingCalls = 0;
   const makeFeed = (tokenId) => ({
@@ -4416,7 +4416,7 @@ test('hamburger menu opens trusted Helixa and CRED links', async () => {
   assert.deepEqual(links, [
     { label: 'Multipass Home', href: '/multipass/' },
     { label: 'Multipass Console', href: '/multipass/console' },
-    { label: 'Looper Marketplace', href: '/multipass/loopers' },
+    { label: 'The Loop', href: '/multipass/the-loop' },
     { label: 'RUNTIME Submission', href: '/multipass/runtime' },
     { label: 'Register Agent', href: 'https://helixa.xyz/' },
     { label: 'Cred Exchange', href: 'https://cred.exchange/' },

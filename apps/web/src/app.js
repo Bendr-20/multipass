@@ -72,7 +72,7 @@ const LOOPER_MINT_PATHS = new Set(['/mint', '/mint/', '/multipass/mint', '/multi
 const SITE_MENU_LINKS = [
   { label: 'Multipass Home', href: '/multipass/' },
   { label: 'Multipass Console', href: '/multipass/console' },
-  { label: 'Looper Marketplace', href: '/multipass/loopers' },
+  { label: 'The Loop', href: '/multipass/the-loop' },
   { label: 'RUNTIME Submission', href: '/multipass/runtime' },
   { label: 'Register Agent', href: 'https://helixa.xyz/' },
   { label: 'Cred Exchange', href: 'https://cred.exchange/' },
