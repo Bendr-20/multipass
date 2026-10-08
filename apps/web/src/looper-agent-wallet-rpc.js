@@ -11,6 +11,8 @@ import {
   sha256,
 } from 'viem';
 
+import { CRED_ADDRESS, ERC20_STAKING_ABI, PANTHEON_STAKING_VAULT, PANTHEON_VIEW_ABI } from './looper-cred-pantheon.js';
+
 import {
   ACCOUNT_EXECUTE_ABI,
   ACCOUNT_POLICY_ABI,
@@ -739,6 +741,44 @@ export function createLooperWalletRpcClient({
     return { ...snapshots[0], refreshedAt: new Date().toISOString() };
   }
 
+  async function readPantheonCredState({ account, gasPayer } = {}) {
+    const normalizedAccount = getAddress(account);
+    const normalizedGasPayer = getAddress(gasPayer);
+    const anchor = await canonicalAnchor(activeRequest);
+    const snapshots = await Promise.all(CONSOLE_RPC_ORIGINS.map(async (origin) => {
+      const call = (address, abi, functionName, args = []) => callContract({
+        request: activeRequest,
+        origin,
+        blockRef: anchor.blockRef,
+        address,
+        abi,
+        functionName,
+        args,
+      });
+      const [balance, allowance, gasPayerBalance, pool, stake] = await Promise.all([
+        call(CRED_ADDRESS, ERC20_STAKING_ABI, 'balanceOf', [normalizedAccount]),
+        call(CRED_ADDRESS, ERC20_STAKING_ABI, 'allowance', [normalizedAccount, PANTHEON_STAKING_VAULT]),
+        activeRequest({ origin, method: 'eth_getBalance', params: [normalizedGasPayer, anchor.blockRef] }),
+        call(PANTHEON_STAKING_VAULT, PANTHEON_VIEW_ABI, 'pools', [CRED_ADDRESS]),
+        call(PANTHEON_STAKING_VAULT, PANTHEON_VIEW_ABI, 'stakes', [normalizedAccount, CRED_ADDRESS]),
+      ]);
+      return {
+        account: normalizedAccount,
+        allowanceBaseUnits: BigInt(allowance).toString(),
+        blockHash: anchor.hash,
+        blockNumber: anchor.number,
+        credBalanceBaseUnits: BigInt(balance).toString(),
+        gasPayerNativeWei: BigInt(canonicalHexQuantity(gasPayerBalance, 'gas payer balance')).toString(),
+        poolActive: pool[0] === true,
+        stakeAmountBaseUnits: BigInt(stake[0]).toString(),
+        stakeMonthIndex: BigInt(stake[7]).toString(),
+        totalStakedBaseUnits: BigInt(pool[2]).toString(),
+      };
+    }));
+    requireAgreement(snapshots, 'Pantheon CRED state disagrees across Base RPCs.');
+    return deepFreeze(snapshots[0]);
+  }
+
   async function readReceipt({ hash, transaction: expectedTransaction = null }) {
     const requestedHash = canonicalHash(hash, 'requested transaction hash');
     for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -810,7 +850,7 @@ export function createLooperWalletRpcClient({
     throw new Error('Timed out waiting for canonical Base receipt evidence.');
   }
 
-  return { readSnapshot, readReceipt };
+  return { readSnapshot, readReceipt, readPantheonCredState };
 }
 
 async function canonicalReceiptAnchor(request, receipt) {

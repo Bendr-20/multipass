@@ -9752,7 +9752,7 @@ h1 {
 
 .console-looper-wallet-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
 }
@@ -10028,7 +10028,7 @@ h1 {
   .console-looper-wallet-head { align-items: center; }
   .console-looper-wallet-hero { min-height: 154px; padding: 18px; }
   .console-looper-wallet-hero .console-looper-wallet-primary-balance { font-size: clamp(38px, 13vw, 58px); }
-  .console-looper-wallet-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .console-looper-wallet-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
   .console-looper-wallet-action > summary { grid-template-columns: 1fr; justify-items: center; gap: 5px; min-height: 64px; padding: 8px 5px; text-align: center; }
   .console-looper-wallet-action > summary > span { grid-row: auto; width: 26px; height: 26px; }
   .console-looper-wallet-action > summary small { display: none; }

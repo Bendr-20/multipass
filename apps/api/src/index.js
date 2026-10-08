@@ -70,6 +70,7 @@ import { createLooperWalletReadContextLoader } from './looper-wallet-read-contex
 import { AllowlistInputError, normalizeAllowlistAddress } from './allowlist-store.js';
 import { GroupActivationError, createGroupActivationPreview } from './group-activation.js';
 import { deriveMarketplacePresenceFromFragments } from './marketplace-presence.js';
+import { loadPantheonCredRegistry } from './pantheon-cred-registry.js';
 import { verifyEthereumPersonalSignature } from './signature-verifier.js';
 import {
   deriveAgentCardServiceUpdates,
@@ -475,6 +476,17 @@ export function createMultipassApi({
 
         if (url.pathname === '/api/openapi.json') {
           return jsonResponse(createOpenApiDocument(normalizedBaseUrl));
+        }
+
+        if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'console'
+          && parts[3] === 'pantheon' && parts[4] === 'cred' && parts.length === 5) {
+          try {
+            return jsonResponse(await loadPantheonCredRegistry({ fetchImpl: context.fetchImpl }), 200, {
+              'cache-control': 'public, max-age=60',
+            });
+          } catch {
+            return errorResponse(503, 'pantheon_unavailable', 'Pantheon registry is unavailable.');
+          }
         }
 
         if (parts[0] === 'api' && parts[1] === 'multipass' && parts[2] === 'console' && parts[3] === 'skills' && parts.length === 4) {

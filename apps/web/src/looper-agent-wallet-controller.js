@@ -17,6 +17,12 @@ import {
   normalizeTokenId,
 } from './looper-agent-wallet.js';
 import { classifyOwnerProfile } from './looper-agent-wallet-rpc.js';
+import {
+  CRED_ADDRESS,
+  PANTHEON_STAKING_VAULT,
+  buildCredStakeApprovalTransaction,
+  buildCredStakeTransaction,
+} from './looper-cred-pantheon.js';
 
 const EMPTY_CODE = '0x';
 const ATTEMPT_STATES = new Set([
@@ -132,6 +138,34 @@ export function createLooperAgentWalletController({
         recipient: getAddress(recipient),
         amount: canonicalPositiveUint(amountBaseUnits, 'token amount'),
       },
+    });
+  }
+
+  async function prepareCredStakeApproval({ amountBaseUnits }) {
+    requireMode('active');
+    const evidence = await readAndRequireWritable('pre_sign', 'active');
+    const amount = canonicalPositiveUint(amountBaseUnits, 'CRED stake amount');
+    const transaction = buildCredStakeApprovalTransaction({
+      owner: selection.owner,
+      account: current.account,
+      amountBaseUnits: amount,
+    });
+    return savePrepared('send', transaction, evidence, {
+      semantic: { asset: 'cred_stake_approval', token: CRED_ADDRESS, vault: PANTHEON_STAKING_VAULT, amount },
+    });
+  }
+
+  async function prepareCredStake({ amountBaseUnits }) {
+    requireMode('active');
+    const evidence = await readAndRequireWritable('pre_sign', 'active');
+    const amount = canonicalPositiveUint(amountBaseUnits, 'CRED stake amount');
+    const transaction = buildCredStakeTransaction({
+      owner: selection.owner,
+      account: current.account,
+      amountBaseUnits: amount,
+    });
+    return savePrepared('send', transaction, evidence, {
+      semantic: { asset: 'pantheon_cred_stake', token: CRED_ADDRESS, vault: PANTHEON_STAKING_VAULT, amount },
     });
   }
 
@@ -876,6 +910,12 @@ export function createLooperAgentWalletController({
         && canonicalAddress(record.targetPolicyModule) === record.targetPolicyModule
         && sameAddress(record.semantic.module, record.targetPolicyModule);
     }
+    if (record.semantic.asset === 'cred_stake_approval' || record.semantic.asset === 'pantheon_cred_stake') {
+      return hasExactKeys(record.semantic, ['amount', 'asset', 'token', 'vault'])
+        && sameAddress(record.semantic.token, CRED_ADDRESS)
+        && sameAddress(record.semantic.vault, PANTHEON_STAKING_VAULT)
+        && canonicalPositiveUintOrNull(record.semantic.amount) !== null;
+    }
     if (record.semantic.asset === 'native') {
       return hasExactKeys(record.semantic, ['amount', 'asset', 'recipient'])
         && canonicalAddress(record.semantic.recipient) === record.semantic.recipient
@@ -937,6 +977,8 @@ export function createLooperAgentWalletController({
     prepareActivation,
     prepareEthSend,
     prepareErc20Send,
+    prepareCredStakeApproval,
+    prepareCredStake,
     preparePolicyModule,
     submitPrepared,
     acknowledgeUnknown,
@@ -1039,6 +1081,20 @@ function reconstructAttemptTransaction(record, releasedImplementation, evidenceA
       owner: record.owner,
       account: record.account,
       module: record.semantic.module,
+    });
+  }
+  if (record.semantic.asset === 'cred_stake_approval') {
+    return buildCredStakeApprovalTransaction({
+      owner: record.owner,
+      account: record.account,
+      amountBaseUnits: record.semantic.amount,
+    });
+  }
+  if (record.semantic.asset === 'pantheon_cred_stake') {
+    return buildCredStakeTransaction({
+      owner: record.owner,
+      account: record.account,
+      amountBaseUnits: record.semantic.amount,
     });
   }
   if (record.semantic.asset === 'native') {
