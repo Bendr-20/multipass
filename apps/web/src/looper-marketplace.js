@@ -6,6 +6,7 @@ const LOOPERS_CONTRACT = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
 const LOOPERS_COLLECTION = 'loopers-639312714';
 const OPENSEA_ROOT = 'https://opensea.io/assets/base/' + LOOPERS_CONTRACT.toLowerCase();
 const MAX_BROWSER_RESPONSE_BYTES = 1_000_000;
+const MARKETPLACE_REQUEST_TIMEOUT_MS = 10_000;
 const CANONICAL_UINT = /^(?:0|[1-9][0-9]*)$/u;
 const PRICE_AMOUNT = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u;
 
@@ -29,11 +30,11 @@ export function createInitialLooperMarketplaceState(route) {
   };
 }
 
-export async function loadLooperMarketplaceListings({ locationUrl, fetchImpl = globalThis.fetch } = {}) {
+export async function loadLooperMarketplaceListings({ locationUrl, fetchImpl = globalThis.fetch, signal } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('Marketplace transport unavailable.');
   const apiBase = getApiBaseFromLocation(locationUrl);
   const response = await fetchImpl(apiBase + '/api/loopers/marketplace/listings', {
-    method: 'GET', credentials: 'omit', headers: { accept: 'application/json' },
+    method: 'GET', credentials: 'omit', headers: { accept: 'application/json' }, signal,
   });
   if (!response?.ok) throw new Error('Marketplace listings unavailable.');
   const text = await response.text();
@@ -50,11 +51,26 @@ export async function loadLooperMarketplaceSnapshot({
   fetchImpl = globalThis.fetch,
   activationLoader = loadReleasedLooperTokenIds,
   listingsLoader = loadLooperMarketplaceListings,
+  signal,
+  timeoutMs = MARKETPLACE_REQUEST_TIMEOUT_MS,
 } = {}) {
-  const [activationResult, listingsResult] = await Promise.allSettled([
-    activationLoader({ fetchImpl }),
-    listingsLoader({ locationUrl, fetchImpl }),
-  ]);
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener?.('abort', abort, { once: true });
+  const boundedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : MARKETPLACE_REQUEST_TIMEOUT_MS;
+  const timeout = globalThis.setTimeout(() => controller.abort(new Error('Marketplace request timed out.')), boundedTimeoutMs);
+  let activationResult;
+  let listingsResult;
+  try {
+    [activationResult, listingsResult] = await Promise.all([
+      settleWithAbort(() => activationLoader({ fetchImpl, signal: controller.signal }), controller.signal),
+      settleWithAbort(() => listingsLoader({ locationUrl, fetchImpl, signal: controller.signal }), controller.signal),
+    ]);
+  } finally {
+    globalThis.clearTimeout(timeout);
+    signal?.removeEventListener?.('abort', abort);
+  }
   const activation = activationResult.status === 'fulfilled'
     ? activationResult.value
     : { status: 'unavailable', tokenIds: new Set() };
@@ -107,11 +123,12 @@ export function selectLooperMarketplaceItems(snapshot, controls = {}) {
 
 export function getLooperMarketplaceMetrics(snapshot) {
   const items = snapshot?.activationStatus === 'available' ? snapshot.items : [];
-  const listed = snapshot?.listingsStatus === 'available' ? items.filter((item) => item.listing) : [];
+  const listingsAvailable = snapshot?.listingsStatus === 'available';
+  const listed = listingsAvailable ? items.filter((item) => item.listing) : [];
   const floorListing = [...listed].sort((left, right) => comparePrices(left, right, 1))[0]?.listing ?? null;
   return {
     activatedCount: items.length,
-    listedActivatedCount: listed.length,
+    listedActivatedCount: listingsAvailable ? listed.length : null,
     floor: floorListing ? { amount: floorListing.amount, currency: floorListing.currency } : null,
     freshnessStatus: snapshot?.feedStatus ?? 'unavailable',
     observedAt: snapshot?.observedAt ?? null,
@@ -221,11 +238,12 @@ function renderList(snapshot, state) {
 }
 
 function renderMetrics(metrics) {
-  const floor = metrics.floor ? escapeHtml(metrics.floor.amount + ' ' + metrics.floor.currency) : '—';
+  const listingsUnavailable = metrics.listedActivatedCount === null;
+  const floor = listingsUnavailable ? 'Unavailable' : (metrics.floor ? escapeHtml(metrics.floor.amount + ' ' + metrics.floor.currency) : '—');
   const freshness = metrics.observedAt ? '<time datetime="' + escapeAttribute(metrics.observedAt) + '">' + escapeHtml(metrics.observedAt) + '</time>' : 'Unavailable';
   return '<dl class="looper-marketplace-metrics">' +
     metric('Activated', String(metrics.activatedCount)) +
-    metric('Listed activated', String(metrics.listedActivatedCount)) +
+    metric('Listed activated', listingsUnavailable ? 'Unavailable' : String(metrics.listedActivatedCount)) +
     metric('Activated floor', floor, true) +
     metric('Freshness', escapeHtml(metrics.freshnessStatus) + '<small>' + freshness + '</small>', true) +
   '</dl>';
@@ -267,6 +285,28 @@ function renderDetail(snapshot, tokenId) {
 
 function renderStatus(title, body, retry, live = null, back = false) {
   return '<section class="looper-marketplace looper-marketplace-status"' + (live ? ' aria-live="' + live + '"' : '') + '><h1>' + escapeHtml(title) + '</h1><p>' + escapeHtml(body) + '</p>' + (retry ? '<button type="button" data-action="retry-looper-marketplace">Retry</button>' : '') + (back ? '<a href="' + LOOPERS_MARKETPLACE_PATH + '">Back to marketplace</a>' : '') + '</section>';
+}
+
+function settleWithAbort(operation, signal) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const onAbort = () => finish({ status: 'rejected', reason: signal.reason ?? new Error('Marketplace request aborted.') });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve().then(operation).then(
+      (value) => finish({ status: 'fulfilled', value }),
+      (reason) => finish({ status: 'rejected', reason }),
+    );
+  });
 }
 
 function isCanonicalTimestamp(value) { return typeof value === 'string' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value; }

@@ -37,6 +37,94 @@ test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve 
   assert.match(root.textContent, /Public agents|Agent gallery/i);
 });
 
+test('Looper marketplace search preserves focus and selection through multi-digit DOM input', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  const app = createApp({
+    root,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617']) }),
+    marketplaceListingsLoader: async () => ({
+      schema_version: '1.0.0', collection: 'loopers-639312714',
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', status: 'fresh',
+      observed_at: '2026-10-08T14:00:00.000Z',
+      listings: [{ token_id: '617', price: { currency: 'ETH', amount: '1', base_units: '1000000000000000000', decimals: 18 }, item_url: 'https://opensea.io/assets/base/0x1649cd37f4748807b4882fc48765ba0b2affa94a/617' }],
+    }),
+  });
+  await app.start();
+
+  for (const value of ['6', '61', '617']) {
+    const input = root.querySelector('[data-marketplace-search]');
+    input.focus();
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    const replacement = root.querySelector('[data-marketplace-search]');
+    assert.equal(root.ownerDocument.activeElement, replacement);
+    assert.equal(replacement.value, value);
+    assert.equal(replacement.selectionStart, value.length);
+    assert.equal(replacement.selectionEnd, value.length);
+  }
+  assert.match(root.querySelector('.looper-marketplace-grid')?.textContent ?? '', /Looper #617/);
+});
+
+test('Looper marketplace timeout renders unavailable listing metrics and retries successfully', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  let attempts = 0;
+  const app = createApp({
+    root, marketplaceTimeoutMs: 5,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617']) }),
+    marketplaceListingsLoader: ({ signal }) => {
+      attempts += 1;
+      if (attempts > 1) return Promise.resolve({
+        schema_version: '1.0.0', collection: 'loopers-639312714', contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+        status: 'fresh', observed_at: '2026-10-08T14:00:00.000Z', listings: [],
+      });
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+    },
+  });
+  await app.start();
+
+  const metrics = root.querySelector('.looper-marketplace-metrics')?.textContent ?? '';
+  assert.match(metrics, /Activated1/);
+  assert.match(metrics, /Listed activatedUnavailable/);
+  assert.match(metrics, /Activated floorUnavailable/);
+  const retry = root.querySelector('[data-action="retry-looper-marketplace"]');
+  assert.ok(retry);
+  retry.click();
+  await flushAsyncEvents(20);
+  assert.equal(attempts, 2);
+  assert.doesNotMatch(root.textContent, /Marketplace listings unavailable/);
+});
+
+test('Looper marketplace ignores stale completion after a newer refresh', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/loopers');
+  let firstResolve;
+  let listingCalls = 0;
+  const makeFeed = (tokenId) => ({
+    schema_version: '1.0.0', collection: 'loopers-639312714', contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+    status: 'fresh', observed_at: '2026-10-08T14:00:00.000Z',
+    listings: [{ token_id: tokenId, price: { currency: 'ETH', amount: '1', base_units: '1', decimals: 18 }, item_url: 'https://opensea.io/assets/base/0x1649cd37f4748807b4882fc48765ba0b2affa94a/' + tokenId }],
+  });
+  const app = createApp({
+    root, marketplaceTimeoutMs: 1_000,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617', '812']) }),
+    marketplaceListingsLoader: () => {
+      listingCalls += 1;
+      if (listingCalls === 1) return new Promise((resolve) => { firstResolve = resolve; });
+      return Promise.resolve(makeFeed('812'));
+    },
+  });
+
+  const start = app.start();
+  await flushAsyncEvents();
+  await app.refreshLooperMarketplace();
+  assert.match(root.querySelector('.looper-marketplace-grid')?.textContent ?? '', /Looper #812/);
+  firstResolve(makeFeed('617'));
+  await start;
+  await flushAsyncEvents();
+  assert.match(root.querySelector('.looper-marketplace-grid')?.textContent ?? '', /Looper #812/);
+  assert.doesNotMatch(root.querySelector('.looper-marketplace-grid')?.textContent ?? '', /Looper #617/);
+});
+
 test('Console RESTAP network integration aborts stale selection reads and binds owner actions', () => {
   const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /consoleRestapNetworkAbortController\?\.abort\(\)/);

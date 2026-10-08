@@ -82,7 +82,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, marketplaceTimeoutMs, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -118,6 +118,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
   let consoleReleasedLooperAbortController = null;
+  let looperMarketplaceAbortController = null;
+  let looperMarketplaceRequestId = 0;
   let consoleRestapNetworkAbortController = null;
   let consoleRestapNetworkMutationAbortController = null;
   const consoleCodexCache = new Map();
@@ -2650,6 +2652,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function refreshLooperMarketplace() {
+    looperMarketplaceAbortController?.abort();
+    const controller = new AbortController();
+    const requestId = ++looperMarketplaceRequestId;
+    looperMarketplaceAbortController = controller;
     state = { ...state, looperMarketplace: { ...state.looperMarketplace, status: 'loading' } };
     render(root, state, handlers);
     const snapshot = await loadLooperMarketplaceSnapshot({
@@ -2657,7 +2663,11 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       fetchImpl,
       activationLoader: releasedLooperLoader,
       listingsLoader: marketplaceListingsLoader,
+      signal: controller.signal,
+      timeoutMs: marketplaceTimeoutMs,
     });
+    if (requestId !== looperMarketplaceRequestId || controller !== looperMarketplaceAbortController) return;
+    looperMarketplaceAbortController = null;
     state = { ...state, looperMarketplace: { ...state.looperMarketplace, status: 'ready', snapshot } };
     render(root, state, handlers);
   }
@@ -2691,7 +2701,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   const handlers = { resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
-  return { start, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
+  return { start, refreshLooperMarketplace, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
 
 async function overlaySavedProfileVisual(liveData, { fetchImpl } = {}) {
@@ -4645,6 +4655,14 @@ function renderMultipassConsolePage(root, state, handlers = {}) {
 }
 
 function renderLooperMarketplacePage(root, state, handlers = {}) {
+  const activeSearch = root.querySelector?.('[data-marketplace-search]');
+  const searchInteraction = activeSearch && root.ownerDocument?.activeElement === activeSearch
+    ? {
+        start: activeSearch.selectionStart,
+        end: activeSearch.selectionEnd,
+        direction: activeSearch.selectionDirection,
+      }
+    : null;
   root.innerHTML = `
     <div class="record-shell looper-marketplace-shell">
       ${renderRecordHeader('Activated Loopers')}
@@ -4658,6 +4676,13 @@ function renderLooperMarketplacePage(root, state, handlers = {}) {
     setSearch: handlers.setLooperMarketplaceSearch,
     setSort: handlers.setLooperMarketplaceSort,
   });
+  if (searchInteraction) {
+    const search = root.querySelector('[data-marketplace-search]');
+    search?.focus({ preventScroll: true });
+    if (search && searchInteraction.start !== null && searchInteraction.end !== null) {
+      search.setSelectionRange(searchInteraction.start, searchInteraction.end, searchInteraction.direction ?? 'none');
+    }
+  }
 }
 
 function renderRuntimeSubmissionPage(root, state, handlers = {}) {
