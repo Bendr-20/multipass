@@ -179,6 +179,30 @@ test('follows validated opaque cursors with bounded pagination', async () => {
   assert.deepEqual(result.listings.map(({ token_id }) => token_id), ['1', '2']);
 });
 
+test('default pagination ceiling completes the proven 13-page OpenSea feed', async () => {
+  const pages = Array.from({ length: 13 }, (_, pageIndex) => page(
+    [listing({ tokenId: String(pageIndex + 1) })],
+    pageIndex < 12 ? `cursor-${pageIndex + 1}` : null,
+  ));
+  const { load, calls } = loaderForPages(pages);
+
+  const result = await load();
+
+  assert.equal(calls(), 13);
+  assert.equal(result.listings.length, 13);
+});
+
+test('default pagination ceiling still fails closed beyond 20 pages', async () => {
+  const pages = Array.from({ length: 21 }, (_, pageIndex) => page(
+    [],
+    pageIndex < 20 ? `cursor-${pageIndex + 1}` : null,
+  ));
+  const { load, calls } = loaderForPages(pages);
+
+  await assert.rejects(load(), { message: 'Looper marketplace upstream unavailable.' });
+  assert.equal(calls(), 20);
+});
+
 test('rejects repeated oversized malformed and over-limit cursors', async () => {
   for (const pages of [
     [page([], 'repeat'), page([], 'repeat')], [page([], 'x'.repeat(17))],

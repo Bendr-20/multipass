@@ -17,7 +17,7 @@ export function createLooperMarketplaceListingsLoader({
   apiKey,
   now = Date.now,
   timeoutMs = 5_000,
-  maxPages = 10,
+  maxPages = 20,
   maxCursorLength = 512,
   maxPageBytes = 1_000_000,
   maxTotalBytes = 4_000_000,
