@@ -167,8 +167,20 @@ test('join trusts activation IDs, ignores unsafe listings, and pins URLs', () =>
   assert.equal(snapshot.items[1].listing.itemUrl, OPENSEA_ROOT + '/617');
 });
 
+test('snapshot falls back to the pinned verified 328-Looper activation roster', async () => {
+  const snapshot = await loadLooperMarketplaceSnapshot({
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
+    activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set() }),
+    listingsLoader: async () => feed([listing('2431', '1')]),
+  });
+  assert.equal(snapshot.activationStatus, 'available');
+  assert.equal(snapshot.items.length, 328);
+  assert.equal(snapshot.items.some((item) => item.tokenId === '2431'), true);
+  assert.equal(snapshot.items.find((item) => item.tokenId === '2431')?.listing?.baseUnits, '1');
+});
+
 test('activation failure suppresses partial roster and listing failure cannot invent listings', async () => {
-  const a = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set(['617']) }), listingsLoader: async () => feed([listing('617', '1')]) });
+  const a = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), activationLoader: async () => ({ status: 'unavailable', tokenIds: new Set(['617']) }), activationFallbackLoader: null, listingsLoader: async () => feed([listing('617', '1')]) });
   assert.equal(a.activationStatus, 'unavailable'); assert.deepEqual(a.items, []);
   const b = await loadLooperMarketplaceSnapshot({ locationUrl: new URL('https://helixa.xyz/multipass/the-loop'), activationLoader: async () => activation('617'), listingsLoader: async () => { throw new Error('private'); } });
   assert.equal(b.listingsStatus, 'unavailable'); assert.equal(b.items[0].listing, null);

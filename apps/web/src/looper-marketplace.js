@@ -1,5 +1,6 @@
 import { getApiBaseFromLocation } from './api.js';
 import { readBoundedResponseBody } from './bounded-response-body.js';
+import { loadPinnedActivatedLooperTokenIds } from './looper-activated-roster.js';
 import { compareLooperTokenIds, loadReleasedLooperTokenIds, normalizeLooperTokenId } from './console-looper-selection.js';
 
 export const LOOPERS_MARKETPLACE_PATH = '/multipass/the-loop';
@@ -55,6 +56,7 @@ export async function loadLooperMarketplaceSnapshot({
   locationUrl,
   fetchImpl = globalThis.fetch,
   activationLoader = loadReleasedLooperTokenIds,
+  activationFallbackLoader = loadPinnedActivatedLooperTokenIds,
   listingsLoader = loadLooperMarketplaceListings,
   signal,
   timeoutMs = MARKETPLACE_REQUEST_TIMEOUT_MS,
@@ -76,9 +78,17 @@ export async function loadLooperMarketplaceSnapshot({
     globalThis.clearTimeout(timeout);
     signal?.removeEventListener?.('abort', abort);
   }
-  const activation = activationResult.status === 'fulfilled'
+  let activation = activationResult.status === 'fulfilled'
     ? activationResult.value
     : { status: 'unavailable', tokenIds: new Set() };
+  if (activation?.status !== 'available' && typeof activationFallbackLoader === 'function') {
+    try {
+      const fallback = await activationFallbackLoader();
+      if (fallback?.status === 'available' && fallback.tokenIds instanceof Set) activation = fallback;
+    } catch {
+      // The marketplace remains fail-closed when both live and pinned activation sources fail.
+    }
+  }
   const listings = listingsResult.status === 'fulfilled' ? listingsResult.value : null;
   return joinLooperMarketplaceSnapshot({ activation, listings });
 }
