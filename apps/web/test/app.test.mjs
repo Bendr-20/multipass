@@ -12,6 +12,31 @@ import { isSafeMultipassSharePath } from '../src/save-panel.js';
 const NAKAMIGO_2432_IMAGE = 'https://assets.bueno.art/images/3b04f823-b7a8-4965-b61e-8fe8a5d82bde/default/2432';
 const NORMIES_4354_IMAGE = 'https://api.normies.art/agents/image/4354';
 
+test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve other routes', async () => {
+  for (const [path, expected] of [['/multipass/loopers', 'Looper marketplace'], ['/multipass/loopers/617', 'Looper #617']]) {
+    const root = setupDom('https://helixa.xyz' + path);
+    let demoCalls = 0;
+    const app = createApp({
+      root,
+      loadDemo: async () => { demoCalls += 1; throw new Error('AgentDNA/demo loader must not run'); },
+      releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617']) }),
+      marketplaceListingsLoader: async () => ({
+        schema_version: '1.0.0', collection: 'loopers-639312714',
+        contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', status: 'fresh',
+        observed_at: '2026-10-08T14:00:00.000Z', listings: [],
+      }),
+    });
+    await app.start();
+    assert.equal(demoCalls, 0);
+    assert.match(root.textContent, new RegExp(expected));
+  }
+
+  const root = setupDom('https://helixa.xyz/multipass/agents');
+  const app = createApp({ root, loadDemo: async () => sampleData() });
+  await app.start();
+  assert.match(root.textContent, /Public agents|Agent gallery/i);
+});
+
 test('Console RESTAP network integration aborts stale selection reads and binds owner actions', () => {
   const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.match(source, /consoleRestapNetworkAbortController\?\.abort\(\)/);
@@ -4303,6 +4328,7 @@ test('hamburger menu opens trusted Helixa and CRED links', async () => {
   assert.deepEqual(links, [
     { label: 'Multipass Home', href: '/multipass/' },
     { label: 'Multipass Console', href: '/multipass/console' },
+    { label: 'Looper Marketplace', href: '/multipass/loopers' },
     { label: 'RUNTIME Submission', href: '/multipass/runtime' },
     { label: 'Register Agent', href: 'https://helixa.xyz/' },
     { label: 'Cred Exchange', href: 'https://cred.exchange/' },
