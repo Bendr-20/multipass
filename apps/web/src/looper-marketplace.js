@@ -1,4 +1,5 @@
 import { getApiBaseFromLocation } from './api.js';
+import { readBoundedResponseBody } from './bounded-response-body.js';
 import { compareLooperTokenIds, loadReleasedLooperTokenIds, normalizeLooperTokenId } from './console-looper-selection.js';
 
 export const LOOPERS_MARKETPLACE_PATH = '/multipass/loopers';
@@ -37,8 +38,12 @@ export async function loadLooperMarketplaceListings({ locationUrl, fetchImpl = g
     method: 'GET', credentials: 'omit', headers: { accept: 'application/json' }, signal,
   });
   if (!response?.ok) throw new Error('Marketplace listings unavailable.');
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BROWSER_RESPONSE_BYTES) throw new Error('Marketplace listings unavailable.');
+  let text;
+  try {
+    text = await readBoundedResponseBody(response, { maxBytes: MAX_BROWSER_RESPONSE_BYTES, signal });
+  } catch {
+    throw new Error('Marketplace listings unavailable.');
+  }
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('Marketplace listings unavailable.'); }
   const normalized = normalizeFeed(value);

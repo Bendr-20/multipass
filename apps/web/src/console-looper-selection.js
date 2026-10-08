@@ -1,5 +1,7 @@
 import { decodeAbiParameters, padHex } from 'viem';
 
+import { readBoundedResponseBody } from './bounded-response-body.js';
+
 import {
   ACCOUNT_SALT,
   BASE_CHAIN_ID,
@@ -109,8 +111,7 @@ export async function loadReleasedLooperTokenIds({
         signal: controller.signal,
       });
       if (!response?.ok) return unavailable();
-      const text = await response.text();
-      if (new TextEncoder().encode(text).byteLength > maxPageBytes) return unavailable();
+      const text = await readBoundedResponseBody(response, { maxBytes: maxPageBytes, signal: controller.signal });
       const page = JSON.parse(text);
       if (!isExactObject(page, ['items', 'next_page_params']) || !Array.isArray(page.items) || page.items.length > 50) return unavailable();
 

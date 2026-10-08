@@ -12,6 +12,28 @@ const feed = (listings = [], overrides = {}) => ({ schema_version: '1.0.0', coll
 const activation = (...ids) => ({ status: 'available', tokenIds: new Set(ids.map(String)) });
 function domRoot() { return new JSDOM('<!doctype html><main id="app"></main>').window.document.querySelector('#app'); }
 
+function streamedJsonResponse(value, { headers = {} } = {}) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let sent = false;
+  return {
+    ok: true,
+    headers: new Headers(headers),
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (sent) return { done: true, value: undefined };
+            sent = true;
+            return { done: false, value: bytes };
+          },
+          async cancel() {},
+        };
+      },
+    },
+    async text() { assert.fail('response.text() must not be called'); },
+  };
+}
+
 test('recognizes exact list and canonical detail routes including a non-3802 token', () => {
   assert.equal(LOOPERS_MARKETPLACE_PATH, '/multipass/loopers');
   assert.deepEqual(getLooperMarketplaceRoute(new URL('https://helixa.xyz/multipass/loopers')), { kind: 'list', tokenId: null });
@@ -24,21 +46,98 @@ test('loader uses exact default API boundary and injected fetch', async () => {
   assert.equal(getApiBaseFromLocation(new URL('https://helixa.xyz/multipass/loopers')), '/multipass-api');
   const calls = [];
   const controller = new AbortController();
-  const result = await loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), signal: controller.signal, fetchImpl: async (url, init) => { calls.push([String(url), init]); return new Response(JSON.stringify(feed([listing('617', '1000000000000000000', '1')])), { status: 200 }); } });
+  const result = await loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), signal: controller.signal, fetchImpl: async (url, init) => { calls.push([String(url), init]); return streamedJsonResponse(feed([listing('617', '1000000000000000000', '1')])); } });
   assert.equal(calls[0][0], '/multipass-api/api/loopers/marketplace/listings');
   assert.equal(calls[0][1].method, 'GET'); assert.equal(calls[0][1].credentials, 'omit');
   assert.equal(calls[0][1].signal, controller.signal);
   assert.deepEqual(result.listings.map((row) => row.tokenId), ['617']);
 });
 
+test('listing loader counts hostile stream bytes, cancels over the cap, and never falls back to text', async () => {
+  let cancelled = false;
+  const response = {
+    ok: true,
+    headers: new Headers(),
+    body: {
+      getReader() {
+        let reads = 0;
+        return {
+          async read() {
+            reads += 1;
+            return { done: false, value: new Uint8Array(reads === 1 ? 600_000 : 400_001) };
+          },
+          async cancel() { cancelled = true; },
+        };
+      },
+    },
+    async text() { assert.fail('response.text() must not be called'); },
+  };
+
+  await assert.rejects(
+    loadLooperMarketplaceListings({ locationUrl: new URL('https://helixa.xyz/multipass/loopers'), fetchImpl: async () => response }),
+    /Marketplace listings unavailable/,
+  );
+  assert.equal(cancelled, true);
+});
+
+test('listing loader rejects invalid lengths and non-stream bodies without text fallback', async () => {
+  for (const contentLength of ['not-a-size', '-1', '1000001']) {
+    await assert.rejects(
+      loadLooperMarketplaceListings({
+        locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+        fetchImpl: async () => ({
+          ok: true,
+          headers: new Headers({ 'content-length': contentLength }),
+          body: { getReader() { assert.fail('invalid declared length must be rejected before reading'); } },
+          async text() { assert.fail('response.text() must not be called'); },
+        }),
+      }),
+      /Marketplace listings unavailable/,
+    );
+  }
+
+  await assert.rejects(
+    loadLooperMarketplaceListings({
+      locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+      fetchImpl: async () => ({ ok: true, headers: new Headers(), body: null, async text() { assert.fail('response.text() must not be called'); } }),
+    }),
+    /Marketplace listings unavailable/,
+  );
+});
+
 test('snapshot loader composes the default listing loader with activation', async () => {
   const snapshot = await loadLooperMarketplaceSnapshot({
     locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
     activationLoader: async () => activation('617'),
-    fetchImpl: async () => new Response(JSON.stringify(feed([listing('617', '9')])), { status: 200 }),
+    fetchImpl: async () => streamedJsonResponse(feed([listing('617', '9')])),
   });
   assert.equal(snapshot.listingsStatus, 'available');
   assert.equal(snapshot.items[0].listing?.baseUnits, '9');
+});
+
+test('snapshot timeout aborts and cancels the default listing body reader', async () => {
+  let cancelled = false;
+  const snapshot = await loadLooperMarketplaceSnapshot({
+    locationUrl: new URL('https://helixa.xyz/multipass/loopers'),
+    timeoutMs: 5,
+    activationLoader: async () => activation('617'),
+    fetchImpl: async () => ({
+      ok: true,
+      headers: new Headers(),
+      body: {
+        getReader() {
+          return {
+            read() { return new Promise(() => {}); },
+            async cancel() { cancelled = true; },
+          };
+        },
+      },
+      async text() { assert.fail('response.text() must not be called'); },
+    }),
+  });
+  assert.equal(cancelled, true);
+  assert.equal(snapshot.activationStatus, 'available');
+  assert.equal(snapshot.listingsStatus, 'unavailable');
 });
 
 test('snapshot loader bounds hanging listing reads and passes one abort signal to both sources', async () => {

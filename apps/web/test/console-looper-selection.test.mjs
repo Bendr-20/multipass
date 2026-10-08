@@ -68,10 +68,25 @@ function eventRow({
 }
 
 function jsonResponse(value, { status = 200 } = {}) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let sent = false;
   return {
     ok: status >= 200 && status < 300,
     status,
-    async text() { return JSON.stringify(value); },
+    headers: new Headers(),
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (sent) return { done: true, value: undefined };
+            sent = true;
+            return { done: false, value: bytes };
+          },
+          async cancel() {},
+        };
+      },
+    },
+    async text() { assert.fail('response.text() must not be called'); },
   };
 }
 
@@ -212,11 +227,30 @@ test('released wallet discovery rejects malformed page and cursor contracts', as
 });
 
 test('released wallet discovery enforces byte, page, timeout, and cancellation bounds', async () => {
+  let cancelled = false;
   let result = await loadReleasedLooperTokenIds({
-    fetchImpl: async () => ({ ok: true, status: 200, async text() { return 'x'.repeat(101); } }),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body: {
+        getReader() {
+          let reads = 0;
+          return {
+            async read() {
+              reads += 1;
+              return { done: false, value: new Uint8Array(reads === 1 ? 60 : 41) };
+            },
+            async cancel() { cancelled = true; },
+          };
+        },
+      },
+      async text() { assert.fail('response.text() must not be called'); },
+    }),
     maxPageBytes: 100,
   });
   assert.equal(result.status, 'unavailable');
+  assert.equal(cancelled, true);
 
   let calls = 0;
   result = await loadReleasedLooperTokenIds({
@@ -237,4 +271,50 @@ test('released wallet discovery enforces byte, page, timeout, and cancellation b
   controller.abort();
   result = await loadReleasedLooperTokenIds({ fetchImpl: async () => assert.fail('fetch must not run'), signal: controller.signal });
   assert.equal(result.status, 'unavailable');
+});
+
+test('released wallet discovery rejects invalid lengths and non-stream bodies without text fallback', async () => {
+  for (const contentLength of ['not-a-size', '-1', '1048577']) {
+    const result = await loadReleasedLooperTokenIds({
+      fetchImpl: async () => ({
+        ok: true,
+        headers: new Headers({ 'content-length': contentLength }),
+        body: { getReader() { assert.fail('invalid declared length must be rejected before reading'); } },
+        async text() { assert.fail('response.text() must not be called'); },
+      }),
+    });
+    assert.equal(result.status, 'unavailable');
+  }
+
+  const result = await loadReleasedLooperTokenIds({
+    fetchImpl: async () => ({
+      ok: true,
+      headers: new Headers(),
+      body: null,
+      async text() { assert.fail('response.text() must not be called'); },
+    }),
+  });
+  assert.equal(result.status, 'unavailable');
+});
+
+test('released wallet discovery cancels a body read when its timeout aborts', async () => {
+  let cancelled = false;
+  const result = await loadReleasedLooperTokenIds({
+    timeoutMs: 5,
+    fetchImpl: async () => ({
+      ok: true,
+      headers: new Headers(),
+      body: {
+        getReader() {
+          return {
+            read() { return new Promise(() => {}); },
+            async cancel() { cancelled = true; },
+          };
+        },
+      },
+      async text() { assert.fail('response.text() must not be called'); },
+    }),
+  });
+  assert.equal(result.status, 'unavailable');
+  assert.equal(cancelled, true);
 });
