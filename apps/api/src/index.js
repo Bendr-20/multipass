@@ -242,6 +242,7 @@ export function createMultipassApi({
   loopersAllowlistRequireBrowserOrigin = false,
   loopersAllowlistBlockedSources = [],
   loopersTurnstileSecretKey,
+  looperMarketplaceListingsLoader,
   loopersOwnedAgentLoader,
   loopersOwnedRpcUrl,
   loopersOwnedMetadataBaseUrl,
@@ -393,6 +394,9 @@ export function createMultipassApi({
     loopersAllowlistSubnetRateLimiter: createFixedWindowRateLimiter(loopersAllowlistSubnetRateLimit ?? LOOPERS_ALLOWLIST_SUBNET_RATE_LIMIT),
     loopersAllowlistGlobalRateLimiter: createFixedWindowRateLimiter(loopersAllowlistGlobalRateLimit ?? LOOPERS_ALLOWLIST_GLOBAL_RATE_LIMIT),
     loopersTurnstileSecretKey: String(loopersTurnstileSecretKey ?? '').trim() || null,
+    looperMarketplaceListingsLoader: typeof looperMarketplaceListingsLoader === 'function'
+      ? looperMarketplaceListingsLoader
+      : null,
     loopersOwnedAgentLoader: ownedLoopersLoader,
     loopersAuthorizer: authorizeLooper,
     looperNameStore: looperNameStore ?? createSqliteLooperNameStore(),
@@ -1480,6 +1484,17 @@ async function handleLooperPost(request, parts, context) {
 }
 
 async function handleLooperRead(request, url, parts, context) {
+  if (url.pathname === '/api/loopers/marketplace/listings') {
+    if (!context.looperMarketplaceListingsLoader) {
+      return errorResponse(503, 'marketplace_unavailable', 'Looper marketplace listings are temporarily unavailable.', undefined, { 'cache-control': 'no-store' });
+    }
+    try {
+      return jsonResponse(await context.looperMarketplaceListingsLoader(), 200, { 'cache-control': 'no-store' });
+    } catch {
+      return errorResponse(503, 'marketplace_unavailable', 'Looper marketplace listings are temporarily unavailable.', undefined, { 'cache-control': 'no-store' });
+    }
+  }
+
   if (parts[2] === 'owned' && parts.length === 3) {
     const session = requireConsoleSession(request, context);
     const loadedAgents = await context.loopersOwnedAgentLoader({ address: session.wallet });

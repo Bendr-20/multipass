@@ -1,5 +1,7 @@
 import http from 'node:http';
 import { isIP } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { activateHelixaRecord } from './activation-records.js';
@@ -14,7 +16,9 @@ import {
   DEFAULT_LOOPER_CRED_TIMEOUT_MS,
 } from './looper-cred-client.js';
 import { createLooperCodexRuntime } from './looper-codex-runtime.js';
+import { createLooperMarketplaceListingsLoader } from './looper-marketplace.js';
 import { createSqliteLooperNameStore } from './looper-name-store.js';
+import { readOpenSeaApiKey } from './loopers-sales/opensea.js';
 import { createSqliteSavedRecords } from './saved-records.js';
 import { buildRestap3802Discovery } from './restap-3802-contracts.js';
 import { authorizeRestap3802Policy, loadRestap3802Policy } from './restap-3802-policy.js';
@@ -39,6 +43,7 @@ const DEFAULT_RESTAP_TALK_LIMITS = Object.freeze({
 });
 
 export function parseServerOptions(argv = [], env = process.env) {
+  const home = env.HOME || os.homedir();
   const options = {
     fixture: env.MULTIPASS_FIXTURE || DEFAULT_FIXTURE,
     host: env.HOST || DEFAULT_HOST,
@@ -48,6 +53,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     adminSecret: env.MULTIPASS_ADMIN_SECRET || null,
     cookieSecure: parseOptionalBoolean(env.MULTIPASS_COOKIE_SECURE, 'MULTIPASS_COOKIE_SECURE'),
     publicBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_PUBLIC_BASE_URL, 'MULTIPASS_PUBLIC_BASE_URL'),
+    openseaConfigPath: env.LOOPERS_SALES_OPENSEA_CONFIG_PATH || path.join(home, '.config/opensea/config.json'),
     loopersAllowlistPath: env.MULTIPASS_LOOPERS_ALLOWLIST_PATH || null,
     loopersAllowlistSnapshotPath: env.MULTIPASS_LOOPERS_ALLOWLIST_SNAPSHOT_PATH || null,
     looperCodexArtifactPath: env.MULTIPASS_LOOPER_CODEX_ARTIFACT_PATH || null,
@@ -140,6 +146,7 @@ export async function startServer(options = {}) {
     adminSecret: options.adminSecret ?? null,
     cookieSecure: options.cookieSecure ?? null,
     publicBaseUrl: normalizeOptionalBaseUrl(options.publicBaseUrl, 'publicBaseUrl'),
+    openseaConfigPath: options.openseaConfigPath ?? path.join(os.homedir(), '.config/opensea/config.json'),
     loopersAllowlistPath: options.loopersAllowlistPath ?? null,
     loopersAllowlistSnapshotPath: options.loopersAllowlistSnapshotPath ?? null,
     looperCodexArtifactPath: options.looperCodexArtifactPath ?? null,
@@ -209,6 +216,9 @@ export async function startServer(options = {}) {
       : null);
   const consoleBootstrapFactory = options.consoleBootstrapFactory ?? createConsoleProductionBootstrap;
   const looperCodexRuntimeFactory = options.looperCodexRuntimeFactory ?? createLooperCodexRuntime;
+  const openSeaApiKeyLoader = options.openSeaApiKeyLoader ?? readOpenSeaApiKey;
+  const looperMarketplaceListingsLoaderFactory = options.looperMarketplaceListingsLoaderFactory
+    ?? createLooperMarketplaceListingsLoader;
   const apiFactory = options.apiFactory ?? createMultipassApi;
   const restapPolicyLoader = options.restapPolicyLoader ?? loadRestap3802Policy;
   const restapPolicyAuthorizer = options.restapPolicyAuthorizer ?? authorizeRestap3802Policy;
@@ -224,6 +234,9 @@ export async function startServer(options = {}) {
   let apiBaseUrl = parsed.publicBaseUrl ?? (parsed.port === 0 ? null : `http://${parsed.host}:${parsed.port}`);
   let consoleBootstrap;
   let looperCodexRuntime;
+  let looperMarketplaceListingsLoader = typeof options.looperMarketplaceListingsLoader === 'function'
+    ? options.looperMarketplaceListingsLoader
+    : null;
   let restapPublicSessions;
   let restapNewsStore;
   let restapNetworkSigner;
@@ -266,6 +279,19 @@ export async function startServer(options = {}) {
   });
 
   try {
+    if (!looperMarketplaceListingsLoader) {
+      try {
+        const apiKey = await openSeaApiKeyLoader(parsed.openseaConfigPath);
+        const candidate = looperMarketplaceListingsLoaderFactory({
+          apiKey,
+          fetchImpl: parsed.fetchImpl ?? fetch,
+        });
+        looperMarketplaceListingsLoader = typeof candidate === 'function' ? candidate : null;
+      } catch {
+        looperMarketplaceListingsLoader = null;
+      }
+    }
+
     const codexStartedAt = Date.now();
     const codexStartingRss = process.memoryUsage().rss;
     looperCodexRuntime = options.looperCodexRuntime ?? await looperCodexRuntimeFactory({
@@ -500,6 +526,7 @@ export async function startServer(options = {}) {
       loopersAllowlistSubnetRateLimit: parsed.loopersAllowlistSubnetRateLimit,
       loopersAllowlistGlobalRateLimit: parsed.loopersAllowlistGlobalRateLimit,
       loopersTurnstileSecretKey: parsed.loopersTurnstileSecretKey,
+      looperMarketplaceListingsLoader,
       loopersCredApiBaseUrl: parsed.loopersCredApiBaseUrl,
       loopersCredTimeoutMs: parsed.loopersCredTimeoutMs,
       loopersCredConcurrency: parsed.loopersCredConcurrency,

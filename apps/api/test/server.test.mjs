@@ -35,6 +35,7 @@ test('parseServerOptions returns safe defaults', () => {
     adminSecret: null,
     cookieSecure: null,
     publicBaseUrl: null,
+    openseaConfigPath: path.join(os.homedir(), '.config/opensea/config.json'),
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
     looperCodexArtifactPath: null,
@@ -99,6 +100,7 @@ test('CLI flags override environment values', () => {
       adminSecret: null,
       cookieSecure: null,
       publicBaseUrl: null,
+      openseaConfigPath: path.join(os.homedir(), '.config/opensea/config.json'),
       loopersAllowlistPath: null,
       loopersAllowlistSnapshotPath: null,
       looperCodexArtifactPath: null,
@@ -163,6 +165,7 @@ test('parseServerOptions accepts claim management security env', () => {
     adminSecret: 'secret',
     cookieSecure: true,
     publicBaseUrl: 'https://helixa.xyz',
+    openseaConfigPath: path.join(os.homedir(), '.config/opensea/config.json'),
     loopersAllowlistPath: null,
     loopersAllowlistSnapshotPath: null,
     looperCodexArtifactPath: null,
@@ -376,6 +379,150 @@ test('parseServerOptions reads the Looper Codex artifact path without printing i
   } finally {
     for (const method of methods) console[method] = originals[method];
   }
+});
+
+test('parseServerOptions resolves the shared OpenSea config path from HOME or its existing override without logging it', () => {
+  const calls = [];
+  const methods = ['log', 'info', 'warn', 'error'];
+  const originals = Object.fromEntries(methods.map(method => [method, console[method]]));
+  for (const method of methods) console[method] = (...args) => calls.push([method, ...args]);
+  try {
+    assert.equal(
+      parseServerOptions([], { HOME: '/home/test' }).openseaConfigPath,
+      '/home/test/.config/opensea/config.json',
+    );
+    assert.equal(
+      parseServerOptions([], {
+        HOME: '/home/test',
+        LOOPERS_SALES_OPENSEA_CONFIG_PATH: '/run/secrets/opensea.json',
+      }).openseaConfigPath,
+      '/run/secrets/opensea.json',
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    for (const method of methods) console[method] = originals[method];
+  }
+});
+
+test('startServer reads one OpenSea key, creates one cached marketplace loader, and injects it before API construction', async () => {
+  const secretPath = '/run/secrets/opensea-private.json';
+  const apiKey = 'opensea-key-do-not-log';
+  const events = [];
+  const listingLoader = async () => ({ listings: [] });
+  let keyReads = 0;
+  let factoryCalls = 0;
+  let apiCalls = 0;
+  let injectedLoader;
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0, openseaConfigPath: secretPath,
+    openSeaApiKeyLoader: async (configPath) => {
+      keyReads += 1;
+      assert.equal(configPath, secretPath);
+      return apiKey;
+    },
+    looperMarketplaceListingsLoaderFactory: (input) => {
+      factoryCalls += 1;
+      assert.equal(input.apiKey, apiKey);
+      assert.equal(typeof input.fetchImpl, 'function');
+      return listingLoader;
+    },
+    apiFactory: (options) => {
+      apiCalls += 1;
+      injectedLoader = options.looperMarketplaceListingsLoader;
+      return { async handleRequest() { return new Response('{}', { status: 200 }); } };
+    },
+    logger: {
+      info(event) { events.push(event); },
+      warn(event) { events.push(event); },
+      error(event) { events.push(event); },
+    },
+  });
+  try {
+    assert.equal(keyReads, 1);
+    assert.equal(factoryCalls, 1);
+    assert.equal(apiCalls, 1);
+    assert.equal(injectedLoader, listingLoader);
+    const serializedLogs = JSON.stringify(events);
+    assert.equal(serializedLogs.includes(secretPath), false);
+    assert.equal(serializedLogs.includes(apiKey), false);
+  } finally {
+    await server.close();
+  }
+  assert.equal(server.server.listening, false);
+});
+
+test('startServer serves an injected marketplace loader publicly and closes cleanly without reading config', async () => {
+  const snapshot = {
+    schema_version: '1.0.0',
+    collection: 'loopers-639312714',
+    contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+    status: 'fresh',
+    observed_at: '2026-10-08T14:00:00.000Z',
+    listings: [],
+  };
+  let loaderCalls = 0;
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    looperMarketplaceListingsLoader: async () => {
+      loaderCalls += 1;
+      return snapshot;
+    },
+    openSeaApiKeyLoader: async () => { throw new Error('config reader must be bypassed'); },
+    looperMarketplaceListingsLoaderFactory: () => { throw new Error('factory must be bypassed'); },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  try {
+    const response = await fetch(server.url + '/api/loopers/marketplace/listings');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), snapshot);
+    assert.equal(loaderCalls, 1);
+  } finally {
+    await server.close();
+  }
+  assert.equal(server.server.listening, false);
+});
+
+test('missing or invalid marketplace config leaves the marketplace safely unavailable and other routes live', async () => {
+  const sensitive = 'opensea-key upstream-private-body /run/secrets/opensea.json';
+  const events = [];
+  let factoryCalls = 0;
+  const server = await startServer({
+    fixture: 'generic', host: '127.0.0.1', port: 0,
+    openseaConfigPath: '/run/secrets/opensea.json',
+    openSeaApiKeyLoader: async () => { throw new Error(sensitive); },
+    looperMarketplaceListingsLoaderFactory: () => {
+      factoryCalls += 1;
+      throw new Error('factory must not run');
+    },
+    logger: {
+      info(event) { events.push(event); },
+      warn(event) { events.push(event); },
+      error(event) { events.push(event); },
+    },
+  });
+  try {
+    const unavailable = await fetch(server.url + '/api/loopers/marketplace/listings');
+    const unavailableText = await unavailable.text();
+    assert.equal(unavailable.status, 503);
+    assert.deepEqual(JSON.parse(unavailableText), {
+      schema_version: '0.1.0',
+      error: {
+        code: 'marketplace_unavailable',
+        message: 'Looper marketplace listings are temporarily unavailable.',
+      },
+    });
+    assert.equal(unavailableText.includes(sensitive), false);
+
+    const liveness = await fetch(server.url + '/api/openapi.json');
+    assert.equal(liveness.status, 200);
+    assert.equal((await liveness.json()).openapi, '3.1.0');
+    assert.equal(factoryCalls, 0);
+    assert.equal(JSON.stringify(events).includes(sensitive), false);
+  } finally {
+    await server.close();
+  }
+  assert.equal(server.server.listening, false);
 });
 
 test('startServer creates one Looper Codex runtime before API construction and injects it', async () => {

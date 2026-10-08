@@ -271,6 +271,106 @@ function makeApi() {
   });
 }
 
+test('Looper marketplace GET is public and returns the exact normalized snapshot without cache storage', async () => {
+  const snapshot = {
+    schema_version: '1.0.0',
+    collection: 'loopers-639312714',
+    contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+    status: 'fresh',
+    observed_at: '2026-10-08T14:00:00.000Z',
+    listings: [{
+      token_id: '3802',
+      price: { currency: 'ETH', amount: '1.25', base_units: '1250000000000000000', decimals: 18 },
+      item_url: 'https://opensea.io/assets/base/0x1649cd37f4748807b4882fc48765ba0b2affa94a/3802',
+    }],
+  };
+  let calls = 0;
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    baseUrl: 'https://multipass.example.test',
+    looperMarketplaceListingsLoader: async () => {
+      calls += 1;
+      return snapshot;
+    },
+  });
+
+  const response = await api.handleRequest(new Request(
+    'https://multipass.example.test/api/loopers/marketplace/listings',
+  ));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), snapshot);
+  assert.equal(calls, 1);
+});
+
+test('Looper marketplace failures return a stable safe 503 without logging credentials or upstream details', async () => {
+  const sensitiveValues = [
+    'opensea-key-do-not-leak',
+    '/home/test/.config/opensea/config.json',
+    '{\"upstream\":\"private response body\"}',
+  ];
+  const logCalls = [];
+  const logger = Object.fromEntries(
+    ['log', 'info', 'warn', 'error'].map(method => [method, (...args) => logCalls.push([method, ...args])]),
+  );
+  const expected = {
+    schema_version: '0.1.0',
+    error: {
+      code: 'marketplace_unavailable',
+      message: 'Looper marketplace listings are temporarily unavailable.',
+    },
+  };
+
+  for (const looperMarketplaceListingsLoader of [
+    undefined,
+    async () => { throw new Error(sensitiveValues.join(' ')); },
+  ]) {
+    const api = createMultipassApi({
+      store: createFixtureStore(),
+      baseUrl: 'https://multipass.example.test',
+      looperMarketplaceListingsLoader,
+      logger,
+    });
+    const response = await api.handleRequest(new Request(
+      'https://multipass.example.test/api/loopers/marketplace/listings',
+    ));
+    const responseText = await response.text();
+
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(JSON.parse(responseText), expected);
+    for (const sensitive of sensitiveValues) assert.equal(responseText.includes(sensitive), false);
+  }
+
+  const serializedLogs = JSON.stringify(logCalls);
+  for (const sensitive of sensitiveValues) assert.equal(serializedLogs.includes(sensitive), false);
+  assert.deepEqual(logCalls, []);
+});
+
+test('Looper marketplace route rejects unsupported mutations and non-exact paths through normal routing', async () => {
+  let calls = 0;
+  const api = createMultipassApi({
+    store: createFixtureStore(),
+    baseUrl: 'https://multipass.example.test',
+    looperMarketplaceListingsLoader: async () => {
+      calls += 1;
+      return { listings: [] };
+    },
+  });
+
+  for (const request of [
+    new Request('https://multipass.example.test/api/loopers/marketplace/listings', { method: 'POST' }),
+    new Request('https://multipass.example.test/api/loopers/marketplace/listings/'),
+    new Request('https://multipass.example.test/api/loopers/marketplace/listings/extra'),
+  ]) {
+    const response = await api.handleRequest(request);
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, 'not_found');
+  }
+  assert.equal(calls, 0);
+});
+
 function createFixtureStore() {
   return createMemoryStore({
     profiles: [profile],
