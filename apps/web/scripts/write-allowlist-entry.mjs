@@ -21,8 +21,8 @@ const LOOPERS_MINT_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-mint-pr
 const CONSOLE_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png';
 const THE_LOOP_TITLE = 'The Loop | Activated Loopers on Base';
 const THE_LOOP_DESCRIPTION = 'Discover activated Loopers on Base.';
-const THE_LOOP_URL = 'https://helixa.xyz/multipass/the-loop';
-const THE_LOOP_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/the-loop-marketplace-preview-20261008.png';
+const THE_LOOP_URL = 'https://helixa.xyz/multipass/the-loop?preview=20261008b';
+const THE_LOOP_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/the-loop-marketplace-preview-20261008.png?v=20261008b';
 
 const html = await readFile(sourcePath, 'utf8');
 const allowlistHtml = html
