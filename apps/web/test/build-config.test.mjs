@@ -55,6 +55,14 @@ test('web build emits a static Bankr RUNTIME submission route entry', () => {
   assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/multipass\/runtime/);
 });
 
+test('web build emits a static The Loop route entry with its dedicated social preview', () => {
+  assert.match(allowlistEntryScript, /join\(distRoot, 'the-loop', 'index\.html'\)/);
+  assert.match(allowlistEntryScript, /Discover activated Loopers on Base\./);
+  assert.match(allowlistEntryScript, /the-loop-marketplace-preview-20261008\.png/);
+  assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/multipass\/the-loop/);
+  assert.match(allowlistEntryScript, /The Loop marketplace preview/);
+});
+
 test('Privy wallet modal uses the deployed Multipass logo asset', () => {
   assert.match(mainSource, /logo:\s*'https:\/\/helixa\.xyz\/multipass\/helixa-logo\.png'/);
   assert.doesNotMatch(mainSource, /https:\/\/helixa\.xyz\/helixa-logo\.jpg/);
