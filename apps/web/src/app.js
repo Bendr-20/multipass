@@ -43,6 +43,13 @@ import {
 } from './looper-agent-wallet.js';
 import { createLooperAgentWalletController, createReadOnlyLooperWalletContext } from './looper-agent-wallet-controller.js';
 import { createLooperWalletRpcClient } from './looper-agent-wallet-rpc.js';
+import {
+  CRED_ADDRESS,
+  PANTHEON_STAKING_VAULT,
+  createCredStakeDates,
+  createCredStakeDatesFromMonthIndex,
+  validatePantheonCredRegistry,
+} from './looper-cred-pantheon.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
 import { createImagePreview, prepareConsoleImage, preparedImageBlob } from './console-image-preparation.js';
 import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
@@ -82,7 +89,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, marketplaceTimeoutMs, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, pantheonCredReader, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, marketplaceTimeoutMs, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -114,6 +121,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       return activeWalletClient.sendTransaction(transaction);
     },
   });
+  const activePantheonCredReader = pantheonCredReader ?? looperWalletRpc?.readPantheonCredState ?? null;
   const activeLoadLiveDemo = loadLiveDemo ?? ((input) => defaultLoadLiveProfile(input, { fetchImpl }));
   const liveProfileCache = new Map();
   const liveProfileInFlight = new Map();
@@ -1627,6 +1635,166 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     render(root, state, handlers);
   }
 
+  async function loadPantheonCredRegistry() {
+    const apiBase = getApiBaseFromLocation(new URL(window.location.href));
+    const response = await (fetchImpl ?? globalThis.fetch)(`${apiBase}/api/multipass/console/pantheon/cred`, {
+      method: 'GET', headers: { accept: 'application/json' }, credentials: 'omit', redirect: 'error',
+    });
+    if (!response.ok) throw new Error('Pantheon registry is unavailable.');
+    return validatePantheonCredRegistry(await response.json());
+  }
+
+  function setPantheonCredState(pantheonCred, walletState = state.looperAgentWallet) {
+    state = { ...state, looperAgentWallet: { ...walletState, pantheonCred } };
+    render(root, state, handlers);
+  }
+
+  function createPantheonCredContext() {
+    const wallet = state.looperAgentWallet ?? {};
+    if (!wallet.tokenId || !wallet.account || !wallet.owner) throw new Error('Select an active Looper wallet first.');
+    return {
+      tokenId: String(wallet.tokenId),
+      account: String(wallet.account).toLowerCase(),
+      owner: String(wallet.owner).toLowerCase(),
+      sessionGeneration: state.consoleSessionGeneration,
+    };
+  }
+
+  function requirePantheonCredContext(context) {
+    const wallet = state.looperAgentWallet ?? {};
+    if (context.sessionGeneration !== state.consoleSessionGeneration
+      || context.tokenId !== String(wallet.tokenId ?? '')
+      || context.account !== String(wallet.account ?? '').toLowerCase()
+      || context.owner !== String(wallet.owner ?? '').toLowerCase()) {
+      throw new Error('Selected Looper changed. Check staking again.');
+    }
+  }
+
+  async function readCurrentPantheonCredState(context) {
+    requirePantheonCredContext(context);
+    if (typeof activePantheonCredReader !== 'function') throw new Error('Pantheon staking reads are unavailable.');
+    const result = await activePantheonCredReader({ account: context.account, gasPayer: context.owner });
+    requirePantheonCredContext(context);
+    if (String(result?.account ?? '').toLowerCase() !== context.account) {
+      throw new Error('Pantheon staking state is not bound to this Looper wallet.');
+    }
+    return result;
+  }
+
+  async function loadPantheonCred() {
+    const context = createPantheonCredContext();
+    setPantheonCredState({ status: 'loading' });
+    try {
+      await loadPantheonCredRegistry();
+      requirePantheonCredContext(context);
+      const onchain = await readCurrentPantheonCredState(context);
+      const hasStake = BigInt(onchain.stakeAmountBaseUnits) > 0n;
+      const resumableApproval = !hasStake && onchain.poolActive
+        && BigInt(onchain.allowanceBaseUnits) > 0n
+        && BigInt(onchain.allowanceBaseUnits) <= BigInt(onchain.credBalanceBaseUnits);
+      const status = hasStake ? 'staked' : resumableApproval ? 'approved' : onchain.poolActive ? 'ready' : 'inactive';
+      setPantheonCredState({
+        ...onchain,
+        status,
+        ...(resumableApproval ? { amountBaseUnits: onchain.allowanceBaseUnits } : {}),
+        ...(hasStake ? { dates: createCredStakeDatesFromMonthIndex(onchain.stakeMonthIndex) } : {}),
+      });
+    } catch (error) {
+      try { requirePantheonCredContext(context); } catch { return; }
+      const inactive = /not active|exactly one CRED/i.test(String(error?.message ?? ''));
+      setPantheonCredState({ status: inactive ? 'inactive' : 'error', error: inactive ? null : 'Pantheon staking status could not be verified.' });
+    }
+  }
+
+  async function approvePantheonCred(event) {
+    event?.preventDefault?.();
+    const data = createFormData(event?.currentTarget);
+    if (data.get('confirmed') !== 'on') return setPantheonCredState({ status: 'error', error: 'Explicit approval confirmation is required.' });
+    const context = createPantheonCredContext();
+    try {
+      const amountBaseUnits = parseUnits(String(data.get('amount') ?? '').trim(), 18).toString();
+      if (BigInt(amountBaseUnits) <= 0n) throw new Error('CRED amount must be positive.');
+      await loadPantheonCredRegistry();
+      requirePantheonCredContext(context);
+      const before = await readCurrentPantheonCredState(context);
+      if (!before.poolActive) throw new Error('CRED staking is not active onchain.');
+      if (BigInt(before.stakeAmountBaseUnits) > 0n) throw new Error('This Looper wallet already has an active CRED stake.');
+      if (BigInt(before.credBalanceBaseUnits) < BigInt(amountBaseUnits)) throw new Error('Looper wallet CRED balance is too low.');
+      if (BigInt(before.gasPayerNativeWei) <= 0n) throw new Error('Owner wallet needs Base ETH for gas.');
+      const dates = createCredStakeDates();
+      const disclosure = [
+        'Approve this exact CRED stake amount?',
+        `Amount: ${String(data.get('amount')).trim()} CRED (${amountBaseUnits} raw units)`,
+        'Chain: Base (8453)',
+        `CRED: ${CRED_ADDRESS}`,
+        `Pantheon vault/spender: ${PANTHEON_STAKING_VAULT}`,
+        'Lock: 6 calendar months; no rewards in the stake month.',
+        `Rewards start: ${dates.rewardsStart}`,
+        `First claim: ${dates.firstClaim}`,
+        `Lock ends: ${dates.lockEnds}`,
+        'Pantheon-funded rewards follow its normal 24-calendar-month stream; the 90-day Looper fee-sharing incentive is separate.',
+        'Reward claims charge 5%. Early exit is handled by Pantheon and normally costs 10% of principal.',
+        'This approval is transaction 1 of 2. Staking requires a separate confirmation.',
+      ].join('\n');
+      if (window.confirm(disclosure) !== true) throw new Error('CRED approval cancelled.');
+      requirePantheonCredContext(context);
+      const prepared = await activeLooperWalletController.prepareCredStakeApproval({ amountBaseUnits });
+      const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
+      requirePantheonCredContext(context);
+      const after = await readCurrentPantheonCredState(context);
+      if (BigInt(after.allowanceBaseUnits) !== BigInt(amountBaseUnits)) throw new Error('Exact CRED allowance was not confirmed.');
+      setPantheonCredState({ ...after, status: 'approved', amountBaseUnits }, walletState);
+    } catch (error) {
+      try { requirePantheonCredContext(context); } catch { return; }
+      setPantheonCredState(
+        { status: 'error', error: getSafeConsoleError(error, { phase: 'wallet' }) },
+        activeLooperWalletController.getSnapshot(),
+      );
+    }
+  }
+
+  async function stakePantheonCred(event) {
+    event?.preventDefault?.();
+    const data = createFormData(event?.currentTarget);
+    if (data.get('confirmed') !== 'on') return setPantheonCredState({ status: 'error', error: 'Explicit stake confirmation is required.' });
+    const context = createPantheonCredContext();
+    try {
+      const amountBaseUnits = String(data.get('amount_base_units') ?? '');
+      if (!/^[1-9]\d*$/.test(amountBaseUnits)) throw new Error('Approved CRED amount is invalid.');
+      await loadPantheonCredRegistry();
+      requirePantheonCredContext(context);
+      const before = await readCurrentPantheonCredState(context);
+      if (!before.poolActive || BigInt(before.allowanceBaseUnits) !== BigInt(amountBaseUnits)
+        || BigInt(before.credBalanceBaseUnits) < BigInt(amountBaseUnits)
+        || BigInt(before.gasPayerNativeWei) <= 0n) {
+        throw new Error('Pantheon stake conditions changed. Check staking again.');
+      }
+      if (window.confirm(`Stake exactly ${amountBaseUnits} raw CRED units from this Looper wallet for 6 calendar months?`) !== true) {
+        throw new Error('CRED stake cancelled.');
+      }
+      requirePantheonCredContext(context);
+      const prepared = await activeLooperWalletController.prepareCredStake({ amountBaseUnits });
+      const walletState = await activeLooperWalletController.submitPrepared(prepared.id, { confirmed: true });
+      requirePantheonCredContext(context);
+      const after = await readCurrentPantheonCredState(context);
+      if (BigInt(after.stakeAmountBaseUnits) !== BigInt(before.stakeAmountBaseUnits) + BigInt(amountBaseUnits)) {
+        throw new Error('Pantheon stake position could not be attributed exactly.');
+      }
+      setPantheonCredState({
+        ...after,
+        status: 'staked',
+        amountBaseUnits: null,
+        dates: createCredStakeDatesFromMonthIndex(after.stakeMonthIndex),
+      }, walletState);
+    } catch (error) {
+      try { requirePantheonCredContext(context); } catch { return; }
+      setPantheonCredState(
+        { status: 'error', error: getSafeConsoleError(error, { phase: 'wallet' }) },
+        activeLooperWalletController.getSnapshot(),
+      );
+    }
+  }
+
   async function acknowledgeLooperWalletOutcome(event) {
     const kind = String(event?.currentTarget?.dataset?.attemptKind ?? '');
     try {
@@ -2699,7 +2867,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, loadPantheonCred, approvePantheonCred, stakePantheonCred, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start, refreshLooperMarketplace, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
@@ -5313,6 +5481,9 @@ function bindProductHomeEvents(root, handlers, state) {
   root.querySelector('[data-action="refresh-looper-agent-wallet"]')?.addEventListener('click', () => handlers.refreshLooperAgentWallet?.());
   root.querySelector('[data-action="activate-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.activateLooperAgentWallet?.(event));
   root.querySelector('[data-action="send-looper-agent-wallet"]')?.addEventListener('submit', (event) => handlers.sendLooperAgentWallet?.(event));
+  root.querySelector('[data-action="load-pantheon-cred"]')?.addEventListener('click', () => handlers.loadPantheonCred?.());
+  root.querySelector('[data-action="approve-pantheon-cred"]')?.addEventListener('submit', (event) => handlers.approvePantheonCred?.(event));
+  root.querySelector('[data-action="stake-pantheon-cred"]')?.addEventListener('submit', (event) => handlers.stakePantheonCred?.(event));
   root.querySelector('[data-action="set-looper-policy-module"]')?.addEventListener('submit', (event) => handlers.setLooperPolicyModule?.(event));
   root.querySelectorAll('[data-action="acknowledge-looper-wallet-outcome"]').forEach((button) => {
     button.addEventListener('click', (event) => handlers.acknowledgeLooperWalletOutcome?.(event));

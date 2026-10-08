@@ -158,7 +158,7 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
         account: '0x9999999999999999999999999999999999999999',
         legacyAccount: '0x8888888888888888888888888888888888888888',
         nativeWei: '1250000000000000000',
-        tokens: [{ contract: '0x4444444444444444444444444444444444444444', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
+        tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
         policyStatus: 'owner-only',
         policyRecoveryAllowed: true,
@@ -192,6 +192,10 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.equal(advanced.open, false);
   assert.ok(advanced.querySelector('[data-action="set-looper-policy-module"]'));
   assert.equal(panel.querySelector('[data-wallet-action="send"] [data-action="send-looper-agent-wallet"]') !== null, true);
+  const stakeCred = panel.querySelector('[data-wallet-action="stake-cred"]');
+  assert.ok(stakeCred);
+  assert.match(stakeCred.querySelector('summary')?.textContent ?? '', /Stake CRED/i);
+  assert.ok(stakeCred.querySelector('[data-action="load-pantheon-cred"]'));
   assert.equal(panel.querySelectorAll(':scope > .console-looper-wallet-send').length, 0);
   const details = panel.querySelector('details.console-looper-wallet-details');
   assert.ok(details);

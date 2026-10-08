@@ -3,6 +3,7 @@ import { normalizeConsoleCodexState, renderConsoleCodexWorkspace } from './conso
 import { createConsoleAgentGalleryModel } from './console-agent-gallery.js';
 import { safeConsoleAvatarUrl } from './console-owner-profile.js';
 import { createInitialConsoleRestapNetworkState, getConsoleRestapNetworkStatus, renderConsoleRestapNetworkPanel } from './console-restap-network.js';
+import { CRED_ADDRESS, PANTHEON_STAKING_VAULT } from './looper-cred-pantheon.js';
 
 const CONSOLE_SAFETY_NOTE = 'Review-only operator surface. Your agent can brief and propose, but every action still waits for you.';
 const DEFAULT_CONSOLE_MISSION = 'Watch this agent, keep memory in Sibyl, and brief me before any proposal or outside action.';
@@ -789,6 +790,7 @@ function normalizeLooperAgentWallet(wallet, tokenId) {
       : 'unknown',
     nativeWei: String(wallet.nativeWei ?? '0'),
     tokens: Array.isArray(wallet.tokens) ? wallet.tokens : [],
+    pantheonCred: normalizePantheonCredState(wallet.pantheonCred),
     refreshedAt: wallet.refreshedAt ? String(wallet.refreshedAt) : null,
     activation: rpcFailed ? idleAttempt : (wallet.activation ?? { state: 'idle' }),
     send: rpcFailed ? idleAttempt : (wallet.send ?? { state: 'idle' }),
@@ -868,6 +870,9 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
     })),
   ] : [];
   const canSend = wallet.mode === 'active' && wallet.canTransact;
+  const canStakeCred = canSend && (wallet.tokens ?? []).some(
+    (token) => normalizeWalletAddress(token.contract) === normalizeWalletAddress(CRED_ADDRESS),
+  );
   const canRecoverPolicy = Boolean(wallet.policyRecoveryAllowed);
   const reasonCopy = wallet.reason ? formatWalletReason(wallet.reason) : null;
   const controlState = wallet.mode === 'active' && wallet.canTransact
@@ -919,6 +924,12 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
               <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Confirm this exact transfer</span></label>
               <button type="submit" ${busy ? 'disabled' : ''}>Review transfer</button>
             </form>
+          </div>
+        </details>` : ''}
+        ${canStakeCred ? `<details class="console-looper-wallet-action" data-wallet-action="stake-cred">
+          <summary><span>Stake CRED</span><small>6-month Pantheon lock</small></summary>
+          <div class="console-looper-wallet-action-body">
+            ${renderPantheonCredAction(wallet.pantheonCred)}
           </div>
         </details>` : ''}
         <details class="console-looper-wallet-action" data-wallet-action="receive">
@@ -991,6 +1002,56 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
       ${wallet.error ? `<p class="console-looper-wallet-error" role="alert">${escapeHtml(wallet.error)}</p>` : ''}
     </section>
   `;
+}
+
+function normalizePantheonCredState(value) {
+  const status = ['idle', 'loading', 'inactive', 'ready', 'approved', 'staked', 'error'].includes(value?.status)
+    ? value.status
+    : 'idle';
+  return {
+    status,
+    amountBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.amountBaseUnits ?? '')) ? String(value.amountBaseUnits) : null,
+    allowanceBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.allowanceBaseUnits ?? '')) ? String(value.allowanceBaseUnits) : '0',
+    credBalanceBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.credBalanceBaseUnits ?? '')) ? String(value.credBalanceBaseUnits) : '0',
+    stakeAmountBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.stakeAmountBaseUnits ?? '')) ? String(value.stakeAmountBaseUnits) : '0',
+    poolActive: value?.poolActive === true,
+    dates: value?.dates && ['rewardsStart', 'firstClaim', 'lockEnds'].every((key) => !Number.isNaN(Date.parse(value.dates[key])))
+      ? { rewardsStart: String(value.dates.rewardsStart), firstClaim: String(value.dates.firstClaim), lockEnds: String(value.dates.lockEnds) }
+      : null,
+    error: value?.error ? String(value.error).slice(0, 240) : null,
+  };
+}
+
+function renderPantheonCredAction(state = {}) {
+  if (state.status === 'loading') return '<p>Checking Pantheon registry and Base pool…</p>';
+  if (state.status === 'inactive') {
+    return '<p>CRED staking is not active in Pantheon yet.</p><button type="button" data-action="load-pantheon-cred">Check again</button>';
+  }
+  if (state.status === 'error') {
+    return `<p role="alert">${escapeHtml(state.error ?? 'Pantheon staking status is unavailable.')}</p><button type="button" data-action="load-pantheon-cred">Retry</button>`;
+  }
+  if (state.status === 'ready') {
+    return `<form class="console-looper-wallet-send" data-action="approve-pantheon-cred">
+      <p>Approve an exact amount first. A separate owner confirmation is required before staking.</p>
+      <label><span>Amount</span><input name="amount" inputmode="decimal" autocomplete="off" required placeholder="0.0"></label>
+      <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>I understand the 6-month lock, Pantheon’s monthly reward schedule, 5% claim fee, and 10% early-exit penalty.</span></label>
+      <button type="submit">Approve exact CRED amount</button>
+      <small>Spender: ${escapeHtml(PANTHEON_STAKING_VAULT)}</small>
+    </form>`;
+  }
+  if (state.status === 'approved' && state.amountBaseUnits) {
+    return `<form class="console-looper-wallet-send" data-action="stake-pantheon-cred">
+      <p>Exact approval confirmed. Review and sign the separate Pantheon stake transaction.</p>
+      <input type="hidden" name="amount_base_units" value="${escapeAttribute(state.amountBaseUnits)}">
+      <label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Stake this exact approved amount for 6 months.</span></label>
+      <button type="submit">Stake approved CRED</button>
+    </form>`;
+  }
+  if (state.status === 'staked') {
+    return `<p>Active Pantheon position: <strong>${escapeHtml(formatWalletUnits(state.stakeAmountBaseUnits, 18))} CRED</strong></p>
+      ${state.dates ? `<dl class="console-looper-wallet-truth"><div><dt>Rewards start</dt><dd>${escapeHtml(state.dates.rewardsStart.slice(0, 10))}</dd></div><div><dt>First claim</dt><dd>${escapeHtml(state.dates.firstClaim.slice(0, 10))}</dd></div><div><dt>Lock ends</dt><dd>${escapeHtml(state.dates.lockEnds.slice(0, 10))}</dd></div></dl>` : ''}`;
+  }
+  return '<p>Check the live Pantheon registry and onchain CRED pool before preparing a transaction.</p><button type="button" data-action="load-pantheon-cred">Check staking</button>';
 }
 
 function normalizeWalletAddress(value) {

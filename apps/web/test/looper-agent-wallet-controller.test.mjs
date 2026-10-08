@@ -13,6 +13,7 @@ import {
   createOperationScope,
   deriveLooperAccount,
 } from '../src/looper-agent-wallet.js';
+import { buildCredStakeApprovalTransaction, buildCredStakeTransaction } from '../src/looper-cred-pantheon.js';
 import {
   createLooperAgentWalletController,
   createReadOnlyLooperWalletContext,
@@ -164,6 +165,40 @@ function controllerFixture({
   });
   return { controller, phases, requests, storage };
 }
+
+test('CRED staking uses separate exact approval and stake preparations with explicit confirmations', async () => {
+  const ready = deployedSnapshot({ state: '0' });
+  const approved = deployedSnapshot({ state: '1' });
+  const amount = '125';
+  let f = controllerFixture({
+    snapshots: [ready, ready, ready, approved],
+    receipt: async ({ transaction }) => ({
+      status: 'success', transaction,
+      logs: [{ eventName: 'StateUpdated', address: ready.account, state: '1' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const approval = await f.controller.prepareCredStakeApproval({ amountBaseUnits: amount });
+  assert.deepEqual(approval.transaction, buildCredStakeApprovalTransaction({ owner: OWNER, account: ready.account, amountBaseUnits: amount }));
+  await assert.rejects(f.controller.submitPrepared(approval.id, { confirmed: false }), /confirmation/i);
+  const approvalResult = await f.controller.submitPrepared(approval.id, { confirmed: true });
+  assert.equal(approvalResult.send.state, 'confirmed_attributed');
+
+  const staked = deployedSnapshot({ state: '2' });
+  f = controllerFixture({
+    snapshots: [approved, approved, approved, staked],
+    receipt: async ({ transaction }) => ({
+      status: 'success', transaction,
+      logs: [{ eventName: 'StateUpdated', address: approved.account, state: '2' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const stake = await f.controller.prepareCredStake({ amountBaseUnits: amount });
+  assert.deepEqual(stake.transaction, buildCredStakeTransaction({ owner: OWNER, account: approved.account, amountBaseUnits: amount }));
+  await assert.rejects(f.controller.submitPrepared(stake.id, { confirmed: false }), /confirmation/i);
+  const stakeResult = await f.controller.submitPrepared(stake.id, { confirmed: true });
+  assert.equal(stakeResult.send.state, 'confirmed_attributed');
+});
 
 test('activation switches a connected mobile wallet to Base before submission', async () => {
   const active = deployedSnapshot();

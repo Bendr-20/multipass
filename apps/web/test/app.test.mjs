@@ -2618,6 +2618,116 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
 });
 
+test('dedicated Console checks Pantheon then requires separate approval and stake confirmations', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const account = '0x9999999999999999999999999999999999999999';
+  const amount = '1250000000000000000';
+  const walletState = {
+    mode: 'active', canTransact: true, tokenId: '617', owner, account, legacyAccount: null,
+    nativeWei: '2000000000000000000',
+    tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '5000000000000000000' }],
+    refreshedAt: '2026-10-08T22:57:00.000Z', activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  const calls = [];
+  const looperWalletController = {
+    getSnapshot: () => walletState,
+    async select() { return walletState; },
+    async prepareCredStakeApproval(input) { calls.push(['prepareCredStakeApproval', input]); return { id: 'send:approve' }; },
+    async prepareCredStake(input) { calls.push(['prepareCredStake', input]); return { id: 'send:stake' }; },
+    async submitPrepared(id, options) { calls.push(['submitPrepared', id, options]); return { ...walletState, send: { state: 'confirmed_attributed' } }; },
+  };
+  const reads = [
+    { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: amount, credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: amount, credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '3750000000000000000', gasPayerNativeWei: '900000000000000', poolActive: true, stakeAmountBaseUnits: amount, stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
+  ];
+  const ownedFetch = createConsoleOwnedAgentsFetch({ tokenIds: [617] });
+  const registryUrls = [];
+  const fetchImpl = async (url, init) => String(url).includes('/api/multipass/console/pantheon/cred')
+    ? (registryUrls.push(String(url)), new Response(JSON.stringify({
+      chain: 'base', chain_id: 8453, vault_address: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb', count: 1,
+      tokens: [{ token_address: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', name: 'CRED', decimals: 18, active: true, reward_tokens: [] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    : ownedFetch(url, init);
+  window.confirm = () => true;
+  await createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner, label: '0x27E3...91Ea' } }),
+    looperWalletController,
+    pantheonCredReader: async () => reads.shift(),
+    fetchImpl,
+  }).start();
+  await flushAsyncEvents(20);
+  openConsoleWallet(root);
+
+  root.querySelector('[data-action="load-pantheon-cred"]').click();
+  await flushAsyncEvents(20);
+  assert.equal(registryUrls[0], '/multipass-api/api/multipass/console/pantheon/cred');
+  const approve = root.querySelector('[data-action="approve-pantheon-cred"]');
+  assert.ok(approve);
+  approve.querySelector('[name="amount"]').value = '1.25';
+  approve.querySelector('[name="confirmed"]').checked = true;
+  approve.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[0], ['prepareCredStakeApproval', { amountBaseUnits: amount }]);
+  assert.deepEqual(calls[1], ['submitPrepared', 'send:approve', { confirmed: true }]);
+
+  const stake = root.querySelector('[data-action="stake-pantheon-cred"]');
+  assert.ok(stake);
+  stake.querySelector('[name="confirmed"]').checked = true;
+  stake.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[2], ['prepareCredStake', { amountBaseUnits: amount }]);
+  assert.deepEqual(calls[3], ['submitPrepared', 'send:stake', { confirmed: true }]);
+  assert.match(root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '', /Active Pantheon position/i);
+});
+
+test('Console discards stale Pantheon checks after selecting another Looper', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const makeWallet = (tokenId) => ({
+    mode: 'active', canTransact: true, tokenId: String(tokenId), owner,
+    account: tokenId === 617 ? '0x9999999999999999999999999999999999999999' : '0x8888888888888888888888888888888888888888',
+    nativeWei: '1', tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '1' }],
+    activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  });
+  let walletState = makeWallet(617);
+  const looperWalletController = {
+    getSnapshot: () => walletState,
+    async select({ tokenId }) { walletState = makeWallet(Number(tokenId)); return walletState; },
+  };
+  let resolveRead;
+  const pendingRead = new Promise((resolve) => { resolveRead = resolve; });
+  const ownedFetch = createConsoleOwnedAgentsFetch({ tokenIds: [617, 812] });
+  const fetchImpl = async (url, init) => String(url).includes('/api/multipass/console/pantheon/cred')
+    ? new Response(JSON.stringify({
+      chain: 'base', chain_id: 8453, vault_address: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb', count: 1,
+      tokens: [{ token_address: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', name: 'CRED', decimals: 18, active: true, reward_tokens: [] }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+    : ownedFetch(url, init);
+  await createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner } }),
+    looperWalletController, pantheonCredReader: async () => pendingRead, fetchImpl,
+  }).start();
+  await flushAsyncEvents(20);
+  openConsoleWallet(root);
+  root.querySelector('[data-action="load-pantheon-cred"]').click();
+  await flushAsyncEvents();
+  const selector = root.querySelector('[data-action="select-console-agent"]');
+  selector.value = '812';
+  selector.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await flushAsyncEvents(20);
+  resolveRead({ account: '0x9999999999999999999999999999999999999999', allowanceBaseUnits: '0', credBalanceBaseUnits: '1', gasPayerNativeWei: '1', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '0' });
+  await flushAsyncEvents(20);
+  assert.equal(root.querySelector('[data-action="select-console-agent"]')?.value, '812');
+  assert.match(root.querySelector('.console-identity-card')?.textContent ?? '', /Looper #812/i);
+  assert.equal(root.querySelector('[data-action="approve-pantheon-cred"]'), null);
+});
+
 test('dedicated Console reconciles successful smart-wallet activation in place after wrapped receipt mismatch', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
