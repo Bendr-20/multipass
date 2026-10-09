@@ -242,6 +242,22 @@ test('accepts zero candidates and up to four unique known bounded skill referenc
   assertRecursivelyFrozen(result);
 });
 
+test('accepts the enabled CRED staking skill as guidance without creating a transfer candidate', () => {
+  const result = decode({
+    schema_version: '0.1.0',
+    assistant_text: 'Open the guarded Stake CRED flow for owner review.',
+    skill_refs: ['cred-pantheon-staking'],
+    transfer_candidates: [],
+  });
+
+  assert.deepEqual(result, {
+    text: 'Open the guarded Stake CRED flow for owner review.',
+    skillRefs: ['cred-pantheon-staking'],
+    transferCandidates: [],
+  });
+  assertRecursivelyFrozen(result);
+});
+
 test('decode fails closed through display projection and returns no refs or candidates', () => {
   const ordinary = decodeConsoleLlmEnvelope('  ordinary assistant prose  ', { catalog });
   assert.equal(ordinary.text, 'ordinary assistant prose');

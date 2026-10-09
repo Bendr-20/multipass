@@ -72,6 +72,24 @@ const CODEX_DESCRIPTOR = {
   ],
 };
 
+const CRED_STAKING_DESCRIPTOR = {
+  id: 'cred-pantheon-staking',
+  name: 'CRED Pantheon Staking',
+  summary: 'Explains and guides owner-reviewed CRED staking for activated Looper accounts through the guarded Multipass Console flow.',
+  capabilities: ['cred_staking_guidance', 'owner_reviewed_stake_flow'],
+  enabledCapabilities: [],
+  execution: 'human_review',
+  credentialAccess: false,
+  constraints: [
+    'Base 8453 only; CRED 0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3; vault 0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb.',
+    'Approval and stake are separate exact transactions confirmed by the owner.',
+    'The owner Base Account signs and pays gas; CRED moves from the selected Looper account.',
+    'Never transfer CRED directly to Pantheon or approve an unlimited amount.',
+    'The Looper may explain and guide the Console flow; it never signs, submits, claims, exits, or stakes autonomously.',
+    'Disclose the six-month lock, monthly reward timing, 5% claim fee, and normal 10% early-exit cost.',
+  ],
+};
+
 function canonicalize(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -112,22 +130,23 @@ function visit(value, callback, path = []) {
   }
 }
 
-test('returns exact frozen Bankr, Helixa, and Codex descriptors with a canonical catalog version', () => {
+test('returns exact frozen Bankr, Helixa, Codex, and CRED staking descriptors with a canonical catalog version', () => {
   const catalog = getConsoleSkillCatalog();
 
   assert.deepEqual(Object.keys(catalog).sort(), ['skills', 'version']);
-  assert.equal(catalog.skills.length, 3);
+  assert.equal(catalog.skills.length, 4);
   for (const descriptor of catalog.skills) {
     assert.deepEqual(Object.keys(descriptor).sort(), EXPECTED_DESCRIPTOR_KEYS);
   }
-  assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR]);
+  assert.deepEqual(catalog.skills, [BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR, CRED_STAKING_DESCRIPTOR]);
   assert.deepEqual(catalog.skills[0].enabledCapabilities, []);
   assert.deepEqual(catalog.skills[1].enabledCapabilities, []);
   assert.deepEqual(catalog.skills[2].enabledCapabilities, []);
+  assert.deepEqual(catalog.skills[3].enabledCapabilities, []);
   assert.ok(catalog.skills.every((skill) => skill.credentialAccess === false));
   assert.ok(catalog.skills.every((skill) => skill.execution === 'human_review'));
   assert.match(catalog.version, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR]));
+  assert.equal(catalog.version, expectedVersion([BANKR_DESCRIPTOR, HELIXA_DESCRIPTOR, CODEX_DESCRIPTOR, CRED_STAKING_DESCRIPTOR]));
   assertRecursivelyFrozen(catalog);
   assertPlainJson(catalog);
 });
@@ -151,6 +170,10 @@ test('projects market, verified-owner account, proposal, and Helixa capabilities
   assert.deepEqual(
     getConsoleSkillCatalog({ helixaReadEnabled: true }).skills[1].enabledCapabilities,
     ['agent_profile_read'],
+  );
+  assert.deepEqual(
+    getConsoleSkillCatalog({ proposalEnabled: true }).skills[3].enabledCapabilities,
+    ['explain_cred_staking', 'guide_owner_reviewed_stake'],
   );
 });
 

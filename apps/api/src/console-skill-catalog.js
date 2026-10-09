@@ -73,6 +73,23 @@ const SERVER_SKILL_DESCRIPTORS = [
       'Unrecognized or ambiguous language never executes a Codex operation.',
     ],
   },
+  {
+    id: 'cred-pantheon-staking',
+    name: 'CRED Pantheon Staking',
+    summary: 'Explains and guides owner-reviewed CRED staking for activated Looper accounts through the guarded Multipass Console flow.',
+    capabilities: ['cred_staking_guidance', 'owner_reviewed_stake_flow'],
+    enabledCapabilities: [],
+    execution: 'human_review',
+    credentialAccess: false,
+    constraints: [
+      'Base 8453 only; CRED 0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3; vault 0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb.',
+      'Approval and stake are separate exact transactions confirmed by the owner.',
+      'The owner Base Account signs and pays gas; CRED moves from the selected Looper account.',
+      'Never transfer CRED directly to Pantheon or approve an unlimited amount.',
+      'The Looper may explain and guide the Console flow; it never signs, submits, claims, exits, or stakes autonomously.',
+      'Disclose the six-month lock, monthly reward timing, 5% claim fee, and normal 10% early-exit cost.',
+    ],
+  },
 ];
 
 for (const descriptor of SERVER_SKILL_DESCRIPTORS) assertDescriptor(descriptor);
@@ -91,6 +108,9 @@ export function getConsoleSkillCatalog(options = {}) {
   ];
   skills[1].enabledCapabilities = gates.helixaReadEnabled ? ['agent_profile_read'] : [];
   skills[2].enabledCapabilities = gates.codexReadEnabled ? ['read_verified_looper_codex'] : [];
+  skills[3].enabledCapabilities = gates.proposalEnabled
+    ? ['explain_cred_staking', 'guide_owner_reviewed_stake']
+    : [];
   for (const descriptor of skills) assertDescriptor(descriptor);
   const frozenSkills = deepFreezeJson(skills);
   const catalog = deepFreezeJson({
