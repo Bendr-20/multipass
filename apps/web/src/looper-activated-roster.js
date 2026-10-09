@@ -1,3 +1,5 @@
+import { readBoundedResponseBody } from './bounded-response-body.js';
+
 // Frozen from commit 500654a recipient reconciliation. Do not edit by hand.
 export const ACTIVATED_LOOPER_ROSTER_SOURCE = Object.freeze({
   commit: '500654a',
@@ -32,4 +34,61 @@ export const ACTIVATED_LOOPER_TOKEN_IDS = Object.freeze([
 
 export function loadPinnedActivatedLooperTokenIds() {
   return { status: 'available', source: 'pinned-verified-snapshot', observedBlock: ACTIVATED_LOOPER_ROSTER_SOURCE.observedBlock, tokenIds: new Set(ACTIVATED_LOOPER_TOKEN_IDS) };
+}
+
+const DAILY_ROSTER_PATH = '/multipass/data/looper-activated-roster.json';
+const DAILY_ROSTER_MAX_BYTES = 128_000;
+const LOOPERS_CONTRACT = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
+const RELEASED_IMPLEMENTATION = '0xf192f350427c8F58bC28e78b1e6Af164279F486e';
+
+export async function loadDailyActivatedLooperTokenIds({ fetchImpl = globalThis.fetch, signal } = {}) {
+  const unavailable = () => ({ status: 'unavailable', tokenIds: new Set() });
+  if (typeof fetchImpl !== 'function' || signal?.aborted) return unavailable();
+  try {
+    const response = await fetchImpl(DAILY_ROSTER_PATH, {
+      method: 'GET', credentials: 'omit', cache: 'no-store', headers: { accept: 'application/json' }, signal,
+    });
+    if (!response?.ok) return unavailable();
+    const text = await readBoundedResponseBody(response, { maxBytes: DAILY_ROSTER_MAX_BYTES, signal });
+    const value = JSON.parse(text);
+    if (!isExactDailyRoster(value)) return unavailable();
+    return {
+      status: 'available',
+      source: 'daily-onchain-snapshot',
+      observedBlock: value.observed_block,
+      observedAt: value.observed_at,
+      tokenIds: new Set(value.token_ids),
+    };
+  } catch {
+    return unavailable();
+  }
+}
+
+export async function loadVerifiedActivatedLooperFallback(options = {}) {
+  const daily = await loadDailyActivatedLooperTokenIds(options);
+  return daily.status === 'available' ? daily : loadPinnedActivatedLooperTokenIds();
+}
+
+function isExactDailyRoster(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const expectedKeys = ['chain_id', 'contract', 'count', 'implementation', 'observed_at', 'observed_block', 'schema_version', 'token_ids'];
+  if (Object.keys(value).sort().join('\0') !== expectedKeys.join('\0')
+    || value.schema_version !== '1.0.0'
+    || value.chain_id !== 8453
+    || value.contract !== LOOPERS_CONTRACT
+    || value.implementation !== RELEASED_IMPLEMENTATION
+    || !Number.isSafeInteger(value.observed_block) || value.observed_block < ACTIVATED_LOOPER_ROSTER_SOURCE.observedBlock
+    || typeof value.observed_at !== 'string' || Number.isNaN(Date.parse(value.observed_at)) || new Date(value.observed_at).toISOString() !== value.observed_at
+    || !Number.isSafeInteger(value.count) || value.count < ACTIVATED_LOOPER_ROSTER_SOURCE.count || value.count > 7_777
+    || !Array.isArray(value.token_ids) || value.token_ids.length !== value.count) return false;
+  let prior = 0n;
+  const tokenIds = new Set();
+  for (const tokenId of value.token_ids) {
+    if (typeof tokenId !== 'string' || !/^[1-9][0-9]*$/u.test(tokenId)) return false;
+    const parsed = BigInt(tokenId);
+    if (parsed <= prior || parsed > 7_777n) return false;
+    prior = parsed;
+    tokenIds.add(tokenId);
+  }
+  return ACTIVATED_LOOPER_TOKEN_IDS.every((tokenId) => tokenIds.has(tokenId));
 }

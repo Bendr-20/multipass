@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { getApiBaseFromLocation } from '../src/api.js';
+import { ACTIVATED_LOOPER_TOKEN_IDS, loadDailyActivatedLooperTokenIds, loadVerifiedActivatedLooperFallback } from '../src/looper-activated-roster.js';
 import { LOOPERS_MARKETPLACE_PATH, bindLooperMarketplace, createInitialLooperMarketplaceState, getLooperMarketplaceMetrics, getLooperMarketplaceRoute, joinLooperMarketplaceSnapshot, loadLooperMarketplaceListings, loadLooperMarketplaceSnapshot, renderLooperMarketplace, selectLooperMarketplaceItems } from '../src/looper-marketplace.js';
 
 const CONTRACT = '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a';
@@ -165,6 +166,74 @@ test('join trusts activation IDs, ignores unsafe listings, and pins URLs', () =>
   assert.equal(snapshot.items[1].imageUrl, 'https://helixa.xyz/loopers/images/617.png');
   assert.equal(snapshot.items[1].detailHref, '/multipass/the-loop/617');
   assert.equal(snapshot.items[1].listing.itemUrl, OPENSEA_ROOT + '/617');
+});
+
+test('daily activation roster loader accepts only an exact monotonic snapshot document', async () => {
+  const calls = [];
+  const result = await loadDailyActivatedLooperTokenIds({
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
+    fetchImpl: async (url, init) => {
+      calls.push([String(url), init]);
+      return streamedJsonResponse({
+        schema_version: '1.0.0',
+        chain_id: 8453,
+        contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+        implementation: '0xf192f350427c8F58bC28e78b1e6Af164279F486e',
+        observed_block: 52_357_062,
+        observed_at: '2026-10-08T23:49:01.000Z',
+        count: ACTIVATED_LOOPER_TOKEN_IDS.length,
+        token_ids: [...ACTIVATED_LOOPER_TOKEN_IDS],
+      });
+    },
+  });
+  assert.equal(calls[0][0], '/multipass/data/looper-activated-roster.json');
+  assert.equal(calls[0][1].cache, 'no-store');
+  assert.equal(result.status, 'available');
+  assert.equal(result.source, 'daily-onchain-snapshot');
+  assert.equal(result.observedBlock, 52_357_062);
+  assert.equal(result.observedAt, '2026-10-08T23:49:01.000Z');
+  assert.deepEqual([...result.tokenIds], [...ACTIVATED_LOOPER_TOKEN_IDS]);
+
+  const snapshot = joinLooperMarketplaceSnapshot({ activation: result, listings: feed([]) });
+  const root = domRoot();
+  root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot, view: 'all' });
+  assert.match(root.textContent, /Activated daily328/u);
+  assert.match(root.textContent, /Daily activation refresh/u);
+  assert.match(root.textContent, /Updated 2026-10-08T23:49:01.000Z at Base block 52,357,062/u);
+  assert.deepEqual([...root.querySelectorAll('[data-marketplace-view]')].map((button) => button.textContent), ['Listed activated', 'All activated']);
+});
+
+test('daily roster rejects malformed data and verified fallback uses the pinned cohort', async () => {
+  const invalid = await loadDailyActivatedLooperTokenIds({
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
+    fetchImpl: async () => streamedJsonResponse({
+      schema_version: '1.0.0', chain_id: 8453,
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      implementation: '0xf192f350427c8F58bC28e78b1e6Af164279F486e',
+      observed_block: 52_357_062, observed_at: '2026-10-08T23:49:01.000Z',
+      count: 2, token_ids: ['143', '1'],
+    }),
+  });
+  assert.equal(invalid.status, 'unavailable');
+
+  const missingPinned = await loadDailyActivatedLooperTokenIds({
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
+    fetchImpl: async () => streamedJsonResponse({
+      schema_version: '1.0.0', chain_id: 8453,
+      contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a',
+      implementation: '0xf192f350427c8F58bC28e78b1e6Af164279F486e',
+      observed_block: 52_357_062, observed_at: '2026-10-08T23:49:01.000Z',
+      count: 328, token_ids: Array.from({ length: 328 }, (_, index) => String(index + 1)),
+    }),
+  });
+  assert.equal(missingPinned.status, 'unavailable');
+
+  const fallback = await loadVerifiedActivatedLooperFallback({
+    locationUrl: new URL('https://helixa.xyz/multipass/the-loop'),
+    fetchImpl: async () => { throw new Error('offline'); },
+  });
+  assert.equal(fallback.source, 'pinned-verified-snapshot');
+  assert.equal(fallback.tokenIds.size, 328);
 });
 
 test('snapshot fallback is visibly labeled with its frozen block instead of presented as live', async () => {
