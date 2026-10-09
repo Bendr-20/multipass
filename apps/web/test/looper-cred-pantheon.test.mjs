@@ -42,15 +42,31 @@ test('validates one exact active CRED entry against pinned Base addresses', () =
     chainId: 8453,
     credAddress: CRED_ADDRESS,
     decimals: 18,
+    registryPublished: true,
     rewardTokens: [{ address: CRED_ADDRESS, symbol: 'CRED', decimals: 18 }],
     vaultAddress: PANTHEON_STAKING_VAULT,
   });
 });
 
-test('fails closed when CRED is absent inactive duplicated or the vault drifts', () => {
-  assert.throws(() => validatePantheonCredRegistry(registry({ tokens: [] })), /CRED.*not active/i);
-  assert.throws(() => validatePantheonCredRegistry(registry({ tokens: [registry().tokens[0], registry().tokens[0]] })), /exactly one/i);
+test('accepts a pinned Base registry while CRED publication lags the active onchain pool', () => {
+  const result = validatePantheonCredRegistry(registry({ count: 0, tokens: [] }));
+  assert.deepEqual(result, {
+    active: false,
+    chainId: 8453,
+    credAddress: CRED_ADDRESS,
+    decimals: 18,
+    registryPublished: false,
+    rewardTokens: [],
+    vaultAddress: PANTHEON_STAKING_VAULT,
+  });
+});
+
+test('fails closed when CRED is inactive duplicated malformed or the vault drifts', () => {
+  assert.throws(() => validatePantheonCredRegistry(registry({ count: 2, tokens: [registry().tokens[0], registry().tokens[0]] })), /exactly one/i);
   assert.throws(() => validatePantheonCredRegistry(registry({ tokens: [{ ...registry().tokens[0], active: false }] })), /not active/i);
+  assert.throws(() => validatePantheonCredRegistry(registry({ count: 1, tokens: [null] })), /token 0.*malformed/i);
+  assert.throws(() => validatePantheonCredRegistry(registry({ count: 1, tokens: [{ token_address: 'not-an-address' }] })), /token 0.*malformed/i);
+  assert.throws(() => validatePantheonCredRegistry(registry({ count: 1, tokens: [] })), /count/i);
   assert.throws(() => validatePantheonCredRegistry(registry({ vault_address: OWNER })), /vault/i);
   assert.throws(() => validatePantheonCredRegistry(registry({ chain_id: 1 })), /Base/i);
 });

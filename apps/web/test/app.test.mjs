@@ -2618,7 +2618,7 @@ test('dedicated Console binds the selected Looper wallet and requires explicit s
   assert.deepEqual(calls.find(([name]) => name === 'submitPrepared'), ['submitPrepared', 'send:1', { confirmed: true }]);
 });
 
-test('dedicated Console checks Pantheon then requires separate approval and stake confirmations', async () => {
+test('dedicated Console permits an active pinned pool while registry publication lags', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
   const account = '0x9999999999999999999999999999999999999999';
@@ -2648,8 +2648,8 @@ test('dedicated Console checks Pantheon then requires separate approval and stak
   const registryUrls = [];
   const fetchImpl = async (url, init) => String(url).includes('/api/multipass/console/pantheon/cred')
     ? (registryUrls.push(String(url)), new Response(JSON.stringify({
-      chain: 'base', chain_id: 8453, vault_address: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb', count: 1,
-      tokens: [{ token_address: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', name: 'CRED', decimals: 18, active: true, reward_tokens: [] }],
+      chain: 'base', chain_id: 8453, vault_address: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb', count: 0,
+      tokens: [],
     }), { status: 200, headers: { 'content-type': 'application/json' } }))
     : ownedFetch(url, init);
   window.confirm = () => true;
@@ -2683,6 +2683,46 @@ test('dedicated Console checks Pantheon then requires separate approval and stak
   assert.deepEqual(calls[2], ['prepareCredStake', { amountBaseUnits: amount }]);
   assert.deepEqual(calls[3], ['submitPrepared', 'send:stake', { confirmed: true }]);
   assert.match(root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '', /Active Pantheon position/i);
+});
+
+test('dedicated Console blocks unpublished CRED when the pinned onchain pool is inactive', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const account = '0x9999999999999999999999999999999999999999';
+  const walletState = {
+    mode: 'active', canTransact: true, tokenId: '617', owner, account, legacyAccount: null,
+    nativeWei: '2000000000000000000',
+    tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '5000000000000000000' }],
+    activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+  };
+  const transactionCalls = [];
+  const looperWalletController = {
+    getSnapshot: () => walletState,
+    async select() { return walletState; },
+    async prepareCredStakeApproval(input) { transactionCalls.push(['approve', input]); throw new Error('must not prepare'); },
+    async prepareCredStake(input) { transactionCalls.push(['stake', input]); throw new Error('must not prepare'); },
+  };
+  const ownedFetch = createConsoleOwnedAgentsFetch({ tokenIds: [617] });
+  const fetchImpl = async (url, init) => String(url).includes('/api/multipass/console/pantheon/cred')
+    ? new Response(JSON.stringify({
+      chain: 'base', chain_id: 8453, vault_address: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb', count: 0, tokens: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+    : ownedFetch(url, init);
+  await createApp({
+    root, loadDemo: async () => sampleData(),
+    walletClient: createWalletClientFixture({ snapshot: { connected: true, address: owner } }),
+    looperWalletController,
+    pantheonCredReader: async () => ({ account, allowanceBaseUnits: '0', credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1', poolActive: false, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '0' }),
+    fetchImpl,
+  }).start();
+  await flushAsyncEvents(20);
+  openConsoleWallet(root);
+  root.querySelector('[data-action="load-pantheon-cred"]').click();
+  await flushAsyncEvents(20);
+  assert.equal(root.querySelector('[data-action="approve-pantheon-cred"]'), null);
+  assert.equal(root.querySelector('[data-action="stake-pantheon-cred"]'), null);
+  assert.match(root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '', /not active/i);
+  assert.deepEqual(transactionCalls, []);
 });
 
 test('Console discards stale Pantheon checks after selecting another Looper', async () => {

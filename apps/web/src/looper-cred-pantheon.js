@@ -67,9 +67,27 @@ export function validatePantheonCredRegistry(candidate) {
   if (!Array.isArray(candidate.tokens) || candidate.tokens.length > 256) {
     throw new Error('Pantheon registry tokens are malformed.');
   }
-  const matches = candidate.tokens.filter((token) => plainObject(token) && sameAddress(token.token_address, CRED_ADDRESS));
-  if (matches.length === 0) throw new Error('CRED staking is not active in the Pantheon registry.');
-  if (matches.length !== 1) throw new Error('Pantheon registry must contain exactly one CRED entry.');
+  if (!Number.isInteger(candidate.count) || candidate.count !== candidate.tokens.length) {
+    throw new Error('Pantheon registry token count is malformed.');
+  }
+  candidate.tokens.forEach((token, index) => {
+    if (!plainObject(token) || !isAddress(token.token_address, { strict: false })) {
+      throw new Error('Pantheon registry token ' + index + ' is malformed.');
+    }
+  });
+  const matches = candidate.tokens.filter((token) => sameAddress(token.token_address, CRED_ADDRESS));
+  if (matches.length > 1) throw new Error('Pantheon registry must contain exactly one CRED entry.');
+  if (matches.length === 0) {
+    return Object.freeze({
+      active: false,
+      chainId: BASE_CHAIN_ID,
+      credAddress: CRED_ADDRESS,
+      decimals: 18,
+      registryPublished: false,
+      rewardTokens: Object.freeze([]),
+      vaultAddress: PANTHEON_STAKING_VAULT,
+    });
+  }
   const token = matches[0];
   if (token.active !== true) throw new Error('CRED staking is not active in the Pantheon registry.');
   if (token.decimals !== 18) throw new Error('Pantheon CRED decimals do not match the pinned token.');
@@ -89,6 +107,7 @@ export function validatePantheonCredRegistry(candidate) {
     chainId: BASE_CHAIN_ID,
     credAddress: CRED_ADDRESS,
     decimals: 18,
+    registryPublished: true,
     rewardTokens: Object.freeze(rewardTokens),
     vaultAddress: PANTHEON_STAKING_VAULT,
   });
