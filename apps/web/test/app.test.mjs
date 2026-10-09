@@ -2633,9 +2633,10 @@ test('dedicated Console permits an active pinned pool while registry publication
   const looperWalletController = {
     getSnapshot: () => walletState,
     async select() { return walletState; },
-    async prepareCredStakeApproval(input) { calls.push(['prepareCredStakeApproval', input]); return { id: 'send:approve' }; },
-    async prepareCredStake(input) { calls.push(['prepareCredStake', input]); return { id: 'send:stake' }; },
-    async submitPrepared(id, options) { calls.push(['submitPrepared', id, options]); return { ...walletState, send: { state: 'confirmed_attributed' } }; },
+    async prepareCredStakeApproval(input) { calls.push(['prepareCredStakeApproval', input]); return { id: 'send:approval1' }; },
+    async prepareCredStake(input) { calls.push(['prepareCredStake', input]); return { id: 'send:staking01' }; },
+    async preflightPrepared(id, options) { calls.push(['preflightPrepared', id, options]); return { id }; },
+    submitPreflighted(id, options) { calls.push(['submitPreflighted', id, options]); return Promise.resolve({ ...walletState, send: { state: 'confirmed_attributed' } }); },
   };
   const reads = [
     { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
@@ -2673,15 +2674,27 @@ test('dedicated Console permits an active pinned pool while registry publication
   approve.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);
   assert.deepEqual(calls[0], ['prepareCredStakeApproval', { amountBaseUnits: amount }]);
-  assert.deepEqual(calls[1], ['submitPrepared', 'send:approve', { confirmed: true }]);
+  assert.deepEqual(calls[1], ['preflightPrepared', 'send:approval1', { confirmed: true }]);
+  const submitApproval = root.querySelector('[data-action="submit-pantheon-approval"]');
+  assert.ok(submitApproval);
+  submitApproval.querySelector('[name="confirmed"]').checked = true;
+  submitApproval.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[2], ['submitPreflighted', 'send:approval1', { confirmed: true }]);
 
   const stake = root.querySelector('[data-action="stake-pantheon-cred"]');
   assert.ok(stake);
   stake.querySelector('[name="confirmed"]').checked = true;
   stake.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);
-  assert.deepEqual(calls[2], ['prepareCredStake', { amountBaseUnits: amount }]);
-  assert.deepEqual(calls[3], ['submitPrepared', 'send:stake', { confirmed: true }]);
+  assert.deepEqual(calls[3], ['prepareCredStake', { amountBaseUnits: amount }]);
+  assert.deepEqual(calls[4], ['preflightPrepared', 'send:staking01', { confirmed: true }]);
+  const submitStake = root.querySelector('[data-action="submit-pantheon-stake"]');
+  assert.ok(submitStake);
+  submitStake.querySelector('[name="confirmed"]').checked = true;
+  submitStake.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[5], ['submitPreflighted', 'send:staking01', { confirmed: true }]);
   assert.match(root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '', /Active Pantheon position/i);
 });
 

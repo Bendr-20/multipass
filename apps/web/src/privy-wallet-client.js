@@ -208,18 +208,24 @@ export function createPrivySignMessageAction({ client } = {}) {
 }
 
 export function createPrivyRequestAction({ client } = {}) {
-  return async function request(payload) {
-    const prepared = await client.waitForPreparedSigningProvider();
-    if (typeof prepared?.provider?.request !== 'function') {
-      throw new Error('Connected wallet cannot submit transactions.');
-    }
-    return prepared.provider.request(payload);
+  return function request(payload) {
+    const prepared = client.getPreparedSigningProvider?.();
+    if (prepared) return prepared.provider.request(payload);
+    return client.waitForPreparedSigningProvider().then((ready) => {
+      if (typeof ready?.provider?.request !== 'function') {
+        throw new Error('Connected wallet cannot submit transactions.');
+      }
+      return ready.provider.request(payload);
+    });
   };
 }
 
 export function createPrivySendTransactionAction({ client } = {}) {
-  return async function sendTransaction(transaction) {
-    const prepared = await client.waitForPreparedSigningProvider();
+  return function sendTransaction(transaction) {
+    const prepared = client.getPreparedSigningProvider?.();
+    if (!prepared) {
+      throw new Error('Wallet signing provider is not ready. Prepare the transaction again.');
+    }
     return submitPrivyLooperTransaction(prepared.wallet, transaction, { provider: prepared.provider });
   };
 }

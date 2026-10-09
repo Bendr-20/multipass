@@ -129,12 +129,25 @@ test('prepared Base Account provider handles Looper transaction and chain reques
     chainId: '0x2105', from: address, to: '0x9999999999999999999999999999999999999999', value: '0x0', data: '0x1234',
   };
 
-  assert.equal(await createPrivyRequestAction({ client })({ method: 'eth_chainId' }), '0x2105');
-  assert.equal(await createPrivySendTransactionAction({ client })(transaction), hash);
+  const chainRequest = createPrivyRequestAction({ client })({ method: 'eth_chainId' });
+  assert.equal(calls.length, 1);
+  assert.equal(await chainRequest, '0x2105');
+  const transactionRequest = createPrivySendTransactionAction({ client })(transaction);
+  assert.equal(calls.length, 2);
+  assert.equal(await transactionRequest, hash);
   assert.deepEqual(calls, [
     { method: 'eth_chainId' },
     { method: 'eth_sendTransaction', params: [transaction] },
   ]);
+});
+test('final transaction tap rejects synchronously when no prepared provider exists', () => {
+  let waited = false;
+  const client = {
+    getPreparedSigningProvider: () => null,
+    waitForPreparedSigningProvider: () => { waited = true; return Promise.resolve(null); },
+  };
+  assert.throws(() => createPrivySendTransactionAction({ client })({}), /provider is not ready/i);
+  assert.equal(waited, false);
 });
 test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
   assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {

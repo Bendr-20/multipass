@@ -131,6 +131,7 @@ function controllerFixture({
   getWalletChainId = async () => '0x2105',
   switchWalletChain,
   generateAttemptId,
+  now,
 } = {}) {
   const phases = [];
   const requests = [];
@@ -148,6 +149,7 @@ function controllerFixture({
     getWalletChainId,
     switchWalletChain,
     generateAttemptId,
+    now,
     async readSnapshot(request) {
       phases.push(request.phase);
       requests.push(structuredClone(request));
@@ -200,6 +202,103 @@ test('CRED staking uses separate exact approval and stake preparations with expl
   assert.equal(stakeResult.send.state, 'confirmed_attributed');
 });
 
+test('preflighted CRED submission invokes the wallet synchronously from the final user gesture', async () => {
+  const ready = deployedSnapshot({ state: '0' });
+  const approved = deployedSnapshot({ state: '1' });
+  const calls = [];
+  let resolveWallet;
+  const walletResult = new Promise((resolve) => { resolveWallet = resolve; });
+  const f = controllerFixture({
+    snapshots: [ready, ready, ready, approved],
+    submit: (transaction) => { calls.push(transaction); return walletResult; },
+    receipt: async ({ transaction }) => ({
+      status: 'success', transaction, logs: [{ eventName: 'StateUpdated', address: ready.account, state: '1' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareCredStakeApproval({ amountBaseUnits: '125' });
+  await f.controller.preflightPrepared(prepared.id, { confirmed: true });
+
+  const submitted = f.controller.submitPreflighted(prepared.id, { confirmed: true });
+  assert.equal(calls.length, 1);
+  resolveWallet('0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
+  assert.equal((await submitted).send.state, 'confirmed_attributed');
+  await assert.rejects(f.controller.submitPreflighted(prepared.id, { confirmed: true }), /matching prepared/i);
+});
+test('preflighted wallet transport failure remains a valid acknowledgeable unknown state', async () => {
+  const ready = deployedSnapshot({ state: '0' });
+  let invoked = false;
+  const f = controllerFixture({
+    snapshots: [ready, ready, ready],
+    submit: () => { invoked = true; return Promise.reject(new Error('wallet transport failed')); },
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareCredStakeApproval({ amountBaseUnits: '125' });
+  await f.controller.preflightPrepared(prepared.id, { confirmed: true });
+  const submitted = f.controller.submitPreflighted(prepared.id, { confirmed: true });
+  assert.equal(invoked, true);
+  await assert.rejects(submitted, /transport failed/i);
+  assert.equal(f.controller.getSnapshot().send.state, 'uncertain_hashless');
+});
+test('preflight retains the exclusive operation lock through final receipt settlement', async () => {
+  const ready = deployedSnapshot({ state: '0' });
+  const approved = deployedSnapshot({ state: '1' });
+  const locks = immediateLocks();
+  const f = controllerFixture({
+    snapshots: [ready, ready, ready, approved],
+    locks,
+    receipt: async ({ transaction }) => ({
+      status: 'success', transaction, logs: [{ eventName: 'StateUpdated', address: ready.account, state: '1' }],
+    }),
+  });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareCredStakeApproval({ amountBaseUnits: '125' });
+  await f.controller.preflightPrepared(prepared.id, { confirmed: true });
+  const scope = createOperationScope({ tokenId: TOKEN_ID, account: ready.account, owner: OWNER, kind: 'send' });
+  let competingLock = 'unset';
+  await locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => { competingLock = lock; });
+  assert.equal(competingLock, null);
+  await f.controller.submitPreflighted(prepared.id, { confirmed: true });
+  await locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => { competingLock = lock; });
+  assert.ok(competingLock);
+});
+
+test('exclusive preflight and in-flight claims block newer cross-tab preparations', async () => {
+  const storage = memoryStorage();
+  const locks = immediateLocks();
+  const ready = deployedSnapshot({ state: '0' });
+  const approved = deployedSnapshot({ state: '1' });
+  let resolveWallet;
+  const walletResult = new Promise((resolve) => { resolveWallet = resolve; });
+  const first = controllerFixture({
+    snapshots: [ready, ready, ready, approved], storage, locks, generateAttemptId: () => 'attempt-first',
+    submit: () => walletResult,
+    receipt: async ({ transaction }) => ({
+      status: 'success', transaction, logs: [{ eventName: 'StateUpdated', address: ready.account, state: '1' }],
+    }),
+  });
+  const second = controllerFixture({ snapshots: [ready, ready, ready], storage, locks, generateAttemptId: () => 'attempt-second' });
+  await first.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  await second.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await first.controller.prepareCredStakeApproval({ amountBaseUnits: '125' });
+  await first.controller.preflightPrepared(prepared.id, { confirmed: true });
+  await assert.rejects(second.controller.prepareCredStakeApproval({ amountBaseUnits: '125' }), /another tab/i);
+  const submitted = first.controller.submitPreflighted(prepared.id, { confirmed: true });
+  await assert.rejects(second.controller.prepareCredStakeApproval({ amountBaseUnits: '125' }), /another tab/i);
+  resolveWallet('0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
+  assert.equal((await submitted).send.state, 'confirmed_attributed');
+});
+test('preflight expires fail-closed at the exact expiration instant', async () => {
+  const ready = deployedSnapshot({ state: '0' });
+  let clock = 1_000;
+  const f = controllerFixture({ snapshots: [ready, ready, ready], now: () => clock });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const prepared = await f.controller.prepareCredStakeApproval({ amountBaseUnits: '125' });
+  const preflight = await f.controller.preflightPrepared(prepared.id, { confirmed: true });
+  clock = preflight.expiresAt;
+  await assert.rejects(f.controller.submitPreflighted(prepared.id, { confirmed: true }), /expired/i);
+  assert.equal(f.controller.getSnapshot().send.state, 'invalidated');
+});
 test('activation switches a connected mobile wallet to Base before submission', async () => {
   const active = deployedSnapshot();
   let chainId = '0x1';

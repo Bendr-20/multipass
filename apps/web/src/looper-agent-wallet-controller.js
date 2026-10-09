@@ -26,12 +26,13 @@ import {
 
 const EMPTY_CODE = '0x';
 const ATTEMPT_STATES = new Set([
-  'prepared', 'submitted', 'confirmed_attributed', 'observed_unattributed', 'reverted', 'invalidated',
+  'prepared', 'preflighted', 'submitted', 'confirmed_attributed', 'observed_unattributed', 'reverted', 'invalidated',
   'acknowledged_unknown', 'uncertain_hashless', 'uncertain_hashed',
 ]);
 const TERMINAL_STATES = new Set([
   'confirmed_attributed', 'observed_unattributed', 'reverted', 'invalidated', 'acknowledged_unknown',
 ]);
+const PREFLIGHT_TTL_MS = 120_000;
 
 export function createLooperAgentWalletController({
   releaseConfig,
@@ -57,6 +58,7 @@ export function createLooperAgentWalletController({
   let selection = null;
   let current = emptySnapshot();
   const attempts = { activation: null, send: null, policy: null };
+  const preflightedAttempts = new Map();
   const acknowledgeReadiness = { activation: null, send: null, policy: null };
   let acknowledgedUnknownSendHistory = [];
 
@@ -193,9 +195,86 @@ export function createLooperAgentWalletController({
   }
 
   async function submitPrepared(preparedId, { confirmed = false } = {}) {
+    const { record, boundSelection, scope } = requirePreparedAttempt(preparedId, confirmed);
+    return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      const expectedTransaction = await validatePreparedAttempt(record, preparedId, boundSelection, scope);
+      return startPreparedSubmission(record, boundSelection, expectedTransaction);
+    });
+  }
+
+  function preflightPrepared(preparedId, { confirmed = false } = {}) {
+    let required;
+    try { required = requirePreparedAttempt(preparedId, confirmed); }
+    catch (error) { return Promise.reject(error); }
+    const { record, boundSelection, scope } = required;
+    let readySettled = false;
+    let resolveReady;
+    let rejectReady;
+    const ready = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    const lockTask = locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      const expectedTransaction = await validatePreparedAttempt(record, preparedId, boundSelection, scope);
+      const claimed = {
+        ...record,
+        state: 'preflighted',
+        history: appendHistory(record, 'preflighted'),
+      };
+      updateAttempt(record.kind, claimed);
+      const expiresAt = now() + PREFLIGHT_TTL_MS;
+      let releaseLock;
+      const holdLock = new Promise((resolve) => { releaseLock = resolve; });
+      const timer = globalThis.setTimeout(() => invalidateAttempt(claimed), PREFLIGHT_TTL_MS);
+      preflightedAttempts.set(preparedId, {
+        expiresAt,
+        fingerprint: stableJson(claimed),
+        transaction: stableJson(expectedTransaction),
+        releaseLock,
+        timer,
+      });
+      readySettled = true;
+      resolveReady(deepFreeze({ id: preparedId, expiresAt }));
+      await holdLock;
+    });
+    lockTask.catch((error) => {
+      if (!readySettled) rejectReady(error);
+    });
+    return ready;
+  }
+
+  function submitPreflighted(preparedId, { confirmed = false } = {}) {
+    let required;
+    try { required = requirePreparedAttempt(preparedId, confirmed, ['preflighted']); }
+    catch (error) { return Promise.reject(error); }
+    const { record, boundSelection, scope } = required;
+    const persisted = loadAttempt(scope, record.kind);
+    const preflight = preflightedAttempts.get(preparedId);
+    if (!persisted || persisted.id !== preparedId || persisted.state !== 'preflighted'
+      || stableJson(persisted) !== stableJson(record)
+      || !preflight || now() >= preflight.expiresAt
+      || preflight.fingerprint !== stableJson(record)
+      || preflight.transaction !== stableJson(record.transaction)) {
+      invalidateAttempt(record);
+      return Promise.reject(new Error('Prepared transaction preflight expired or changed. Prepare it again.'));
+    }
+    preflightedAttempts.delete(preparedId);
+    globalThis.clearTimeout(preflight.timer);
+    try {
+      const submission = startPreparedSubmission(record, boundSelection, record.transaction);
+      return Promise.resolve(submission).finally(preflight.releaseLock);
+    } catch (error) {
+      preflight.releaseLock();
+      return Promise.reject(error);
+    }
+  }
+
+  function requirePreparedAttempt(preparedId, confirmed, allowedStates = ['prepared']) {
     if (!confirmed) throw new Error('Explicit transaction confirmation is required.');
     const record = Object.values(attempts).find((entry) => entry?.id === preparedId);
-    if (!record || record.state !== 'prepared') throw new Error('No matching prepared attempt is available.');
+    if (!record || !allowedStates.includes(record.state)) throw new Error('No matching prepared attempt is available.');
     const boundSelection = { tokenId: record.tokenId, owner: record.owner };
     if (!sameSelection(selection, boundSelection)) {
       invalidateAttempt(record);
@@ -205,104 +284,96 @@ export function createLooperAgentWalletController({
       current = blocked(current, 'locks_unavailable', 'read_only');
       throw new Error('Web Locks are required before a Looper wallet transaction can be signed.');
     }
-    const scope = createOperationScope({
-      tokenId: record.tokenId,
-      account: record.account,
-      owner: record.owner,
-      kind: record.kind,
-    });
-    return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
-      if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
-      const retryableSnapshot = current;
-      let expectedTransaction;
-      try {
-        const persisted = loadAttempt(scope, record.kind);
-        if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared'
-          || stableJson(persisted) !== stableJson(record)) {
-          throw new Error('The persisted prepared attempt is not exact. Preview again.');
-        }
-        let evidence;
-        if (record.kind === 'policy') {
-          evidence = await readSnapshot({
-            selection: { ...boundSelection },
-            expectedAccount: record.account,
-            phase: 'pre_sign',
-            policyModule: record.targetPolicyModule,
-          });
-          const validated = buildSnapshot(evidence, 'pre_sign', boundSelection);
-          if (sameSelection(selection, boundSelection)) current = attachAttempts(validated);
-          requirePolicyRecoveryEvidence(validated, evidence, record.targetPolicyModule);
-          if (stableJson(policyBaseline(evidence)) !== stableJson(record.policyBaseline)) {
-            if (sameSelection(selection, boundSelection)) current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
-            throw new Error('Looper policy evidence drifted after preview. Preview again.');
-          }
-        } else {
-          evidence = await readAndRequireWritable(
-            'pre_sign',
-            record.kind === 'activation' ? 'inactive' : 'active',
-            boundSelection,
-            record.account,
-          );
-        }
-        expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, evidence.account);
-        if (!sameAddress(record.account, evidence.account)
-          || stableJson(record.transaction) !== stableJson(expectedTransaction)
-          || stableJson(persisted.transaction) !== stableJson(expectedTransaction)) {
-          throw new Error('Prepared Looper wallet transaction is not exact. Preview again.');
-        }
-        let walletChainId = await getWalletChainId();
-        if (walletChainId !== '0x2105' && typeof switchWalletChain === 'function') {
-          try {
-            await switchWalletChain('0x2105');
-          } catch (error) {
-            if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
-            throw error;
-          }
-          walletChainId = await getWalletChainId();
-        }
-        if (walletChainId !== '0x2105') {
-          if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
-          throw new Error('Connected wallet changed away from Base before submission.');
-        }
-        const finalPersisted = loadAttempt(scope, record.kind);
-        if (!finalPersisted || finalPersisted.id !== preparedId || finalPersisted.state !== 'prepared'
-          || stableJson(finalPersisted) !== stableJson(record)) {
-          throw new Error('The persisted prepared attempt changed before submission. Preview again.');
-        }
-      } catch (error) {
-        invalidateAttempt(record);
-        if (sameSelection(selection, boundSelection)) {
-          if (error?.transient === true) current = attachAttempts(retryableSnapshot);
-          else forceReadOnly(current.reason ?? 'pre_sign_invalidated');
-        }
-        throw error;
-      }
+    return {
+      record,
+      boundSelection,
+      scope: createOperationScope({ tokenId: record.tokenId, account: record.account, owner: record.owner, kind: record.kind }),
+    };
+  }
 
-      let hash;
-      try {
-        hash = await submitTransaction(expectedTransaction);
-      } catch (error) {
-        const nextState = isExplicitWalletRejection(error) ? 'reverted' : 'uncertain_hashless';
-        updateAttempt(record.kind, { ...record, transaction: expectedTransaction, state: nextState, history: appendHistory(record, nextState) });
-        throw error;
+  async function validatePreparedAttempt(record, preparedId, boundSelection, scope) {
+    const retryableSnapshot = current;
+    try {
+      const persisted = loadAttempt(scope, record.kind);
+      if (!persisted || persisted.id !== preparedId || persisted.state !== 'prepared'
+        || stableJson(persisted) !== stableJson(record)) {
+        throw new Error('The persisted prepared attempt is not exact. Preview again.');
       }
+      let evidence;
+      if (record.kind === 'policy') {
+        evidence = await readSnapshot({
+          selection: { ...boundSelection }, expectedAccount: record.account, phase: 'pre_sign', policyModule: record.targetPolicyModule,
+        });
+        const validated = buildSnapshot(evidence, 'pre_sign', boundSelection);
+        if (sameSelection(selection, boundSelection)) current = attachAttempts(validated);
+        requirePolicyRecoveryEvidence(validated, evidence, record.targetPolicyModule);
+        if (stableJson(policyBaseline(evidence)) !== stableJson(record.policyBaseline)) {
+          if (sameSelection(selection, boundSelection)) current = attachAttempts(blocked(validated, 'policy_drift', 'read_only'));
+          throw new Error('Looper policy evidence drifted after preview. Preview again.');
+        }
+      } else {
+        evidence = await readAndRequireWritable('pre_sign', record.kind === 'activation' ? 'inactive' : 'active', boundSelection, record.account);
+      }
+      const expectedTransaction = reconstructAttemptTransaction(record, releasedImplementation, evidence.account);
+      if (!sameAddress(record.account, evidence.account)
+        || stableJson(record.transaction) !== stableJson(expectedTransaction)
+        || stableJson(persisted.transaction) !== stableJson(expectedTransaction)) {
+        throw new Error('Prepared Looper wallet transaction is not exact. Preview again.');
+      }
+      let walletChainId = await getWalletChainId();
+      if (walletChainId !== '0x2105' && typeof switchWalletChain === 'function') {
+        try { await switchWalletChain('0x2105'); }
+        catch (error) {
+          if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
+          throw error;
+        }
+        walletChainId = await getWalletChainId();
+      }
+      if (walletChainId !== '0x2105') {
+        if (sameSelection(selection, boundSelection)) current = blocked(current, 'wrong_chain', 'read_only');
+        throw new Error('Connected wallet changed away from Base before submission.');
+      }
+      const finalPersisted = loadAttempt(scope, record.kind);
+      if (!finalPersisted || finalPersisted.id !== preparedId || finalPersisted.state !== 'prepared'
+        || stableJson(finalPersisted) !== stableJson(record)) {
+        throw new Error('The persisted prepared attempt changed before submission. Preview again.');
+      }
+      return expectedTransaction;
+    } catch (error) {
+      invalidateAttempt(record);
+      if (sameSelection(selection, boundSelection)) {
+        if (error?.transient === true) current = attachAttempts(retryableSnapshot);
+        else forceReadOnly(current.reason ?? 'pre_sign_invalidated');
+      }
+      throw error;
+    }
+  }
+
+  function startPreparedSubmission(record, boundSelection, expectedTransaction) {
+    const signing = {
+      ...record, transaction: expectedTransaction, state: 'uncertain_hashless', history: appendHistory(record, 'uncertain_hashless'),
+    };
+    updateAttempt(record.kind, signing);
+    let submission;
+    try { submission = submitTransaction(expectedTransaction); }
+    catch (error) {
+      if (isExplicitWalletRejection(error)) {
+        updateAttempt(record.kind, { ...signing, state: 'reverted', history: appendHistory(signing, 'reverted') });
+      } else {
+        updateAttempt(record.kind, signing);
+      }
+      return Promise.reject(error);
+    }
+    return Promise.resolve(submission).then(async (hash) => {
       if (!/^0x[0-9a-f]{64}$/.test(String(hash ?? ''))) {
-        updateAttempt(record.kind, { ...record, transaction: expectedTransaction, state: 'uncertain_hashless', history: appendHistory(record, 'uncertain_hashless') });
+        updateAttempt(record.kind, signing);
         throw new Error('Wallet returned no canonical transaction hash. Outcome is unknown.');
       }
-      const submitted = {
-        ...record,
-        transaction: expectedTransaction,
-        state: 'submitted',
-        txHash: hash,
-        history: appendHistory(record, 'submitted'),
-      };
+      const submitted = { ...signing, state: 'submitted', txHash: hash, history: appendHistory(signing, 'submitted') };
       updateAttempt(record.kind, submitted);
-
       let receipt;
-      try {
-        receipt = await readReceipt({ hash, transaction: expectedTransaction });
-      } catch (error) {
+      try { receipt = await readReceipt({ hash, transaction: expectedTransaction }); }
+      catch (error) {
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
         throw error;
       }
@@ -311,7 +382,7 @@ export function createLooperAgentWalletController({
       if (bindingMismatch) {
         updateAttempt(record.kind, { ...submitted, state: 'uncertain_hashed', history: appendHistory(submitted, 'uncertain_hashed') });
         const prefix = reverted ? 'Reverted receipt' : 'Receipt';
-        throw new Error(`${prefix} transaction binding ${bindingMismatch}. Outcome remains unknown.`);
+        throw new Error(prefix + ' transaction binding ' + bindingMismatch + '. Outcome remains unknown.');
       }
       if (reverted) {
         updateAttempt(record.kind, { ...submitted, state: 'reverted', history: appendHistory(submitted, 'reverted') });
@@ -320,11 +391,7 @@ export function createLooperAgentWalletController({
       let post;
       try {
         const postEvidence = await readSnapshot({
-          selection: { ...boundSelection },
-          expectedAccount: record.account,
-          phase: 'receipt',
-          transaction: expectedTransaction,
-          receipt,
+          selection: { ...boundSelection }, expectedAccount: record.account, phase: 'receipt', transaction: expectedTransaction, receipt,
         });
         post = buildSnapshot(postEvidence, 'receipt', boundSelection);
         attributeReceipt({ record: submitted, receipt, post });
@@ -336,45 +403,56 @@ export function createLooperAgentWalletController({
         }
         throw error;
       }
-
       updateAttempt(record.kind, {
-        ...submitted,
-        state: 'confirmed_attributed',
-        attributable: true,
-        history: appendHistory(submitted, 'confirmed_attributed'),
+        ...submitted, state: 'confirmed_attributed', attributable: true, history: appendHistory(submitted, 'confirmed_attributed'),
       });
       if (sameSelection(selection, boundSelection)) current = attachAttempts(post);
       return getSnapshot();
+    }, (error) => {
+      if (isExplicitWalletRejection(error)) {
+        updateAttempt(record.kind, { ...signing, state: 'reverted', history: appendHistory(signing, 'reverted') });
+      } else {
+        updateAttempt(record.kind, signing);
+      }
+      throw error;
     });
   }
 
-  function savePrepared(kind, transaction, evidence, extra = {}) {
+  async function savePrepared(kind, transaction, evidence, extra = {}) {
     const account = kind === 'activation'
       ? deriveLooperAccount({ implementation: releasedImplementation, tokenId: selection.tokenId })
       : evidence.account;
-    const id = `${kind}:${normalizeAttemptId(generateAttemptId())}`;
-    if (attempts[kind]?.id === id) throw new Error('Looper wallet attempt ID collision.');
-    const record = {
-      version: 2,
-      id,
-      kind,
-      state: 'prepared',
-      tokenId: selection.tokenId,
-      owner: selection.owner,
-      account,
-      preState: String(evidence.state ?? '0'),
-      transaction,
-      attributable: false,
-      history: [{ state: 'prepared', at: now() }],
-      ...extra,
-    };
-    updateAttempt(kind, record);
-    return deepFreeze({
-      id,
-      kind,
-      account,
-      transaction: structuredClone(transaction),
-      requiresExplicitConfirmation: true,
+    const scope = createOperationScope({ tokenId: selection.tokenId, account, owner: selection.owner, kind });
+    return locks.request(scope.lockName, { mode: 'exclusive', ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('Another tab is already handling this Looper wallet operation.');
+      const existing = loadAttempt(scope, kind);
+      if (existing && ['preflighted', 'submitted', 'uncertain_hashless', 'uncertain_hashed'].includes(existing.state)) {
+        throw new Error('Another tab is already handling this Looper wallet operation.');
+      }
+      const id = `${kind}:${normalizeAttemptId(generateAttemptId())}`;
+      if (attempts[kind]?.id === id) throw new Error('Looper wallet attempt ID collision.');
+      const record = {
+        version: 2,
+        id,
+        kind,
+        state: 'prepared',
+        tokenId: selection.tokenId,
+        owner: selection.owner,
+        account,
+        preState: String(evidence.state ?? '0'),
+        transaction,
+        attributable: false,
+        history: [{ state: 'prepared', at: now() }],
+        ...extra,
+      };
+      updateAttempt(kind, record);
+      return deepFreeze({
+        id,
+        kind,
+        account,
+        transaction: structuredClone(transaction),
+        requiresExplicitConfirmation: true,
+      });
     });
   }
 
@@ -647,9 +725,29 @@ export function createLooperAgentWalletController({
     if (selection && sameSelection(selection, validated)) current = attachAttempts(current);
   }
 
+  function releasePreflight(preparedId) {
+    const preflight = preflightedAttempts.get(preparedId);
+    if (!preflight) return;
+    preflightedAttempts.delete(preparedId);
+    globalThis.clearTimeout(preflight.timer);
+    preflight.releaseLock();
+  }
+
   function invalidateAttempt(record) {
+    releasePreflight(record.id);
     const active = attempts[record.kind];
-    if (!active || active.id !== record.id || active.state !== 'prepared') return;
+    if (!active || active.id !== record.id || !['prepared', 'preflighted'].includes(active.state)) return;
+    const scope = createOperationScope({ tokenId: active.tokenId, account: active.account, owner: active.owner, kind: active.kind });
+    const persisted = loadAttempt(scope, active.kind);
+    if (!persisted || stableJson(persisted) !== stableJson(active)) {
+      attempts[active.kind] = validateAttemptRecord({
+        ...active,
+        state: 'invalidated',
+        history: appendHistory(active, 'invalidated'),
+      }, active.kind);
+      if (selection && sameSelection(selection, active)) current = attachAttempts(current);
+      return;
+    }
     updateAttempt(record.kind, {
       ...active,
       state: 'invalidated',
@@ -664,6 +762,7 @@ export function createLooperAgentWalletController({
   }
 
   function clearAttempts() {
+    for (const preparedId of [...preflightedAttempts.keys()]) releasePreflight(preparedId);
     for (const kind of ['activation', 'send', 'policy']) {
       attempts[kind] = null;
       acknowledgeReadiness[kind] = null;
@@ -779,7 +878,7 @@ export function createLooperAgentWalletController({
         && !acknowledgedUnknownSendHistory.some((entry) => entry.id === restored.id)) {
         archiveAcknowledgedUnknownSend(restored);
       }
-      if (restored.state === 'prepared') {
+      if (['prepared', 'preflighted'].includes(restored.state)) {
         attempts[kind] = restored;
         invalidateAttempt(restored);
         continue;
@@ -981,6 +1080,8 @@ export function createLooperAgentWalletController({
     prepareCredStake,
     preparePolicyModule,
     submitPrepared,
+    preflightPrepared,
+    submitPreflighted,
     acknowledgeUnknown,
     getSnapshot,
   };
@@ -1144,9 +1245,10 @@ function directTransactionBindingMismatch(observed, expected) {
 function validateAttemptHistory(history) {
   if (!Array.isArray(history) || history.length === 0 || history[0]?.state !== 'prepared') return false;
   const transitions = {
-    prepared: new Set(['submitted', 'reverted', 'invalidated', 'uncertain_hashless']),
+    prepared: new Set(['preflighted', 'submitted', 'reverted', 'invalidated', 'uncertain_hashless']),
+    preflighted: new Set(['reverted', 'invalidated', 'uncertain_hashless']),
     submitted: new Set(['confirmed_attributed', 'observed_unattributed', 'reverted', 'uncertain_hashed']),
-    uncertain_hashless: new Set(['acknowledged_unknown']),
+    uncertain_hashless: new Set(['submitted', 'reverted', 'acknowledged_unknown']),
     uncertain_hashed: new Set(['acknowledged_unknown', 'observed_unattributed']),
   };
   for (let index = 0; index < history.length; index += 1) {
@@ -1300,7 +1402,7 @@ function publicAttempt(record, permanentHistory = null) {
     state: record.state,
     txHash: record.txHash ?? null,
     attributable: Boolean(record.attributable),
-    preparedId: record.state === 'prepared' ? record.id : null,
+    preparedId: ['prepared', 'preflighted'].includes(record.state) ? record.id : null,
   } : idleAttempt();
   if (permanentHistory !== null) {
     result.permanentHistory = permanentHistory.map((entry) => ({
