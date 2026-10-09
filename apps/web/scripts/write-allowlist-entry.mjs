@@ -11,6 +11,7 @@ const mintOutputPath = join(distRoot, 'mint', 'index.html');
 const pauseOutputPath = join(distRoot, 'pause-mint', 'index.html');
 const consoleOutputPath = join(distRoot, 'console', 'index.html');
 const runtimeOutputPath = join(distRoot, 'runtime', 'index.html');
+const theLoopOutputPath = join(distRoot, 'the-loop', 'index.html');
 
 const LOOPERS_DESCRIPTION = 'something new is coming...';
 const LOOPERS_MINT_DESCRIPTION = 'Mint Loopers on Base.';
@@ -18,6 +19,10 @@ const LOOPERS_SOCIAL_URL = 'https://helixa.xyz/allowlist?x=20260826c';
 const LOOPERS_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-allowlist-preview-20260826c.jpg';
 const LOOPERS_MINT_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/loopers-mint-preview-20260910a.jpg';
 const CONSOLE_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/multipass-console-preview-20260925a.png';
+const THE_LOOP_TITLE = 'The Loop | Activated Loopers on Base';
+const THE_LOOP_DESCRIPTION = 'Discover activated Loopers on Base.';
+const THE_LOOP_URL = 'https://helixa.xyz/multipass/the-loop?preview=20261008c';
+const THE_LOOP_PREVIEW_IMAGE = 'https://helixa.xyz/multipass/the-loop-marketplace-preview-20261008.png?v=20261008c';
 
 const html = await readFile(sourcePath, 'utf8');
 const allowlistHtml = html
@@ -84,3 +89,21 @@ await writeFile(runtimeOutputPath, html
   .replace(/<meta property="og:url" content="[^"]*" \/>/u, '<meta property="og:url" content="https://helixa.xyz/multipass/runtime" />')
   .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, `<meta name="twitter:title" content="${runtimeTitle}" />`)
   .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, `<meta name="twitter:description" content="${runtimeDescription}" />`));
+
+await mkdir(dirname(theLoopOutputPath), { recursive: true });
+await writeFile(theLoopOutputPath, html
+  .replace(/<title>[\s\S]*?<\/title>/u, `<title>${THE_LOOP_TITLE}</title>`)
+  .replace(/<meta name="description" content="[^"]*" \/>/u, `<meta name="description" content="${THE_LOOP_DESCRIPTION}" />`)
+  .replace(/<meta property="og:title" content="[^"]*" \/>/u, `<meta property="og:title" content="${THE_LOOP_TITLE}" />`)
+  .replace(/<meta property="og:description" content="[^"]*" \/>/u, `<meta property="og:description" content="${THE_LOOP_DESCRIPTION}" />`)
+  .replace(/<meta property="og:url" content="[^"]*" \/>/u, `<meta property="og:url" content="${THE_LOOP_URL}" />`)
+  .replace(
+    /<meta property="og:image" content="[^"]*" \/>/u,
+    `<meta property="og:image" content="${THE_LOOP_PREVIEW_IMAGE}" />\n    <meta property="og:image:secure_url" content="${THE_LOOP_PREVIEW_IMAGE}" />\n    <meta property="og:image:alt" content="The Loop marketplace preview" />`,
+  )
+  .replace(/<meta name="twitter:title" content="[^"]*" \/>/u, `<meta name="twitter:title" content="${THE_LOOP_TITLE}" />`)
+  .replace(/<meta name="twitter:description" content="[^"]*" \/>/u, `<meta name="twitter:description" content="${THE_LOOP_DESCRIPTION}" />`)
+  .replace(
+    /<meta name="twitter:image" content="[^"]*" \/>/u,
+    `<meta name="twitter:image" content="${THE_LOOP_PREVIEW_IMAGE}" />\n    <meta name="twitter:image:src" content="${THE_LOOP_PREVIEW_IMAGE}" />\n    <meta name="twitter:image:alt" content="The Loop marketplace preview" />`,
+  ));
