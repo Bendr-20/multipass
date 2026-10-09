@@ -1509,6 +1509,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   async function loadSelectedLooperWallet(agent, context) {
     const owner = state.consoleAuthenticatedWallet;
     if (!agent?.tokenId || !owner) return;
+    let shouldLoadPantheonCred = false;
     state = {
       ...state,
       looperAgentWallet: {
@@ -1525,6 +1526,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const walletState = await activeLooperWalletController.select({ tokenId: String(agent.tokenId), owner });
       if (!isCurrentConsoleAsyncContext(state, context)) return;
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
+      shouldLoadPantheonCred = walletState.mode === 'active' && typeof activePantheonCredReader === 'function';
     } catch (error) {
       if (!isCurrentConsoleAsyncContext(state, context)) return;
       state = {
@@ -1537,13 +1539,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
     }
     render(root, state, handlers);
+    if (shouldLoadPantheonCred) void loadPantheonCred();
   }
 
   async function refreshLooperAgentWallet() {
     if (!state.consoleSelectedAgentId || !state.consoleAuthenticatedWallet) return;
+    let shouldLoadPantheonCred = false;
     try {
       const walletState = await activeLooperWalletController.refresh();
       state = { ...state, looperAgentWallet: { ...walletState, error: null } };
+      shouldLoadPantheonCred = walletState.mode === 'active' && typeof activePantheonCredReader === 'function';
     } catch (error) {
       state = {
         ...state,
@@ -1555,6 +1560,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       };
     }
     render(root, state, handlers);
+    if (shouldLoadPantheonCred) void loadPantheonCred();
   }
 
   async function activateLooperAgentWallet(event) {

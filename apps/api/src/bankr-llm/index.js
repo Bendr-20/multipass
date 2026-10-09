@@ -162,6 +162,7 @@ function buildSystemPrompt(profile = {}, { skillProposalsEnabled = false, hasWal
   if (hasWalletContext) {
     lines.push(
       `The supplied owner-scoped read-only ERC-6551 account context is the ${identity} Looper wallet. Treat its address and balances as current wallet evidence.`,
+      'Liquid token balances and verified staking positions are separate: never infer zero staked principal from the liquid CRED balance, and answer staking questions only from walletContext.staking.pantheonCred.',
       'You may inspect and discuss this wallet context, but signing, submission, approvals, transfers, and custody still require explicit human approval.',
     );
   }

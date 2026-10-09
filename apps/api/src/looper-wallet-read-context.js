@@ -19,6 +19,7 @@ const CRED_TOKEN = Object.freeze({
   symbol: 'CRED',
   decimals: 18,
 });
+const PANTHEON_STAKING_VAULT = getAddress('0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb');
 const CREATION_PREFIX = '0x3d60ad80600a3d3981f3';
 const RUNTIME_PREFIX = '0x363d3d373d3d3d363d73';
 const RUNTIME_SUFFIX = '0x5af43d82803e903d91602b57fd5bf3';
@@ -28,6 +29,19 @@ const ERC20_BALANCE_ABI = Object.freeze([{
   stateMutability: 'view',
   inputs: [{ name: 'account', type: 'address' }],
   outputs: [{ name: 'balance', type: 'uint256' }],
+}]);
+const PANTHEON_STAKE_ABI = Object.freeze([{
+  type: 'function',
+  name: 'stakes',
+  stateMutability: 'view',
+  inputs: [{ name: 'user', type: 'address' }, { name: 'stakingToken', type: 'address' }],
+  outputs: [
+    { name: 'amount', type: 'uint256' }, { name: 'autoRestake', type: 'bool' },
+    { name: 'lockMonths', type: 'uint16' }, { name: 'lockDuration', type: 'uint32' },
+    { name: 'stakeTime', type: 'uint32' }, { name: 'unstakeRequestTime', type: 'uint32' },
+    { name: 'unstakeTime', type: 'uint32' }, { name: 'stakeMonthIndex', type: 'uint32' },
+    { name: 'compounderEnabled', type: 'bool' },
+  ],
 }]);
 
 export function deriveCanonicalLooperAccount(tokenId) {
@@ -68,7 +82,7 @@ export function createLooperWalletReadContextLoader({ publicClients = [], now = 
       throw new Error('Looper wallet reader requires canonical owner-scoped identity evidence.');
     }
     const account = deriveCanonicalLooperAccount(tokenId);
-    const [nativeWei, code, credBalance] = await Promise.all([
+    const [nativeWei, code, credBalance, credStake] = await Promise.all([
       readAgreed(clients, (client) => client.getBalance({ address: account, blockTag: 'latest' }), 'native balance'),
       readAgreed(clients, (client) => client.getBytecode({ address: account, blockTag: 'latest' }), 'account code'),
       readAgreed(clients, (client) => client.readContract({
@@ -78,6 +92,13 @@ export function createLooperWalletReadContextLoader({ publicClients = [], now = 
         args: [account],
         blockTag: 'latest',
       }), 'CRED balance'),
+      readAgreed(clients, (client) => client.readContract({
+        address: PANTHEON_STAKING_VAULT,
+        abi: PANTHEON_STAKE_ABI,
+        functionName: 'stakes',
+        args: [account, CRED_TOKEN.address],
+        blockTag: 'latest',
+      }), 'Pantheon CRED position'),
     ]);
     const tokens = BigInt(credBalance) > 0n
       ? [{
@@ -101,6 +122,16 @@ export function createLooperWalletReadContextLoader({ publicClients = [], now = 
       },
       native: { symbol: 'ETH', balanceWei: BigInt(nativeWei).toString() },
       tokens,
+      staking: {
+        pantheonCred: {
+          vault: PANTHEON_STAKING_VAULT,
+          token: CRED_TOKEN.address,
+          principalBaseUnits: BigInt(credStake[0]).toString(),
+          lockMonths: BigInt(credStake[2]).toString(),
+          unstakeRequestTime: BigInt(credStake[5]).toString(),
+          stakeMonthIndex: BigInt(credStake[7]).toString(),
+        },
+      },
       activity: [],
       refreshedAt: String(now()),
       health: code && code !== '0x' ? 'verified' : 'degraded',

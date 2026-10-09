@@ -28,6 +28,7 @@ test('wallet reader returns only owner-scoped read-only Base evidence', async ()
     async getBytecode({ address }) { calls.push(['code', address]); return '0x6000'; },
     async readContract({ address, functionName, args }) {
       calls.push([functionName, address, args[0]]);
+      if (functionName === 'stakes') return [4_500_000n, false, 6n, 0n, 0n, 0n, 0n, 681n, false];
       return 456n;
     },
   };
@@ -38,8 +39,29 @@ test('wallet reader returns only owner-scoped read-only Base evidence', async ()
   assert.equal(context.native.balanceWei, '123');
   assert.equal(context.tokens[0].symbol, 'CRED');
   assert.equal(context.tokens[0].balanceBaseUnits, '456');
+  assert.deepEqual(context.staking.pantheonCred, {
+    vault: '0xBf52Aaf8b6C82FaD0220B5378022eA4fC0a98fDb',
+    token: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3',
+    principalBaseUnits: '4500000',
+    lockMonths: '6',
+    unstakeRequestTime: '0',
+    stakeMonthIndex: '681',
+  });
   assert.equal(context.health, 'verified');
   assert.deepEqual(context.capabilities, { read: true, sign: false, submit: false, approve: false });
   assert.equal(JSON.stringify(context).includes('calldata'), false);
-  assert.ok(calls.length >= 6);
+  assert.ok(calls.length >= 8);
+});
+
+test('wallet reader rejects provider disagreement on Pantheon CRED principal', async () => {
+  const client = (principal) => ({
+    async getBalance() { return 123n; },
+    async getBytecode() { return '0x6000'; },
+    async readContract({ functionName }) {
+      if (functionName === 'stakes') return [principal, false, 6n, 0n, 0n, 0n, 0n, 681n, false];
+      return 456n;
+    },
+  });
+  const load = createLooperWalletReadContextLoader({ publicClients: [client(4_500_000n), client(4_500_001n)] });
+  await assert.rejects(load({ identity: IDENTITY, wallet: OWNER }), /Pantheon CRED position providers disagreed/i);
 });

@@ -153,6 +153,29 @@ test('Bankr request includes recent Console conversation history before the curr
   );
 });
 
+test('Bankr prompt distinguishes liquid CRED from the verified Pantheon position', async () => {
+  let requestBody = null;
+  const client = createBankrLlmClient({
+    apiKey: '***',
+    fetchImpl: async (_url, request) => {
+      requestBody = JSON.parse(request.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '4,500,000 CRED is staked.' } }] }), { status: 200 });
+    },
+  });
+  await client.generate({
+    profile: { displayName: 'Looper #210' },
+    message: 'How much CRED is staked?',
+    walletContext: {
+      schema_version: '0.1.0', kind: 'looper_wallet_read_context', scope: { tokenId: '210' },
+      tokens: [{ symbol: 'CRED', balanceBaseUnits: '73170731707317073170731' }],
+      staking: { pantheonCred: { principalBaseUnits: '4500000000000000000000000' } },
+      capabilities: { read: true, sign: false, submit: false, approve: false },
+    },
+  });
+  assert.match(requestBody.messages[0].content, /liquid.*separate.*stak/i);
+  assert.match(requestBody.messages.at(-1).content, /4500000000000000000000000/);
+});
+
 test('Bankr sanitizes legacy fenced agent history without provider metadata only', async () => {
   let requestBody = null;
   const legacyEnvelope = `\`\`\`json\n${validEnvelope({
