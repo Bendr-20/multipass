@@ -58,8 +58,8 @@ test('web build emits a static Bankr RUNTIME submission route entry', () => {
 test('web build emits a static The Loop route entry with its dedicated social preview', () => {
   assert.match(allowlistEntryScript, /join\(distRoot, 'the-loop', 'index\.html'\)/);
   assert.match(allowlistEntryScript, /Discover activated Loopers on Base\./);
-  assert.match(allowlistEntryScript, /the-loop-marketplace-preview-20261008\.png\?v=20261008c/);
-  assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/multipass\/the-loop\?preview=20261008c/);
+  assert.match(allowlistEntryScript, /the-loop-marketplace-preview-20261008\.png\?v=20261009a/);
+  assert.match(allowlistEntryScript, /https:\/\/helixa\.xyz\/multipass\/the-loop\?preview=20261009a/);
   assert.match(allowlistEntryScript, /The Loop marketplace preview/);
 });
 
