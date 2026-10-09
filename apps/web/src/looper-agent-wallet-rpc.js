@@ -47,6 +47,8 @@ const ALL_RPC_ORIGINS = Object.freeze([...BASE_RPC_ORIGINS, PUBLICNODE_ORIGIN]);
 const RPC_BATCH_CAPS = Object.freeze({
   [BLASTAPI_ORIGIN]: 10,
   [PUBLICNODE_ORIGIN]: 10,
+  [BASE_RPC_ORIGINS[0]]: 10,
+  [BASE_RPC_ORIGINS[1]]: 10,
 });
 export const RPC_ROUTES = deepFreeze({
   [BASE_RPC_ORIGINS[0]]: ['chainId', 'latestBlock', 'blockByNumber', 'code', 'storage', 'balance', 'call', 'estimate', 'gasPrice', 'transaction', 'receipt'],
@@ -185,20 +187,48 @@ function hashUserOperationV06(operation) {
   ));
 }
 
+function stripExactErc8021Suffix(callData) {
+  const marker = '80218021802180218021802180218021';
+  const raw = String(callData ?? '').slice(2);
+  if (!raw.endsWith(marker)) return callData;
+  if (!/^0x[0-9a-f]+$/.test(callData) || raw.length < marker.length + 4) {
+    throw new Error('ERC-8021 attribution suffix is malformed.');
+  }
+  const schemaOffset = raw.length - marker.length - 2;
+  const lengthOffset = schemaOffset - 2;
+  if (raw.slice(schemaOffset, schemaOffset + 2) !== '00') {
+    throw new Error('ERC-8021 attribution schema is unsupported.');
+  }
+  const codeBytes = Number.parseInt(raw.slice(lengthOffset, schemaOffset), 16);
+  const codesOffset = lengthOffset - codeBytes * 2;
+  if (!Number.isSafeInteger(codeBytes) || codeBytes < 1 || codesOffset < 8) {
+    throw new Error('ERC-8021 attribution length is malformed.');
+  }
+  const codesHex = raw.slice(codesOffset, lengthOffset);
+  const builderCodes = Array.from({ length: codeBytes }, (_, index) => (
+    String.fromCharCode(Number.parseInt(codesHex.slice(index * 2, index * 2 + 2), 16))
+  )).join('');
+  if (!/^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/.test(builderCodes)) {
+    throw new Error('ERC-8021 builder codes are malformed.');
+  }
+  return `0x${raw.slice(0, codesOffset)}`;
+}
+
 function decodeExactCoinbaseEnvelope(callData, expectedTransaction) {
-  if (callData.startsWith(REPLAYABLE_COINBASE_EXECUTE_SELECTOR)) {
+  const envelopeData = stripExactErc8021Suffix(callData);
+  if (envelopeData.startsWith(REPLAYABLE_COINBASE_EXECUTE_SELECTOR)) {
     throw new Error('Replayable Coinbase wallet execution is forbidden.');
   }
   let decoded;
   try {
-    decoded = decodeFunctionData({ abi: COINBASE_WALLET_EXECUTION_ABI, data: callData });
+    decoded = decodeFunctionData({ abi: COINBASE_WALLET_EXECUTION_ABI, data: envelopeData });
   } catch {
     throw new Error('Coinbase wallet envelope is not execute or executeBatch.');
   }
   const canonical = encodeFunctionData({
     abi: COINBASE_WALLET_EXECUTION_ABI, functionName: decoded.functionName, args: decoded.args,
   }).toLowerCase();
-  if (canonical !== callData) throw new Error('Coinbase wallet envelope is noncanonical or has trailing bytes.');
+  if (canonical !== envelopeData) throw new Error('Coinbase wallet envelope is noncanonical or has trailing bytes.');
   let target;
   let value;
   let data;
@@ -286,7 +316,11 @@ function verifyCoinbaseExecutionTrace(trace, operation, expectedTransaction, rec
     const candidates = receiptLogs.filter((log) => sameAddress(log.address, expectedTransaction.to)
       && log.topics[0] === requiredTopic);
     if (candidates.length !== 1) throw new Error('Exact Looper receipt event is missing or duplicated.');
-    requireLinkedTraceLog(targetFrames[0].logs, candidates[0], 'Coinbase-wrapped Looper event');
+    requireLinkedTraceLog(
+      collectExecutionContextLogs(targetFrames[0], expectedTransaction.to),
+      candidates[0],
+      'Coinbase-wrapped Looper event',
+    );
   }
   return targetFrames[0];
 }
@@ -626,13 +660,20 @@ function verifyDirectSendTrace(trace, prepared, receiptLogs, stateLog) {
     || trace.error) {
     throw new Error('Direct account execution trace root mismatch.');
   }
-  requireLinkedTraceLog(trace.logs, stateLog, 'StateUpdated');
+  const executionFrames = collectExecutionContextFrames(trace, prepared.selection.account);
+  requireLinkedTraceLog(
+    executionFrames.flatMap((frame) => frame.logs ?? []),
+    stateLog,
+    'StateUpdated',
+  );
+  const executionFrameSet = new Set(executionFrames);
   const misplaced = [];
-  const inspectMisplacedState = (frame, root = false) => {
-    if (!root && (frame.logs ?? []).some((log) => log?.topics?.[0] === STATE_UPDATED_TOPIC)) misplaced.push(frame);
-    for (const child of frame.calls ?? []) inspectMisplacedState(child, false);
+  const inspectMisplacedState = (frame) => {
+    if (!executionFrameSet.has(frame)
+      && (frame.logs ?? []).some((log) => log?.topics?.[0] === STATE_UPDATED_TOPIC)) misplaced.push(frame);
+    for (const child of frame.calls ?? []) inspectMisplacedState(child);
   };
-  inspectMisplacedState(trace, true);
+  inspectMisplacedState(trace);
   if (misplaced.length) throw new Error('StateUpdated appeared outside the account execution frame.');
   const matches = (trace.calls ?? []).filter((frame) => String(frame.type ?? 'CALL').toUpperCase() === 'CALL'
     && sameAddress(frame.from, prepared.innerCall.from)
@@ -644,6 +685,21 @@ function verifyDirectSendTrace(trace, prepared, receiptLogs, stateLog) {
   const linkedReceiptLog = receiptLogs[stateLog.receiptArrayIndex];
   if (!linkedReceiptLog || linkedReceiptLog !== stateLog) throw new Error('StateUpdated receipt ordinal drifted.');
   return matches[0];
+}
+
+function collectExecutionContextFrames(frame, account) {
+  const frames = [frame];
+  for (const child of frame.calls ?? []) {
+    if (String(child.type ?? 'CALL').toUpperCase() === 'DELEGATECALL'
+      && sameAddress(child.from, account)) {
+      frames.push(...collectExecutionContextFrames(child, account));
+    }
+  }
+  return frames;
+}
+
+function collectExecutionContextLogs(frame, account) {
+  return collectExecutionContextFrames(frame, account).flatMap((candidate) => candidate.logs ?? []);
 }
 
 function requireLinkedTraceLog(frameLogs, receiptLog, label) {
@@ -782,7 +838,7 @@ export function createLooperWalletRpcClient({
   async function readReceipt({ hash, transaction: expectedTransaction = null }) {
     const requestedHash = canonicalHash(hash, 'requested transaction hash');
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      const evidence = await Promise.all(CONSOLE_RPC_ORIGINS.map(async (origin) => {
+      const evidence = await Promise.all(BASE_RPC_ORIGINS.map(async (origin) => {
         const [receipt, transaction] = await Promise.all([
           activeRequest({ origin, method: 'eth_getTransactionReceipt', params: [requestedHash] }),
           activeRequest({ origin, method: 'eth_getTransactionByHash', params: [requestedHash] }),
@@ -2406,7 +2462,9 @@ function createFixedRequester(fetchImpl, wait = (milliseconds) => new Promise((r
   return ({ origin, method, params }) => {
     if (typeof fetchImpl !== 'function') throw new Error('Base RPC fetch is unavailable.');
     if (typeof wait !== 'function') throw new Error('Base RPC wait dependency is unavailable.');
-    if (!CONSOLE_RPC_ORIGINS.includes(origin)) throw new Error('Unapproved Base RPC origin.');
+    if (![...CONSOLE_RPC_ORIGINS, ...BASE_RPC_ORIGINS].includes(origin)) {
+      throw new Error('Unapproved Base RPC origin.');
+    }
     const id = nextId;
     nextId += 1;
     const pending = new Promise((resolve, reject) => {

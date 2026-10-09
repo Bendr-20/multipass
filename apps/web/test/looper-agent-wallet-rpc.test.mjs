@@ -516,6 +516,38 @@ test('reorg-safe reads fail closed instead of retrying state against a numeric o
     && typeof call.params.at(-1) === 'string'), false);
 });
 
+test('receipt reads use dual reviewed Base RPCs instead of archive-gated PublicNode', async () => {
+  const hash = `0x${'ab'.repeat(32)}`;
+  const transaction = { hash, chainId: '0x2105', from: OWNER, to: ERC6551_REGISTRY, value: '0x0', input: '0x' };
+  const receipt = { status: '0x1', transactionHash: hash, blockNumber: '0x64', blockHash: BLOCK_HASH, logs: [] };
+  const calls = [];
+  const reader = createLooperWalletRpcClient({
+    releaseConfig: RELEASE_CONFIG,
+    wait: async () => {},
+    fetchImpl: async (origin, options) => {
+      const body = JSON.parse(options.body);
+      const requests = Array.isArray(body) ? body : [body];
+      calls.push(...requests.map(({ method }) => ({ origin, method })));
+      if (origin === 'https://base-rpc.publicnode.com'
+        && requests.some(({ method }) => method === 'eth_getTransactionReceipt')) {
+        return { ok: false, status: 403, headers: { get: () => null }, json: async () => ({}) };
+      }
+      const responses = requests.map(({ id, method }) => ({
+        jsonrpc: '2.0', id, result: method === 'eth_getTransactionReceipt' ? receipt : transaction,
+      }));
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => Array.isArray(body) ? responses : responses[0],
+      };
+    },
+  });
+
+  assert.equal((await reader.readReceipt({ hash })).status, 'success');
+  const receiptOrigins = calls.filter(({ method }) => method === 'eth_getTransactionReceipt').map(({ origin }) => origin).sort();
+  assert.deepEqual(receiptOrigins, [...BASE_RPC_ORIGINS].sort());
+  assert.equal(calls.some(({ origin, method }) => origin.includes('publicnode') && method === 'eth_getTransactionReceipt'), false);
+});
+
 test('receipt evidence rejects malformed quantities, statuses, and transaction hash bindings', async () => {
   const requestedHash = `0x${'cc'.repeat(32)}`;
   const validTransaction = {
@@ -609,6 +641,46 @@ test('strictly attributes one Coinbase v0.6 UserOperation to the exact Looper ca
   const result = verify({ transaction, receipt, expectedTransaction, trace, onchainUserOpHash: userOpHash });
   assert.equal(result.attribution, 'coinbase_erc4337_v06');
   assert.equal(result.userOpHash, userOpHash);
+
+  const builderCodes = 'bc_doy52p24,bc_mnip';
+  const builderCodeHex = Buffer.from(builderCodes, 'ascii').toString('hex');
+  const erc8021Marker = '80218021802180218021802180218021';
+  const attributedCallData = `${callData}${builderCodeHex}${Buffer.byteLength(builderCodes).toString(16).padStart(2, '0')}00${erc8021Marker}`;
+  const attributedOperation = { ...operation, callData: attributedCallData };
+  const attributedUserOpHash = userOperationHashV06(attributedOperation);
+  const attributedOuterInput = encodeFunctionData({
+    abi: ENTRY_POINT_V06_ABI, functionName: 'handleOps', args: [[attributedOperation], OWNER],
+  });
+  const attributedUserOperationLog = {
+    ...userOperationLog,
+    topics: [userOperationLog.topics[0], attributedUserOpHash, ...userOperationLog.topics.slice(2)],
+  };
+  const attributedTransaction = { ...transaction, input: attributedOuterInput };
+  const attributedReceipt = { ...receipt, logs: [attributedUserOperationLog, accountLog] };
+  const proxiedTargetFrame = {
+    ...targetFrame, logs: [], calls: [{
+      type: 'DELEGATECALL', from: expectedTransaction.to, to: IMPLEMENTATION, input: expectedTransaction.data,
+      value: '0x0', output: '0x', logs: targetFrame.logs, calls: [],
+    }],
+  };
+  const attributedTrace = {
+    ...trace, input: attributedOuterInput, calls: [{
+      ...trace.calls[0], input: attributedCallData, calls: [{
+        ...trace.calls[0].calls[0], input: attributedCallData, calls: [proxiedTargetFrame],
+      }],
+    }],
+  };
+  assert.equal(verify({
+    transaction: attributedTransaction, receipt: attributedReceipt, expectedTransaction,
+    trace: attributedTrace, onchainUserOpHash: attributedUserOpHash,
+  }).attribution, 'coinbase_erc4337_v06');
+  assert.throws(() => verify({
+    transaction: { ...transaction, input: encodeFunctionData({
+      abi: ENTRY_POINT_V06_ABI, functionName: 'handleOps',
+      args: [[{ ...operation, callData: `${callData}00` }], OWNER],
+    }) },
+    receipt, expectedTransaction, trace, onchainUserOpHash: userOpHash,
+  }), /wallet envelope|trailing bytes/i);
 
   assert.throws(() => verify({
     transaction, receipt, expectedTransaction: { ...expectedTransaction, data: '0x' }, trace, onchainUserOpHash: userOpHash,
