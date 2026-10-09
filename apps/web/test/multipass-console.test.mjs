@@ -223,6 +223,33 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   );
 });
 
+test('an exiting or final-month Pantheon position exposes no top-up control', () => {
+  const agents = sampleAgents();
+  const snapshot = createMultipassConsoleSnapshot({
+    agents,
+    state: {
+      walletSnapshot: { connected: true, address: '0x1234567890abcdef1234567890abcdef12345678' },
+      consoleAuthenticatedWallet: '0x1234567890abcdef1234567890abcdef12345678',
+      consoleOwnedAgents: { status: 'loaded', agents },
+      consoleSelectedAgentId: '1', consoleWorkspaceView: 'wallet',
+      looperAgentWallet: {
+        mode: 'active', tokenId: '1', owner: '0x1234567890aBcdef1234567890aBcdef12345678',
+        account: '0x9999999999999999999999999999999999999999', nativeWei: '1',
+        tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '1' }],
+        policyStatus: 'owner-only', operatorProfile: 'eip7702', canTransact: true,
+        activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' },
+        pantheonCred: {
+          status: 'staked_ineligible', stakeAmountBaseUnits: '4000000000000000000000000', poolActive: true,
+          dates: { rewardsStart: '2026-11-01T00:00:00.000Z', firstClaim: '2026-12-01T00:00:00.000Z', lockEnds: '2027-05-01T00:00:00.000Z' },
+        },
+      },
+    },
+  });
+  const panel = render(renderMultipassConsole(snapshot)).querySelector('[data-wallet-action="stake-cred"]');
+  assert.match(panel?.textContent ?? '', /cannot be added.*exiting.*final earning month/i);
+  assert.equal(panel?.querySelector('[data-action="approve-pantheon-cred"]'), null);
+});
+
 test('mobile Console exposes a portrait agent switcher and five mutually exclusive workspaces', () => {
   const agents = Array.from({ length: 45 }, (_, index) => ({
     ...sampleAgents()[index % 2],

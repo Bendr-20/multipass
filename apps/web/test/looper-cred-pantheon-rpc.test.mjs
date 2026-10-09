@@ -17,7 +17,7 @@ const HASH = '0x' + 'ab'.repeat(32);
 function request({ method, params }) {
   if (method === 'eth_chainId') return Promise.resolve('0x2105');
   if (method === 'eth_blockNumber') return Promise.resolve('0x64');
-  if (method === 'eth_getBlockByNumber') return Promise.resolve({ number: '0x64', hash: HASH });
+  if (method === 'eth_getBlockByNumber') return Promise.resolve({ number: '0x64', hash: HASH, timestamp: '0x6ac8d740' });
   if (method === 'eth_getBalance') return Promise.resolve('0x100');
   if (method !== 'eth_call') throw new Error('unexpected ' + method);
   const call = params[0];
@@ -45,8 +45,11 @@ test('reads CRED balance allowance pool and position against one dual-RPC Base a
     credBalanceBaseUnits: '500',
     gasPayerNativeWei: '256',
     poolActive: true,
+    currentMonthIndex: '681',
+    lockMonths: '6',
     stakeAmountBaseUnits: '75',
     stakeMonthIndex: '681',
+    unstakeRequestTime: '0',
     totalStakedBaseUnits: '1000',
   });
 });

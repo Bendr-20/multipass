@@ -46,16 +46,26 @@ export const PANTHEON_VIEW_ABI = Object.freeze([
   },
 ]);
 
-export const PANTHEON_STAKING_ABI = Object.freeze([{
-  type: 'function', name: 'stake', stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'stakingToken', type: 'address' },
-    { name: 'lockMonths', type: 'uint16' },
-    { name: 'amount', type: 'uint256' },
-    { name: 'autoCompound', type: 'bool' },
-  ],
-  outputs: [],
-}]);
+export const PANTHEON_STAKING_ABI = Object.freeze([
+  {
+    type: 'function', name: 'stake', stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'lockMonths', type: 'uint16' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'autoCompound', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function', name: 'addToStake', stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+]);
 
 export function validatePantheonCredRegistry(candidate) {
   if (!plainObject(candidate) || candidate.chain !== 'base' || candidate.chain_id !== BASE_CHAIN_ID) {
@@ -141,6 +151,47 @@ export function buildCredStakeTransaction({ owner, account, amountBaseUnits }) {
   });
 }
 
+export function buildCredAddToStakeTransaction({ owner, account, amountBaseUnits }) {
+  const amount = positiveUint(amountBaseUnits, 'CRED amount');
+  return buildLooperExecute({
+    owner,
+    account,
+    target: PANTHEON_STAKING_VAULT,
+    data: encodeFunctionData({
+      abi: PANTHEON_STAKING_ABI,
+      functionName: 'addToStake',
+      args: [CRED_ADDRESS, amount],
+    }),
+  });
+}
+
+export function isCredTopUpEligible(position = {}) {
+  const amount = canonicalUintOrNull(position.stakeAmountBaseUnits);
+  const stakeMonth = canonicalUintOrNull(position.stakeMonthIndex);
+  const lockMonths = canonicalUintOrNull(position.lockMonths);
+  const unstakeRequestTime = canonicalUintOrNull(position.unstakeRequestTime);
+  const currentMonth = canonicalUintOrNull(position.currentMonthIndex);
+  if (amount === null || amount === 0n || stakeMonth === null || lockMonths === null || lockMonths === 0n
+    || unstakeRequestTime !== 0n || currentMonth === null) return false;
+  const nextEarningMonth = currentMonth + 1n;
+  const finalEarningMonth = stakeMonth + lockMonths;
+  return nextEarningMonth <= finalEarningMonth;
+}
+
+export function isCredTopUpAttributed({
+  stakeBaselineBaseUnits, amountBaseUnits, afterStakeAmountBaseUnits,
+  stakeBaselineMonthIndex, afterStakeMonthIndex,
+} = {}) {
+  const baseline = canonicalUintOrNull(stakeBaselineBaseUnits);
+  const added = canonicalUintOrNull(amountBaseUnits);
+  const after = canonicalUintOrNull(afterStakeAmountBaseUnits);
+  const baselineMonth = canonicalUintOrNull(stakeBaselineMonthIndex);
+  const afterMonth = canonicalUintOrNull(afterStakeMonthIndex);
+  return baseline !== null && baseline > 0n && added !== null && added > 0n && after !== null
+    && baselineMonth !== null && afterMonth !== null
+    && after === baseline + added && afterMonth === baselineMonth;
+}
+
 export function createCredStakeDates(now = new Date()) {
   const date = new Date(now);
   if (!Number.isFinite(date.getTime())) throw new Error('Stake date is invalid.');
@@ -181,6 +232,17 @@ function positiveUint(value, label) {
   const amount = BigInt(text);
   if (amount > ((1n << 256n) - 1n)) throw new Error(label + ' exceeds uint256.');
   return amount;
+}
+
+function canonicalUintOrNull(value) {
+  const text = typeof value === 'bigint' ? value.toString() : String(value ?? '');
+  if (!/^(0|[1-9]\d*)$/.test(text)) return null;
+  try {
+    const parsed = BigInt(text);
+    return parsed <= ((1n << 256n) - 1n) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function checkedAddress(value, label) {

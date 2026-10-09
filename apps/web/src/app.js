@@ -49,6 +49,8 @@ import {
   PANTHEON_STAKING_VAULT,
   createCredStakeDates,
   createCredStakeDatesFromMonthIndex,
+  isCredTopUpAttributed,
+  isCredTopUpEligible,
   validatePantheonCredRegistry,
 } from './looper-cred-pantheon.js';
 import { getConsoleMessageIdentity } from './console-agent-thread.js';
@@ -1693,7 +1695,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const resumableApproval = !hasStake && onchain.poolActive
         && BigInt(onchain.allowanceBaseUnits) > 0n
         && BigInt(onchain.allowanceBaseUnits) <= BigInt(onchain.credBalanceBaseUnits);
-      const status = hasStake ? 'staked' : resumableApproval ? 'approved' : onchain.poolActive ? 'ready' : 'inactive';
+      const status = hasStake
+        ? isCredTopUpEligible(onchain) ? 'staked' : 'staked_ineligible'
+        : resumableApproval ? 'approved' : onchain.poolActive ? 'ready' : 'inactive';
       setPantheonCredState({
         ...onchain,
         status,
@@ -1719,7 +1723,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       requirePantheonCredContext(context);
       const before = await readCurrentPantheonCredState(context);
       if (!before.poolActive) throw new Error('CRED staking is not active onchain.');
-      if (BigInt(before.stakeAmountBaseUnits) > 0n) throw new Error('This Looper wallet already has an active CRED stake.');
+      if (BigInt(before.stakeAmountBaseUnits) > 0n && !isCredTopUpEligible(before)) {
+        throw new Error('This Pantheon position cannot accept more CRED because it is exiting or has reached its final earning month.');
+      }
       if (BigInt(before.credBalanceBaseUnits) < BigInt(amountBaseUnits)) throw new Error('Looper wallet CRED balance is too low.');
       if (BigInt(before.gasPayerNativeWei) <= 0n) throw new Error('Owner wallet needs Base ETH for gas.');
       const prepared = await activeLooperWalletController.prepareCredStakeApproval({ amountBaseUnits });
@@ -1730,7 +1736,9 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         status: 'approval_prepared',
         amountBaseUnits,
         preparedId: prepared.id,
-        dates: createCredStakeDates(),
+        dates: BigInt(before.stakeAmountBaseUnits) > 0n
+          ? createCredStakeDatesFromMonthIndex(before.stakeMonthIndex)
+          : createCredStakeDates(),
       }, activeLooperWalletController.getSnapshot());
     } catch (error) {
       try { requirePantheonCredContext(context); } catch { return; }
@@ -1759,7 +1767,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       requirePantheonCredContext(context);
       const after = await readCurrentPantheonCredState(context);
       if (BigInt(after.allowanceBaseUnits) !== BigInt(amountBaseUnits)) throw new Error('Exact CRED allowance was not confirmed.');
-      setPantheonCredState({ ...after, status: 'approved', amountBaseUnits }, walletState);
+      if (BigInt(after.stakeAmountBaseUnits) > 0n && !isCredTopUpEligible(after)) {
+        throw new Error('The Pantheon position can no longer accept additional CRED.');
+      }
+      setPantheonCredState({
+        ...after,
+        status: 'approved',
+        amountBaseUnits,
+        dates: BigInt(after.stakeAmountBaseUnits) > 0n
+          ? createCredStakeDatesFromMonthIndex(after.stakeMonthIndex)
+          : createCredStakeDates(),
+      }, walletState);
     }).catch((error) => {
       try { requirePantheonCredContext(context); } catch { return; }
       setPantheonCredState(
@@ -1783,13 +1801,17 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       await loadPantheonCredRegistry();
       requirePantheonCredContext(context);
       const before = await readCurrentPantheonCredState(context);
+      if (BigInt(before.stakeAmountBaseUnits) > 0n && !isCredTopUpEligible(before)) {
+        throw new Error('This Pantheon position cannot accept more CRED because it is exiting or has reached its final earning month.');
+      }
       if (!before.poolActive || BigInt(before.allowanceBaseUnits) !== BigInt(amountBaseUnits)
-        || BigInt(before.stakeAmountBaseUnits) !== 0n
         || BigInt(before.credBalanceBaseUnits) < BigInt(amountBaseUnits)
         || BigInt(before.gasPayerNativeWei) <= 0n) {
         throw new Error('Pantheon stake conditions changed. Check staking again.');
       }
-      const prepared = await activeLooperWalletController.prepareCredStake({ amountBaseUnits });
+      const prepared = BigInt(before.stakeAmountBaseUnits) > 0n
+        ? await activeLooperWalletController.prepareCredAddToStake({ amountBaseUnits })
+        : await activeLooperWalletController.prepareCredStake({ amountBaseUnits });
       await activeLooperWalletController.preflightPrepared(prepared.id, { confirmed: true });
       requirePantheonCredContext(context);
       setPantheonCredState({
@@ -1798,6 +1820,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
         amountBaseUnits,
         preparedId: prepared.id,
         stakeBaselineBaseUnits: before.stakeAmountBaseUnits,
+        stakeBaselineMonthIndex: before.stakeMonthIndex,
+        dates: BigInt(before.stakeAmountBaseUnits) > 0n
+          ? createCredStakeDatesFromMonthIndex(before.stakeMonthIndex)
+          : createCredStakeDates(),
       });
     } catch (error) {
       try { requirePantheonCredContext(context); } catch { return; }
@@ -1817,8 +1843,10 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const amountBaseUnits = String(preparedState.amountBaseUnits ?? '');
     const preparedId = String(preparedState.preparedId ?? '');
     const stakeBaselineBaseUnits = String(preparedState.stakeBaselineBaseUnits ?? '');
+    const stakeBaselineMonthIndex = String(preparedState.stakeBaselineMonthIndex ?? '');
     if (preparedState.status !== 'stake_prepared' || !/^[1-9]\d*$/.test(amountBaseUnits)
       || !/^(0|[1-9]\d*)$/.test(stakeBaselineBaseUnits)
+      || (BigInt(stakeBaselineBaseUnits) > 0n && !/^(0|[1-9]\d*)$/.test(stakeBaselineMonthIndex))
       || !/^send:[A-Za-z0-9_-]{8,128}$/.test(preparedId)) {
       return setPantheonCredState({ status: 'error', error: 'Prepared CRED stake is invalid. Check staking again.' });
     }
@@ -1827,9 +1855,16 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     submission.then(async (walletState) => {
       requirePantheonCredContext(context);
       const after = await readCurrentPantheonCredState(context);
-      if (BigInt(after.stakeAmountBaseUnits) !== BigInt(stakeBaselineBaseUnits) + BigInt(amountBaseUnits)) {
-        throw new Error('Pantheon stake position could not be attributed exactly.');
-      }
+      const attributed = BigInt(stakeBaselineBaseUnits) > 0n
+        ? isCredTopUpAttributed({
+          stakeBaselineBaseUnits,
+          amountBaseUnits,
+          afterStakeAmountBaseUnits: after.stakeAmountBaseUnits,
+          stakeBaselineMonthIndex,
+          afterStakeMonthIndex: after.stakeMonthIndex,
+        })
+        : BigInt(after.stakeAmountBaseUnits) === BigInt(amountBaseUnits);
+      if (!attributed) throw new Error('Pantheon stake position or lock anchor could not be attributed exactly.');
       setPantheonCredState({
         ...after,
         status: 'staked',

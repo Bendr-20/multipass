@@ -6,10 +6,13 @@ import { ACCOUNT_EXECUTE_ABI } from '../src/looper-agent-wallet.js';
 import {
   CRED_ADDRESS,
   PANTHEON_STAKING_VAULT,
+  buildCredAddToStakeTransaction,
   buildCredStakeApprovalTransaction,
   buildCredStakeTransaction,
   createCredStakeDates,
   createCredStakeDatesFromMonthIndex,
+  isCredTopUpAttributed,
+  isCredTopUpEligible,
   validatePantheonCredRegistry,
 } from '../src/looper-cred-pantheon.js';
 
@@ -96,6 +99,40 @@ test('builds a separate zero-value six-month Pantheon stake call', () => {
   assert.equal(outer.args[2].slice(0, 10), '0x946debd5');
   assert.ok(outer.args[2].toLowerCase().includes(CRED_ADDRESS.slice(2).toLowerCase().padStart(64, '0')));
   assert.ok(outer.args[2].toLowerCase().endsWith('0'.repeat(64)));
+});
+
+test('builds an exact Pantheon addToStake call without resetting the lock', () => {
+  const transaction = buildCredAddToStakeTransaction({ owner: OWNER, account: ACCOUNT, amountBaseUnits: AMOUNT });
+  const outer = decodeFunctionData({ abi: ACCOUNT_EXECUTE_ABI, data: transaction.data });
+  assert.equal(outer.functionName, 'execute');
+  assert.equal(outer.args[0], PANTHEON_STAKING_VAULT);
+  assert.equal(outer.args[1], 0n);
+  assert.equal(outer.args[3], 0);
+  assert.equal(outer.args[2].slice(0, 10), '0xa43b0c8d');
+  assert.ok(outer.args[2].toLowerCase().includes(CRED_ADDRESS.slice(2).toLowerCase().padStart(64, '0')));
+  assert.equal(BigInt('0x' + outer.args[2].slice(-64)), BigInt(AMOUNT));
+});
+
+test('permits top-ups only before the final earning month and without an unstake request', () => {
+  const position = {
+    stakeAmountBaseUnits: '75', stakeMonthIndex: '681', lockMonths: '6',
+    unstakeRequestTime: '0', currentMonthIndex: '681',
+  };
+  assert.equal(isCredTopUpEligible(position), true);
+  assert.equal(isCredTopUpEligible({ ...position, currentMonthIndex: '686' }), true);
+  assert.equal(isCredTopUpEligible({ ...position, currentMonthIndex: '687' }), false);
+  assert.equal(isCredTopUpEligible({ ...position, unstakeRequestTime: '1' }), false);
+  assert.equal(isCredTopUpEligible({ ...position, lockMonths: null }), false);
+});
+
+test('attributes a top-up only when principal increases exactly and the lock anchor is unchanged', () => {
+  const expected = {
+    stakeBaselineBaseUnits: '75', amountBaseUnits: '25', afterStakeAmountBaseUnits: '100',
+    stakeBaselineMonthIndex: '681', afterStakeMonthIndex: '681',
+  };
+  assert.equal(isCredTopUpAttributed(expected), true);
+  assert.equal(isCredTopUpAttributed({ ...expected, afterStakeMonthIndex: '682' }), false);
+  assert.equal(isCredTopUpAttributed({ ...expected, afterStakeAmountBaseUnits: '101' }), false);
 });
 
 test('derives calendar-month reward and lock dates in UTC', () => {

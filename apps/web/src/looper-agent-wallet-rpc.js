@@ -818,6 +818,10 @@ export function createLooperWalletRpcClient({
         call(PANTHEON_STAKING_VAULT, PANTHEON_VIEW_ABI, 'pools', [CRED_ADDRESS]),
         call(PANTHEON_STAKING_VAULT, PANTHEON_VIEW_ABI, 'stakes', [normalizedAccount, CRED_ADDRESS]),
       ]);
+      if (anchor.timestamp === null) throw new Error('Base RPC anchor timestamp is unavailable.');
+      const blockDate = new Date(Number(BigInt(anchor.timestamp)) * 1000);
+      if (!Number.isFinite(blockDate.getTime())) throw new Error('Base RPC anchor timestamp is invalid.');
+      const currentMonthIndex = BigInt((blockDate.getUTCFullYear() - 1970) * 12 + blockDate.getUTCMonth()).toString();
       return {
         account: normalizedAccount,
         allowanceBaseUnits: BigInt(allowance).toString(),
@@ -826,8 +830,11 @@ export function createLooperWalletRpcClient({
         credBalanceBaseUnits: BigInt(balance).toString(),
         gasPayerNativeWei: BigInt(canonicalHexQuantity(gasPayerBalance, 'gas payer balance')).toString(),
         poolActive: pool[0] === true,
+        currentMonthIndex,
+        lockMonths: BigInt(stake[2]).toString(),
         stakeAmountBaseUnits: BigInt(stake[0]).toString(),
         stakeMonthIndex: BigInt(stake[7]).toString(),
+        unstakeRequestTime: BigInt(stake[5]).toString(),
         totalStakedBaseUnits: BigInt(pool[2]).toString(),
       };
     }));
@@ -957,12 +964,14 @@ async function canonicalAnchor(request) {
   const anchors = blocks.map((block) => ({
     number: canonicalHexQuantity(block.number, 'anchor block number'),
     hash: canonicalHash(block.hash, 'anchor block hash'),
+    timestamp: block.timestamp === undefined ? null : canonicalHexQuantity(block.timestamp, 'anchor block timestamp'),
   }));
   requireAgreement(anchors, 'Base RPC block hashes disagree.');
   return {
     tag,
     number: number.toString(),
     hash: anchors[0].hash,
+    timestamp: anchors[0].timestamp,
     blockRef: Object.freeze({ blockHash: anchors[0].hash, requireCanonical: true }),
   };
 }

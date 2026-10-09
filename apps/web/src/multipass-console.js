@@ -1005,7 +1005,7 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
 }
 
 function normalizePantheonCredState(value) {
-  const status = ['idle', 'loading', 'inactive', 'ready', 'approval_prepared', 'approval_submitting', 'approved', 'stake_prepared', 'stake_submitting', 'staked', 'error'].includes(value?.status)
+  const status = ['idle', 'loading', 'inactive', 'ready', 'approval_prepared', 'approval_submitting', 'approved', 'stake_prepared', 'stake_submitting', 'staked', 'staked_ineligible', 'error'].includes(value?.status)
     ? value.status
     : 'idle';
   return {
@@ -1016,6 +1016,7 @@ function normalizePantheonCredState(value) {
     credBalanceBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.credBalanceBaseUnits ?? '')) ? String(value.credBalanceBaseUnits) : '0',
     stakeAmountBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.stakeAmountBaseUnits ?? '')) ? String(value.stakeAmountBaseUnits) : '0',
     stakeBaselineBaseUnits: /^(0|[1-9]\d*)$/.test(String(value?.stakeBaselineBaseUnits ?? '')) ? String(value.stakeBaselineBaseUnits) : null,
+    stakeBaselineMonthIndex: /^(0|[1-9]\d*)$/.test(String(value?.stakeBaselineMonthIndex ?? '')) ? String(value.stakeBaselineMonthIndex) : null,
     poolActive: value?.poolActive === true,
     dates: value?.dates && ['rewardsStart', 'firstClaim', 'lockEnds'].every((key) => !Number.isNaN(Date.parse(value.dates[key])))
       ? { rewardsStart: String(value.dates.rewardsStart), firstClaim: String(value.dates.firstClaim), lockEnds: String(value.dates.lockEnds) }
@@ -1035,17 +1036,22 @@ function renderPantheonCredAction(state = {}) {
     return '<p role="alert">' + escapeHtml(state.error ?? 'Pantheon staking status is unavailable.') + '</p><button type="button" data-action="load-pantheon-cred">Retry</button>';
   }
   if (state.status === 'approval_prepared' && state.amountBaseUnits && state.preparedId) {
+    const topUp = BigInt(state.stakeAmountBaseUnits) > 0n;
     return '<form class="console-looper-wallet-send" data-action="submit-pantheon-approval">'
       + '<p>Safety checks passed. This final tap opens Base Account immediately for transaction 1 of 2.</p>'
-      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Open Base Account and approve exactly ' + escapeHtml(formatWalletUnits(state.amountBaseUnits, 18)) + ' CRED for the pinned Pantheon vault.</span></label>'
+      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Open Base Account and approve exactly ' + escapeHtml(formatWalletUnits(state.amountBaseUnits, 18)) + ' CRED for the pinned Pantheon vault' + (topUp ? ' as additional principal.' : '.') + '</span></label>'
       + '<button type="submit">Open wallet to approve</button>'
       + '<small>This prepared approval expires after 2 minutes.</small></form>';
   }
   if (state.status === 'stake_prepared' && state.amountBaseUnits && state.preparedId) {
+    const topUp = BigInt(state.stakeBaselineBaseUnits ?? '0') > 0n;
+    const lockCopy = topUp && state.dates
+      ? ' without resetting the existing ' + escapeHtml(state.dates.lockEnds.slice(0, 10)) + ' lock end.'
+      : ' for 6 calendar months.';
     return '<form class="console-looper-wallet-send" data-action="submit-pantheon-stake">'
       + '<p>Safety checks passed. This final tap opens Base Account immediately for transaction 2 of 2.</p>'
-      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Open Base Account and stake exactly ' + escapeHtml(formatWalletUnits(state.amountBaseUnits, 18)) + ' CRED for 6 calendar months.</span></label>'
-      + '<button type="submit">Open wallet to stake</button>'
+      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Open Base Account and ' + (topUp ? 'add' : 'stake') + ' exactly ' + escapeHtml(formatWalletUnits(state.amountBaseUnits, 18)) + ' CRED' + lockCopy + '</span></label>'
+      + '<button type="submit">Open wallet to ' + (topUp ? 'add CRED' : 'stake') + '</button>'
       + '<small>This prepared stake expires after 2 minutes.</small></form>';
   }
   if (state.status === 'ready') {
@@ -1057,14 +1063,26 @@ function renderPantheonCredAction(state = {}) {
       + '<small>Spender: ' + escapeHtml(PANTHEON_STAKING_VAULT) + '</small></form>';
   }
   if (state.status === 'approved' && state.amountBaseUnits) {
+    const topUp = BigInt(state.stakeAmountBaseUnits) > 0n;
     return '<form class="console-looper-wallet-send" data-action="stake-pantheon-cred">'
-      + '<p>Exact approval confirmed. Prepare and verify the separate Pantheon stake transaction.</p>'
-      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>Prepare this exact approved amount for a 6-month stake.</span></label>'
-      + '<button type="submit">Prepare stake transaction</button></form>';
+      + '<p>Exact approval confirmed. Prepare and verify the separate Pantheon ' + (topUp ? 'add-to-stake' : 'stake') + ' transaction.</p>'
+      + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>' + (topUp
+        ? 'Prepare this exact approved amount as additional principal. The existing lock end remains ' + (state.dates ? escapeHtml(state.dates.lockEnds.slice(0, 10)) + '.' : 'unchanged.')
+        : 'Prepare this exact approved amount for a 6-month stake.') + '</span></label>'
+      + '<button type="submit">Prepare ' + (topUp ? 'add-to-stake' : 'stake') + ' transaction</button></form>';
   }
-  if (state.status === 'staked') {
+  if (state.status === 'staked' || state.status === 'staked_ineligible') {
+    const topUpAction = state.status === 'staked_ineligible'
+      ? '<p>Additional CRED cannot be added because this position is exiting or has reached its final earning month.</p>'
+      : '<form class="console-looper-wallet-send" data-action="approve-pantheon-cred">'
+        + '<p><strong>Add more CRED</strong> without resetting the existing lock end. Added principal starts earning next calendar month.</p>'
+        + '<label><span>Additional amount</span><input name="amount" inputmode="decimal" autocomplete="off" required placeholder="0.0"></label>'
+        + '<label class="console-looper-wallet-confirm"><input type="checkbox" name="confirmed" required><span>I confirm this exact top-up, the 5% claim fee, and the 10% early-exit penalty. It remains locked until the existing lock end' + (state.dates ? ' (' + escapeHtml(state.dates.lockEnds.slice(0, 10)) + ')' : '') + '.</span></label>'
+        + '<button type="submit">Prepare exact CRED approval</button>'
+        + '<small>Spender: ' + escapeHtml(PANTHEON_STAKING_VAULT) + '</small></form>';
     return '<p>Active Pantheon position: <strong>' + escapeHtml(formatWalletUnits(state.stakeAmountBaseUnits, 18)) + ' CRED</strong></p>'
-      + (state.dates ? '<dl class="console-looper-wallet-truth"><div><dt>Rewards start</dt><dd>' + escapeHtml(state.dates.rewardsStart.slice(0, 10)) + '</dd></div><div><dt>First claim</dt><dd>' + escapeHtml(state.dates.firstClaim.slice(0, 10)) + '</dd></div><div><dt>Lock ends</dt><dd>' + escapeHtml(state.dates.lockEnds.slice(0, 10)) + '</dd></div></dl>' : '');
+      + (state.dates ? '<dl class="console-looper-wallet-truth"><div><dt>Rewards start</dt><dd>' + escapeHtml(state.dates.rewardsStart.slice(0, 10)) + '</dd></div><div><dt>First claim</dt><dd>' + escapeHtml(state.dates.firstClaim.slice(0, 10)) + '</dd></div><div><dt>Lock ends</dt><dd>' + escapeHtml(state.dates.lockEnds.slice(0, 10)) + '</dd></div></dl>' : '')
+      + topUpAction;
   }
   return '<p>Check the live Pantheon registry and onchain CRED pool before preparing a transaction.</p><button type="button" data-action="load-pantheon-cred">Check staking</button>';
 }

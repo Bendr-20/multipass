@@ -2656,8 +2656,9 @@ test('dedicated Console permits an active pinned pool while registry publication
   const looperWalletController = {
     getSnapshot: () => walletState,
     async select() { return walletState; },
-    async prepareCredStakeApproval(input) { calls.push(['prepareCredStakeApproval', input]); return { id: 'send:approval1' }; },
+    async prepareCredStakeApproval(input) { calls.push(['prepareCredStakeApproval', input]); return { id: calls.filter(([name]) => name === 'prepareCredStakeApproval').length === 1 ? 'send:approval1' : 'send:approval2' }; },
     async prepareCredStake(input) { calls.push(['prepareCredStake', input]); return { id: 'send:staking01' }; },
+    async prepareCredAddToStake(input) { calls.push(['prepareCredAddToStake', input]); return { id: 'send:addstake1' }; },
     async preflightPrepared(id, options) { calls.push(['preflightPrepared', id, options]); return { id }; },
     submitPreflighted(id, options) { calls.push(['submitPreflighted', id, options]); return Promise.resolve({ ...walletState, send: { state: 'confirmed_attributed' } }); },
   };
@@ -2667,7 +2668,11 @@ test('dedicated Console permits an active pinned pool while registry publication
     { account, allowanceBaseUnits: amount, credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
     { account, allowanceBaseUnits: amount, credBalanceBaseUnits: '5000000000000000000', gasPayerNativeWei: '1000000000000000', poolActive: true, stakeAmountBaseUnits: '0', stakeMonthIndex: '0', totalStakedBaseUnits: '100' },
     { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '3750000000000000000', gasPayerNativeWei: '900000000000000', poolActive: true, stakeAmountBaseUnits: amount, stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
-  ];
+    { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '3750000000000000000', gasPayerNativeWei: '900000000000000', poolActive: true, stakeAmountBaseUnits: amount, stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: '500000000000000000', credBalanceBaseUnits: '3750000000000000000', gasPayerNativeWei: '900000000000000', poolActive: true, stakeAmountBaseUnits: amount, stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: '500000000000000000', credBalanceBaseUnits: '3750000000000000000', gasPayerNativeWei: '900000000000000', poolActive: true, stakeAmountBaseUnits: amount, stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
+    { account, allowanceBaseUnits: '0', credBalanceBaseUnits: '3250000000000000000', gasPayerNativeWei: '850000000000000', poolActive: true, stakeAmountBaseUnits: '1750000000000000000', stakeMonthIndex: '681', totalStakedBaseUnits: '100' },
+  ].map((entry) => ({ currentMonthIndex: '681', lockMonths: '6', unstakeRequestTime: '0', ...entry }));
   const ownedFetch = createConsoleOwnedAgentsFetch({ tokenIds: [617] });
   const registryUrls = [];
   const fetchImpl = async (url, init) => String(url).includes('/api/multipass/console/pantheon/cred')
@@ -2719,6 +2724,41 @@ test('dedicated Console permits an active pinned pool while registry publication
   await flushAsyncEvents(20);
   assert.deepEqual(calls[5], ['submitPreflighted', 'send:staking01', { confirmed: true }]);
   assert.match(root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '', /Active Pantheon position/i);
+
+  const addMore = root.querySelector('[data-action="approve-pantheon-cred"]');
+  assert.ok(addMore, 'active positions must offer an exact-approval add-more flow');
+  assert.match(addMore.textContent, /Add more CRED|Prepare exact CRED approval/i);
+  assert.match(addMore.textContent, /5% claim fee/i);
+  assert.match(addMore.textContent, /10% early-exit penalty/i);
+  addMore.querySelector('[name="amount"]').value = '0.5';
+  addMore.querySelector('[name="confirmed"]').checked = true;
+  addMore.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[6], ['prepareCredStakeApproval', { amountBaseUnits: '500000000000000000' }]);
+  assert.deepEqual(calls[7], ['preflightPrepared', 'send:approval2', { confirmed: true }]);
+
+  const submitTopUpApproval = root.querySelector('[data-action="submit-pantheon-approval"]');
+  submitTopUpApproval.querySelector('[name="confirmed"]').checked = true;
+  submitTopUpApproval.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[8], ['submitPreflighted', 'send:approval2', { confirmed: true }]);
+  assert.match(root.querySelector('[data-action="stake-pantheon-cred"]')?.textContent ?? '', /2027-05-01/);
+
+  const prepareTopUp = root.querySelector('[data-action="stake-pantheon-cred"]');
+  prepareTopUp.querySelector('[name="confirmed"]').checked = true;
+  prepareTopUp.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[9], ['prepareCredAddToStake', { amountBaseUnits: '500000000000000000' }]);
+  assert.deepEqual(calls[10], ['preflightPrepared', 'send:addstake1', { confirmed: true }]);
+
+  const submitTopUp = root.querySelector('[data-action="submit-pantheon-stake"]');
+  submitTopUp.querySelector('[name="confirmed"]').checked = true;
+  submitTopUp.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.deepEqual(calls[11], ['submitPreflighted', 'send:addstake1', { confirmed: true }]);
+  const completed = root.querySelector('[data-wallet-action="stake-cred"]')?.textContent ?? '';
+  assert.match(completed, /1\.75 CRED/);
+  assert.match(completed, /2027-05-01/);
 });
 
 test('dedicated Console blocks unpublished CRED when the pinned onchain pool is inactive', async () => {

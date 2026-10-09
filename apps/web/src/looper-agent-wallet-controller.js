@@ -20,6 +20,7 @@ import { classifyOwnerProfile } from './looper-agent-wallet-rpc.js';
 import {
   CRED_ADDRESS,
   PANTHEON_STAKING_VAULT,
+  buildCredAddToStakeTransaction,
   buildCredStakeApprovalTransaction,
   buildCredStakeTransaction,
 } from './looper-cred-pantheon.js';
@@ -154,6 +155,20 @@ export function createLooperAgentWalletController({
     });
     return savePrepared('send', transaction, evidence, {
       semantic: { asset: 'cred_stake_approval', token: CRED_ADDRESS, vault: PANTHEON_STAKING_VAULT, amount },
+    });
+  }
+
+  async function prepareCredAddToStake({ amountBaseUnits }) {
+    requireMode('active');
+    const evidence = await readAndRequireWritable('pre_sign', 'active');
+    const amount = canonicalPositiveUint(amountBaseUnits, 'CRED stake amount');
+    const transaction = buildCredAddToStakeTransaction({
+      owner: selection.owner,
+      account: current.account,
+      amountBaseUnits: amount,
+    });
+    return savePrepared('send', transaction, evidence, {
+      semantic: { asset: 'pantheon_cred_add_to_stake', token: CRED_ADDRESS, vault: PANTHEON_STAKING_VAULT, amount },
     });
   }
 
@@ -1009,7 +1024,7 @@ export function createLooperAgentWalletController({
         && canonicalAddress(record.targetPolicyModule) === record.targetPolicyModule
         && sameAddress(record.semantic.module, record.targetPolicyModule);
     }
-    if (record.semantic.asset === 'cred_stake_approval' || record.semantic.asset === 'pantheon_cred_stake') {
+    if (record.semantic.asset === 'cred_stake_approval' || record.semantic.asset === 'pantheon_cred_stake' || record.semantic.asset === 'pantheon_cred_add_to_stake') {
       return hasExactKeys(record.semantic, ['amount', 'asset', 'token', 'vault'])
         && sameAddress(record.semantic.token, CRED_ADDRESS)
         && sameAddress(record.semantic.vault, PANTHEON_STAKING_VAULT)
@@ -1077,6 +1092,7 @@ export function createLooperAgentWalletController({
     prepareEthSend,
     prepareErc20Send,
     prepareCredStakeApproval,
+    prepareCredAddToStake,
     prepareCredStake,
     preparePolicyModule,
     submitPrepared,
@@ -1186,6 +1202,13 @@ function reconstructAttemptTransaction(record, releasedImplementation, evidenceA
   }
   if (record.semantic.asset === 'cred_stake_approval') {
     return buildCredStakeApprovalTransaction({
+      owner: record.owner,
+      account: record.account,
+      amountBaseUnits: record.semantic.amount,
+    });
+  }
+  if (record.semantic.asset === 'pantheon_cred_add_to_stake') {
+    return buildCredAddToStakeTransaction({
       owner: record.owner,
       account: record.account,
       amountBaseUnits: record.semantic.amount,

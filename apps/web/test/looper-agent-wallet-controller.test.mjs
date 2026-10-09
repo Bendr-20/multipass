@@ -13,7 +13,7 @@ import {
   createOperationScope,
   deriveLooperAccount,
 } from '../src/looper-agent-wallet.js';
-import { buildCredStakeApprovalTransaction, buildCredStakeTransaction } from '../src/looper-cred-pantheon.js';
+import { buildCredAddToStakeTransaction, buildCredStakeApprovalTransaction, buildCredStakeTransaction } from '../src/looper-cred-pantheon.js';
 import {
   createLooperAgentWalletController,
   createReadOnlyLooperWalletContext,
@@ -200,6 +200,14 @@ test('CRED staking uses separate exact approval and stake preparations with expl
   await assert.rejects(f.controller.submitPrepared(stake.id, { confirmed: false }), /confirmation/i);
   const stakeResult = await f.controller.submitPrepared(stake.id, { confirmed: true });
   assert.equal(stakeResult.send.state, 'confirmed_attributed');
+});
+
+test('CRED top-up prepares Pantheon addToStake for an existing position', async () => {
+  const existing = deployedSnapshot({ state: '2' });
+  const f = controllerFixture({ snapshots: [existing, existing] });
+  await f.controller.select({ tokenId: TOKEN_ID, owner: OWNER });
+  const topUp = await f.controller.prepareCredAddToStake({ amountBaseUnits: '125' });
+  assert.deepEqual(topUp.transaction, buildCredAddToStakeTransaction({ owner: OWNER, account: existing.account, amountBaseUnits: '125' }));
 });
 
 test('preflighted CRED submission invokes the wallet synchronously from the final user gesture', async () => {
