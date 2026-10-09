@@ -5,6 +5,7 @@ import { buildSavedRoutes, getApiBaseFromLocation, getSavedSlugFromLocation, get
 import { HelixaResolverError, loadLiveHelixaMultipass } from './live-helixa-resolver.js';
 import { fetchOwnedLooperAgents } from './loopers-console-agents.js';
 import { bindLooperMarketplace, createInitialLooperMarketplaceState, getLooperMarketplaceRoute, loadLooperMarketplaceListings, loadLooperMarketplaceSnapshot, renderLooperMarketplace } from './looper-marketplace.js';
+import { loadLooperPublicHoldings } from './looper-public-holdings.js';
 import { createClaimNonce, createMultipassFragment, importMultipassTool, logoutMultipassSession, previewGroupMultipass, refreshMultipassTool, revokeMultipassFragment, saveActivatedMultipass, saveGroupMultipass, submitManualReviewClaim, updateMultipassFragment, updateMultipassProfile, verifyClaimSignature } from './saved-multipass-api.js';
 import { bindFragmentManager, compactFragmentInput, compactFragmentPatch, mergeFragmentMutationState, renderFragmentManagerPanel } from './fragment-manager.js';
 import { bindMarketplaceConnectionManager, compactMarketplaceConnectionInput, compactMarketplaceConnectionPatch, mergeMarketplaceConnectionMutationState, renderMarketplaceConnectionManagerPanel } from './marketplace-connection-manager.js';
@@ -89,7 +90,7 @@ const SITE_MENU_LINKS = [
 
 export { getConsoleMessageIdentity };
 
-export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, pantheonCredReader, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, marketplaceTimeoutMs, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
+export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaultSaveMultipass, claimApi = defaultClaimApi, walletClient, walletSigner, fetchImpl, prefetchProfiles, ensResolver = resolveEnsAddressOnBase, looperMintClient = defaultLooperMintClient, consoleOwnerProfileResolver = resolveConsoleOwnerProfile, consoleRestapNetworkApi, restapIdempotencyKeyFactory = createConsoleRestapSendKey, restapPollDelay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)), looperWalletController, pantheonCredReader, looperWalletReleaseConfig, releasedLooperLoader = loadReleasedLooperTokenIds, marketplaceListingsLoader = loadLooperMarketplaceListings, marketplaceHoldingsLoader = loadLooperPublicHoldings, marketplaceTimeoutMs, consolePreferenceStorage = globalThis.localStorage, prepareConsoleImageImpl = prepareConsoleImage, imagePreviewFactory = createImagePreview } = {}) {
   if (!root) throw new Error('createApp requires a root element');
 
   const activeWalletClient = walletClient ?? (walletSigner ? createLegacyWalletClient(walletSigner) : createInjectedWalletClient());
@@ -2876,17 +2877,23 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     looperMarketplaceAbortController = controller;
     state = { ...state, looperMarketplace: { ...state.looperMarketplace, status: 'loading' } };
     render(root, state, handlers);
-    const snapshot = await loadLooperMarketplaceSnapshot({
-      locationUrl: new URL(window.location.href),
-      fetchImpl,
-      activationLoader: releasedLooperLoader,
-      listingsLoader: marketplaceListingsLoader,
-      signal: controller.signal,
-      timeoutMs: marketplaceTimeoutMs,
-    });
+    const detailTokenId = state.looperMarketplace.route.kind === 'detail' ? state.looperMarketplace.route.tokenId : null;
+    const [snapshot, holdings] = await Promise.all([
+      loadLooperMarketplaceSnapshot({
+        locationUrl: new URL(window.location.href),
+        fetchImpl,
+        activationLoader: releasedLooperLoader,
+        listingsLoader: marketplaceListingsLoader,
+        signal: controller.signal,
+        timeoutMs: marketplaceTimeoutMs,
+      }),
+      detailTokenId
+        ? Promise.resolve().then(() => marketplaceHoldingsLoader({ tokenId: detailTokenId, fetchImpl, signal: controller.signal })).catch(() => ({ status: 'unavailable' }))
+        : Promise.resolve(null),
+    ]);
     if (requestId !== looperMarketplaceRequestId || controller !== looperMarketplaceAbortController) return;
     looperMarketplaceAbortController = null;
-    state = { ...state, looperMarketplace: { ...state.looperMarketplace, status: 'ready', snapshot } };
+    state = { ...state, looperMarketplace: { ...state.looperMarketplace, status: 'ready', snapshot, holdings } };
     render(root, state, handlers);
   }
 
@@ -4883,7 +4890,7 @@ function renderLooperMarketplacePage(root, state, handlers = {}) {
     : null;
   root.innerHTML = `
     <div class="record-shell looper-marketplace-shell">
-      ${renderRecordHeader('Agent Collectibles')}
+      ${renderRecordHeader(state.looperMarketplace.route.kind === 'detail' ? `Activated Multipass · 8453:${state.looperMarketplace.route.tokenId}` : 'Agent Collectibles')}
       ${renderLooperMarketplace(state.looperMarketplace)}
     </div>
   `;

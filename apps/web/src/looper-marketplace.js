@@ -161,7 +161,7 @@ export function renderLooperMarketplace(state = {}) {
   if (state.status === 'loading') return renderStatus('Loading activated Loopers…', 'Verifying released accounts and current marketplace listings.', false, 'polite');
   const snapshot = state.snapshot;
   if (!snapshot || snapshot.activationStatus !== 'available') return renderStatus('Activated roster unavailable', 'The verified activation source could not be loaded. No partial roster is shown.', true);
-  if (state.route?.kind === 'detail') return renderDetail(snapshot, state.route.tokenId);
+  if (state.route?.kind === 'detail') return renderDetail(snapshot, state.route.tokenId, state.holdings);
   return renderList(snapshot, state);
 }
 
@@ -315,14 +315,79 @@ function renderCard(item, listingsUnavailable) {
   return '<article class="looper-marketplace-card"><a class="looper-marketplace-image" href="' + escapeAttribute(item.detailHref) + '"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(item.tokenId) + '" loading="lazy" decoding="async"></a><div class="looper-marketplace-card-body"><div class="looper-marketplace-card-title"><h2>Looper #' + escapeHtml(item.tokenId) + '</h2><span>Agent collectible</span></div><p class="looper-marketplace-price">' + listingText + '</p><div class="looper-marketplace-actions"><a href="' + escapeAttribute(item.detailHref) + '">View Multipass</a>' + openSea + '</div></div></article>';
 }
 
-function renderDetail(snapshot, tokenId) {
+function renderDetail(snapshot, tokenId, holdings) {
   const item = snapshot.items.find((entry) => entry.tokenId === tokenId);
   if (!item) return renderStatus('Looper unavailable', 'This canonical token ID is not in the verified activated roster.', false, null, true);
   const listingUnavailable = snapshot.listingsStatus !== 'available';
   const listingText = item.listing ? escapeHtml(item.listing.amount + ' ' + item.listing.currency) : (listingUnavailable ? 'Listing unavailable' : 'Not listed');
   const external = item.listing ? '<a href="' + escapeAttribute(item.listing.itemUrl) + '" target="_blank" rel="noopener noreferrer">View on OpenSea</a>' : '';
   const freshness = snapshot.observedAt ? escapeHtml(snapshot.feedStatus + ' · ' + snapshot.observedAt) : 'Unavailable';
-  return '<article class="looper-marketplace-detail"><a class="looper-marketplace-back" href="' + LOOPERS_MARKETPLACE_PATH + '">Back to marketplace</a>' + (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning">Marketplace data is stale. Confirm on OpenSea.</p>' : '') + '<div class="looper-marketplace-detail-grid"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(tokenId) + '" loading="lazy" decoding="async"><div><p class="eyebrow">ONCHAIN AGENT // BASE</p><h1>Looper #' + escapeHtml(tokenId) + '</h1><dl><div><dt>Activation</dt><dd>Activated</dd></div><div><dt>Listing</dt><dd>' + listingText + '</dd></div><div><dt>Freshness</dt><dd>' + freshness + '</dd></div></dl><div class="looper-marketplace-actions">' + external + '</div></div></div></article>';
+  const walletAvailable = isAvailableHoldings(holdings);
+  const walletPill = walletAvailable ? 'Wallet verified' : 'Wallet unavailable';
+  return '<article class="looper-marketplace-detail looper-multipass-profile">' +
+    '<a class="looper-marketplace-back" href="' + LOOPERS_MARKETPLACE_PATH + '">Back to marketplace</a>' +
+    (snapshot.feedStatus === 'stale' ? '<p class="looper-marketplace-warning">Marketplace data is stale. Confirm on OpenSea.</p>' : '') +
+    '<section class="looper-multipass-profile-card" aria-labelledby="looper-multipass-title">' +
+      '<div class="looper-multipass-visual"><img src="' + escapeAttribute(item.imageUrl) + '" alt="Looper #' + escapeAttribute(tokenId) + '" loading="eager" decoding="async"></div>' +
+      '<div class="looper-multipass-identity"><p class="eyebrow">VISUAL</p><h1 id="looper-multipass-title">Looper #' + escapeHtml(tokenId) + '</h1>' +
+        '<div class="looper-multipass-pills"><span class="looper-multipass-pill">8453:' + escapeHtml(tokenId) + '</span><span class="looper-multipass-pill">Activated</span><span class="looper-multipass-pill">' + walletPill + '</span></div>' +
+      '</div>' +
+    '</section>' +
+    '<section class="looper-multipass-drawers" aria-label="Looper Multipass details">' +
+      renderWalletHoldingsDrawer(holdings) +
+      renderLooperProfileDrawer('marketplace', 'Marketplace status', 'LIVE LISTING CONTEXT', listingText, '<dl class="looper-multipass-facts"><div><dt>Listing</dt><dd>' + listingText + '</dd></div><div><dt>Freshness</dt><dd>' + freshness + '</dd></div></dl><div class="looper-marketplace-actions">' + external + '</div>') +
+      renderLooperProfileDrawer('ownership', 'Ownership and management', 'PUBLIC ONCHAIN AUTHORITY', walletAvailable ? 'PUBLIC' : 'UNAVAILABLE', renderOwnershipFacts(holdings, tokenId)) +
+      renderLooperProfileDrawer('proof', 'Public proof', 'ACTIVATION AND CHAIN EVIDENCE', 'BASE', '<dl class="looper-multipass-facts"><div><dt>Network</dt><dd>Base · chain 8453</dd></div><div><dt>Token</dt><dd>Looper #' + escapeHtml(tokenId) + '</dd></div><div><dt>Activation</dt><dd>Verified activated account</dd></div><div><dt>Roster source</dt><dd>' + escapeHtml(snapshot.activationSource ?? 'verified source') + '</dd></div></dl>') +
+    '</section>' +
+    '<p class="looper-multipass-safety">Public onchain profile. Viewing cannot move assets, approve transactions, or change wallet authority.</p>' +
+  '</article>';
+}
+
+function renderWalletHoldingsDrawer(holdings) {
+  if (!isAvailableHoldings(holdings)) {
+    return renderLooperProfileDrawer('wallet-holdings', 'Wallet holdings', 'PUBLIC ERC-6551 ASSETS', 'UNAVAILABLE', '<p class="looper-multipass-empty">Public wallet holdings could not be verified across both Base RPC providers.</p>', true);
+  }
+  const native = formatPublicBalance(holdings.native.balanceBaseUnits, holdings.native.decimals, holdings.native.symbol);
+  const tokens = holdings.tokens.map((token) => formatPublicBalance(token.balanceBaseUnits, token.decimals, token.symbol));
+  const stat = [native, ...tokens].join(' · ');
+  const balances = [holdings.native, ...holdings.tokens].map((asset) => '<div><dt>' + escapeHtml(asset.symbol) + '</dt><dd>' + escapeHtml(formatPublicBalance(asset.balanceBaseUnits, asset.decimals, asset.symbol)) + '</dd></div>').join('');
+  return renderLooperProfileDrawer('wallet-holdings', 'Wallet holdings', 'PUBLIC ERC-6551 ASSETS', stat,
+    '<dl class="looper-multipass-facts looper-multipass-balances">' + balances + '</dl>' +
+    '<dl class="looper-multipass-facts looper-multipass-addresses"><div><dt>Activated wallet</dt><dd><a href="https://basescan.org/address/' + escapeAttribute(holdings.account) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(holdings.account) + '</a></dd></div><div><dt>Current NFT holder</dt><dd><a href="https://basescan.org/address/' + escapeAttribute(holdings.holder) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(holdings.holder) + '</a></dd></div><div><dt>Verified at</dt><dd>Base block ' + escapeHtml(Number(holdings.observedBlock).toLocaleString('en-US')) + '</dd></div></dl>', true);
+}
+
+function renderOwnershipFacts(holdings, tokenId) {
+  if (!isAvailableHoldings(holdings)) return '<p class="looper-multipass-empty">Onchain owner and activated wallet context unavailable.</p>';
+  return '<dl class="looper-multipass-facts"><div><dt>Multipass ID</dt><dd>8453:' + escapeHtml(tokenId) + '</dd></div><div><dt>NFT holder</dt><dd>' + escapeHtml(holdings.holder) + '</dd></div><div><dt>Agent wallet</dt><dd>' + escapeHtml(holdings.account) + '</dd></div><div><dt>Access</dt><dd>Public read only</dd></div></dl>';
+}
+
+function renderLooperProfileDrawer(key, title, subtitle, stat, body, open = false) {
+  return '<details class="looper-multipass-drawer" data-looper-profile-drawer="' + escapeAttribute(key) + '"' + (open ? ' open' : '') + '><summary><span><strong>' + escapeHtml(title) + '</strong><small>' + escapeHtml(subtitle) + '</small></span><span class="looper-multipass-drawer-stat">' + escapeHtml(stat) + '</span><i aria-hidden="true">›</i></summary><div class="looper-multipass-drawer-body">' + body + '</div></details>';
+}
+
+function isAvailableHoldings(value) {
+  return value?.status === 'available'
+    && /^0x[0-9a-fA-F]{40}$/u.test(String(value.account ?? ''))
+    && /^0x[0-9a-fA-F]{40}$/u.test(String(value.holder ?? ''))
+    && value.native?.symbol === 'ETH'
+    && value.native?.decimals === 18
+    && CANONICAL_UINT.test(String(value.native?.balanceBaseUnits ?? ''))
+    && Array.isArray(value.tokens)
+    && value.tokens.length <= 8
+    && value.tokens.every((token) => /^[A-Z0-9]{1,10}$/u.test(String(token?.symbol ?? '')) && Number.isInteger(token.decimals) && token.decimals >= 0 && token.decimals <= 36 && CANONICAL_UINT.test(String(token.balanceBaseUnits ?? '')))
+    && Number.isSafeInteger(value.observedBlock)
+    && value.observedBlock > 0;
+}
+
+function formatPublicBalance(baseUnits, decimals, symbol) {
+  const raw = BigInt(baseUnits).toString().padStart(decimals + 1, '0');
+  const integer = decimals ? (raw.slice(0, -decimals) || '0') : raw;
+  const exactFraction = decimals ? raw.slice(-decimals).replace(/0+$/u, '') : '';
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+  if (!exactFraction) return grouped + ' ' + symbol;
+  const visibleFraction = exactFraction.slice(0, 6);
+  if (integer === '0' && Number(visibleFraction) === 0) return '<0.' + '0'.repeat(Math.min(5, Math.max(decimals - 1, 0))) + '1 ' + symbol;
+  return grouped + '.' + visibleFraction + (exactFraction.length > visibleFraction.length ? '…' : '') + ' ' + symbol;
 }
 
 function renderStatus(title, body, retry, live = null, back = false) {

@@ -25,6 +25,7 @@ test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve 
         contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', status: 'fresh',
         observed_at: '2026-10-08T14:00:00.000Z', listings: [],
       }),
+      marketplaceHoldingsLoader: async () => ({ status: 'unavailable' }),
     });
     await app.start();
     assert.equal(demoCalls, 0);
@@ -35,6 +36,28 @@ test('exact Looper marketplace routes bypass AgentDNA/demo loading and preserve 
   const app = createApp({ root, loadDemo: async () => sampleData() });
   await app.start();
   assert.match(root.textContent, /Public agents|Agent gallery/i);
+});
+
+test('Looper detail loads public holdings and uses the main Multipass profile header', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/the-loop/617');
+  let holdingsCalls = 0;
+  const app = createApp({
+    root,
+    releasedLooperLoader: async () => ({ status: 'available', tokenIds: new Set(['617']) }),
+    marketplaceListingsLoader: async () => ({ schema_version: '1.0.0', collection: 'loopers-639312714', contract: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', status: 'fresh', observed_at: '2026-10-08T14:00:00.000Z', listings: [] }),
+    marketplaceHoldingsLoader: async ({ tokenId }) => {
+      holdingsCalls += 1;
+      assert.equal(tokenId, '617');
+      return { status: 'available', account: '0x2222222222222222222222222222222222222222', holder: '0x1111111111111111111111111111111111111111', native: { symbol: 'ETH', decimals: 18, balanceBaseUnits: '1000000000000000000' }, tokens: [{ symbol: 'CRED', decimals: 18, balanceBaseUnits: '2' }], observedBlock: 52_357_612 };
+    },
+  });
+  await app.start();
+  assert.equal(holdingsCalls, 1);
+  assert.match(root.querySelector('.header-meta')?.textContent ?? '', /Activated Multipass · 8453:617/u);
+  const holdingsText = root.querySelector('[data-looper-profile-drawer="wallet-holdings"]')?.textContent ?? '';
+  assert.match(holdingsText, /1 ETH/u);
+  assert.match(holdingsText, /<0.000001 CRED/u);
+  assert.match(root.textContent, /Wallet verified/u);
 });
 
 test('Looper marketplace search preserves focus and selection through multi-digit DOM input', async () => {

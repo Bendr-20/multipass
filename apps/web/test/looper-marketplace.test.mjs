@@ -308,10 +308,22 @@ test('renderer covers loading stale unavailable empty cards and safe links witho
   const empty = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'list', tokenId: null }), status: 'ready', snapshot: joinLooperMarketplaceSnapshot({ activation: activation('617'), listings: feed([]) }) }); assert.match(empty, /No listed activated Loopers/);
 });
 
-test('detail renders non-3802 token and safe missing/invalid states', () => {
+test('detail matches the main Multipass profile structure and shows public wallet holdings', () => {
   const snapshot = joinLooperMarketplaceSnapshot({ activation: activation('617'), listings: feed([listing('617', '1')]) });
-  const root = domRoot(); root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'detail', tokenId: '617' }), status: 'ready', snapshot });
-  assert.match(root.textContent, /Looper #617/); assert.match(root.textContent, /Activated/); assert.ok(root.querySelector('a[href="/multipass/the-loop"]')); assert.ok(root.querySelector('img[src="https://helixa.xyz/loopers/images/617.png"]'));
+  const holdings = { status: 'available', account: '0x2222222222222222222222222222222222222222', holder: '0x1111111111111111111111111111111111111111', native: { symbol: 'ETH', decimals: 18, balanceBaseUnits: '1250000000000000000' }, tokens: [{ symbol: 'CRED', decimals: 18, balanceBaseUnits: '4000000000000000000000000' }], observedBlock: 52_357_612, accountExplorerUrl: 'https://basescan.org/address/0x2222222222222222222222222222222222222222', holderExplorerUrl: 'https://basescan.org/address/0x1111111111111111111111111111111111111111' };
+  const root = domRoot(); root.innerHTML = renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'detail', tokenId: '617' }), status: 'ready', snapshot, holdings });
+  assert.ok(root.querySelector('.looper-multipass-profile-card'));
+  assert.equal(root.querySelector('.looper-multipass-identity h1')?.textContent, 'Looper #617');
+  assert.deepEqual([...root.querySelectorAll('.looper-multipass-pill')].map((node) => node.textContent), ['8453:617', 'Activated', 'Wallet verified']);
+  const holdingsDrawer = root.querySelector('[data-looper-profile-drawer="wallet-holdings"]');
+  assert.ok(holdingsDrawer?.open);
+  assert.match(holdingsDrawer.textContent, /Wallet holdings/);
+  assert.match(holdingsDrawer.textContent, /1.25 ETH/);
+  assert.match(holdingsDrawer.textContent, /4,000,000 CRED/);
+  assert.match(holdingsDrawer.textContent, /Current NFT holder/);
+  assert.ok(holdingsDrawer.querySelector('a[href="https://basescan.org/address/0x2222222222222222222222222222222222222222"]'));
+  assert.ok(root.querySelector('a[href="/multipass/the-loop"]'));
+  assert.ok(root.querySelector('img[src="https://helixa.xyz/loopers/images/617.png"]'));
   assert.match(renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'detail', tokenId: '618' }), status: 'ready', snapshot }), /Looper unavailable/);
   assert.match(renderLooperMarketplace({ ...createInitialLooperMarketplaceState({ kind: 'invalid', tokenId: null }), status: 'invalid' }), /Looper route not found/);
 });
