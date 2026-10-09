@@ -2696,6 +2696,7 @@ test('dedicated Console permits an active pinned pool while registry publication
   assert.equal(registryUrls[0], '/multipass-api/api/multipass/console/pantheon/cred');
   const approve = root.querySelector('[data-action="approve-pantheon-cred"]');
   assert.ok(approve);
+  root.querySelector('[data-wallet-action="stake-cred"]').open = true;
   approve.querySelector('[name="amount"]').value = '1.25';
   approve.querySelector('[name="confirmed"]').checked = true;
   approve.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -2704,6 +2705,7 @@ test('dedicated Console permits an active pinned pool while registry publication
   assert.deepEqual(calls[1], ['preflightPrepared', 'send:approval1', { confirmed: true }]);
   const submitApproval = root.querySelector('[data-action="submit-pantheon-approval"]');
   assert.ok(submitApproval);
+  assert.equal(root.querySelector('[data-wallet-action="stake-cred"]')?.open, true, 'the prepared wallet-opening action must stay visible after rerender');
   submitApproval.querySelector('[name="confirmed"]').checked = true;
   submitApproval.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);

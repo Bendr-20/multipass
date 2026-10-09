@@ -873,6 +873,14 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
   const canStakeCred = canSend && (wallet.tokens ?? []).some(
     (token) => normalizeWalletAddress(token.contract) === normalizeWalletAddress(CRED_ADDRESS),
   );
+  const keepPantheonCredOpen = new Set([
+    'approval_prepared',
+    'approval_submitting',
+    'approved',
+    'stake_prepared',
+    'stake_submitting',
+    'error',
+  ]).has(wallet.pantheonCred.status);
   const canRecoverPolicy = Boolean(wallet.policyRecoveryAllowed);
   const reasonCopy = wallet.reason ? formatWalletReason(wallet.reason) : null;
   const controlState = wallet.mode === 'active' && wallet.canTransact
@@ -926,7 +934,7 @@ function renderLooperAgentWallet(wallet, { workspace = false } = {}) {
             </form>
           </div>
         </details>` : ''}
-        ${canStakeCred ? `<details class="console-looper-wallet-action" data-wallet-action="stake-cred">
+        ${canStakeCred ? `<details class="console-looper-wallet-action" data-wallet-action="stake-cred"${keepPantheonCredOpen ? ' open' : ''}>
           <summary><span>Stake CRED</span><small>6-month Pantheon lock</small></summary>
           <div class="console-looper-wallet-action-body">
             ${renderPantheonCredAction(wallet.pantheonCred)}
