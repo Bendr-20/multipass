@@ -9,6 +9,8 @@ import {
   selectBaseAccountIdentityAddress,
   createPrivyWalletClient,
   createPrivySignMessageAction,
+  createPrivyRequestAction,
+  createPrivySendTransactionAction,
   classifyPrivyWalletProfile,
   getAddressFromPrivyConnectResult,
   isPrivyWalletUsableInBrowser,
@@ -103,6 +105,37 @@ test('prepared Base Account signer starts personal_sign synchronously inside the
   assert.deepEqual(await pending, { wallet: baseAccount.address, signature: '0xbase-signature' });
 });
 
+test('prepared Base Account provider handles Looper transaction and chain requests without the stale proxy', async () => {
+  const calls = [];
+  const address = '0x27e3286c2c1783f67d06f2ff4e3ab41f8e1c91ea';
+  const hash = '0x' + 'ab'.repeat(32);
+  const baseAccount = {
+    address,
+    walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID,
+    async getEthereumProvider() {
+      throw new Error('Base Account transaction must use the prepared SDK provider');
+    },
+  };
+  const provider = {
+    async request(payload) {
+      calls.push(payload);
+      return payload.method === 'eth_sendTransaction' ? hash : '0x2105';
+    },
+  };
+  const client = createPrivyWalletClient();
+  client.setSignableWallet(baseAccount);
+  client.setPreparedSigningProvider(baseAccount, provider);
+  const transaction = {
+    chainId: '0x2105', from: address, to: '0x9999999999999999999999999999999999999999', value: '0x0', data: '0x1234',
+  };
+
+  assert.equal(await createPrivyRequestAction({ client })({ method: 'eth_chainId' }), '0x2105');
+  assert.equal(await createPrivySendTransactionAction({ client })(transaction), hash);
+  assert.deepEqual(calls, [
+    { method: 'eth_chainId' },
+    { method: 'eth_sendTransaction', params: [transaction] },
+  ]);
+});
 test('Privy wallet profile identifies Base Account and smart-wallet metadata without deciding onchain readiness', () => {
   assert.deepEqual(classifyPrivyWalletProfile({ walletClientType: PRIVY_BASE_ACCOUNT_WALLET_ID }), {
     kind: 'smart_or_delegated',

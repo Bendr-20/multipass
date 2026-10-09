@@ -130,9 +130,9 @@ export function classifyPrivyWalletProfile(wallet) {
   };
 }
 
-export async function submitPrivyLooperTransaction(wallet, transaction) {
+export async function submitPrivyLooperTransaction(wallet, transaction, { provider: preparedProvider } = {}) {
   if (!wallet) throw new Error('Connected wallet cannot submit transactions.');
-  const provider = await wallet.getEthereumProvider?.();
+  const provider = preparedProvider ?? await wallet.getEthereumProvider?.();
   if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
   const exactKeys = Object.keys(transaction ?? {}).sort().join(',');
   if (exactKeys !== 'chainId,data,from,to,value' || transaction.chainId !== '0x2105' || transaction.value !== '0x0') {
@@ -207,6 +207,22 @@ export function createPrivySignMessageAction({ client } = {}) {
   };
 }
 
+export function createPrivyRequestAction({ client } = {}) {
+  return async function request(payload) {
+    const prepared = await client.waitForPreparedSigningProvider();
+    if (typeof prepared?.provider?.request !== 'function') {
+      throw new Error('Connected wallet cannot submit transactions.');
+    }
+    return prepared.provider.request(payload);
+  };
+}
+
+export function createPrivySendTransactionAction({ client } = {}) {
+  return async function sendTransaction(transaction) {
+    const prepared = await client.waitForPreparedSigningProvider();
+    return submitPrivyLooperTransaction(prepared.wallet, transaction, { provider: prepared.provider });
+  };
+}
 export function prepareWalletSigningProvider(wallet, { baseAccountSdk } = {}) {
   if (
     wallet?.walletClientType === PRIVY_BASE_ACCOUNT_WALLET_ID
@@ -489,13 +505,8 @@ export function PrivyWalletBridge({ client, configured }) {
         });
       },
       signMessage: createPrivySignMessageAction({ client }),
-      sendTransaction: async (transaction) => submitPrivyLooperTransaction(await client.waitForSignableWallet(), transaction),
-      request: async (payload) => {
-        const wallet = await client.waitForSignableWallet();
-        const provider = await wallet.getEthereumProvider();
-        if (typeof provider?.request !== 'function') throw new Error('Connected wallet cannot submit transactions.');
-        return provider.request(payload);
-      },
+      sendTransaction: createPrivySendTransactionAction({ client }),
+      request: createPrivyRequestAction({ client }),
     });
   }, [client, configured, connectWallet, connectBaseAccount, preferBaseAccount, logout, wallets]);
 
