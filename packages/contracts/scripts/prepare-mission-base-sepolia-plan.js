@@ -293,7 +293,7 @@ async function readConsensus(requestedAnchor) {
   const heads = await Promise.all(clients.map(({ request }) => request('eth_blockNumber', []))).then((values) => values.map((value) => Number(BigInt(value))));
   if (Math.max(...heads) - Math.min(...heads) > 6) throw new Error('Base Sepolia RPC heads differ by more than six blocks.');
   const anchorNumber = requestedAnchor ?? Math.min(...heads) - CONFIRMATIONS;
-  if (!Number.isSafeInteger(anchorNumber) || anchorNumber <= 0 || anchorNumber > Math.min(...heads)) throw new Error('Invalid Base Sepolia anchor.');
+  if (!Number.isSafeInteger(anchorNumber) || anchorNumber <= 0 || anchorNumber > Math.min(...heads) - CONFIRMATIONS) throw new Error('Base Sepolia anchor lacks required confirmation depth.');
   const anchorHex = ethers.toQuantity(anchorNumber);
   const [blocks, deployerCodes, deployerNonces, pendingNonces, balances, singletonCodes, factoryCodes, versions, proxyCodes] = await Promise.all([
     Promise.all(clients.map(({ request }) => request('eth_getBlockByNumber', [anchorHex, false]))),
@@ -397,6 +397,7 @@ export function validateLiveDeploymentPlan(plan) {
   });
   if (plan.simulation?.earlyActivationRejected !== true || plan.simulation?.activationSucceededAfterDelay !== true || plan.simulation?.externalBroadcast !== false) throw new Error('Pinned-fork lifecycle evidence missing.');
   if (plan.liveReadiness?.status !== 'approval_required') throw new Error('Broadcast approval boundary missing.');
+  if (!Number.isFinite(Date.parse(plan.liveReadiness.validUntil)) || Date.parse(plan.liveReadiness.validUntil) <= Date.now()) throw new Error('Live plan has expired and must be refreshed.');
   const forbidden = findForbiddenKey(plan);
   if (forbidden) throw new Error('Forbidden secret-bearing field: ' + forbidden + '.');
   return true;

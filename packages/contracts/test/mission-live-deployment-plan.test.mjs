@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { validateLiveDeploymentPlan } from '../scripts/prepare-mission-base-sepolia-plan.js';
+import { prepareLiveDeploymentPlan, validateLiveDeploymentPlan } from '../scripts/prepare-mission-base-sepolia-plan.js';
 
 const ARTIFACT = new URL('../../../review-artifacts/looper-missions/external-proof/base-sepolia-live-plan.json', import.meta.url);
 
 test('live Base Sepolia plan is byte-committed, unsigned, dual-RPC pinned, and separately blocks broadcast', async () => {
   const artifact = JSON.parse(await readFile(ARTIFACT, 'utf8'));
+  const regenerated = await prepareLiveDeploymentPlan({ anchorNumber: artifact.rpcConsensus.anchor.number });
+  assert.equal(JSON.stringify(regenerated), JSON.stringify(artifact));
   assert.doesNotThrow(() => validateLiveDeploymentPlan(artifact));
   assert.equal(artifact.status, 'live_no_broadcast_simulation_passed');
   assert.equal(artifact.externalBroadcast, false);
