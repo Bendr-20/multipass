@@ -38,6 +38,10 @@ export interface SavedRecordsStore extends MemoryStore {
   updatePublicProfile(identifier: string, edits?: Record<string, unknown>, input?: Record<string, unknown>): unknown;
 }
 
+export interface SwarmLaunchExecutionPreviewRequest { beneficiaries: readonly { tokenId: string; beneficiary: string }[]; recipients: { credRewards: string; swarmTreasury: string; publicDistribution: string }; revenueAssets: readonly string[]; }
+export interface SwarmLaunchExecutionPreview { packet: Readonly<Record<string, unknown>>; packetSha256: string; }
+export interface SwarmLaunchConsentService { createProposal(input: Record<string, unknown>): Promise<unknown>; readProposal(input: Record<string, unknown>): Promise<unknown>; createReadinessPacket(input: Record<string, unknown>): Promise<unknown>; createExecutionPreview(input: { actorAddress: string; proposalId: string; input: SwarmLaunchExecutionPreviewRequest }): Promise<SwarmLaunchExecutionPreview>; readChallenge(input: Record<string, unknown>): Promise<unknown>; recordConsent(input: Record<string, unknown>): Promise<unknown>; }
+
 export type SignatureVerifier = (input: { wallet: string; message: string; signature: string }) => boolean | Promise<boolean>;
 
 export interface LooperCodexRuntime {
@@ -63,7 +67,7 @@ export interface MultipassApiOptions {
   baseUrl?: string;
   savedRecords?: SavedRecordsStore;
   missionService?: MissionService;
-  swarmLaunchConsentService?: { createProposal(input: Record<string, unknown>): Promise<unknown>; readProposal(input: Record<string, unknown>): Promise<unknown>; createReadinessPacket(input: Record<string, unknown>): Promise<unknown>; readChallenge(input: Record<string, unknown>): Promise<unknown>; recordConsent(input: Record<string, unknown>): Promise<unknown> };
+  swarmLaunchConsentService?: SwarmLaunchConsentService;
   activationService?: (agent: string) => Promise<unknown> | unknown;
   allowedOrigins?: string[];
   adminSecret?: string | null;

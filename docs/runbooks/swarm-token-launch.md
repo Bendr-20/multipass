@@ -10,9 +10,24 @@ This runbook covers deterministic packet generation and read-only verification o
 - The generator and verifier do not expose an RPC send path. The verifier allows only `eth_chainId`, `eth_getCode`, and `eth_call`.
 - Do not add external adapter data, wallet invocation, live signature collection, or database persistence to this workflow.
 
+## Twigpine workspace preparation contract
+
+Every launch manifest and readiness packet binds a closed `multipass.swarm-workspace.v1` section into its canonical SHA-256 lineage. This is a declaration of required collaboration controls, not live repository provisioning:
+
+- exactly one Twigpine repository per swarm, with a bounded slug, `main` as both the default and protected branch, and `NOT_PROVISIONED` status;
+- `PUBLIC` visibility by default; `PRIVATE` is node-operator-enforced and does not federate, while `WITHHELD` can encrypt selected paths but GLIP-09 leaves its client-versus-node encryption point implementation-sensitive;
+- one unique Ed25519 `did:key` identity per Looper member, in roster order, with shared keys prohibited;
+- signed pushes, repository certificates, pull-request provenance, and review provenance all required and initially `NOT_VERIFIED`;
+- optional, bounded GitHub mirror owner/repository metadata only—never credentials or executable adapter data;
+- scoped, expiring UCAN delegation for the canonical `git/fetch`, `git/push`, `pr/open`, and `pr/review` actions is required for production, but Twigpine GLIP-10 is currently spec-ahead-of-code. Current push authorization is owner-only, so the manifest records `capabilityStatus: REQUIRED_UNAVAILABLE` and readiness carries `ENABLE_SCOPED_EXPIRING_UCAN_DELEGATION` as a blocking gate.
+
+The server rejects unknown workspace fields, alternate providers/branches/policies, shared or malformed identities, unsafe slugs, unbounded mirror metadata, and any claim that UCAN delegation is already available. Readiness additionally requires `PROVISION_TWIGPINE_REPOSITORY` and `VERIFY_TWIGPINE_CERTIFICATES_AND_PROVENANCE`. Do not install `gl`, generate keys, call Twigpine, create a repository, or mirror/push from this preparation workflow.
+
+Git authority is deliberately separate from execution authority. Git state, signatures, certificates, pull requests, and reviews never authorize a wallet, transaction, deployment, token launch, or financial execution. Swarm Command's separate execution-consent flow remains authoritative.
+
 ## Execution-plan prerequisites
 
-Start from the immutable canonical `multipass.swarm-launch-readiness.v1` artifact and its exact `multipass.swarm-launch.v1` consent-manifest ancestor. The generator verifies both SHA-256 links and every member consent authority, token ID, contribution weight, allocation, and vesting-month field. A reviewed `multipass.swarm-launch-execution-conversion.v1` child binds the exact parent readiness hash and resolves only the execution details absent from the immutable parent:
+Start from the immutable canonical `multipass.swarm-launch-readiness.v2` artifact and its exact `multipass.swarm-launch.v2` consent-manifest ancestor. The generator verifies both SHA-256 links and every member consent authority, token ID, contribution weight, allocation, and vesting-month field. A reviewed `multipass.swarm-launch-execution-conversion.v1` child binds the exact parent readiness hash and resolves only the execution details absent from the immutable parent:
 
 1. Token name, symbol, 18 decimals, and fixed base-unit supply.
 2. Four allocation bps values totaling exactly 10,000. Defaults are 4,500 agent vesting / 1,500 CRED-staker rewards / 1,500 swarm treasury / 2,500 public distribution, but the signed readiness values control.

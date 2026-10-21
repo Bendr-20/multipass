@@ -61,7 +61,7 @@ import { createConsoleRestapNetworkApi } from './console-restap-network-api.js';
 import { createMissionApi } from './missions/api.js';
 import { bindMissionBoard } from './missions/mission-board.js';
 import { bindMissionEditor } from './missions/mission-editor.js';
-import { SWARM_LAUNCH_DEFAULT_ECONOMICS, bindSwarmLaunchpad, normalizeSwarmLaunchRequestForm } from './missions/swarm-launchpad.js';
+import { SWARM_LAUNCH_DEFAULT_ECONOMICS, bindSwarmLaunchpad, normalizeSwarmLaunchExecutionReviewForm, normalizeSwarmLaunchRequestForm, validateSwarmLaunchExecutionPreview } from './missions/swarm-launchpad.js';
 import { beginConsoleRestapNetworkLoad, clearConsoleRestapNetworkSelection, createInitialConsoleRestapNetworkState, failConsoleRestapNetworkLoad, getConsoleRestapNetworkSendFingerprint, normalizeConsoleRestapNetworkSendDraft, normalizeConsoleRestapNetworkPolicyDraft, resolveConsoleRestapNetworkLoad } from './console-restap-network.js';
 import { renderRuntimeSubmission } from './runtime-submission.js';
 import { SWARM_ADMIN_ACTIVATION, bindSwarmAdmin, createInitialSwarmAdminState, readSwarmActivationState, renderSwarmAdmin, submitSwarmActivationApproval } from './swarm-admin.js';
@@ -142,6 +142,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   let consoleRestapNetworkAbortController = null;
   let consoleRestapNetworkMutationAbortController = null;
   let consoleMissionAbortController = null;
+  let consoleLaunchExecutionAbortController = null;
   const consoleCodexCache = new Map();
   let consoleCodexArtifactHash = null;
   let preparedConsoleChallenge = null;
@@ -156,6 +157,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     consoleImagePreview?.clear();
   };
   const clearConsoleSessionStateWithPreview = (currentState, options) => {
+    consoleLaunchExecutionAbortController?.abort();
+    consoleLaunchExecutionAbortController = null;
     consoleRestapNetworkAbortController?.abort();
     consoleRestapNetworkAbortController = null;
     consoleRestapNetworkMutationAbortController?.abort();
@@ -1968,7 +1971,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const view = String(event?.currentTarget?.dataset?.consoleView ?? '').trim();
     if (!['chat', 'wallet', 'multipass', 'codex', 'network', 'missions'].includes(view)) return;
     if (view !== 'missions' && !state.consoleSelectedAgentId) return;
-    state = { ...state, consoleWorkspaceView: view };
+    if (view !== 'missions') abortConsoleLaunchExecutionPreview();
+    state = { ...state, consoleWorkspaceView: view, ...(view === 'missions' ? {} : { consoleLaunchpad: { ...state.consoleLaunchpad, requestId: (state.consoleLaunchpad?.requestId ?? 0) + 1 } }) };
     render(root, state, handlers);
     if (view === 'missions' && ['idle', 'disabled', 'error'].includes(state.consoleMissions?.status)) void loadConsoleMissions();
   }
@@ -2005,6 +2009,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   function openConsoleLaunchpad() {
+    abortConsoleLaunchExecutionPreview();
     const agents = Array.isArray(state.consoleOwnedAgents?.agents) ? state.consoleOwnedAgents.agents : [];
     const requestedIds = [...new Set([state.consoleSelectedAgentId, ...(state.consoleParticipantAgentIds ?? [])].filter(Boolean).map(String))].slice(0, 5);
     const selected = requestedIds.map((tokenId) => agents.find((agent) => String(agent?.tokenId ?? '') === tokenId)).filter(Boolean);
@@ -2101,6 +2106,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function createConsoleLaunchReadiness() {
+    abortConsoleLaunchExecutionPreview();
     const proposalId = state.consoleLaunchpad?.proposal?.proposalId;
     if (!proposalId || state.consoleLaunchpad?.proposal?.status !== 'SIGNATURES_COLLECTED' || !state.consoleCsrfToken) return;
     try {
@@ -2108,8 +2114,50 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const response = await activeMissionApi.createLaunchReadiness({ proposalId, csrfToken: state.consoleCsrfToken });
       const readiness = response.readiness;
       if (readiness?.packet?.execution?.mode !== 'SIMULATION_ONLY' || readiness?.packet?.execution?.deploymentAuthorized !== false || readiness?.packet?.execution?.providerSelected !== false || !/^0x[0-9a-f]{64}$/u.test(readiness?.packetSha256 ?? '')) throw new Error('Readiness packet response is invalid.');
-      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', readiness, error: null } };
+      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', readiness, executionPreview: null, error: null } };
     } catch (error) { state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', readiness: null, error: String(error?.message ?? 'Readiness packet failed.') } }; }
+    render(root, state, handlers);
+  }
+
+  async function createConsoleLaunchExecutionReview(event) {
+    const proposalId = state.consoleLaunchpad?.proposal?.proposalId;
+    const readiness = state.consoleLaunchpad?.readiness;
+    const readinessHash = readiness?.packetSha256;
+    if (!proposalId || !readinessHash || !state.consoleCsrfToken) return;
+    let body;
+    try {
+      body = normalizeSwarmLaunchExecutionReviewForm(new FormData(event.currentTarget), readiness);
+    } catch (error) {
+      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', executionPreview: null, error: String(error?.message ?? 'Execution review failed.') } };
+      render(root, state, handlers);
+      return;
+    }
+    abortConsoleLaunchExecutionPreview();
+    const controller = new AbortController();
+    consoleLaunchExecutionAbortController = controller;
+    const requestId = (state.consoleLaunchpad?.requestId ?? 0) + 1;
+    const isCurrentRequest = () => (
+      !controller.signal.aborted
+      && consoleLaunchExecutionAbortController === controller
+      && state.consoleLaunchpad?.requestId === requestId
+      && state.consoleLaunchpad?.proposal?.proposalId === proposalId
+      && state.consoleLaunchpad?.readiness?.packetSha256 === readinessHash
+      && state.consoleMissions?.view === 'launchpad'
+      && state.consoleWorkspaceView === 'missions'
+    );
+    try {
+      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'building_execution_review', requestId, executionPreview: null, error: null } }; render(root, state, handlers);
+      const response = await activeMissionApi.createLaunchExecutionPreview({ proposalId, csrfToken: state.consoleCsrfToken, body, signal: controller.signal });
+      if (!isCurrentRequest()) return;
+      const executionPreview = await validateSwarmLaunchExecutionPreview(response.executionPreview, readiness);
+      if (!isCurrentRequest()) return;
+      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', executionPreview, error: null } };
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      state = { ...state, consoleLaunchpad: { ...state.consoleLaunchpad, status: 'prepared', executionPreview: null, error: String(error?.message ?? 'Execution review failed.') } };
+    } finally {
+      if (consoleLaunchExecutionAbortController === controller) consoleLaunchExecutionAbortController = null;
+    }
     render(root, state, handlers);
   }
 
@@ -2127,6 +2175,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
   }
 
   async function openLaunchConsentFromLocation() {
+    abortConsoleLaunchExecutionPreview();
     const proposalId = new URL(window.location.href).searchParams.get('launch_consent');
     if (!proposalId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(proposalId) || !state.consoleAuthenticatedWallet) return;
     try {
@@ -2144,8 +2193,13 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   function launchRequestBody(draft) { const economics = draft.economics ?? SWARM_LAUNCH_DEFAULT_ECONOMICS; return { members: draft.members.map(({ tokenId, ownerAddress, role, contributionBps }) => ({ tokenId, ownerAddress, role, contributionBps })), app: { ...draft.app }, token: { ...draft.token }, economics: { agentVestingBps: economics.agentVestingBps ?? economics.agentVesting?.allocationBps, credRewardsBps: economics.credRewardsBps ?? economics.credRewards?.allocationBps, swarmTreasuryBps: economics.swarmTreasuryBps ?? economics.swarmTreasury?.allocationBps, publicDistributionBps: economics.publicDistributionBps ?? economics.publicDistribution?.allocationBps, agentCliffMonths: economics.agentCliffMonths ?? economics.agentVesting?.cliffMonths, agentVestingMonths: economics.agentVestingMonths ?? economics.agentVesting?.durationMonths } }; }
   function launchConsentUrl(proposalId) { const url = new URL(window.location.href); url.searchParams.set('launch_consent', proposalId); return url.href; }
+  function abortConsoleLaunchExecutionPreview() {
+    consoleLaunchExecutionAbortController?.abort();
+    consoleLaunchExecutionAbortController = null;
+  }
 
   function closeConsoleMission() {
+    abortConsoleLaunchExecutionPreview();
     state = { ...state, consoleMissions: { ...state.consoleMissions, status: 'loaded', view: 'board', mission: null, error: null }, consoleLaunchpad: { ...state.consoleLaunchpad, requestId: (state.consoleLaunchpad?.requestId ?? 0) + 1 } };
     render(root, state, handlers);
   }
@@ -3280,7 +3334,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { connectSwarmAdminWallet, approveSwarmSafeHash, resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, loadConsoleMissions, openConsoleMission, closeConsoleMission, openConsoleLaunchpad, prepareConsoleSwarmLaunch, addConsoleLaunchMember, removeConsoleLaunchMember, createConsoleLaunchConsent, createConsoleLaunchReadiness, signConsoleLaunchConsent, newConsoleMission, cancelConsoleMissionEditor, submitConsoleMission, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, loadPantheonCred, approvePantheonCred, submitPantheonCredApproval, stakePantheonCred, submitPantheonCredStake, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { connectSwarmAdminWallet, approveSwarmSafeHash, resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, loadConsoleMissions, openConsoleMission, closeConsoleMission, openConsoleLaunchpad, prepareConsoleSwarmLaunch, addConsoleLaunchMember, removeConsoleLaunchMember, createConsoleLaunchConsent, createConsoleLaunchReadiness, createConsoleLaunchExecutionReview, signConsoleLaunchConsent, newConsoleMission, cancelConsoleMissionEditor, submitConsoleMission, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, loadPantheonCred, approvePantheonCred, submitPantheonCredApproval, stakePantheonCred, submitPantheonCredStake, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start, refreshLooperMarketplace, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
@@ -5935,6 +5989,7 @@ function bindProductHomeEvents(root, handlers, state) {
     createConsent: handlers.createConsoleLaunchConsent,
     signConsent: handlers.signConsoleLaunchConsent,
     createReadiness: handlers.createConsoleLaunchReadiness,
+    createExecutionReview: handlers.createConsoleLaunchExecutionReview,
     back: handlers.closeConsoleMission,
   });
   root.querySelector('[data-action="retry-console-agent-activation"]')?.addEventListener('click', () => handlers.retryConsoleAgentActivation?.());

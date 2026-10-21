@@ -13,11 +13,11 @@ import {
   verifyTypedData,
 } from 'ethers';
 
-import { canonicalSwarmLaunchJson } from '../../types/src/swarm-launch.js';
+import { SWARM_LAUNCH_READINESS_SCHEMA, SWARM_LAUNCH_SCHEMA, canonicalSwarmLaunchJson, normalizeSwarmLaunchWorkspaceManifest } from '../../types/src/swarm-launch.js';
 
-const SCHEMA = 'multipass.swarm-token-launch-packet.v1';
-const READINESS_SCHEMA = 'multipass.swarm-launch-readiness.v1';
-const CONSENT_SCHEMA = 'multipass.swarm-launch.v1';
+const SCHEMA = 'multipass.swarm-token-launch-packet.v2';
+const READINESS_SCHEMA = SWARM_LAUNCH_READINESS_SCHEMA;
+const CONSENT_SCHEMA = SWARM_LAUNCH_SCHEMA;
 const CONVERSION_SCHEMA = 'multipass.swarm-launch-execution-conversion.v1';
 const TIMING_POLICY = 'SOURCE_CONSENT_EXPIRY_PLUS_7D_30D_MONTHS_V1';
 const CHAIN_ID = 8453;
@@ -148,7 +148,7 @@ function envelope(manifest, domain, message) {
 }
 
 function normalizeReadiness(value) {
-  exactKeys(value, ['schema', 'chainId', 'sourceConsent', 'execution', 'allocations', 'agentVesting', 'credRewards', 'swarmTreasury', 'publicDistribution', 'requiredPrimitives', 'requiredGates'], 'readiness artifact');
+  exactKeys(value, ['schema', 'chainId', 'sourceConsent', 'workspace', 'execution', 'allocations', 'agentVesting', 'credRewards', 'swarmTreasury', 'publicDistribution', 'requiredPrimitives', 'requiredGates'], 'readiness artifact');
   if (value.schema !== READINESS_SCHEMA || value.chainId !== CHAIN_ID) throw new TypeError('Canonical readiness artifact is invalid.');
   exactKeys(value.sourceConsent, ['proposalId', 'manifestSha256', 'expiresAt'], 'readiness sourceConsent');
   const sourceConsent = { proposalId: bounded(value.sourceConsent.proposalId, 1, 128, 'proposalId'), manifestSha256: bytes32(value.sourceConsent.manifestSha256, 'consent manifest hash'), expiresAt: integer(value.sourceConsent.expiresAt, 1, Number.MAX_SAFE_INTEGER, 'consent expiry') };
@@ -173,13 +173,14 @@ function normalizeReadiness(value) {
     return deepFreeze({ tokenId: uintString(entry.tokenId, 'tokenId'), consentAuthority: address(entry.consentAuthority, false, 'consent authority'), shareBps: integer(entry.shareBps, 1, TOTAL_BPS, 'share bps'), beneficiaryStatus: 'UNRESOLVED', beneficiaryAddress: null });
   });
   if (new Set(memberAllocations.map((entry) => entry.tokenId)).size !== memberAllocations.length || memberAllocations.reduce((sum, entry) => sum + entry.shareBps, 0) !== TOTAL_BPS) throw new TypeError('Readiness member lineage is invalid.');
+  const workspace = normalizeSwarmLaunchWorkspaceManifest(value.workspace, memberAllocations.map((entry) => entry.tokenId));
   exactObject(value.credRewards, { beneficiary: 'CRED_STAKERS', provider: 'UNSELECTED', stakingAsset: 'CRED', targetAddress: null }, 'readiness credRewards');
   exactObject(value.swarmTreasury, { control: 'SWARM_MULTISIG_REQUIRED', address: null }, 'readiness swarmTreasury');
   exactObject(value.publicDistribution, { mechanism: 'UNSELECTED', adapter: null }, 'readiness publicDistribution');
   validatePrimitives(value.requiredPrimitives);
-  const gates = ['REVALIDATE_LOOPER_OWNERSHIP', 'REVALIDATE_LOOPER_CONTROLLERS', 'REVALIDATE_CRED', 'SELECT_AND_REVIEW_EXECUTION_PROVIDER', 'RESOLVE_VESTING_BENEFICIARIES', 'SIMULATE_ON_BASE_FORK', 'COLLECT_SEPARATE_EXECUTION_CONSENT'];
+  const gates = ['REVALIDATE_LOOPER_OWNERSHIP', 'REVALIDATE_LOOPER_CONTROLLERS', 'REVALIDATE_CRED', 'PROVISION_TWIGPINE_REPOSITORY', 'VERIFY_TWIGPINE_CERTIFICATES_AND_PROVENANCE', 'ENABLE_SCOPED_EXPIRING_UCAN_DELEGATION', 'SELECT_AND_REVIEW_EXECUTION_PROVIDER', 'RESOLVE_VESTING_BENEFICIARIES', 'SIMULATE_ON_BASE_FORK', 'COLLECT_SEPARATE_EXECUTION_CONSENT'];
   if (canonicalSwarmLaunchJson(value.requiredGates) !== canonicalSwarmLaunchJson(gates)) throw new TypeError('Readiness required gates are invalid.');
-  return deepFreeze({ schema: READINESS_SCHEMA, chainId: CHAIN_ID, sourceConsent, execution: value.execution, allocations, agentVesting: { cliffMonths, durationMonths, allocations: memberAllocations }, credRewards: value.credRewards, swarmTreasury: value.swarmTreasury, publicDistribution: value.publicDistribution, requiredPrimitives: value.requiredPrimitives, requiredGates: gates });
+  return deepFreeze({ schema: READINESS_SCHEMA, chainId: CHAIN_ID, sourceConsent, workspace, execution: value.execution, allocations, agentVesting: { cliffMonths, durationMonths, allocations: memberAllocations }, credRewards: value.credRewards, swarmTreasury: value.swarmTreasury, publicDistribution: value.publicDistribution, requiredPrimitives: value.requiredPrimitives, requiredGates: gates });
 }
 
 function validatePrimitives(value) {
@@ -191,7 +192,7 @@ function validatePrimitives(value) {
 }
 
 function normalizeConsentManifest(value) {
-  exactKeys(value, ['schema', 'chainId', 'identity', 'execution', 'gate', 'app', 'token', 'economics', 'members'], 'consent manifest');
+  exactKeys(value, ['schema', 'chainId', 'identity', 'execution', 'gate', 'app', 'token', 'economics', 'workspace', 'members'], 'consent manifest');
   if (value.schema !== CONSENT_SCHEMA || value.chainId !== CHAIN_ID) throw new TypeError('Consent manifest is invalid.');
   exactKeys(value.identity, ['type', 'chainId', 'registry'], 'consent identity');
   if (value.identity.type !== 'looper_erc721' || value.identity.chainId !== CHAIN_ID) throw new TypeError('Consent identity is invalid.');
@@ -223,10 +224,12 @@ function normalizeConsentManifest(value) {
     if (member.identity.type !== 'looper_erc721' || member.identity.chainId !== CHAIN_ID || address(member.identity.registry, false, 'member registry') !== registry) throw new TypeError('Consent member identity is invalid.');
     return { tokenId: uintString(member.identity.tokenId, 'member tokenId'), consentAuthority: address(member.consentAuthority, false, 'member consent authority'), contributionBps: integer(member.contributionBps, 1, TOTAL_BPS, 'member contribution') };
   });
-  return deepFreeze({ ...value, identity: { ...value.identity, registry }, members: value.members.map((entry, index) => ({ ...entry, identity: { ...entry.identity, registry }, consentAuthority: members[index].consentAuthority })) });
+  const workspace = normalizeSwarmLaunchWorkspaceManifest(value.workspace, members.map((entry) => entry.tokenId));
+  return deepFreeze({ ...value, identity: { ...value.identity, registry }, workspace, members: value.members.map((entry, index) => ({ ...entry, identity: { ...entry.identity, registry }, consentAuthority: members[index].consentAuthority })) });
 }
 
 function assertConsentLineage(consent, readiness) {
+  if (canonicalSwarmLaunchJson(consent.workspace) !== canonicalSwarmLaunchJson(readiness.workspace)) throw new TypeError('Readiness workspace lineage mismatch.');
   const economics = consent.economics;
   const expected = [economics.agentVesting.allocationBps, economics.credRewards.allocationBps, economics.swarmTreasury.allocationBps, economics.publicDistribution.allocationBps];
   const observed = [readiness.allocations.agentVestingBps, readiness.allocations.credRewardsBps, readiness.allocations.swarmTreasuryBps, readiness.allocations.publicDistributionBps];
@@ -242,7 +245,8 @@ function normalizeConversion(value, parentHash, readiness) {
   exactKeys(value, ['schema', 'parentReadinessSha256', 'timing', 'deploymentSalt', 'members', 'recipients', 'revenueAssets'], 'execution conversion');
   if (value.schema !== CONVERSION_SCHEMA || bytes32(value.parentReadinessSha256, 'conversion parent hash') !== parentHash) throw new TypeError('Execution conversion parent readiness lineage is invalid.');
   exactKeys(value.timing, ['policy', 'authorizationDeadline', 'start', 'cliff', 'duration'], 'conversion timing');
-  const expectedTiming = { policy: TIMING_POLICY, authorizationDeadline: readiness.sourceConsent.expiresAt, start: readiness.sourceConsent.expiresAt + START_DELAY_SECONDS, cliff: readiness.agentVesting.cliffMonths * MONTH_SECONDS, duration: readiness.agentVesting.durationMonths * MONTH_SECONDS };
+  const authorizationDeadline = onchainTimestamp(readiness.sourceConsent.expiresAt);
+  const expectedTiming = { policy: TIMING_POLICY, authorizationDeadline, start: authorizationDeadline + START_DELAY_SECONDS, cliff: readiness.agentVesting.cliffMonths * MONTH_SECONDS, duration: readiness.agentVesting.durationMonths * MONTH_SECONDS };
   if (canonicalSwarmLaunchJson(value.timing) !== canonicalSwarmLaunchJson(expectedTiming)) throw new TypeError('Execution conversion timing does not match the reviewed deterministic policy.');
   if (!Array.isArray(value.members) || value.members.length !== readiness.agentVesting.allocations.length) throw new TypeError('Conversion member resolutions are invalid.');
   const members = value.members.map((entry, i) => {
@@ -275,9 +279,8 @@ function derivePlan(parentHash, readiness, consent, conversion) {
   const byToken = new Map(conversion.members.map((entry) => [entry.tokenId, entry.beneficiary]));
   const combined = readiness.agentVesting.allocations.map((entry) => ({
     agentKey: keccak256(coder.encode(['uint256', 'address', 'uint256'], [CHAIN_ID, consent.identity.registry, entry.tokenId])),
-    beneficiary: byToken.get(entry.tokenId), bps: entry.shareBps, signer: entry.consentAuthority,
-  })).sort((a, b) => BigInt(a.signer) < BigInt(b.signer) ? -1 : 1);
-  if (new Set(combined.map((entry) => entry.signer)).size !== combined.length) throw new TypeError('Consent authorities must be unique for unanimous execution.');
+    tokenId: entry.tokenId, beneficiary: byToken.get(entry.tokenId), bps: entry.shareBps, signer: entry.consentAuthority,
+  })).sort((a, b) => BigInt(a.signer) < BigInt(b.signer) ? -1 : BigInt(a.signer) > BigInt(b.signer) ? 1 : BigInt(a.tokenId) < BigInt(b.tokenId) ? -1 : 1);
   let allocated = 0n;
   const vestingAmounts = combined.map((entry, index) => {
     const amount = index + 1 === combined.length ? agent - allocated : shareOf(agent, entry.bps);
@@ -292,7 +295,7 @@ function derivePlan(parentHash, readiness, consent, conversion) {
     vestingAmounts,
     revenueShares: combined.map((entry) => ({ payee: entry.beneficiary, bps: entry.bps })),
     revenueAssets: conversion.revenueAssets,
-    requiredSigners: combined.map((entry) => entry.signer),
+    requiredSigners: [...new Set(combined.map((entry) => entry.signer))],
   };
 }
 
@@ -337,7 +340,7 @@ function normalizePlan(value, readinessPacketSha256) {
   const revenueAssets = value.revenueAssets.map((entry) => address(entry, true, 'revenue asset'));
   if (new Set(revenueAssets).size !== revenueAssets.length) throw new TypeError('Revenue assets must be unique.');
 
-  if (!Array.isArray(value.requiredSigners) || value.requiredSigners.length !== contributions.length) throw new TypeError('Every member must be a required signer.');
+  if (!Array.isArray(value.requiredSigners) || value.requiredSigners.length < 1 || value.requiredSigners.length > contributions.length) throw new TypeError('One to member-count unique authorities are required.');
   const requiredSigners = value.requiredSigners.map((entry) => address(entry, false, 'required signer'));
   for (let index = 0; index < requiredSigners.length; index += 1) {
     if (index > 0 && BigInt(requiredSigners[index]) <= BigInt(requiredSigners[index - 1])) throw new TypeError('Required signers must be unique and numerically sorted.');
@@ -445,6 +448,7 @@ function bytes32(value, label) { const text = String(value ?? '').toLowerCase();
 function hex(value, label) { const text = String(value ?? ''); if (!/^0x(?:[0-9a-fA-F]{2})+$/u.test(text)) throw new TypeError(label + ' is invalid.'); return text.toLowerCase(); }
 function address(value, allowZero, label) { let normalized; try { normalized = getAddress(String(value ?? '')).toLowerCase(); } catch { throw new TypeError(label + ' is invalid.'); } if (!allowZero && normalized === ZERO_ADDRESS) throw new TypeError(label + ' is invalid.'); return normalized; }
 function integer(value, min, max, label) { if (!Number.isSafeInteger(value) || value < min || value > max) throw new TypeError(label + ' is invalid.'); return value; }
+function onchainTimestamp(value) { return value > 10_000_000_000 ? Math.floor(value / 1000) : value; }
 function uintString(value, label) { const text = String(value ?? ''); if (!/^[1-9][0-9]*$/u.test(text)) throw new TypeError(label + ' is invalid.'); return text; }
 function bounded(value, min, max, label) { if (typeof value !== 'string' || value.length < min || value.length > max) throw new TypeError(label + ' is invalid.'); return value; }
 

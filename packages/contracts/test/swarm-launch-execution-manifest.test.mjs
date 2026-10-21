@@ -30,12 +30,12 @@ function fixture(signers) {
 }
 function input(signers, artifacts, factoryAddress = FACTORY) { return { ...fixture(signers), factoryAddress, artifacts }; }
 
-test('builds deterministic canonical Base preparation from readiness v1 lineage', async () => {
+test('builds deterministic canonical Base preparation from readiness v2 workspace lineage', async () => {
   const signers = wallets(); const artifacts = await artifactsPromise;
   const first = buildSwarmLaunchExecutionReadiness(input(signers.map((wallet) => wallet.address), artifacts));
   const second = buildSwarmLaunchExecutionReadiness(input(signers.map((wallet) => wallet.address), artifacts));
   assert.equal(first.manifestSha256, second.manifestSha256);
-  assert.equal(first.manifest.sourceReadiness.schema, 'multipass.swarm-launch-readiness.v1');
+  assert.equal(first.manifest.sourceReadiness.schema, 'multipass.swarm-launch-readiness.v2');
   assert.equal(first.manifest.conversion.schema, 'multipass.swarm-launch-execution-conversion.v1');
   assert.equal(first.manifest.execution.mode, 'PREPARATION_ONLY');
   assert.equal(first.manifest.execution.deploymentAuthorized, false);
@@ -64,6 +64,35 @@ test('fails closed on unknown fields, lineage drift, timing drift, and non-direc
   const readinessManifest = structuredClone(base.readinessManifest); readinessManifest.sourceConsent.manifestSha256 = hash(driftedConsent);
   const readinessPacketSha256 = hash(readinessManifest);
   assert.throws(() => buildSwarmLaunchExecutionReadiness({ ...base, consentManifest: driftedConsent, readinessManifest, readinessPacketSha256, conversion: { ...base.conversion, parentReadinessSha256: readinessPacketSha256 } }), /lineage/i);
+});
+
+test('normalizes Console millisecond consent expiry into reviewed onchain seconds', async () => {
+  const base = input(wallets().map((wallet) => wallet.address), await artifactsPromise);
+  base.readinessManifest.sourceConsent.expiresAt = 1_899_913_600_000;
+  base.readinessPacketSha256 = hash(base.readinessManifest);
+  base.conversion.parentReadinessSha256 = base.readinessPacketSha256;
+  base.conversion.timing.authorizationDeadline = 1_899_913_600;
+  base.conversion.timing.start = 1_900_518_400;
+  const prepared = buildSwarmLaunchExecutionReadiness(base);
+  assert.equal(prepared.manifest.plan.authorizationDeadline, 1_899_913_600);
+  assert.equal(prepared.manifest.plan.start, 1_900_518_400);
+});
+
+test('deduplicates repeated member consent authorities without dropping member contributions', async () => {
+  const base = input(wallets().map((wallet) => wallet.address), await artifactsPromise);
+  const shared = base.readinessManifest.agentVesting.allocations[0].consentAuthority;
+  base.readinessManifest.agentVesting.allocations[1].consentAuthority = shared;
+  base.consentManifest.members[1].consentAuthority = shared;
+  base.readinessManifest.sourceConsent.manifestSha256 = hash(base.consentManifest);
+  base.readinessPacketSha256 = hash(base.readinessManifest);
+  base.conversion.parentReadinessSha256 = base.readinessPacketSha256;
+  const prepared = buildSwarmLaunchExecutionReadiness(base);
+  assert.equal(prepared.manifest.plan.contributions.length, 3);
+  assert.deepEqual(prepared.manifest.plan.requiredSigners, [...new Set(base.readinessManifest.agentVesting.allocations.map((entry) => entry.consentAuthority))].sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1));
+  const changedMember = structuredClone(base); changedMember.conversion.members[1].beneficiary = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const changed = buildSwarmLaunchExecutionReadiness(changedMember);
+  assert.notEqual(changed.manifest.deployment.deploymentId, prepared.manifest.deployment.deploymentId);
+  assert.notEqual(changed.manifest.authorization.digest, prepared.manifest.authorization.digest);
 });
 
 test('matches onchain deployment ID, digest, and CREATE2 predictions', async () => {
