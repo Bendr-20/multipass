@@ -63,9 +63,10 @@ export const CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS = 20;
 // A complete dual-provider proof performs paced finalized-head, runtime, policy,
 // owner, controller, and latest-authority reads. At 250 ms between RPC starts the
 // integrity phase has a measured floor above 6 seconds, so 5 seconds guaranteed
-// false negatives for otherwise valid Loopers. Keep headroom without weakening
-// the two-provider or exact-block requirements.
-export const CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS = 15_000;
+// false negatives for otherwise valid Loopers. Seven seconds keeps the complete
+// browser gate below its request lifetime without weakening the two-provider or
+// exact-block requirements; a slow provider fails visibly instead of hanging.
+export const CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS = 7_000;
 
 export function createCredifiOwnerOptInProviders({ publicClients } = {}) {
   const clients = publicClients ?? createLoopersPublicClients({
@@ -87,8 +88,8 @@ export function createCredifiOwnerOptInVerifier({
   accountIntegrityReader,
   maxTransferScanBlocks = CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS,
   timeoutMs = CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS,
-  retryDelayMs = 250,
-  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  cacheTtlMs = 15_000,
+  now = Date.now,
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers[0]?.id !== 'drpc'
     || !providers.some((provider) => provider?.id === 'blast')
@@ -99,32 +100,25 @@ export function createCredifiOwnerOptInVerifier({
     || providers.some((provider) => !Number.isSafeInteger(provider.maxRange) || provider.maxRange < maxTransferScanBlocks)) {
     throw new TypeError('Credifi custody scan bound exceeds the proven provider bound.');
   }
-  if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 5_000 || typeof pause !== 'function') {
-    throw new TypeError('Credifi verification retry policy is invalid.');
+  if (!Number.isSafeInteger(cacheTtlMs) || cacheTtlMs < 0 || cacheTtlMs > 30_000 || typeof now !== 'function') {
+    throw new TypeError('Credifi verification cache policy is invalid.');
   }
   const integrityReader = accountIntegrityReader ?? createAccountIntegrityReader({
     providers, timeoutMs, allowUndeployedAccount: false, maxSafeBlockSkew: 0,
   });
   if (typeof integrityReader?.read !== 'function') throw new TypeError('Credifi account integrity reader is required.');
   const inFlight = new Map();
+  const cache = new Map();
   const transientStatuses = new Set(['provider_timeout', 'provider_unavailable', 'provider_disagreement', 'safe_block_disagreement']);
 
   async function readIdentity({ tokenId, wallet }) {
     let result;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try { result = await integrityReader.read({ tokenId }); }
-      catch {
-        if (attempt === 0) { if (retryDelayMs > 0) await pause(retryDelayMs); continue; }
-        throw verificationUnavailable();
-      }
-      if (result?.eligible === true && result?.status === 'ready') break;
-      if (transientStatuses.has(result?.status)) {
-        if (attempt === 0) { if (retryDelayMs > 0) await pause(retryDelayMs); continue; }
-        throw verificationUnavailable();
-      }
+    try { result = await integrityReader.read({ tokenId }); }
+    catch { throw verificationUnavailable(); }
+    if (result?.eligible !== true || result?.status !== 'ready') {
+      if (transientStatuses.has(result?.status)) throw verificationUnavailable();
       throw verificationFailure();
     }
-    if (result?.eligible !== true || result?.status !== 'ready') throw verificationUnavailable();
     const proof = result.proof;
     const expectedAccount = deriveReleasedLooperAccount(tokenId);
     const collection = LOOPERS_MAINNET_CONTRACT.toLowerCase();
@@ -160,9 +154,17 @@ export function createCredifiOwnerOptInVerifier({
       tokenId = normalizeVerifierTokenId(tokenId);
       wallet = normalizeWallet(wallet);
       const key = tokenId + '|' + wallet;
+      const cached = cache.get(key);
+      const currentTime = Number(now());
+      if (!Number.isFinite(currentTime)) throw new TypeError('Credifi verification clock is invalid.');
+      if (cached && cached.expiresAt > currentTime) return Promise.resolve(cached.identity);
+      if (cached) cache.delete(key);
       const existing = inFlight.get(key);
       if (existing) return existing;
-      const pending = readIdentity({ tokenId, wallet });
+      const pending = readIdentity({ tokenId, wallet }).then((identity) => {
+        if (cacheTtlMs > 0) cache.set(key, { identity, expiresAt: Number(now()) + cacheTtlMs });
+        return identity;
+      });
       inFlight.set(key, pending);
       return pending.finally(() => { if (inFlight.get(key) === pending) inFlight.delete(key); });
     },

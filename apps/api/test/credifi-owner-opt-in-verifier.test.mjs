@@ -54,13 +54,12 @@ function verifier({ integrity = { eligible: true, status: 'ready', proof: proof(
     providers,
     accountIntegrityReader: { async read() { return structuredClone(integrity); } },
     maxTransferScanBlocks: 20,
-    retryDelayMs: 0,
   });
 }
 
 test('exports an opt-in-specific verifier with enough time for the paced dual-provider proof', () => {
   assert.equal(typeof credifi.createCredifiOwnerOptInVerifier, 'function');
-  assert.equal(credifi.CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS, 15_000);
+  assert.equal(credifi.CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS, 7_000);
 });
 
 test('reports transient provider failures as retryable instead of owner mismatches', async () => {
@@ -79,23 +78,36 @@ test('reports transient provider failures as retryable instead of owner mismatch
   );
 });
 
-test('retries one transient integrity read before surfacing provider unavailability', async () => {
+test('surfaces one transient integrity failure without a retry that can outlive the browser request', async () => {
   let reads = 0;
   const v = credifi.createCredifiOwnerOptInVerifier({
     providers: [provider('drpc'), provider('blast')],
-    accountIntegrityReader: {
-      async read() {
-        reads += 1;
-        return reads === 1
-          ? { eligible: false, status: 'provider_unavailable', proof: null }
-          : { eligible: true, status: 'ready', proof: proof() };
-      },
-    },
-    retryDelayMs: 0,
+    accountIntegrityReader: { async read() { reads += 1; return { eligible: false, status: 'provider_unavailable', proof: null }; } },
   });
 
-  const identity = await v.verify({ tokenId: '11', wallet: OWNER });
-  assert.equal(identity.tokenId, '11');
+  await assert.rejects(
+    v.verify({ tokenId: '11', wallet: OWNER }),
+    (error) => error.code === 'credifi_opt_in_provider_unavailable' && error.status === 503,
+  );
+  assert.equal(reads, 1);
+});
+
+test('briefly caches a successful finalized proof for immediate browser retries', async () => {
+  let reads = 0;
+  let now = 1_000;
+  const v = credifi.createCredifiOwnerOptInVerifier({
+    providers: [provider('drpc'), provider('blast')],
+    accountIntegrityReader: { async read() { reads += 1; return { eligible: true, status: 'ready', proof: proof() }; } },
+    cacheTtlMs: 15_000,
+    now: () => now,
+  });
+
+  const first = await v.verify({ tokenId: '11', wallet: OWNER });
+  const second = await v.verify({ tokenId: '11', wallet: OWNER });
+  assert.deepEqual(second, first);
+  assert.equal(reads, 1);
+  now += 15_001;
+  await v.verify({ tokenId: '11', wallet: OWNER });
   assert.equal(reads, 2);
 });
 
@@ -112,7 +124,6 @@ test('coalesces concurrent integrity reads for the same token and wallet', async
         return { eligible: true, status: 'ready', proof: proof() };
       },
     },
-    retryDelayMs: 0,
   });
 
   const first = v.verify({ tokenId: '11', wallet: OWNER });
