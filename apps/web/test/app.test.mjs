@@ -8582,6 +8582,46 @@ test('Console credit keeps login, vouch, broad permission, quote, and borrow as 
   assert.equal(borrow.quoteSha256, 'a'.repeat(64));
 });
 
+test('Console repayment requires review, wallet confirmation, mined success, and Credifi refresh', async () => {
+  const root = setupDom('https://helixa.xyz/multipass/console');
+  const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
+  const account = deriveConsoleCreditAccount('617');
+  const txHash = '0x' + 'b'.repeat(64);
+  const calls = [];
+  let repaid = false;
+  const loan = () => ({ id: 'loan-1', status: repaid ? 'repaid' : 'active', amount: 5, remainingBalance: repaid ? 0 : 5.01, marketId: 'base-usdc-2500:stable-12', disbursement: { chainId: 8453, marketId: 'base-usdc-2500:stable-12', loanOwner: account, blockchainLoanId: '7', tokenAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', transactionHash: '0x' + 'a'.repeat(64) }, payments: [] });
+  const consoleCreditApi = {
+    async overview() { return { account, cred: { score: 42, tier: 'Marginal', minimumScore: 40 }, flags: { minimumLoanAmount: 5, loanTwoFactorRequired: false, evcAuthorizations: {} }, markets: [], commitments: [], balance: { credit: { availableCredit: 0 } }, loans: [loan()] }; },
+    async prepareRepayment(input) { calls.push(['prepareRepayment', input]); return { schema_version: '0.1.0', loanId: 'loan-1', action: 'repay', chainId: 8453, token: { symbol: 'USDC', address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', decimals: 6 }, adaptorAddress: '0x2222222222222222222222222222222222222222', loanContractAddress: '0x4444444444444444444444444444444444444444', blockchainLoanId: '7', currentDebtBaseUnits: '5010000', allowanceBaseUnits: '5100000', maxSpendBaseUnits: '5100000', expiresAt: new Date(Date.now() + 120_000).toISOString(), transaction: { chainId: 8453, from: owner.toLowerCase(), to: account, value: '0', data: '0x1234' } }; },
+    async refreshRepayment(input) { calls.push(['refreshRepayment', input]); repaid = true; return { loan: loan() }; },
+  };
+  const walletState = { mode: 'active', canTransact: true, tokenId: '617', owner, account, nativeWei: '0', tokens: [], activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
+  const walletClient = createWalletClientFixture({
+    snapshot: { connected: true, address: owner, label: 'owner' },
+    request: async (payload) => {
+      calls.push([payload.method, payload]);
+      if (payload.method === 'eth_chainId') return '0x2105';
+      if (payload.method === 'eth_sendTransaction') return txHash;
+      if (payload.method === 'eth_getTransactionReceipt') return { status: '0x1', transactionHash: txHash };
+      throw new Error('Unexpected wallet request ' + payload.method);
+    },
+  });
+  const app = createApp({ root, loadDemo: async () => sampleData(), walletClient, consoleCreditApi, fetchImpl: createConsoleOwnedAgentsFetch({ wallet: owner, tokenIds: [617] }), looperWalletController: { getSnapshot: () => walletState, async select() { return walletState; } }, claimApi: { loadConsoleCodexBundle: async ({ selectedTokenId }) => createConsoleCodexBundle(selectedTokenId) } });
+  await app.start(); await flushAsyncEvents(30);
+  root.querySelector('[data-console-view="credit"]')?.click(); await flushAsyncEvents(20);
+  const form = root.querySelector('[data-action="prepare-console-credit-repayment"]');
+  form.elements.namedItem('maxSpendTokens').value = '5.1';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await flushAsyncEvents(20);
+  assert.match(root.textContent, /Pay the live debt, currently 5\.01 USDC/u);
+  root.querySelector('[data-repayment-confirm]').checked = true;
+  root.querySelector('[data-action="submit-console-credit-repayment"]')?.click();
+  await flushAsyncEvents(40);
+  assert.equal(calls.filter(([name]) => name === 'eth_sendTransaction').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'refreshRepayment').length, 1);
+  assert.match(root.textContent, /repaid/i);
+});
+
 test('Console loads prepared-cohort status and records consent without starting any credit action', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x2027af123cc4c3ced6ad389081e532af47b4dd89';

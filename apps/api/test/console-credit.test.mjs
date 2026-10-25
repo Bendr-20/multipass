@@ -10,10 +10,14 @@ const OWNER = '0xd31fcdb0432d3c9bf9d98643f69c7edd690e48e8';
 const COLLECTION = '0x1649cd37f4748807b4882fc48765ba0b2affa94a';
 const EVC = '0x1111111111111111111111111111111111111111';
 const ADAPTOR = '0x2222222222222222222222222222222222222222';
+const LOAN_CONTRACT = '0x4444444444444444444444444444444444444444';
+const BORROW_VAULT = '0x5555555555555555555555555555555555555555';
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const MAX_UINT256 = (1n << 256n) - 1n;
 const EXECUTE_ABI = [{ type: 'function', name: 'execute', stateMutability: 'payable', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' }, { name: 'operation', type: 'uint8' }], outputs: [{ name: 'result', type: 'bytes' }] }];
 const EVC_ABI = [{ type: 'function', name: 'setOperator', stateMutability: 'nonpayable', inputs: [{ name: 'accountPrefix', type: 'bytes19' }, { name: 'operator', type: 'address' }, { name: 'operatorBitField', type: 'uint256' }], outputs: [] }];
+const ERC20_ABI = [{ type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] }];
+const PAYMENT_ABI = [{ type: 'function', name: 'makeLoanPayment', stateMutability: 'nonpayable', inputs: [{ name: 'user', type: 'address' }, { name: 'loanId', type: 'uint256' }, { name: 'repayAmount', type: 'uint256' }], outputs: [] }];
 const TXN_DATA = encodeFunctionData({ abi: EVC_ABI, functionName: 'setOperator', args: [ACCOUNT.slice(0, 40), ADAPTOR, MAX_UINT256] });
 
 function identity() {
@@ -54,7 +58,7 @@ function loginMessage(account = ACCOUNT) {
   return `Sign in to Credifi\n\nSigning Wallet: ${account}\nDomain: credi.fi\nChain ID: 8453\nNonce: ${'a'.repeat(64)}\nTimestamp: 2026-10-21T22:30:00.000Z`;
 }
 
-function createFetchFixture({ score = 42, authorization = false, challengeMessage = loginMessage(), authorizationData = TXN_DATA, assetAddress = USDC, quotePayload = quote(), createLoanImpl, vouchActionImpl, failFlags = false } = {}) {
+function createFetchFixture({ score = 42, authorization = false, challengeMessage = loginMessage(), authorizationData = TXN_DATA, assetAddress = USDC, quotePayload = quote(), createLoanImpl, vouchActionImpl, failFlags = false, loans = [] } = {}) {
   const calls = [];
   let commitmentStatus = 'offered';
   const fetchImpl = async (url, init = {}) => {
@@ -71,11 +75,12 @@ function createFetchFixture({ score = 42, authorization = false, challengeMessag
     if (key === 'GET /api/vouch/status') return json({ enabled: true, earnedMicro: 0, commitments: [vouch(commitmentStatus)] });
     if (key === 'GET /api/v2/markets/list') return json({ markets: [market()] });
     if (key === 'GET /api/v2/user-balance') return json({ credit: { availableCredit: 5_000_000, totalCreditLimit: 5_000_000, currentUsage: 0 } });
-    if (key === 'GET /api/v3/loans/list') return json([]);
-    if (key === 'GET /api/v4/chain/info?all=true') return json({ '8453': { addresses: { EVC: [{ address: EVC, abi: 'EVC.v1' }], USDC: [{ address: assetAddress, symbol: 'USDC', decimals: 6 }] }, vaults: [{ id: 'vault-12', borrowAsset: 'USDC', addresses: { CREDIFI_ADAPTOR: [{ address: ADAPTOR, abi: 'CredifiERC20Adaptor.v2' }] } }] } });
+    if (key === 'GET /api/v3/loans/list') return json(loans);
+    if (key === 'GET /api/v4/chain/info?all=true') return json({ '8453': { addresses: { EVC: [{ address: EVC, abi: 'EVC.v1' }], USDC: [{ address: assetAddress, symbol: 'USDC', decimals: 6 }] }, vaults: [{ id: 'vault-12', borrowAsset: 'USDC', addresses: { CREDIFI_ADAPTOR: [{ address: ADAPTOR, abi: 'CredifiERC20Adaptor.v2' }], CREDIFI1155: [{ address: LOAN_CONTRACT, abi: 'Credifi1155.v2' }], BORROW_VAULT: [{ address: BORROW_VAULT, abi: 'BorrowVault.v1' }] } }] } });
     if (key === 'POST /api/vouch/action') { assert.deepEqual(body, { commitmentId: 'vouch-1', action: 'accept' }); if (vouchActionImpl) await vouchActionImpl(); commitmentStatus = 'accepted'; return json({ ok: true }); }
     if (key === 'POST /api/v2/loans/preview-schedule') { assert.equal(headers['x-chain-id'], '8453'); assert.equal(headers['x-market-id'], market().marketId); assert.deepEqual(body, { amount: 5 }); return json(quotePayload); }
     if (key === 'POST /api/v4/loans/create') { assert.deepEqual(body, { amount: 5, disburseTo: ACCOUNT, quoteId: 'quote-1' }); if (createLoanImpl) return createLoanImpl({ body, calls }); return json({ loan: { id: 'loan-1', status: 'approved', amount: 5, marketId: market().marketId, disburseTo: ACCOUNT, disbursement: { chainId: 8453, marketId: market().marketId, loanOwner: ACCOUNT, tokenAddress: USDC } }, rewards: null }); }
+    if (key === 'POST /api/chain/indexer') { assert.deepEqual(body, { indexerType: 'loans' }); assert.equal(headers['x-chain-id'], '8453'); return new Response(null, { status: 200 }); }
     throw new Error(`Unexpected request ${key}`);
   };
   return { fetchImpl, calls, setCommitmentStatus(value) { commitmentStatus = value; } };
@@ -150,6 +155,25 @@ test('offer-discovery mode authenticates and reads vouches while blocking every 
   assert.equal(fixture.calls.length, readsBefore);
 });
 
+test('repayment remains available when new borrowing is discovery-locked', async () => {
+  const loan = { id: 'loan-1', status: 'active', amount: 5, remainingBalance: 5.01, marketId: market().marketId, disbursement: { chainId: 8453, marketId: market().marketId, loanOwner: ACCOUNT, blockchainLoanId: '7', tokenAddress: USDC, transactionHash: '0x' + 'a'.repeat(64) }, payments: [] };
+  const fixture = createFetchFixture({ loans: [loan] });
+  const publicClient = { async readContract({ functionName }) {
+    if (functionName === 'getLoanDetails') return { loan: { borrowVault: BORROW_VAULT }, currentDebt: 5_010_000n, collateralBalance: 0n };
+    if (functionName === 'credifi1155') return LOAN_CONTRACT;
+    if (functionName === 'asset') return USDC;
+    if (functionName === 'decimals') return 6;
+    if (functionName === 'allowance') return 5_100_000n;
+    throw new Error('Unexpected read ' + functionName);
+  } };
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], discoveryOnly: true, fetchImpl: fixture.fetchImpl, publicClient, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.1' });
+  assert.equal(prepared.action, 'repay');
+  const refreshed = await service.refreshRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1' });
+  assert.equal(refreshed.loan.id, 'loan-1');
+});
+
 test('vouch acceptance validates the offered commitment and rereads accepted state', async () => {
   const fixture = createFetchFixture();
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
@@ -191,6 +215,48 @@ test('quote and borrow are separate and loan creation reuses the reviewed unexpi
   assert.equal(fixture.calls.filter(call => call.key === 'POST /api/v4/loans/create').length, 1);
 });
 
+
+test('repayment prepares one reviewed wallet action at a time with a finite USDC cap', async () => {
+  const loan = { id: 'loan-1', status: 'active', amount: 5, remainingBalance: 5.01, marketId: market().marketId, disbursement: { chainId: 8453, marketId: market().marketId, loanOwner: ACCOUNT, blockchainLoanId: '7', tokenAddress: USDC, transactionHash: '0x' + 'a'.repeat(64) }, payments: [] };
+  const fixture = createFetchFixture({ authorization: true, loans: [loan] });
+  let allowance = 1n;
+  const publicClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'getLoanDetails') return { loan: { borrowVault: BORROW_VAULT }, currentDebt: 5_010_000n, collateralBalance: 0n };
+      if (functionName === 'credifi1155') return LOAN_CONTRACT;
+      if (functionName === 'asset') return USDC;
+      if (functionName === 'decimals') return 6;
+      if (functionName === 'allowance') return allowance;
+      throw new Error('Unexpected read ' + functionName);
+    },
+  };
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, publicClient, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+
+  let prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  assert.equal(prepared.action, 'reset-allowance');
+  let outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
+  let inner = decodeFunctionData({ abi: ERC20_ABI, data: outer.args[2] });
+  assert.deepEqual(inner.args, [ADAPTOR, 0n]);
+
+  allowance = 0n;
+  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  assert.equal(prepared.action, 'set-allowance');
+  outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
+  inner = decodeFunctionData({ abi: ERC20_ABI, data: outer.args[2] });
+  assert.deepEqual(inner.args, [ADAPTOR, 5_010_000n]);
+
+  allowance = 5_010_000n;
+  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  assert.equal(prepared.action, 'repay');
+  outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
+  inner = decodeFunctionData({ abi: PAYMENT_ABI, data: outer.args[2] });
+  assert.equal(inner.args[0].toLowerCase(), ACCOUNT);
+  assert.deepEqual(inner.args.slice(1), [7n, MAX_UINT256]);
+  const refreshed = await service.refreshRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1' });
+  assert.equal(refreshed.loan.id, 'loan-1');
+  assert.equal(fixture.calls.filter((call) => call.key === 'POST /api/chain/indexer').length, 1);
+});
 
 test('Credifi challenge must bind the exact Looper, domain, Base chain, fresh nonce, and timestamp', async () => {
   const fixture = createFetchFixture({ challengeMessage: loginMessage('0x3333333333333333333333333333333333333333') });

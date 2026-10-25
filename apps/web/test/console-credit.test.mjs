@@ -28,9 +28,13 @@ test('credit client sends exact CSRF-bound request envelopes', async () => {
   } });
   await api.preview({ tokenId: TOKEN_ID, commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25, csrfToken: 'csrf-1' });
   await api.borrow({ tokenId: TOKEN_ID, commitmentId: 'vouch-1', quoteId: 'quote-1', quoteSha256: 'a'.repeat(64), confirmBorrow: true, csrfToken: 'csrf-1' });
+  await api.prepareRepayment({ tokenId: TOKEN_ID, loanId: 'loan-1', maxSpendTokens: '5.01', csrfToken: 'csrf-1' });
+  await api.refreshRepayment({ tokenId: TOKEN_ID, loanId: 'loan-1', csrfToken: 'csrf-1' });
   assert.deepEqual(calls.map((call) => [call.url, JSON.parse(call.init.body)]), [
     ['/api/multipass/console/credit/preview', { tokenId: TOKEN_ID, commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 }],
     ['/api/multipass/console/credit/borrow', { tokenId: TOKEN_ID, commitmentId: 'vouch-1', quoteId: 'quote-1', quoteSha256: 'a'.repeat(64), confirmBorrow: true }],
+    ['/api/multipass/console/credit/prepare-repayment', { tokenId: TOKEN_ID, loanId: 'loan-1', maxSpendTokens: '5.01' }],
+    ['/api/multipass/console/credit/refresh-repayment', { tokenId: TOKEN_ID, loanId: 'loan-1' }],
   ]);
   assert.ok(calls.every((call) => call.init.credentials === 'include' && call.init.headers['x-csrf-token'] === 'csrf-1'));
 });
@@ -43,11 +47,11 @@ test('credit entry is honest about sponsor-vouch beta and provider application l
   assert.doesNotMatch(html, /Bearer /u);
 });
 
-test('opted-in pilot offers a read-only sponsor-offer check', () => {
+test('opted-in pilot signs into the owner-approved credit lifecycle', () => {
   const status = { token_id: '11', status: 'opted_in', amount_usd: '50.00', cohort_version: 'cohort-v1', account: '0xbaa56a2ef2dbabedaa0828c3c9c8c06b1ab46b3f', consented_at: '2026-10-24T02:00:00.000Z' };
   const html = renderConsoleCreditPanel({ ...createInitialConsoleCreditState('11'), optIn: { status: 'opted_in', record: status } }, { tokenId: '11' });
-  assert.match(html, /Sign in and check for sponsor offer/u);
-  assert.match(html, /read-only/u);
+  assert.match(html, /Sign in to Credifi/u);
+  assert.match(html, /separate owner actions/u);
   assert.match(html, /data-action="login-console-credit"/u);
   assert.doesNotMatch(html, /Accept vouch|Authorize in wallet|Preview terms|Borrow to Looper account/u);
 });
@@ -71,6 +75,20 @@ test('credit workspace separates vouch, broad authorization, quote, and borrow c
   assert.match(html, /I reviewed principal, APR, fees, schedule, and total repayment/u);
   assert.match(html, /Borrow to Looper account/u);
   assert.doesNotMatch(html, /secret|bearer token/iu);
+});
+
+test('credit workspace separates finite allowance and payoff confirmations', () => {
+  const loan = { id: 'loan-1', status: 'active', amount: 5, remainingBalance: 5.01, disbursement: { blockchainLoanId: '7', transactionHash: '0x' + 'a'.repeat(64) } };
+  const html = renderConsoleCreditPanel({
+    status: 'ready', selectedTokenId: TOKEN_ID, overview: { ...OVERVIEW, mode: 'offer_discovery_only', loans: [loan] },
+    repayment: { loanId: 'loan-1', action: 'repay', token: { symbol: 'USDC', decimals: 6 }, currentDebtBaseUnits: '5010000', maxSpendBaseUnits: '5100000', maxSpendTokens: '5.1' },
+  }, { tokenId: TOKEN_ID });
+  assert.match(html, /New borrowing locked · repayment remains available/u);
+  assert.match(html, /Maximum USDC spend/u);
+  assert.match(html, /Pay the live debt, currently 5\.01 USDC/u);
+  assert.match(html, /bounded by the 5\.1 USDC allowance/u);
+  assert.match(html, /I reviewed this exact repay action/u);
+  assert.match(html, /Repay loan in wallet/u);
 });
 
 test('credit workspace states no direct application was submitted when no vouch exists', () => {
@@ -123,7 +141,7 @@ test('Credifi pilot UI is unavailable until authenticated eligibility is loaded'
   assert.doesNotMatch(loading, /data-action="submit-credifi-owner-opt-in"/u);
 });
 
-test('eligible and completed Credifi pilot UI states explain consent-only boundaries', () => {
+test('eligible and completed Credifi pilot UI states explain consent and later owner-action boundaries', () => {
   const status = { token_id: '11', status: 'eligible', amount_usd: '50.00', cohort_version: 'cohort-v1', account: '0xbaa56a2ef2dbabedaa0828c3c9c8c06b1ab46b3f' };
   const eligible = renderConsoleCreditPanel({ ...createInitialConsoleCreditState('11'), optIn: { status: 'eligible', record: status } }, { tokenId: '11' });
   assert.match(eligible, /prepared \$50 Credifi pilot/i);
@@ -133,10 +151,11 @@ test('eligible and completed Credifi pilot UI states explain consent-only bounda
   assert.match(eligible, /data-action="submit-credifi-owner-opt-in"/u);
   const completed = renderConsoleCreditPanel({ ...createInitialConsoleCreditState('11'), optIn: { status: 'opted_in', record: { ...status, status: 'opted_in', consented_at: '2026-10-24T02:00:00.000Z' } } }, { tokenId: '11' });
   assert.match(completed, /Owner opt-in recorded/u);
-  assert.match(completed, /Pilot opt-in recorded · offer discovery available/i);
+  assert.match(completed, /Pilot enabled · separate owner approvals/i);
   assert.doesNotMatch(completed, /production disabled/i);
   assert.doesNotMatch(completed, /data-action="submit-credifi-owner-opt-in"/u);
-  assert.match(completed, /Sign in and check for sponsor offer/u);
+  assert.match(completed, /Sign in to Credifi/u);
+  assert.match(completed, /Vouch acceptance, EVC permission, quote approval, borrowing, USDC allowance, and repayment each remain separate owner actions/u);
   assert.doesNotMatch(completed, /Accept vouch|Preview terms|Borrow to Looper account/u);
 });
 

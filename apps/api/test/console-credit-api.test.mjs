@@ -96,6 +96,8 @@ test('all credit actions dispatch only their reviewed fields', async () => {
     verifyTwoFactor: async input => (calls.push(['verify2fa', input]), { ok: true }),
     previewLoan: async input => (calls.push(['preview', input]), { ok: true }),
     createLoan: async input => (calls.push(['borrow', input]), { ok: true }),
+    prepareRepayment: async input => (calls.push(['prepareRepayment', input]), { ok: true }),
+    refreshRepayment: async input => (calls.push(['refreshRepayment', input]), { ok: true }),
   };
   const api = createApi(service);
   const session = await consoleSession(api);
@@ -109,12 +111,14 @@ test('all credit actions dispatch only their reviewed fields', async () => {
     ['verify-two-factor', { tokenId: '2431', code: '123456' }],
     ['preview', { tokenId: '2431', commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 }],
     ['borrow', { tokenId: '2431', commitmentId: 'vouch-1', quoteId: 'quote-1', quoteSha256: 'a'.repeat(64), confirmBorrow: true }],
+    ['prepare-repayment', { tokenId: '2431', loanId: 'loan-1', maxSpendTokens: '5.01' }],
+    ['refresh-repayment', { tokenId: '2431', loanId: 'loan-1' }],
   ];
   for (const [action, body] of requests) {
     const result = await post(api, '/api/multipass/console/credit/' + action, body, session.headers);
     assert.equal(result.response.status, 200, action);
   }
-  assert.deepEqual(calls.map(([name]) => name), ['challenge', 'verify', 'overview', 'accept', 'authorization', 'request2fa', 'verify2fa', 'preview', 'borrow']);
+  assert.deepEqual(calls.map(([name]) => name), ['challenge', 'verify', 'overview', 'accept', 'authorization', 'request2fa', 'verify2fa', 'preview', 'borrow', 'prepareRepayment', 'refreshRepayment']);
   assert.ok(calls.every(([, input]) => input.identity === IDENTITY));
   assert.equal(calls.find(([name]) => name === 'borrow')[1].confirmBorrow, true);
 });

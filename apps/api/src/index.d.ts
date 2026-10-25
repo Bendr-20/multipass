@@ -77,6 +77,8 @@ export interface ConsoleCreditService {
   verifyTwoFactor(input: Record<string, unknown>): Promise<unknown>;
   previewLoan(input: Record<string, unknown>): Promise<unknown>;
   createLoan(input: Record<string, unknown>): Promise<unknown>;
+  prepareRepayment(input: Record<string, unknown>): Promise<unknown>;
+  refreshRepayment(input: Record<string, unknown>): Promise<unknown>;
   revokeAll?(input: { sessionKey: string }): void;
 }
 

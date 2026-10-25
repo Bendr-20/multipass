@@ -46,6 +46,8 @@ export function createConsoleCreditApi({ fetchImpl = globalThis.fetch, apiBase =
     verifyTwoFactor: ({ tokenId, code, csrfToken, signal }) => post('verify-two-factor', { tokenId, code }, csrfToken, signal),
     preview: ({ tokenId, commitmentId, amount, maxAprPercent, csrfToken, signal }) => post('preview', { tokenId, commitmentId, amount, maxAprPercent }, csrfToken, signal),
     borrow: ({ tokenId, commitmentId, quoteId, quoteSha256, confirmBorrow, csrfToken, signal }) => post('borrow', { tokenId, commitmentId, quoteId, quoteSha256, confirmBorrow }, csrfToken, signal),
+    prepareRepayment: ({ tokenId, loanId, maxSpendTokens, csrfToken, signal }) => post('prepare-repayment', { tokenId, loanId, maxSpendTokens }, csrfToken, signal),
+    refreshRepayment: ({ tokenId, loanId, csrfToken, signal }) => post('refresh-repayment', { tokenId, loanId }, csrfToken, signal),
   });
 }
 
@@ -57,7 +59,7 @@ export function createInitialConsoleCreditState(tokenId = null) {
   return Object.freeze({
     status: 'idle', selectedTokenId: tokenId == null ? null : String(tokenId), overview: null,
     optIn: Object.freeze({ status: 'idle', record: null, error: null }),
-    authorization: null, quote: null, error: null, notice: null,
+    authorization: null, quote: null, repayment: null, error: null, notice: null,
   });
 }
 
@@ -66,7 +68,7 @@ export function renderConsoleCreditPanel(credit = {}, context = {}) {
   const optIn = credit.optIn ?? { status: 'unavailable' };
   const renderPilot = credit.status === 'idle' && optIn.status !== 'unavailable';
   if (renderPilot) return renderCredifiPilotOptIn(optIn, { ...context, tokenId });
-  const busy = ['loading', 'signing', 'mutating', 'authorizing', 'quoting', 'borrowing'].includes(credit.status);
+  const busy = ['loading', 'signing', 'mutating', 'authorizing', 'quoting', 'borrowing', 'repaying'].includes(credit.status);
   const overview = credit.overview;
   const discoveryOnly = overview?.mode === 'offer_discovery_only';
   const cred = overview?.cred;
@@ -76,10 +78,10 @@ export function renderConsoleCreditPanel(credit = {}, context = {}) {
   return `
     <section class="console-credit-workspace" aria-labelledby="console-credit-title" aria-busy="${busy ? 'true' : 'false'}">
       <header class="console-credit-header">
-        <div><span class="console-gate-eyebrow">${discoveryOnly ? 'Offer discovery only · financial actions locked' : 'Private beta · Base USDC'}</span><h2 id="console-credit-title">Credit for ${escapeHtml(context.agentName ?? ('Looper #' + tokenId))}</h2><p>${discoveryOnly ? 'Read-only Credifi status for this Looper. No vouch can be accepted and no permission, quote, or loan can be created.' : 'Sponsor-vouch credit through Credifi. Every signature, permission grant, quote, and borrow stays a separate owner action.'}</p></div>
+        <div><span class="console-gate-eyebrow">${discoveryOnly ? 'Offer discovery only · new borrowing locked' : 'Private beta · Base USDC'}</span><h2 id="console-credit-title">Credit for ${escapeHtml(context.agentName ?? ('Looper #' + tokenId))}</h2><p>${discoveryOnly ? 'Read-only Credifi status for this Looper. No vouch can be accepted and no permission, quote, or loan can be created.' : 'Sponsor-vouch credit through Credifi. Vouch acceptance, permission, quote, borrow, allowance, and repayment stay separate owner actions.'}</p></div>
         ${overview ? '<button type="button" data-action="refresh-console-credit" ' + (busy ? 'disabled' : '') + '>Refresh</button>' : ''}
       </header>
-      <div class="console-credit-cautions" role="note"><strong>${discoveryOnly ? 'Read-only controls' : 'Private beta controls'}</strong><span>CRED floor ${escapeHtml(String(cred?.minimumScore ?? 40))}</span><span>${discoveryOnly ? 'Vouch acceptance disabled' : 'Zero origination fee only'}</span><span>${discoveryOnly ? 'EVC authorization disabled' : 'Owner-set APR ceiling'}</span><span>${discoveryOnly ? 'Quotes and borrowing disabled' : 'Funds disburse to the Looper account'}</span></div>
+      <div class="console-credit-cautions" role="note"><strong>${discoveryOnly ? 'New borrowing locked · repayment remains available' : 'Private beta controls'}</strong><span>CRED floor ${escapeHtml(String(cred?.minimumScore ?? 40))}</span><span>${discoveryOnly ? 'Vouch acceptance disabled' : 'Zero origination fee only'}</span><span>${discoveryOnly ? 'EVC authorization disabled' : 'Owner-set APR ceiling'}</span><span>${discoveryOnly ? 'Quotes and borrowing disabled' : 'Finite USDC repayment allowance'}</span></div>
       ${credit.error ? '<p class="console-credit-error" role="alert">' + escapeHtml(credit.error) + '</p>' : ''}
       ${credit.notice ? '<p class="console-credit-notice" role="status">' + escapeHtml(credit.notice) + '</p>' : ''}
       ${blocked ? renderBlocked(credit) : ''}
@@ -121,7 +123,7 @@ function renderOverview(credit, { commitments, loans, context, busy, discoveryOn
     </section>
     ${accepted.length && !discoveryOnly ? renderBorrowFlow(credit, accepted, context, busy) : ''}
     <section class="console-credit-section"><header><div><span>Account</span><h3>Loans and repayment status</h3></div><small>Refresh after repayment so Credifi state and future provider attestations stay current.</small></header>
-      ${loans.length ? '<div class="console-credit-list">' + loans.map(renderLoan).join('') + '</div>' : '<div class="console-credit-empty"><strong>No loans</strong><p>No Credifi loans are recorded for this Looper account.</p></div>'}
+      ${loans.length ? '<div class="console-credit-list">' + loans.map((loan) => renderLoan(loan, credit, busy, discoveryOnly)).join('') + '</div>' : '<div class="console-credit-empty"><strong>No loans</strong><p>No Credifi loans are recorded for this Looper account.</p></div>'}
     </section>
   `;
 }
@@ -174,8 +176,27 @@ function renderQuote(record, busy) {
   return `<article class="console-credit-quote"><header><div><span>Live quote</span><h4>${formatUsd(loan.amount)} principal at ${escapeHtml(String(loan.interestRate ?? '?'))}% APR</h4></div><strong>${formatUsd(loan.totalRepayment)} total</strong></header><dl><div><dt>Origination fee</dt><dd>${formatMicro(fee.feeMicro)} USDC</dd></div><div><dt>Term</dt><dd>${escapeHtml(String(loan.loanTerms?.termDays ?? '?'))} days</dd></div><div><dt>Repayment</dt><dd>${escapeHtml(loan.loanTerms?.repaymentType ?? 'See schedule')}</dd></div><div><dt>Expires</dt><dd>${escapeHtml(formatDate(quote.quoteExpiresAt))}</dd></div></dl><div class="console-credit-schedule">${(quote.paymentSchedule ?? []).map((item) => '<span>' + escapeHtml(formatDate(item.dueDate)) + ': ' + formatUsd(item.amount) + '</span>').join('')}</div><form data-action="borrow-console-credit"><label class="console-credit-confirm"><input type="checkbox" name="confirmed" required><span>I reviewed principal, APR, fees, schedule, and total repayment. Borrow exactly these terms.</span></label><button type="submit" ${busy ? 'disabled' : ''}>${record.status === 'borrowing' ? 'Borrowing…' : 'Borrow to Looper account'}</button></form></article>`;
 }
 
-function renderLoan(loan) {
-  return '<article class="console-credit-row"><div><strong>' + escapeHtml(loan.id) + '</strong><span>' + escapeHtml(loan.status) + (loan.amount == null ? '' : ' · ' + formatUsd(loan.amount)) + '</span><small>' + (loan.disbursement?.transactionHash ? 'Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : 'Provider record') + '</small></div></article>';
+function renderLoan(loan, credit, busy, discoveryOnly) {
+  const closed = ['completed', 'repaid', 'closed', 'defaulted', 'cancelled'].includes(String(loan.status ?? '').toLowerCase());
+  const repayable = !closed && Boolean(loan.disbursement?.blockchainLoanId);
+  const plan = credit.repayment?.loanId === loan.id ? credit.repayment : null;
+  const summary = '<div><strong>' + escapeHtml(loan.id) + '</strong><span>' + escapeHtml(loan.status) + (loan.amount == null ? '' : ' · ' + formatUsd(loan.amount)) + (loan.remainingBalance == null ? '' : ' · ' + formatUsd(loan.remainingBalance) + ' recorded balance') + '</span><small>' + (loan.disbursement?.transactionHash ? 'Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : 'Provider record') + '</small></div>';
+  if (!repayable) return '<article class="console-credit-row">' + summary + '<span class="console-credit-state">' + (closed ? 'Closed' : 'Repayment unavailable') + '</span></article>';
+  return '<article class="console-credit-loan">' + summary
+    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? loan.remainingBalance ?? '') + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Review repayment</button></form>'
+    + (plan ? renderRepaymentReview(plan, busy) : '') + '<button type="button" data-action="refresh-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '" ' + (busy ? 'disabled' : '') + '>Refresh repayment status</button></article>';
+}
+
+function renderRepaymentReview(plan, busy) {
+  const debt = formatBaseUnits(plan.currentDebtBaseUnits, plan.token?.decimals ?? 6);
+  const cap = formatBaseUnits(plan.maxSpendBaseUnits, plan.token?.decimals ?? 6);
+  const copy = plan.action === 'reset-allowance'
+    ? 'Reset the existing USDC allowance to zero before setting the new finite cap.'
+    : plan.action === 'set-allowance'
+      ? 'Approve exactly ' + cap + ' USDC for the reviewed Credifi adaptor.'
+      : 'Pay the live debt, currently ' + debt + ' USDC, bounded by the ' + cap + ' USDC allowance.';
+  const label = plan.action === 'reset-allowance' ? 'Reset USDC allowance' : plan.action === 'set-allowance' ? 'Approve finite USDC cap' : 'Repay loan';
+  return '<div class="console-credit-repayment"><strong>' + escapeHtml(label) + '</strong><p>' + escapeHtml(copy) + '</p><small>Each step is prepared from live Base state and requires its own wallet confirmation.</small><label class="console-credit-confirm"><input type="checkbox" data-repayment-confirm required><span>I reviewed this exact ' + escapeHtml(plan.action) + ' action.</span></label><button type="button" data-action="submit-console-credit-repayment" ' + (busy ? 'disabled' : '') + '>' + escapeHtml(label) + ' in wallet</button></div>';
 }
 
 function isAuthorized(flags, market) {
@@ -194,12 +215,16 @@ export function bindConsoleCredit(root, handlers = {}) {
   root.querySelector('[data-action="verify-console-credit-2fa"]')?.addEventListener('submit', (event) => { event.preventDefault(); handlers.verifyTwoFactor?.(createFormData(event.currentTarget).get('code')); });
   root.querySelector('[data-action="preview-console-credit"]')?.addEventListener('submit', (event) => { event.preventDefault(); const data = createFormData(event.currentTarget); handlers.preview?.({ commitmentId: event.currentTarget.dataset.commitmentId, amount: data.get('amount'), maxAprPercent: data.get('maxAprPercent') }); });
   root.querySelector('[data-action="borrow-console-credit"]')?.addEventListener('submit', (event) => { event.preventDefault(); handlers.borrow?.({ confirmed: createFormData(event.currentTarget).get('confirmed') === 'on' }); });
+  root.querySelectorAll('[data-action="prepare-console-credit-repayment"]').forEach((form) => form.addEventListener('submit', (event) => { event.preventDefault(); const data = createFormData(event.currentTarget); handlers.prepareRepayment?.({ loanId: event.currentTarget.dataset.loanId, maxSpendTokens: data.get('maxSpendTokens') }); }));
+  root.querySelector('[data-action="submit-console-credit-repayment"]')?.addEventListener('click', () => handlers.submitRepayment?.({ confirmed: root.querySelector('[data-repayment-confirm]')?.checked === true }));
+  root.querySelectorAll('[data-action="refresh-console-credit-repayment"]').forEach((button) => button.addEventListener('click', () => handlers.refreshRepayment?.(button.dataset.loanId)));
 }
 
 function createFormData(form) { const FormDataConstructor = form?.ownerDocument?.defaultView?.FormData ?? globalThis.FormData; return new FormDataConstructor(form); }
 function formatMicro(value) { const number = Number(value); return Number.isFinite(number) ? (number / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0'; }
 function formatUsd(value) { const number = Number(value); return Number.isFinite(number) ? number.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }) : 'Unavailable'; }
 function formatDate(value) { const time = Date.parse(String(value ?? '')); return Number.isFinite(time) ? new Date(time).toLocaleString() : 'Unavailable'; }
+function formatBaseUnits(value, decimals) { const text = String(value ?? '0'); if (!/^\d+$/u.test(text)) return 'Unavailable'; const width = Number(decimals); const padded = text.padStart(width + 1, '0'); const whole = padded.slice(0, -width) || '0'; const fraction = padded.slice(-width).replace(/0+$/u, ''); return fraction ? whole + '.' + fraction : whole; }
 function shortAddress(value) { const text = String(value ?? ''); return text.length > 14 ? text.slice(0, 8) + '…' + text.slice(-6) : text; }
 function escapeHtml(value) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;'); }
 function escapeAttribute(value) { return escapeHtml(value).replaceAll('\n', '&#10;').replaceAll('\r', '&#13;'); }
@@ -237,7 +262,7 @@ function renderCredifiPilotOptIn(optIn, context) {
     return '<section class="console-credit-workspace console-credifi-opt-in" aria-busy="' + (status === 'submitting' ? 'true' : 'false') + '"><span class="console-gate-eyebrow">Pilot opt-in only · borrowing disabled</span><h2>' + title + ' is invited to the prepared $50 Credifi pilot</h2><p>Record the current owner’s consent for Looper #' + escapeHtml(tokenId) + ' and its canonical released-v1 account. This does not accept a vouch, authorize EVC, request a quote, borrow funds, or enable Credit.</p><button type="button" data-action="submit-credifi-owner-opt-in" ' + (status === 'submitting' ? 'disabled' : '') + '>' + (status === 'submitting' ? 'Recording owner opt-in…' : 'Opt in to preparation') + '</button></section>';
   }
   if (status === 'opted_in') {
-    return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot opt-in recorded · offer discovery available</span><h2>Owner opt-in recorded</h2><p>Consent for Looper #' + escapeHtml(tokenId) + ' is bound to the current owner and canonical released-v1 account for the prepared $' + escapeHtml(record?.amount_usd ?? '50.00') + ' cohort.</p><p>Use one fresh Looper smart-wallet signature for a read-only check of Credifi sponsor offers. This cannot accept a vouch, authorize EVC, request a quote, or borrow funds.</p><button type="button" data-action="login-console-credit">Sign in and check for sponsor offer</button><small>Recorded ' + escapeHtml(formatDate(record?.consented_at)) + '</small></section>';
+    return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot enabled · separate owner approvals</span><h2>Owner opt-in recorded</h2><p>Consent for Looper #' + escapeHtml(tokenId) + ' is bound to the current owner and canonical released-v1 account for the prepared $' + escapeHtml(record?.amount_usd ?? '50.00') + ' cohort.</p><p>Sign in with the Looper smart wallet to review its sponsor offer and loan state. Vouch acceptance, EVC permission, quote approval, borrowing, USDC allowance, and repayment each remain separate owner actions.</p><button type="button" data-action="login-console-credit">Sign in to Credifi</button><small>Recorded ' + escapeHtml(formatDate(record?.consented_at)) + '</small></section>';
   }
   if (status === 'error') {
     return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot opt-in only · borrowing disabled</span><h2>Owner opt-in unavailable</h2><p role="alert">' + escapeHtml(optIn?.error ?? 'Eligibility could not be verified. Retry after confirming wallet ownership.') + '</p></section>';

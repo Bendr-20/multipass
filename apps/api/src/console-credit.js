@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { decodeFunctionData, encodeFunctionData, getAddress } from 'viem';
+import { createPublicClient, decodeFunctionData, encodeFunctionData, fallback, getAddress, http, parseUnits } from 'viem';
+import { base } from 'viem/chains';
 
 import { deriveReleasedLooperAccount } from './looper-account.js';
 
@@ -27,6 +28,34 @@ const EXECUTE_ABI = Object.freeze([{
   inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' }, { name: 'operation', type: 'uint8' }],
   outputs: [{ name: 'result', type: 'bytes' }],
 }]);
+const CREDIFI_ADAPTOR_ABI = Object.freeze([
+  {
+    type: 'function', name: 'getLoanDetails', stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }, { name: 'loanId', type: 'uint256' }],
+    outputs: [
+      { name: 'loan', type: 'tuple', components: [
+        { name: 'loanId', type: 'uint256' }, { name: 'tokenId', type: 'uint256' }, { name: 'collateralVault', type: 'address' },
+        { name: 'borrowVault', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'creditAmount', type: 'uint256' },
+        { name: 'timestamp', type: 'uint256' }, { name: 'certificateHash', type: 'bytes32' }, { name: 'active', type: 'bool' },
+        { name: 'subAccount', type: 'address' }, { name: 'dueDate', type: 'uint256' }, { name: 'interestRate', type: 'uint256' },
+        { name: '__reserved', type: 'uint256[8]' },
+      ] },
+      { name: 'currentDebt', type: 'uint256' }, { name: 'collateralBalance', type: 'uint256' },
+    ],
+  },
+  { type: 'function', name: 'credifi1155', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+]);
+const BORROW_VAULT_ABI = Object.freeze([{ type: 'function', name: 'asset', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }]);
+const ERC20_REPAYMENT_ABI = Object.freeze([
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] },
+]);
+const CREDIFI1155_ABI = Object.freeze([{
+  type: 'function', name: 'makeLoanPayment', stateMutability: 'nonpayable',
+  inputs: [{ name: 'user', type: 'address' }, { name: 'loanId', type: 'uint256' }, { name: 'repayAmount', type: 'uint256' }], outputs: [],
+}]);
+const DEFAULT_BASE_RPC_URLS = Object.freeze(['https://base-rpc.publicnode.com', 'https://mainnet.base.org']);
 
 export class ConsoleCreditError extends Error {
   constructor(code, message, { status = 400, details, cause } = {}) {
@@ -45,6 +74,8 @@ export function createConsoleCreditService({
   minCredScore = DEFAULT_LOOPER_CREDIT_MIN_CRED,
   allowedTokenIds,
   discoveryOnly = false,
+  publicClient,
+  rpcUrls = DEFAULT_BASE_RPC_URLS,
   now = () => Date.now(),
   requestTimeoutMs = REQUEST_TIMEOUT_MS,
 } = {}) {
@@ -55,6 +86,10 @@ export function createConsoleCreditService({
   const timeoutMs = boundedInteger(requestTimeoutMs, 'credit request timeout', 100, 30_000);
   const allowedTokenIdSet = normalizeAllowedTokenIds(allowedTokenIds);
   if (typeof discoveryOnly !== 'boolean') throw new TypeError('Credit discovery-only mode must be a boolean.');
+  const repaymentClient = publicClient ?? createPublicClient({
+    chain: base,
+    transport: fallback([...new Set(rpcUrls)].map((url) => http(normalizeBaseUrl(url, 'Base RPC URL').href, { timeout: timeoutMs, retryCount: 1 }))),
+  });
   const pendingChallenges = new Map();
   const sessions = new Map();
   const quotes = new Map();
@@ -342,6 +377,62 @@ export function createConsoleCreditService({
       }
     },
 
+    async prepareRepayment({ sessionKey, identity, loanId, maxSpendTokens } = {}) {
+      const { key, subject: expected } = keyFor(sessionKey, identity);
+      await gate(expected);
+      const active = requireSession(key, expected);
+      const state = await readBorrowerState(active);
+      const id = boundedId(loanId, 'loan ID');
+      const loan = state.loans.find((candidate) => candidate.id === id);
+      if (!loan?.disbursement?.loanOwner || loan.disbursement.loanOwner !== expected.account || !loan.disbursement.blockchainLoanId) {
+        throw new ConsoleCreditError('repayment_unavailable', 'This loan does not have a bound onchain disbursement.', { status: 409 });
+      }
+      const market = findRepaymentMarket(state, loan);
+      const config = resolveRepaymentConfig(state.chains, market, loan);
+      const live = await readRepaymentState(repaymentClient, config, loan, expected.account);
+      const maxSpend = parseRepaymentCap(maxSpendTokens, config.decimals);
+      if (live.currentDebt === 0n) throw new ConsoleCreditError('loan_already_repaid', 'This loan has no live debt.', { status: 409 });
+      if (live.currentDebt > maxSpend) {
+        throw new ConsoleCreditError('repayment_cap_too_low', 'The live payoff exceeds the approved USDC spend cap.', {
+          status: 409, details: { currentDebtBaseUnits: live.currentDebt.toString(), maxSpendBaseUnits: maxSpend.toString(), decimals: config.decimals },
+        });
+      }
+      const action = live.allowance > 0n && live.allowance !== maxSpend
+        ? 'reset-allowance'
+        : live.allowance !== maxSpend ? 'set-allowance' : 'repay';
+      const inner = action === 'reset-allowance'
+        ? { to: config.tokenAddress, data: encodeFunctionData({ abi: ERC20_REPAYMENT_ABI, functionName: 'approve', args: [config.adaptorAddress, 0n] }) }
+        : action === 'set-allowance'
+          ? { to: config.tokenAddress, data: encodeFunctionData({ abi: ERC20_REPAYMENT_ABI, functionName: 'approve', args: [config.adaptorAddress, maxSpend] }) }
+          : { to: config.loanContractAddress, data: encodeFunctionData({ abi: CREDIFI1155_ABI, functionName: 'makeLoanPayment', args: [expected.account, BigInt(loan.disbursement.blockchainLoanId), MAX_UINT256] }) };
+      const outerData = encodeFunctionData({ abi: EXECUTE_ABI, functionName: 'execute', args: [inner.to, 0n, inner.data, 0] });
+      const preparedAt = clock();
+      return {
+        schema_version: '0.1.0', loanId: id, action, chainId: BASE_CHAIN_ID, token: { symbol: 'USDC', address: config.tokenAddress, decimals: config.decimals },
+        adaptorAddress: config.adaptorAddress, loanContractAddress: config.loanContractAddress, blockchainLoanId: loan.disbursement.blockchainLoanId,
+        currentDebtBaseUnits: live.currentDebt.toString(), allowanceBaseUnits: live.allowance.toString(), maxSpendBaseUnits: maxSpend.toString(),
+        preparedAt: new Date(preparedAt).toISOString(), expiresAt: new Date(preparedAt + AUTHORIZATION_REVIEW_TTL_MS).toISOString(),
+        transaction: { chainId: BASE_CHAIN_ID, from: expected.owner, to: expected.account, value: '0', data: outerData },
+      };
+    },
+
+    async refreshRepayment({ sessionKey, identity, loanId } = {}) {
+      const { key, subject: expected } = keyFor(sessionKey, identity);
+      await gate(expected);
+      const active = requireSession(key, expected);
+      const state = await readBorrowerState(active);
+      const id = boundedId(loanId, 'loan ID');
+      const loan = state.loans.find((candidate) => candidate.id === id);
+      if (!loan?.disbursement || loan.disbursement.loanOwner !== expected.account) {
+        throw new ConsoleCreditError('repayment_unavailable', 'This loan does not belong to the selected Looper.', { status: 409 });
+      }
+      const market = findRepaymentMarket(state, loan);
+      await credifi(active, '/api/chain/indexer', { method: 'POST', body: { indexerType: 'loans' }, headers: marketHeaders(market) });
+      const updated = normalizeLoans(await credifi(active, '/api/v3/loans/list'), active.account).find((candidate) => candidate.id === id);
+      if (!updated) throw new ConsoleCreditError('repayment_reconciliation_failed', 'Credifi did not return the refreshed loan.', { status: 502 });
+      return { schema_version: '0.1.0', loan: updated };
+    },
+
     revokeSession({ sessionKey, identity } = {}) {
       const { key } = keyFor(sessionKey, identity);
       sessions.delete(key); pendingChallenges.delete(key);
@@ -355,6 +446,89 @@ export function createConsoleCreditService({
       for (const key of quotes.keys()) if (key.startsWith(prefix)) quotes.delete(key);
     },
   });
+}
+
+function findRepaymentMarket(state, loan) {
+  const disbursement = loan.disbursement;
+  const selected = state.markets.find((candidate) => candidate.chainId === disbursement.chainId && candidate.marketId === disbursement.marketId);
+  if (!selected || selected.chainId !== BASE_CHAIN_ID || selected.borrowAsset !== 'USDC'
+    || selected.tokenAddress !== BASE_USDC_ADDRESS || selected.decimals !== 6) {
+    throw new ConsoleCreditError('repayment_market_mismatch', 'The loan is not bound to the reviewed Base USDC market.', { status: 409 });
+  }
+  if (disbursement.tokenAddress !== selected.tokenAddress) {
+    throw new ConsoleCreditError('repayment_token_mismatch', 'The loan disbursement token does not match its market.', { status: 409 });
+  }
+  return selected;
+}
+
+function resolveRepaymentConfig(chains, market, loan) {
+  const chain = chains?.[String(market.chainId)];
+  if (!isObject(chain) || !Array.isArray(chain.vaults)) throw upstreamInvalid('Credifi repayment chain configuration');
+  const vault = chain.vaults.find((candidate) => candidate?.id === market.vaultId);
+  if (!isObject(vault)) throw upstreamInvalid('Credifi repayment vault configuration');
+  const addresses = { ...(isObject(chain.addresses) ? chain.addresses : {}), ...(isObject(vault.addresses) ? vault.addresses : {}) };
+  const latest = (name) => Array.isArray(addresses[name]) ? addresses[name].at(-1) : null;
+  const adaptor = latest('CREDIFI_ADAPTOR');
+  const loanContract = latest('CREDIFI1155');
+  const borrowVault = latest('BORROW_VAULT');
+  const token = latest(vault.borrowAsset);
+  if (adaptor?.abi !== 'CredifiERC20Adaptor.v2' || loanContract?.abi !== 'Credifi1155.v2' || !borrowVault || !token) {
+    throw new ConsoleCreditError('repayment_contract_version_unsupported', 'Credifi repayment contracts are incomplete or use an unreviewed ABI version.', { status: 409 });
+  }
+  const tokenAddress = normalizeAddress(token.address, 'repayment token');
+  const decimals = boundedInteger(token.decimals, 'repayment token decimals', 0, 36);
+  if (tokenAddress !== BASE_USDC_ADDRESS || tokenAddress !== loan.disbursement.tokenAddress || decimals !== 6 || String(token.symbol ?? '').toUpperCase() !== 'USDC') {
+    throw new ConsoleCreditError('repayment_token_mismatch', 'Credifi repayment token configuration is not canonical Base USDC.', { status: 409 });
+  }
+  return {
+    adaptorAddress: normalizeAddress(adaptor.address, 'Credifi repayment adaptor'),
+    loanContractAddress: normalizeAddress(loanContract.address, 'Credifi loan contract'),
+    borrowVaultAddress: normalizeAddress(borrowVault.address, 'Credifi borrow vault'),
+    tokenAddress, decimals,
+  };
+}
+
+async function readRepaymentState(client, config, loan, account) {
+  let details;
+  let linkedLoanContract;
+  try {
+    [details, linkedLoanContract] = await Promise.all([
+      client.readContract({ address: getAddress(config.adaptorAddress), abi: CREDIFI_ADAPTOR_ABI, functionName: 'getLoanDetails', args: [getAddress(account), BigInt(loan.disbursement.blockchainLoanId)] }),
+      client.readContract({ address: getAddress(config.adaptorAddress), abi: CREDIFI_ADAPTOR_ABI, functionName: 'credifi1155' }),
+    ]);
+  } catch (cause) {
+    throw new ConsoleCreditError('repayment_state_unavailable', 'Live repayment state is unavailable. No transaction was prepared.', { status: 503, cause });
+  }
+  const loanDetails = details?.loan ?? details?.[0];
+  const currentDebt = BigInt(details?.currentDebt ?? details?.[1] ?? -1);
+  const borrowVault = normalizeAddress(loanDetails?.borrowVault ?? loanDetails?.[3], 'live repayment vault');
+  if (borrowVault !== config.borrowVaultAddress || normalizeAddress(linkedLoanContract, 'live Credifi loan contract') !== config.loanContractAddress) {
+    throw new ConsoleCreditError('repayment_contract_mismatch', 'Live Credifi loan contracts do not match the reviewed market configuration.', { status: 409 });
+  }
+  let tokenAddress;
+  let decimals;
+  let allowance;
+  try {
+    tokenAddress = await client.readContract({ address: getAddress(borrowVault), abi: BORROW_VAULT_ABI, functionName: 'asset' });
+    [decimals, allowance] = await Promise.all([
+      client.readContract({ address: getAddress(config.tokenAddress), abi: ERC20_REPAYMENT_ABI, functionName: 'decimals' }),
+      client.readContract({ address: getAddress(config.tokenAddress), abi: ERC20_REPAYMENT_ABI, functionName: 'allowance', args: [getAddress(account), getAddress(config.adaptorAddress)] }),
+    ]);
+  } catch (cause) {
+    throw new ConsoleCreditError('repayment_state_unavailable', 'Live repayment token state is unavailable. No transaction was prepared.', { status: 503, cause });
+  }
+  if (normalizeAddress(tokenAddress, 'live repayment token') !== config.tokenAddress || Number(decimals) !== config.decimals || currentDebt < 0n) {
+    throw new ConsoleCreditError('repayment_token_mismatch', 'Live repayment token state does not match canonical Base USDC.', { status: 409 });
+  }
+  return { currentDebt, allowance: BigInt(allowance) };
+}
+
+function parseRepaymentCap(value, decimals) {
+  const text = String(value ?? '').trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u.test(text)) throw new ConsoleCreditError('invalid_repayment_cap', 'Enter a positive USDC spend cap with at most six decimals.');
+  const amount = parseUnits(text, decimals);
+  if (amount <= 0n || amount > 1_000_000n * (10n ** BigInt(decimals))) throw new ConsoleCreditError('invalid_repayment_cap', 'Repayment cap is outside the supported range.');
+  return amount;
 }
 
 function validateLoginChallenge(message, account, nowMs) {

@@ -2090,7 +2090,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const overview = await activeConsoleCreditApi.overview({ tokenId: context.tokenId, csrfToken: context.csrfToken, signal: controller.signal });
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
-      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', selectedTokenId: context.tokenId, overview, authorization: null, quote: null, error: null, notice } };
+      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', selectedTokenId: context.tokenId, overview, authorization: null, quote: null, repayment: null, error: null, notice } };
     } catch (error) {
       failConsoleCredit(error, context);
     } finally {
@@ -2246,6 +2246,88 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       failConsoleCredit(error, context);
     }
     finally { if (consoleCreditAbortController === controller) consoleCreditAbortController = null; }
+  }
+
+  async function prepareConsoleCreditRepayment({ loanId, maxSpendTokens }) {
+    const context = createConsoleCreditContext();
+    const normalizedCap = String(maxSpendTokens ?? '').trim();
+    const controller = beginConsoleCreditOperation('repaying', { repayment: null });
+    try {
+      const prepared = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: String(loanId), maxSpendTokens: normalizedCap, csrfToken: context.csrfToken, signal: controller.signal });
+      if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...prepared, maxSpendTokens: normalizedCap }, error: null, notice: 'Live repayment step prepared. Review it before opening the wallet.' } };
+      render(root, state, handlers);
+    } catch (error) { failConsoleCredit(error, context); }
+    finally { if (consoleCreditAbortController === controller) consoleCreditAbortController = null; }
+  }
+
+  async function submitConsoleCreditRepayment({ confirmed }) {
+    const context = createConsoleCreditContext();
+    const reviewed = state.consoleCredit?.repayment;
+    if (!confirmed || !reviewed?.loanId || !reviewed?.maxSpendTokens) {
+      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', error: 'Review and confirm the exact repayment step before opening the wallet.' } };
+      render(root, state, handlers);
+      return;
+    }
+    const controller = beginConsoleCreditOperation('repaying', { repayment: reviewed });
+    try {
+      const fresh = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: reviewed.loanId, maxSpendTokens: reviewed.maxSpendTokens, csrfToken: context.csrfToken, signal: controller.signal });
+      if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+      const fingerprint = (plan) => JSON.stringify({ loanId: plan.loanId, action: plan.action, token: plan.token, adaptorAddress: plan.adaptorAddress, loanContractAddress: plan.loanContractAddress, blockchainLoanId: plan.blockchainLoanId, currentDebtBaseUnits: plan.currentDebtBaseUnits, allowanceBaseUnits: plan.allowanceBaseUnits, maxSpendBaseUnits: plan.maxSpendBaseUnits, transaction: plan.transaction });
+      if (fingerprint(fresh) !== fingerprint(reviewed)) {
+        state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...fresh, maxSpendTokens: reviewed.maxSpendTokens }, error: null, notice: 'Repayment state changed. Review the refreshed step before signing.' } };
+        render(root, state, handlers);
+        return;
+      }
+      const expiresAt = Date.parse(String(fresh.expiresAt ?? ''));
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error('Prepared repayment step expired before wallet submission.');
+      const transaction = fresh.transaction;
+      const looperAccount = deriveConsoleCreditAccount(context.tokenId);
+      if (!transaction || String(transaction.from ?? '').toLowerCase() !== context.wallet || String(transaction.to ?? '').toLowerCase() !== looperAccount || String(transaction.value) !== '0') throw new Error('Prepared repayment no longer matches this owner and Looper.');
+      const chainId = String(await activeWalletClient.request({ method: 'eth_chainId' })).toLowerCase();
+      if (chainId !== '0x2105') await activeWalletClient.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x2105' }] });
+      const transactionHash = await activeWalletClient.request({ method: 'eth_sendTransaction', params: [{ from: transaction.from, to: transaction.to, data: transaction.data, value: '0x0' }] });
+      if (!/^0x[0-9a-f]{64}$/iu.test(String(transactionHash ?? ''))) throw new Error('Wallet did not return a repayment transaction hash.');
+      const receipt = await waitForConsoleCreditReceipt(activeWalletClient, transactionHash, controller.signal);
+      if (receipt.status !== '0x1') throw new Error('The repayment wallet transaction reverted.');
+      if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+      if (fresh.action === 'repay') {
+        await activeConsoleCreditApi.refreshRepayment({ tokenId: context.tokenId, loanId: fresh.loanId, csrfToken: context.csrfToken, signal: controller.signal });
+        if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+        consoleCreditAbortController = null;
+        return refreshConsoleCredit({ notice: 'Repayment confirmed on Base and Credifi loan state refreshed: ' + shortConsoleHash(transactionHash) + '.' });
+      }
+      const next = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: fresh.loanId, maxSpendTokens: reviewed.maxSpendTokens, csrfToken: context.csrfToken, signal: controller.signal });
+      if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...next, maxSpendTokens: reviewed.maxSpendTokens }, error: null, notice: (fresh.action === 'reset-allowance' ? 'Allowance reset' : 'Finite allowance approved') + ' on Base: ' + shortConsoleHash(transactionHash) + '. Review the next step.' } };
+      render(root, state, handlers);
+    } catch (error) { failConsoleCredit(error, context); }
+    finally { if (consoleCreditAbortController === controller) consoleCreditAbortController = null; }
+  }
+
+  async function refreshConsoleCreditRepayment(loanId) {
+    const context = createConsoleCreditContext();
+    const controller = beginConsoleCreditOperation('loading');
+    try {
+      await activeConsoleCreditApi.refreshRepayment({ tokenId: context.tokenId, loanId: String(loanId), csrfToken: context.csrfToken, signal: controller.signal });
+      if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+      consoleCreditAbortController = null;
+      return refreshConsoleCredit({ notice: 'Credifi repayment status refreshed.' });
+    } catch (error) { failConsoleCredit(error, context); }
+    finally { if (consoleCreditAbortController === controller) consoleCreditAbortController = null; }
+  }
+
+  async function waitForConsoleCreditReceipt(client, transactionHash, signal) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (signal?.aborted) throw new DOMException('Operation aborted.', 'AbortError');
+      const receipt = await client.request({ method: 'eth_getTransactionReceipt', params: [transactionHash] });
+      if (receipt) return receipt;
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(resolve, 1_500);
+        signal?.addEventListener('abort', () => { clearTimeout(timeout); reject(new DOMException('Operation aborted.', 'AbortError')); }, { once: true });
+      });
+    }
+    throw new Error('Base transaction confirmation timed out. Refresh the loan before retrying; do not resubmit a payment blindly.');
   }
 
   function getConsoleCreditErrorMessage(error) {
@@ -3775,7 +3857,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
   }
 
-  const handlers = { connectSwarmAdminWallet, approveSwarmSafeHash, resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, refreshConsoleCredit, submitCredifiOwnerOptIn, loginConsoleCredit, acceptConsoleCreditVouch, prepareConsoleCreditAuthorization, submitConsoleCreditAuthorization, requestConsoleCreditTwoFactor, verifyConsoleCreditTwoFactor, previewConsoleCredit, borrowConsoleCredit, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, loadConsoleMissions, openConsoleMission, closeConsoleMission, openConsoleLaunchpad, prepareConsoleSwarmLaunch, addConsoleLaunchMember, removeConsoleLaunchMember, createConsoleInvitationDraft, addConsoleInvitation, continueConsoleInvitationLaunch, revokeConsoleInvitation, closeConsoleInvitationDraft, respondConsoleInvitation, openConsoleInvitation, copyConsoleInvitation, createConsoleLaunchConsent, createConsoleLaunchReadiness, createConsoleLaunchExecutionReview, signConsoleLaunchConsent, newConsoleMission, cancelConsoleMissionEditor, submitConsoleMission, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, loadPantheonCred, approvePantheonCred, submitPantheonCredApproval, stakePantheonCred, submitPantheonCredStake, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
+  const handlers = { connectSwarmAdminWallet, approveSwarmSafeHash, resolveLiveAgent, refreshLooperMarketplace, setLooperMarketplaceView, setLooperMarketplaceSearch, setLooperMarketplaceSort, saveConsoleRestapNetworkPolicy, sendConsoleRestapNetworkTalk, stopConsoleRestapNetwork, retryConsoleRestapNetwork, refreshConsoleCredit, submitCredifiOwnerOptIn, loginConsoleCredit, acceptConsoleCreditVouch, prepareConsoleCreditAuthorization, submitConsoleCreditAuthorization, requestConsoleCreditTwoFactor, verifyConsoleCreditTwoFactor, previewConsoleCredit, borrowConsoleCredit, prepareConsoleCreditRepayment, submitConsoleCreditRepayment, refreshConsoleCreditRepayment, resetStaticDemo, saveCurrentMultipass, showGroupActivation, previewGroupActivation, saveGroupActivation, resetGroupActivation, registerLooperAllowlist, connectLooperAllowlistWallet, connectConsoleWallet, selectConsoleAgent, setConsoleWorkspaceView, loadConsoleMissions, openConsoleMission, closeConsoleMission, openConsoleLaunchpad, prepareConsoleSwarmLaunch, addConsoleLaunchMember, removeConsoleLaunchMember, createConsoleInvitationDraft, addConsoleInvitation, continueConsoleInvitationLaunch, revokeConsoleInvitation, closeConsoleInvitationDraft, respondConsoleInvitation, openConsoleInvitation, copyConsoleInvitation, createConsoleLaunchConsent, createConsoleLaunchReadiness, createConsoleLaunchExecutionReview, signConsoleLaunchConsent, newConsoleMission, cancelConsoleMissionEditor, submitConsoleMission, updateConsoleAgentGallerySearch, updateConsoleAgentGallerySort, clearConsoleAgentGallerySearch, toggleConsoleRosterDrawer, refreshConsoleOwnedAgentsFromControl, retryConsoleAgentActivation, retryConsoleCodex, activateSelectedConsoleAgent, activateConsoleRoom, toggleConsoleAgentRoom, selectConsoleImage, removeConsoleImage, sendConsoleAgentMessage, updateConsoleAgentName, resetConsoleAgentName, resetConsoleSession, refreshLooperAgentWallet, activateLooperAgentWallet, sendLooperAgentWallet, loadPantheonCred, approvePantheonCred, submitPantheonCredApproval, stakePantheonCred, submitPantheonCredStake, acknowledgeLooperWalletOutcome, setLooperPolicyModule, connectLooperMintWallet, refreshLooperMint, submitLooperMint, claimWithWallet, submitManualReview, updatePublicProfile, createPublicFragment, updatePublicFragment, revokePublicFragment, createRoute: createPublicRoute, updateRoute: updatePublicRoute, revokeRoute: revokePublicRoute, createMarketplaceConnection, updateMarketplaceConnection, retireMarketplaceConnection, importBankrTool: importBankrToolMetadata, refreshTool: refreshToolMetadata, logoutManagerSession };
 
   return { start, refreshLooperMarketplace, selectConsoleAgentById, activateSelectedConsoleAgent, retryConsoleCodex, resetConsoleSession };
 }
@@ -6437,6 +6519,9 @@ function bindProductHomeEvents(root, handlers, state) {
     verifyTwoFactor: handlers.verifyConsoleCreditTwoFactor,
     preview: handlers.previewConsoleCredit,
     borrow: handlers.borrowConsoleCredit,
+    prepareRepayment: handlers.prepareConsoleCreditRepayment,
+    submitRepayment: handlers.submitConsoleCreditRepayment,
+    refreshRepayment: handlers.refreshConsoleCreditRepayment,
   });
   bindSwarmLaunchpad(root, {
     prepare: handlers.prepareConsoleSwarmLaunch,

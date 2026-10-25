@@ -1325,6 +1325,8 @@ async function handleConsoleCreditAction(request, action, context) {
     'verify-two-factor': ['code', 'tokenId'],
     preview: ['amount', 'commitmentId', 'maxAprPercent', 'tokenId'],
     borrow: ['commitmentId', 'confirmBorrow', 'quoteId', 'quoteSha256', 'tokenId'],
+    'prepare-repayment': ['loanId', 'maxSpendTokens', 'tokenId'],
+    'refresh-repayment': ['loanId', 'tokenId'],
   }[action];
   if (!expectedFields) return errorResponse(404, 'not_found', 'Route not found.');
   assertExactCreditRequest(body, expectedFields);
@@ -1340,6 +1342,8 @@ async function handleConsoleCreditAction(request, action, context) {
   if (action === 'request-two-factor') return jsonResponse(await service.requestTwoFactor({ ...input, channel: body.channel }));
   if (action === 'verify-two-factor') return jsonResponse(await service.verifyTwoFactor({ ...input, code: body.code }));
   if (action === 'preview') return jsonResponse(await service.previewLoan({ ...input, commitmentId: body.commitmentId, amount: body.amount, maxAprPercent: body.maxAprPercent }));
+  if (action === 'prepare-repayment') return jsonResponse(await service.prepareRepayment({ ...input, loanId: body.loanId, maxSpendTokens: body.maxSpendTokens }));
+  if (action === 'refresh-repayment') return jsonResponse(await service.refreshRepayment({ ...input, loanId: body.loanId }));
   return jsonResponse(await service.createLoan({ ...input, commitmentId: body.commitmentId, quoteId: body.quoteId, quoteSha256: body.quoteSha256, confirmBorrow: body.confirmBorrow }));
 }
 
