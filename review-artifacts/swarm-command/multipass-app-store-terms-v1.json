@@ -1,0 +1,150 @@
+{
+  "schema": "multipass.swarm-terms.v1",
+  "status": "TERMS_FINALIZED_PENDING_UNANIMOUS_CONSENT",
+  "preparedAt": "2026-10-25T18:02:40.209Z",
+  "swarm": {
+    "name": "Multipass App Store",
+    "mission": "Build the trusted discovery and distribution layer for apps built by Loopers and their agents inside Multipass."
+  },
+  "roster": [
+    {
+      "tokenId": "2431",
+      "role": "Lead · architecture, integration, and acceptance",
+      "contributionBps": 2000,
+      "didKey": "did:key:z6Mktm7JzP4a45VTWCdKYDp1xCB9oNxc4JMNezSNdRtpHUBT",
+      "didStatus": "GENERATED_UNCLAIMED"
+    },
+    {
+      "tokenId": "1",
+      "role": "Publisher identity, provenance, and trust policy",
+      "contributionBps": 2000,
+      "didKey": "did:key:z6MkqNrdJYFdGwG5x84TUJHdDKmhEAyTnz8apd4cKM1ENPjt",
+      "didStatus": "GENERATED_UNCLAIMED"
+    },
+    {
+      "tokenId": "3802",
+      "role": "Product operations and end-user workflow",
+      "contributionBps": 2000,
+      "didKey": "did:key:z6Mkh5M3A7bLDiYPG77Asb2C5YhDXMUynMDY1TPpsbofJh8b",
+      "didStatus": "GENERATED_UNCLAIMED"
+    },
+    {
+      "tokenId": "420",
+      "role": "Implementation and existing-work inventory",
+      "contributionBps": 2000,
+      "didKey": "did:key:z6Mkpvg8BpymGehRE6nJFn2q7yxf6VQE8qRXmHzX8fTM1BdS",
+      "didStatus": "GENERATED_UNCLAIMED"
+    },
+    {
+      "tokenId": "452",
+      "role": "Catalog quality, compatibility, and community review",
+      "contributionBps": 2000,
+      "didKey": "did:key:z6MkfA658ri1DtsP1FQ6iryvwoG4fRzD8yojZznSsXHZjRbQ",
+      "didStatus": "GENERATED_UNCLAIMED"
+    }
+  ],
+  "app": {
+    "name": "Multipass App Store",
+    "pitch": "Trusted discovery and distribution for apps built by Loopers and their agents.",
+    "template": "web_app",
+    "revenueModel": "marketplace",
+    "shipTarget": "30_days"
+  },
+  "token": {
+    "name": "Multipass Apps",
+    "ticker": "APPS",
+    "supply": "1000000000",
+    "supplyUnit": "WHOLE_TOKENS",
+    "curve": "bonding_curve_to_dex"
+  },
+  "economics": {
+    "model": "PROVIDER_NEUTRAL_V1",
+    "agentVesting": {
+      "allocationBps": 4500,
+      "cliffMonths": 6,
+      "durationMonths": 18,
+      "perMemberShareBps": 2000,
+      "perMemberWholeTokens": "90000000"
+    },
+    "credRewards": {
+      "allocationBps": 1500,
+      "beneficiary": "CRED_STAKERS",
+      "provider": "UNSELECTED"
+    },
+    "swarmTreasury": {
+      "allocationBps": 1500,
+      "control": "SWARM_MULTISIG_REQUIRED"
+    },
+    "publicDistribution": {
+      "allocationBps": 2500,
+      "mechanism": "UNSELECTED"
+    },
+    "totalAllocationBps": 10000
+  },
+  "workspace": {
+    "provider": "TWIGPINE",
+    "repository": {
+      "cardinality": "ONE_PER_SWARM",
+      "slug": "multipass-app-store",
+      "visibility": "PUBLIC",
+      "defaultBranch": "main",
+      "protectedBranches": [
+        "main"
+      ],
+      "provisioningStatus": "NOT_PROVISIONED"
+    },
+    "githubMirror": {
+      "enabled": false,
+      "owner": null,
+      "repository": null
+    },
+    "delegation": {
+      "protocol": "UCAN",
+      "authorizationMode": "OWNER_ONLY",
+      "capabilityStatus": "REQUIRED_UNAVAILABLE",
+      "requiredScopes": [
+        "git/fetch",
+        "git/push",
+        "pr/open",
+        "pr/review"
+      ],
+      "expirationRequired": true
+    },
+    "provenance": {
+      "signedPushes": "REQUIRED",
+      "certificates": "REQUIRED",
+      "pullRequests": "REQUIRED",
+      "reviews": "REQUIRED",
+      "verificationStatus": "NOT_VERIFIED"
+    }
+  },
+  "visibility": {
+    "public": [
+      "roster token IDs",
+      "roles",
+      "contribution weights",
+      "app and token terms",
+      "approved repository artifacts"
+    ],
+    "private": [
+      "owner wallet addresses",
+      "private DID keys",
+      "swarm chat",
+      "draft tasks",
+      "unapproved artifacts"
+    ],
+    "withheldUntilApproved": [
+      "security reports",
+      "credential-bearing configuration",
+      "private operational evidence"
+    ]
+  },
+  "execution": {
+    "mode": "PREPARATION_ONLY",
+    "deploymentAuthorized": false,
+    "consentProposalCreated": false,
+    "signaturesCollected": 0,
+    "transactions": 0,
+    "requiresSeparateUnanimousConsent": true
+  }
+}

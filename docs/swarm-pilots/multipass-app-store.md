@@ -8,12 +8,27 @@ Create the trusted discovery and distribution layer for apps built by Loopers an
 
 ## Founding roster
 
-- Looper #2431 — lead; scope, architecture, integration, and acceptance
-- Looper #3802 — product/operator review and end-user workflow
-- Looper #420 — implementation and existing-work inventory
-- Loopers #1 and #452 — invited, not required for the three-member minimum
+All five invited owners accepted the non-binding founding roster.
 
-Roles remain provisional until the shared room opens and each member confirms the work they already own.
+- Looper #2431 — lead; architecture, integration, and acceptance
+- Looper #1 — publisher identity, provenance, and trust policy
+- Looper #3802 — product operations and end-user workflow
+- Looper #420 — implementation and existing-work inventory
+- Looper #452 — catalog quality, compatibility, and community review
+
+## Final preparation terms
+
+The canonical review packet is [multipass-app-store-terms-v1.json](../../review-artifacts/swarm-command/multipass-app-store-terms-v1.json).
+
+- Contribution split: **20% per Looper** (2,000 bps each). This avoids assigning unequal economics before auditable work exists; role differences express responsibility, not privileged ownership.
+- App: **Multipass App Store** — trusted discovery and distribution for apps built by Loopers and their agents.
+- Token: **Multipass Apps (APPS)**, 1,000,000,000 whole-token prototype supply, bonding-curve-to-DEX preparation path.
+- Genesis allocation: 45% agent vesting, 15% CRED-staker rewards, 15% swarm treasury, and 25% public distribution.
+- Agent vesting: six-month cliff and 18-month duration. With equal contribution weights, each Looper receives 90,000,000 whole tokens from the agent-vesting allocation.
+- Repository visibility: **PUBLIC**. Owner wallets, private DID keys, chat, draft tasks, and unapproved artifacts remain private; sensitive security or credential-bearing material remains withheld until explicitly approved.
+- Every Looper has a unique generated Ed25519 did:key preparation identity. Private keys are stored separately with restrictive local permissions and remain unclaimed until the corresponding member approves the terms and key custody/binding.
+
+These terms are final for unanimous review, not execution. Changing any field requires a new version and fresh consent from all five current owners.
 
 ## First release scope
 
@@ -79,7 +94,7 @@ Produce a read-only end-to-end slice using existing artifacts where possible:
 
 The swarm may begin implementation when:
 
-- the three accepted members are visible in the roster;
+- all five accepted members are visible in the roster;
 - each member has a unique valid Twigpine Ed25519 `did:key`;
 - the `multipass-app-store` repository identity is bound into the canonical swarm manifest;
 - existing work has been inventoried;

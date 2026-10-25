@@ -1,34 +1,54 @@
 const SAFETY = 'No launch terms, allocation, token, or transaction is authorized.';
 
+const PILOT_TOKEN_IDS = Object.freeze(['2431', '1', '3802', '420', '452']);
 const PILOT_ROLES = Object.freeze({
-  '2431': 'Lead: scope, architecture, integration, and acceptance',
-  '3802': 'Product/operator review and end-user workflow',
+  '2431': 'Lead · architecture, integration, and acceptance',
+  '1': 'Publisher identity, provenance, and trust policy',
+  '3802': 'Product operations and end-user workflow',
   '420': 'Implementation and existing-work inventory',
+  '452': 'Catalog quality, compatibility, and community review',
+});
+const PILOT_DID_KEYS = Object.freeze({
+  '2431': 'did:key:z6Mktm7JzP4a45VTWCdKYDp1xCB9oNxc4JMNezSNdRtpHUBT',
+  '1': 'did:key:z6MkqNrdJYFdGwG5x84TUJHdDKmhEAyTnz8apd4cKM1ENPjt',
+  '3802': 'did:key:z6Mkh5M3A7bLDiYPG77Asb2C5YhDXMUynMDY1TPpsbofJh8b',
+  '420': 'did:key:z6Mkpvg8BpymGehRE6nJFn2q7yxf6VQE8qRXmHzX8fTM1BdS',
+  '452': 'did:key:z6MkfA658ri1DtsP1FQ6iryvwoG4fRzD8yojZznSsXHZjRbQ',
 });
 
 export function deriveSwarmLaunchDraftFromInvitation(draft = {}) {
   const accepted = Array.isArray(draft.invites) ? draft.invites.filter((item) => item?.status === 'accepted') : [];
   const roster = [draft.lead, ...accepted].filter(Boolean);
   if (roster.length < 3 || roster.length > 5) throw new TypeError('Three to five accepted members are required to continue launch preparation.');
+  const tokenIds = roster.map((member) => String(member.tokenId ?? ''));
+  const finalizedPilot = tokenIds.length === PILOT_TOKEN_IDS.length && PILOT_TOKEN_IDS.every((tokenId) => tokenIds.includes(tokenId));
   const baseBps = Math.floor(10_000 / roster.length);
   const remainder = 10_000 - (baseBps * roster.length);
-  const members = roster.map((member, index) => ({
-    tokenId: String(member.tokenId ?? ''),
-    ownerAddress: String(member.owner ?? ''),
-    name: 'Looper #' + String(member.tokenId ?? ''),
-    role: PILOT_ROLES[String(member.tokenId ?? '')] ?? '',
-    contributionBps: baseBps + (index < remainder ? 1 : 0),
-    cred: null,
-    erc8004Id: member.erc8004AgentId ? '8453:' + String(member.erc8004AgentId) : null,
-  }));
+  const members = roster.map((member, index) => {
+    const tokenId = String(member.tokenId ?? '');
+    return {
+      tokenId,
+      ownerAddress: String(member.owner ?? ''),
+      name: 'Looper #' + tokenId,
+      role: PILOT_ROLES[tokenId] ?? '',
+      contributionBps: finalizedPilot ? 2_000 : baseBps + (index < remainder ? 1 : 0),
+      cred: null,
+      erc8004Id: member.erc8004AgentId ? '8453:' + String(member.erc8004AgentId) : null,
+    };
+  });
   return {
     members,
-    app: { name: 'Multipass App Store', pitch: 'Build the Multipass App Store.', template: '', revenueModel: '', shipTarget: '' },
-    token: { name: '', ticker: '', supply: '', curve: '' },
+    app: finalizedPilot
+      ? { name: 'Multipass App Store', pitch: 'Trusted discovery and distribution for apps built by Loopers and their agents.', template: 'web_app', revenueModel: 'marketplace', shipTarget: '30_days' }
+      : { name: 'Multipass App Store', pitch: 'Build the Multipass App Store.', template: '', revenueModel: '', shipTarget: '' },
+    token: finalizedPilot
+      ? { name: 'Multipass Apps', ticker: 'APPS', supply: '1000000000', curve: 'bonding_curve_to_dex' }
+      : { name: '', ticker: '', supply: '', curve: '' },
+    economics: finalizedPilot ? { agentVestingBps: 4500, credRewardsBps: 1500, swarmTreasuryBps: 1500, publicDistributionBps: 2500, agentCliffMonths: 6, agentVestingMonths: 18 } : undefined,
     workspace: {
       provider: 'TWIGPINE',
-      repository: { slug: 'multipass-app-store', visibility: '' },
-      members: members.map((member) => ({ tokenId: member.tokenId, didKey: '' })),
+      repository: { slug: 'multipass-app-store', visibility: finalizedPilot ? 'PUBLIC' : '' },
+      members: members.map((member) => ({ tokenId: member.tokenId, didKey: finalizedPilot ? PILOT_DID_KEYS[member.tokenId] : '' })),
       githubMirror: { enabled: false, owner: null, repository: null },
     },
   };
