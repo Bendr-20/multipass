@@ -54,6 +54,7 @@ function verifier({ integrity = { eligible: true, status: 'ready', proof: proof(
     providers,
     accountIntegrityReader: { async read() { return structuredClone(integrity); } },
     maxTransferScanBlocks: 20,
+    retryDelayMs: 0,
   });
 }
 
@@ -76,6 +77,51 @@ test('reports transient provider failures as retryable instead of owner mismatch
     }).verify({ tokenId: '11', wallet: OWNER }),
     (error) => error.code === 'credifi_opt_in_provider_unavailable' && error.status === 503,
   );
+});
+
+test('retries one transient integrity read before surfacing provider unavailability', async () => {
+  let reads = 0;
+  const v = credifi.createCredifiOwnerOptInVerifier({
+    providers: [provider('drpc'), provider('blast')],
+    accountIntegrityReader: {
+      async read() {
+        reads += 1;
+        return reads === 1
+          ? { eligible: false, status: 'provider_unavailable', proof: null }
+          : { eligible: true, status: 'ready', proof: proof() };
+      },
+    },
+    retryDelayMs: 0,
+  });
+
+  const identity = await v.verify({ tokenId: '11', wallet: OWNER });
+  assert.equal(identity.tokenId, '11');
+  assert.equal(reads, 2);
+});
+
+test('coalesces concurrent integrity reads for the same token and wallet', async () => {
+  let reads = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const v = credifi.createCredifiOwnerOptInVerifier({
+    providers: [provider('drpc'), provider('blast')],
+    accountIntegrityReader: {
+      async read() {
+        reads += 1;
+        await gate;
+        return { eligible: true, status: 'ready', proof: proof() };
+      },
+    },
+    retryDelayMs: 0,
+  });
+
+  const first = v.verify({ tokenId: '11', wallet: OWNER });
+  const second = v.verify({ tokenId: '11', wallet: OWNER });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 1);
+  release();
+  const [left, right] = await Promise.all([first, second]);
+  assert.deepEqual(left, right);
 });
 
 test('requires dual-provider released-v1 identity, runtime, account-owner, token, and current controller consensus', async () => {

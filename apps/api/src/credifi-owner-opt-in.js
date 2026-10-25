@@ -87,6 +87,8 @@ export function createCredifiOwnerOptInVerifier({
   accountIntegrityReader,
   maxTransferScanBlocks = CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS,
   timeoutMs = CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS,
+  retryDelayMs = 250,
+  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers[0]?.id !== 'drpc'
     || !providers.some((provider) => provider?.id === 'blast')
@@ -97,52 +99,72 @@ export function createCredifiOwnerOptInVerifier({
     || providers.some((provider) => !Number.isSafeInteger(provider.maxRange) || provider.maxRange < maxTransferScanBlocks)) {
     throw new TypeError('Credifi custody scan bound exceeds the proven provider bound.');
   }
+  if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 5_000 || typeof pause !== 'function') {
+    throw new TypeError('Credifi verification retry policy is invalid.');
+  }
   const integrityReader = accountIntegrityReader ?? createAccountIntegrityReader({
     providers, timeoutMs, allowUndeployedAccount: false, maxSafeBlockSkew: 0,
   });
   if (typeof integrityReader?.read !== 'function') throw new TypeError('Credifi account integrity reader is required.');
+  const inFlight = new Map();
+  const transientStatuses = new Set(['provider_timeout', 'provider_unavailable', 'provider_disagreement', 'safe_block_disagreement']);
+
+  async function readIdentity({ tokenId, wallet }) {
+    let result;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { result = await integrityReader.read({ tokenId }); }
+      catch {
+        if (attempt === 0) { if (retryDelayMs > 0) await pause(retryDelayMs); continue; }
+        throw verificationUnavailable();
+      }
+      if (result?.eligible === true && result?.status === 'ready') break;
+      if (transientStatuses.has(result?.status)) {
+        if (attempt === 0) { if (retryDelayMs > 0) await pause(retryDelayMs); continue; }
+        throw verificationUnavailable();
+      }
+      throw verificationFailure();
+    }
+    if (result?.eligible !== true || result?.status !== 'ready') throw verificationUnavailable();
+    const proof = result.proof;
+    const expectedAccount = deriveReleasedLooperAccount(tokenId);
+    const collection = LOOPERS_MAINNET_CONTRACT.toLowerCase();
+    const valid = Number(proof?.chainId) === LOOPERS_MAINNET_CHAIN_ID
+      && String(proof?.collection ?? '').toLowerCase() === collection
+      && String(proof?.tokenId ?? '') === tokenId
+      && String(proof?.account ?? '').toLowerCase() === expectedAccount
+      && proof?.accountDeployed === true
+      && String(proof?.owner ?? '').toLowerCase() === wallet
+      && String(proof?.accountOwner ?? '').toLowerCase() === wallet
+      && String(proof?.controller ?? '').toLowerCase() === wallet
+      && String(proof?.latest?.owner ?? '').toLowerCase() === wallet
+      && String(proof?.latest?.controller ?? '').toLowerCase() === wallet
+      && Number(proof?.accountToken?.chainId) === LOOPERS_MAINNET_CHAIN_ID
+      && String(proof?.accountToken?.collection ?? '').toLowerCase() === collection
+      && String(proof?.accountToken?.tokenId ?? '') === tokenId
+      && /^[1-9]\d*$/u.test(String(proof?.erc8004AgentId ?? ''));
+    if (!valid) throw verificationFailure();
+    return Object.freeze({
+      chainId: LOOPERS_MAINNET_CHAIN_ID,
+      contract: LOOPERS_MAINNET_CONTRACT,
+      tokenId,
+      owner: wallet,
+      erc8004AgentId: String(proof.erc8004AgentId),
+      controllerVerified: true,
+      canonicalAccount: expectedAccount,
+      finalizedBlock: normalizeBlock(proof.safeBlock),
+    });
+  }
 
   return Object.freeze({
-    async verify({ tokenId, wallet } = {}) {
+    verify({ tokenId, wallet } = {}) {
       tokenId = normalizeVerifierTokenId(tokenId);
       wallet = normalizeWallet(wallet);
-      let result;
-      try { result = await integrityReader.read({ tokenId }); }
-      catch { throw verificationUnavailable(); }
-      if (result?.eligible !== true || result?.status !== 'ready') {
-        if (['provider_timeout', 'provider_unavailable', 'provider_disagreement', 'safe_block_disagreement'].includes(result?.status)) {
-          throw verificationUnavailable();
-        }
-        throw verificationFailure();
-      }
-      const proof = result.proof;
-      const expectedAccount = deriveReleasedLooperAccount(tokenId);
-      const collection = LOOPERS_MAINNET_CONTRACT.toLowerCase();
-      const valid = Number(proof?.chainId) === LOOPERS_MAINNET_CHAIN_ID
-        && String(proof?.collection ?? '').toLowerCase() === collection
-        && String(proof?.tokenId ?? '') === tokenId
-        && String(proof?.account ?? '').toLowerCase() === expectedAccount
-        && proof?.accountDeployed === true
-        && String(proof?.owner ?? '').toLowerCase() === wallet
-        && String(proof?.accountOwner ?? '').toLowerCase() === wallet
-        && String(proof?.controller ?? '').toLowerCase() === wallet
-        && String(proof?.latest?.owner ?? '').toLowerCase() === wallet
-        && String(proof?.latest?.controller ?? '').toLowerCase() === wallet
-        && Number(proof?.accountToken?.chainId) === LOOPERS_MAINNET_CHAIN_ID
-        && String(proof?.accountToken?.collection ?? '').toLowerCase() === collection
-        && String(proof?.accountToken?.tokenId ?? '') === tokenId
-        && /^[1-9]\d*$/u.test(String(proof?.erc8004AgentId ?? ''));
-      if (!valid) throw verificationFailure();
-      return Object.freeze({
-        chainId: LOOPERS_MAINNET_CHAIN_ID,
-        contract: LOOPERS_MAINNET_CONTRACT,
-        tokenId,
-        owner: wallet,
-        erc8004AgentId: String(proof.erc8004AgentId),
-        controllerVerified: true,
-        canonicalAccount: expectedAccount,
-        finalizedBlock: normalizeBlock(proof.safeBlock),
-      });
+      const key = tokenId + '|' + wallet;
+      const existing = inFlight.get(key);
+      if (existing) return existing;
+      const pending = readIdentity({ tokenId, wallet });
+      inFlight.set(key, pending);
+      return pending.finally(() => { if (inFlight.get(key) === pending) inFlight.delete(key); });
     },
 
     async verifyCustodyEpoch({ identity, consent } = {}) {
