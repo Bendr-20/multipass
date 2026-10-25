@@ -60,6 +60,7 @@ export function renderConsoleCreditPanel(credit = {}, context = {}) {
   if (renderPilot) return renderCredifiPilotOptIn(optIn, { ...context, tokenId });
   const busy = ['loading', 'signing', 'mutating', 'authorizing', 'quoting', 'borrowing'].includes(credit.status);
   const overview = credit.overview;
+  const discoveryOnly = overview?.mode === 'offer_discovery_only';
   const cred = overview?.cred;
   const commitments = Array.isArray(overview?.commitments) ? overview.commitments : [];
   const loans = Array.isArray(overview?.loans) ? overview.loans : [];
@@ -67,15 +68,15 @@ export function renderConsoleCreditPanel(credit = {}, context = {}) {
   return `
     <section class="console-credit-workspace" aria-labelledby="console-credit-title" aria-busy="${busy ? 'true' : 'false'}">
       <header class="console-credit-header">
-        <div><span class="console-gate-eyebrow">Private beta · Base USDC</span><h2 id="console-credit-title">Credit for ${escapeHtml(context.agentName ?? ('Looper #' + tokenId))}</h2><p>Sponsor-vouch credit through Credifi. Every signature, permission grant, quote, and borrow stays a separate owner action.</p></div>
+        <div><span class="console-gate-eyebrow">${discoveryOnly ? 'Offer discovery only · financial actions locked' : 'Private beta · Base USDC'}</span><h2 id="console-credit-title">Credit for ${escapeHtml(context.agentName ?? ('Looper #' + tokenId))}</h2><p>${discoveryOnly ? 'Read-only Credifi status for this Looper. No vouch can be accepted and no permission, quote, or loan can be created.' : 'Sponsor-vouch credit through Credifi. Every signature, permission grant, quote, and borrow stays a separate owner action.'}</p></div>
         ${overview ? '<button type="button" data-action="refresh-console-credit" ' + (busy ? 'disabled' : '') + '>Refresh</button>' : ''}
       </header>
-      <div class="console-credit-cautions" role="note"><strong>Private beta controls</strong><span>CRED floor ${escapeHtml(String(cred?.minimumScore ?? 40))}</span><span>Zero origination fee only</span><span>Owner-set APR ceiling</span><span>Funds disburse to the Looper account</span></div>
+      <div class="console-credit-cautions" role="note"><strong>${discoveryOnly ? 'Read-only controls' : 'Private beta controls'}</strong><span>CRED floor ${escapeHtml(String(cred?.minimumScore ?? 40))}</span><span>${discoveryOnly ? 'Vouch acceptance disabled' : 'Zero origination fee only'}</span><span>${discoveryOnly ? 'EVC authorization disabled' : 'Owner-set APR ceiling'}</span><span>${discoveryOnly ? 'Quotes and borrowing disabled' : 'Funds disburse to the Looper account'}</span></div>
       ${credit.error ? '<p class="console-credit-error" role="alert">' + escapeHtml(credit.error) + '</p>' : ''}
       ${credit.notice ? '<p class="console-credit-notice" role="status">' + escapeHtml(credit.notice) + '</p>' : ''}
       ${blocked ? renderBlocked(credit) : ''}
       ${!overview && !blocked ? renderEntry(credit, tokenId, busy) : ''}
-      ${overview ? renderOverview(credit, { commitments, loans, context, busy }) : ''}
+      ${overview ? renderOverview(credit, { commitments, loans, context, busy, discoveryOnly }) : ''}
     </section>
   `;
 }
@@ -93,7 +94,7 @@ function renderEntry(credit, tokenId, busy) {
   return '<article class="console-credit-gate"><span>Looper #' + escapeHtml(tokenId) + '</span><h3>Check credit access</h3><p>Verify live CRED, Credifi eligibility, sponsor vouches, market access, wallet status, and current loans.</p><button type="button" data-action="refresh-console-credit" ' + (busy ? 'disabled' : '') + '>' + (busy ? 'Checking…' : 'Check eligibility') + '</button></article>';
 }
 
-function renderOverview(credit, { commitments, loans, context, busy }) {
+function renderOverview(credit, { commitments, loans, context, busy, discoveryOnly }) {
   const overview = credit.overview;
   const cred = overview.cred ?? {};
   const accepted = commitments.filter((entry) => ['accepted', 'active'].includes(entry.status));
@@ -108,18 +109,21 @@ function renderOverview(credit, { commitments, loans, context, busy }) {
     ${overview.flags?.blockBorrowReason ? '<p class="console-credit-error">Borrowing blocked: ' + escapeHtml(overview.flags.blockBorrowReason) + '</p>' : ''}
     <section class="console-credit-section"><header><div><span>Step 1</span><h3>Sponsor vouches</h3></div><small>Accepting a vouch does not grant permission or borrow funds.</small></header>
       ${offered.length === 0 && accepted.length === 0 ? '<div class="console-credit-empty"><strong>No sponsor offer yet</strong><p>Credifi does not expose a public application endpoint. This private beta starts when an approved sponsor issues a vouch for this Looper.</p></div>' : ''}
-      <div class="console-credit-list">${commitments.map((item) => renderCommitment(item, busy)).join('')}</div>
+      <div class="console-credit-list">${commitments.map((item) => renderCommitment(item, busy, discoveryOnly)).join('')}</div>
     </section>
-    ${accepted.length ? renderBorrowFlow(credit, accepted, context, busy) : ''}
+    ${accepted.length && !discoveryOnly ? renderBorrowFlow(credit, accepted, context, busy) : ''}
     <section class="console-credit-section"><header><div><span>Account</span><h3>Loans and repayment status</h3></div><small>Refresh after repayment so Credifi state and future provider attestations stay current.</small></header>
       ${loans.length ? '<div class="console-credit-list">' + loans.map(renderLoan).join('') + '</div>' : '<div class="console-credit-empty"><strong>No loans</strong><p>No Credifi loans are recorded for this Looper account.</p></div>'}
     </section>
   `;
 }
 
-function renderCommitment(item, busy) {
+function renderCommitment(item, busy, discoveryOnly = false) {
   const offered = item.status === 'offered';
-  return '<article class="console-credit-row"><div><strong>' + formatMicro(item.remainingMicro) + ' USDC</strong><span>' + escapeHtml(item.status) + ' · ' + escapeHtml(item.marketId) + '</span><small>Sponsor ' + escapeHtml(shortAddress(item.sponsorWalletAddress)) + '</small></div>' + (offered ? '<button type="button" data-action="accept-console-credit-vouch" data-commitment-id="' + escapeAttribute(item.id) + '" ' + (busy ? 'disabled' : '') + '>Accept vouch</button>' : '<span class="console-credit-state">' + escapeHtml(item.status) + '</span>') + '</article>';
+  const state = discoveryOnly
+    ? '<span class="console-credit-state">' + (offered ? 'Offered · approval locked' : escapeHtml(item.status)) + '</span>'
+    : (offered ? '<button type="button" data-action="accept-console-credit-vouch" data-commitment-id="' + escapeAttribute(item.id) + '" ' + (busy ? 'disabled' : '') + '>Accept vouch</button>' : '<span class="console-credit-state">' + escapeHtml(item.status) + '</span>');
+  return '<article class="console-credit-row"><div><strong>' + formatMicro(item.remainingMicro) + ' USDC</strong><span>' + escapeHtml(item.status) + ' · ' + escapeHtml(item.marketId) + '</span><small>Offer ' + escapeHtml(item.id) + ' · Sponsor ' + escapeHtml(shortAddress(item.sponsorWalletAddress)) + '</small></div>' + state + '</article>';
 }
 
 function renderBorrowFlow(credit, accepted, context, busy) {
@@ -225,7 +229,7 @@ function renderCredifiPilotOptIn(optIn, context) {
     return '<section class="console-credit-workspace console-credifi-opt-in" aria-busy="' + (status === 'submitting' ? 'true' : 'false') + '"><span class="console-gate-eyebrow">Pilot opt-in only · borrowing disabled</span><h2>' + title + ' is invited to the prepared $50 Credifi pilot</h2><p>Record the current owner’s consent for Looper #' + escapeHtml(tokenId) + ' and its canonical released-v1 account. This does not accept a vouch, authorize EVC, request a quote, borrow funds, or enable Credit.</p><button type="button" data-action="submit-credifi-owner-opt-in" ' + (status === 'submitting' ? 'disabled' : '') + '>' + (status === 'submitting' ? 'Recording owner opt-in…' : 'Opt in to preparation') + '</button></section>';
   }
   if (status === 'opted_in') {
-    return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot opt-in only · borrowing disabled</span><h2>Owner opt-in recorded</h2><p>Consent for Looper #' + escapeHtml(tokenId) + ' is bound to the current owner and canonical released-v1 account for the prepared $' + escapeHtml(record?.amount_usd ?? '50.00') + ' cohort.</p><p>No vouch was accepted, no EVC permission was granted, no quote was requested, no funds were borrowed, and Credit remains disabled.</p><small>Recorded ' + escapeHtml(formatDate(record?.consented_at)) + '</small></section>';
+    return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot opt-in recorded · offer discovery available</span><h2>Owner opt-in recorded</h2><p>Consent for Looper #' + escapeHtml(tokenId) + ' is bound to the current owner and canonical released-v1 account for the prepared $' + escapeHtml(record?.amount_usd ?? '50.00') + ' cohort.</p><p>Use one fresh Looper smart-wallet signature for a read-only check of Credifi sponsor offers. This cannot accept a vouch, authorize EVC, request a quote, or borrow funds.</p><button type="button" data-action="login-console-credit">Sign in and check for sponsor offer</button><small>Recorded ' + escapeHtml(formatDate(record?.consented_at)) + '</small></section>';
   }
   if (status === 'error') {
     return '<section class="console-credit-workspace console-credifi-opt-in"><span class="console-gate-eyebrow">Pilot opt-in only · borrowing disabled</span><h2>Owner opt-in unavailable</h2><p role="alert">' + escapeHtml(optIn?.error ?? 'Eligibility could not be verified. Retry after confirming wallet ownership.') + '</p></section>';

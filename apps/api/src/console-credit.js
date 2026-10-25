@@ -44,6 +44,7 @@ export function createConsoleCreditService({
   credBaseUrl = DEFAULT_LOOPER_CREDIT_CRED_BASE_URL,
   minCredScore = DEFAULT_LOOPER_CREDIT_MIN_CRED,
   allowedTokenIds,
+  discoveryOnly = false,
   now = () => Date.now(),
   requestTimeoutMs = REQUEST_TIMEOUT_MS,
 } = {}) {
@@ -53,6 +54,7 @@ export function createConsoleCreditService({
   const minimumScore = boundedInteger(minCredScore, 'minimum CRED score', 0, 100);
   const timeoutMs = boundedInteger(requestTimeoutMs, 'credit request timeout', 100, 30_000);
   const allowedTokenIdSet = normalizeAllowedTokenIds(allowedTokenIds);
+  if (typeof discoveryOnly !== 'boolean') throw new TypeError('Credit discovery-only mode must be a boolean.');
   const pendingChallenges = new Map();
   const sessions = new Map();
   const quotes = new Map();
@@ -128,6 +130,12 @@ export function createConsoleCreditService({
     return { flags, vouchStatus, markets, balance, loans, chains };
   }
 
+  function assertFinancialActionsEnabled() {
+    if (discoveryOnly) {
+      throw new ConsoleCreditError('credit_offer_discovery_only', 'This rollout can only discover sponsor offers. Acceptance, authorization, quotes, and borrowing remain disabled.', { status: 403 });
+    }
+  }
+
   function findCommitment(state, commitmentId, statuses) {
     const id = boundedId(commitmentId, 'commitment ID');
     const commitment = state.vouchStatus.commitments.find((candidate) => candidate.id === id);
@@ -190,10 +198,11 @@ export function createConsoleCreditService({
       const cred = await gate(expected);
       const active = requireSession(key, expected);
       const state = await readBorrowerState(active);
-      return projectOverview(expected, cred, state, indeterminateBorrowers.get(expected.account) ?? null);
+      return { ...projectOverview(expected, cred, state, indeterminateBorrowers.get(expected.account) ?? null), ...(discoveryOnly ? { mode: 'offer_discovery_only' } : {}) };
     },
 
     async acceptVouch({ sessionKey, identity, commitmentId } = {}) {
+      assertFinancialActionsEnabled();
       const { key, subject: expected } = keyFor(sessionKey, identity);
       await gate(expected);
       const active = requireSession(key, expected);
@@ -218,6 +227,7 @@ export function createConsoleCreditService({
     },
 
     async prepareAuthorization({ sessionKey, identity, commitmentId } = {}) {
+      assertFinancialActionsEnabled();
       const { key, subject: expected } = keyFor(sessionKey, identity);
       await gate(expected);
       const active = requireSession(key, expected);
@@ -241,6 +251,7 @@ export function createConsoleCreditService({
     },
 
     async requestTwoFactor({ sessionKey, identity, channel } = {}) {
+      assertFinancialActionsEnabled();
       const { key, subject: expected } = keyFor(sessionKey, identity);
       await gate(expected);
       const active = requireSession(key, expected);
@@ -254,6 +265,7 @@ export function createConsoleCreditService({
     },
 
     async verifyTwoFactor({ sessionKey, identity, code } = {}) {
+      assertFinancialActionsEnabled();
       const { key, subject: expected } = keyFor(sessionKey, identity);
       await gate(expected);
       const active = requireSession(key, expected);
@@ -264,6 +276,7 @@ export function createConsoleCreditService({
     },
 
     async previewLoan({ sessionKey, identity, commitmentId, amount, maxAprPercent } = {}) {
+      assertFinancialActionsEnabled();
       const { key, subject: expected } = keyFor(sessionKey, identity);
       const cred = await gate(expected);
       const active = requireSession(key, expected);
@@ -289,6 +302,7 @@ export function createConsoleCreditService({
     },
 
     async createLoan({ sessionKey, identity, commitmentId, quoteId, quoteSha256, confirmBorrow } = {}) {
+      assertFinancialActionsEnabled();
       if (confirmBorrow !== true) throw new ConsoleCreditError('borrow_confirmation_required', 'Confirm the reviewed loan before borrowing.');
       const { key, subject: expected } = keyFor(sessionKey, identity);
       await gate(expected);

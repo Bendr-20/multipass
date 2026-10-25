@@ -56,6 +56,7 @@ test('parseServerOptions returns safe defaults', () => {
     loopersCredTimeoutMs: 4000,
     loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
+    consoleCreditDiscoveryOnly: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -134,6 +135,7 @@ test('CLI flags override environment values', () => {
       loopersCredTimeoutMs: 4000,
       loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
+    consoleCreditDiscoveryOnly: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -212,6 +214,7 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersCredTimeoutMs: 4000,
     loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
+    consoleCreditDiscoveryOnly: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -1695,4 +1698,17 @@ test('startServer composes one wallet-value loader from the configured roster pa
     logger: { info() {}, warn() {}, error() {} },
   });
   try { assert.equal(injected, loader); } finally { await server.close(); }
+});
+
+
+test('parseServerOptions supports a strict offer-discovery-only credit gate', () => {
+  const parsed = parseServerOptions([], {
+    MULTIPASS_CREDIT_ENABLED: 'true',
+    MULTIPASS_CREDIT_DISCOVERY_ONLY: 'true',
+    MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS: '32,2150',
+  });
+  assert.equal(parsed.consoleCreditEnabled, true);
+  assert.equal(parsed.consoleCreditDiscoveryOnly, true);
+  assert.deepEqual(parsed.consoleCreditAllowedLoopers, ['32', '2150']);
+  assert.throws(() => parseServerOptions([], { MULTIPASS_CREDIT_DISCOVERY_ONLY: 'yes' }), /MULTIPASS_CREDIT_DISCOVERY_ONLY/u);
 });

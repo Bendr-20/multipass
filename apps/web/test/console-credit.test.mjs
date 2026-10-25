@@ -38,6 +38,22 @@ test('credit entry is honest about sponsor-vouch beta and provider application l
   assert.doesNotMatch(html, /Bearer /u);
 });
 
+test('opted-in pilot offers a read-only sponsor-offer check', () => {
+  const status = { token_id: '11', status: 'opted_in', amount_usd: '50.00', cohort_version: 'cohort-v1', account: '0xbaa56a2ef2dbabedaa0828c3c9c8c06b1ab46b3f', consented_at: '2026-10-24T02:00:00.000Z' };
+  const html = renderConsoleCreditPanel({ ...createInitialConsoleCreditState('11'), optIn: { status: 'opted_in', record: status } }, { tokenId: '11' });
+  assert.match(html, /Sign in and check for sponsor offer/u);
+  assert.match(html, /read-only/u);
+  assert.match(html, /data-action="login-console-credit"/u);
+  assert.doesNotMatch(html, /Accept vouch|Authorize in wallet|Preview terms|Borrow to Looper account/u);
+});
+
+test('offer-discovery overview shows exact offers but no financial controls', () => {
+  const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: TOKEN_ID, overview: { ...OVERVIEW, mode: 'offer_discovery_only', commitments: [{ ...OVERVIEW.commitments[0], status: 'offered' }] } }, { tokenId: TOKEN_ID });
+  assert.match(html, /Offer discovery only/u);
+  assert.match(html, /vouch-1/u);
+  assert.doesNotMatch(html, /Accept vouch|Authorize in wallet|Preview terms|Borrow to Looper account/u);
+});
+
 test('credit workspace separates vouch, broad authorization, quote, and borrow confirmations', () => {
   const html = renderConsoleCreditPanel({
     status: 'ready', selectedTokenId: TOKEN_ID, overview: OVERVIEW,
@@ -112,9 +128,10 @@ test('eligible and completed Credifi pilot UI states explain consent-only bounda
   assert.match(eligible, /data-action="submit-credifi-owner-opt-in"/u);
   const completed = renderConsoleCreditPanel({ ...createInitialConsoleCreditState('11'), optIn: { status: 'opted_in', record: { ...status, status: 'opted_in', consented_at: '2026-10-24T02:00:00.000Z' } } }, { tokenId: '11' });
   assert.match(completed, /Owner opt-in recorded/u);
-  assert.match(completed, /Pilot opt-in only · borrowing disabled/i);
+  assert.match(completed, /Pilot opt-in recorded · offer discovery available/i);
   assert.doesNotMatch(completed, /production disabled/i);
   assert.doesNotMatch(completed, /data-action="submit-credifi-owner-opt-in"/u);
+  assert.match(completed, /Sign in and check for sponsor offer/u);
   assert.doesNotMatch(completed, /Accept vouch|Preview terms|Borrow to Looper account/u);
 });
 

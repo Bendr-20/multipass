@@ -129,6 +129,27 @@ test('Credifi login keeps the bearer token server-side and overview returns boun
   assert.equal(JSON.stringify(overview).includes('secret-bearer-token'), false);
 });
 
+test('offer-discovery mode authenticates and reads vouches while blocking every financial mutation', async () => {
+  const fixture = createFetchFixture();
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], discoveryOnly: true, fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const overview = await service.getOverview({ sessionKey: 'session-1', identity: identity() });
+  assert.equal(overview.mode, 'offer_discovery_only');
+  assert.equal(overview.commitments[0].status, 'offered');
+  const readsBefore = fixture.calls.length;
+  for (const operation of [
+    () => service.acceptVouch({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1' }),
+    () => service.prepareAuthorization({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1' }),
+    () => service.requestTwoFactor({ sessionKey: 'session-1', identity: identity(), channel: 'email' }),
+    () => service.verifyTwoFactor({ sessionKey: 'session-1', identity: identity(), code: '123456' }),
+    () => service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 }),
+    () => service.createLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', quoteId: 'quote-1', quoteSha256: 'a'.repeat(64), confirmBorrow: true }),
+  ]) {
+    await assert.rejects(operation, error => error.code === 'credit_offer_discovery_only' && error.status === 403);
+  }
+  assert.equal(fixture.calls.length, readsBefore);
+});
+
 test('vouch acceptance validates the offered commitment and rereads accepted state', async () => {
   const fixture = createFetchFixture();
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
