@@ -2153,8 +2153,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     const prepared = state.consoleCredit?.authorization;
     if (!prepared?.required || prepared.scope !== 'ALL_EVC_SUBACCOUNTS_FOR_WALLET_PREFIX') return;
     const transaction = prepared.transaction;
-    const looperAccount = String(state.looperAgentWallet?.account ?? '').toLowerCase();
-    if (!transaction || String(transaction.from ?? '').toLowerCase() !== context.wallet || String(transaction.to ?? '').toLowerCase() !== looperAccount || String(transaction.value) !== '0') {
+    const looperAccount = deriveConsoleCreditAccount(context.tokenId);
+    if (!transaction || Number(transaction.chainId) !== 8453 || String(transaction.from ?? '').toLowerCase() !== context.wallet || String(transaction.to ?? '').toLowerCase() !== looperAccount || String(transaction.value) !== '0') {
       return failConsoleCredit(new Error('Prepared authorization no longer matches this wallet and Looper.'), context);
     }
     const controller = beginConsoleCreditOperation('authorizing', { authorization: prepared });
@@ -2174,7 +2174,7 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
       const authorizationExpiresAt = Date.parse(String(refreshed.expiresAt ?? ''));
       if (!Number.isFinite(authorizationExpiresAt) || authorizationExpiresAt <= Date.now()) throw new Error('Prepared authorization expired before wallet submission.');
       const freshTransaction = refreshed.transaction;
-      if (!freshTransaction || String(freshTransaction.from ?? '').toLowerCase() !== context.wallet || String(freshTransaction.to ?? '').toLowerCase() !== looperAccount || String(freshTransaction.value) !== '0') throw new Error('Fresh authorization no longer matches this wallet and Looper.');
+      if (!freshTransaction || Number(freshTransaction.chainId) !== 8453 || String(freshTransaction.from ?? '').toLowerCase() !== context.wallet || String(freshTransaction.to ?? '').toLowerCase() !== looperAccount || String(freshTransaction.value) !== '0') throw new Error('Fresh authorization no longer matches this wallet and Looper.');
       const chainId = String(await activeWalletClient.request({ method: 'eth_chainId' })).toLowerCase();
       if (chainId !== '0x2105') await activeWalletClient.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x2105' }] });
       const transactionHash = await activeWalletClient.request({ method: 'eth_sendTransaction', params: [{ from: freshTransaction.from, to: freshTransaction.to, data: freshTransaction.data, value: '0x0' }] });

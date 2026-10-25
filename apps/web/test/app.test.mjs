@@ -8524,7 +8524,9 @@ test('Console credit keeps login, vouch, broad permission, quote, and borrow as 
     async preview(input) { calls.push(['preview', input]); return { commitment: { id: 'vouch-1' }, quoteSha256: 'a'.repeat(64), quote: { quoteId: 'quote-1', quoteExpiresAt: '2026-10-21T23:30:00.000Z', fee: { feeMicro: 0 }, loan: { amount: 5, interestRate: 15, totalRepayment: 5.01, loanTerms: { termDays: 30, repaymentType: 'bullet' } }, paymentSchedule: [{ dueDate: '2026-11-20T23:00:00.000Z', amount: 5.01 }] } }; },
     async borrow(input) { calls.push(['borrow', input]); borrowed = true; return { loan: { id: 'loan-1', status: 'approved' } }; },
   };
-  const walletState = { mode: 'active', canTransact: true, tokenId: '617', owner, account, nativeWei: '0', tokens: [], activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
+  // The general wallet panel may still hold a stale account snapshot while the
+  // Credit API has already rebound the selected Looper to its released account.
+  const walletState = { mode: 'active', canTransact: true, tokenId: '617', owner, account: '0x4444444444444444444444444444444444444444', nativeWei: '0', tokens: [], activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
   const walletRequests = [];
   const walletClient = createWalletClientFixture({
     snapshot: { connected: true, address: owner, label: 'owner' },
