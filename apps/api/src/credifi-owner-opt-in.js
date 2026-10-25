@@ -60,6 +60,12 @@ const REVIEWED_CREDIFI_BASE_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'blast', url: 'https://base-mainnet.public.blastapi.io' }),
 ]);
 export const CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS = 20;
+// A complete dual-provider proof performs paced finalized-head, runtime, policy,
+// owner, controller, and latest-authority reads. At 250 ms between RPC starts the
+// integrity phase has a measured floor above 6 seconds, so 5 seconds guaranteed
+// false negatives for otherwise valid Loopers. Keep headroom without weakening
+// the two-provider or exact-block requirements.
+export const CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS = 15_000;
 
 export function createCredifiOwnerOptInProviders({ publicClients } = {}) {
   const clients = publicClients ?? createLoopersPublicClients({
@@ -80,7 +86,7 @@ export function createCredifiOwnerOptInVerifier({
   providers,
   accountIntegrityReader,
   maxTransferScanBlocks = CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS,
-  timeoutMs = 5_000,
+  timeoutMs = CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS,
 } = {}) {
   if (!Array.isArray(providers) || providers.length < 2 || providers[0]?.id !== 'drpc'
     || !providers.some((provider) => provider?.id === 'blast')
@@ -102,8 +108,13 @@ export function createCredifiOwnerOptInVerifier({
       wallet = normalizeWallet(wallet);
       let result;
       try { result = await integrityReader.read({ tokenId }); }
-      catch { throw verificationFailure(); }
-      if (result?.eligible !== true || result?.status !== 'ready') throw verificationFailure();
+      catch { throw verificationUnavailable(); }
+      if (result?.eligible !== true || result?.status !== 'ready') {
+        if (['provider_timeout', 'provider_unavailable', 'provider_disagreement', 'safe_block_disagreement'].includes(result?.status)) {
+          throw verificationUnavailable();
+        }
+        throw verificationFailure();
+      }
       const proof = result.proof;
       const expectedAccount = deriveReleasedLooperAccount(tokenId);
       const collection = LOOPERS_MAINNET_CONTRACT.toLowerCase();
@@ -204,6 +215,10 @@ function normalizeVerifierTokenId(value) {
 
 function verificationFailure() {
   return new CredifiOwnerOptInError('credifi_opt_in_verification_failed', 'Credifi owner, identity, and released account verification failed.', { status: 403 });
+}
+
+function verificationUnavailable() {
+  return new CredifiOwnerOptInError('credifi_opt_in_provider_unavailable', 'Credifi verification providers are temporarily unavailable. Please retry.', { status: 503 });
 }
 
 function providerDisagreement() {

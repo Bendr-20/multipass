@@ -57,8 +57,25 @@ function verifier({ integrity = { eligible: true, status: 'ready', proof: proof(
   });
 }
 
-test('exports an opt-in-specific verifier instead of relying on the generic any-provider authorizer', () => {
+test('exports an opt-in-specific verifier with enough time for the paced dual-provider proof', () => {
   assert.equal(typeof credifi.createCredifiOwnerOptInVerifier, 'function');
+  assert.equal(credifi.CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS, 15_000);
+});
+
+test('reports transient provider failures as retryable instead of owner mismatches', async () => {
+  for (const status of ['provider_timeout', 'provider_unavailable', 'provider_disagreement', 'safe_block_disagreement']) {
+    await assert.rejects(
+      verifier({ integrity: { eligible: false, status, proof: null } }).verify({ tokenId: '11', wallet: OWNER }),
+      (error) => error.code === 'credifi_opt_in_provider_unavailable' && error.status === 503 && /retry/i.test(error.message),
+    );
+  }
+  await assert.rejects(
+    credifi.createCredifiOwnerOptInVerifier({
+      providers: [provider('drpc'), provider('blast')],
+      accountIntegrityReader: { async read() { throw new Error('rpc transport failed'); } },
+    }).verify({ tokenId: '11', wallet: OWNER }),
+    (error) => error.code === 'credifi_opt_in_provider_unavailable' && error.status === 503,
+  );
 });
 
 test('requires dual-provider released-v1 identity, runtime, account-owner, token, and current controller consensus', async () => {
@@ -70,7 +87,6 @@ test('requires dual-provider released-v1 identity, runtime, account-owner, token
     canonicalAccount: ACCOUNT, finalizedBlock: { number: 100, hash: HASH_100 },
   });
   for (const [status, patch] of [
-    ['safe_block_disagreement', {}],
     ['proxy_mismatch', { accountDeployed: false }],
     ['binding_mismatch', { accountToken: { chainId: 8453, collection: '0x1649CD37f4748807b4882FC48765bA0B2aFfa94a', tokenId: '19' } }],
     ['ownership_mismatch', { accountOwner: OTHER }],
