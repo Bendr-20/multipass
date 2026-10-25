@@ -453,7 +453,7 @@ function bindMarketPolicy(market, chains) {
   const vault = chain.vaults.find((candidate) => candidate?.id === market.vaultId);
   if (!isObject(vault)) throw upstreamInvalid('Credifi vault configuration');
   const borrowAsset = boundedText(vault.borrowAsset, 'Credifi borrow asset', 1, 32).toUpperCase();
-  const assetEntries = vault.addresses?.[borrowAsset];
+  const assetEntries = chain.addresses?.[borrowAsset];
   if (!Array.isArray(assetEntries) || assetEntries.length === 0) throw upstreamInvalid('Credifi borrow asset configuration');
   const asset = assetEntries.at(-1);
   const symbol = boundedText(asset?.symbol, 'Credifi borrow asset symbol', 1, 32).toUpperCase();

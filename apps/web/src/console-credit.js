@@ -1,3 +1,7 @@
+import { RELEASED_ACCOUNT_IMPLEMENTATION, deriveLooperAccount } from './looper-agent-wallet.js';
+
+export const CONSOLE_CREDIT_ACCOUNT_BINDING_VERSION = 'credit-account-binding:deterministic-v1';
+
 const CREDIT_PATH = '/api/multipass/console/credit';
 const CREDIFI_PILOT_OPT_IN_PATH = '/api/multipass/console/credifi-pilot/opt-in';
 
@@ -43,6 +47,10 @@ export function createConsoleCreditApi({ fetchImpl = globalThis.fetch, apiBase =
     preview: ({ tokenId, commitmentId, amount, maxAprPercent, csrfToken, signal }) => post('preview', { tokenId, commitmentId, amount, maxAprPercent }, csrfToken, signal),
     borrow: ({ tokenId, commitmentId, quoteId, quoteSha256, confirmBorrow, csrfToken, signal }) => post('borrow', { tokenId, commitmentId, quoteId, quoteSha256, confirmBorrow }, csrfToken, signal),
   });
+}
+
+export function deriveConsoleCreditAccount(tokenId) {
+  return deriveLooperAccount({ implementation: RELEASED_ACCOUNT_IMPLEMENTATION, tokenId }).toLowerCase();
 }
 
 export function createInitialConsoleCreditState(tokenId = null) {

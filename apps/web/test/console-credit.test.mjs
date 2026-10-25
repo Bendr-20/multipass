@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState, renderConsoleCreditPanel } from '../src/console-credit.js';
+import { bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState, deriveConsoleCreditAccount, renderConsoleCreditPanel } from '../src/console-credit.js';
 
 const TOKEN_ID = '2431';
 const OVERVIEW = {
@@ -14,6 +14,11 @@ const OVERVIEW = {
   balance: { credit: { availableCredit: 5_000_000 } },
   loans: [],
 };
+
+test('Credifi challenge account is derived from the selected Looper instead of stale wallet UI state', () => {
+  assert.equal(deriveConsoleCreditAccount('612'), '0xf2ff55e53f45114f22fa842c5521b6a3ced31339');
+  assert.throws(() => deriveConsoleCreditAccount(''), /token ID/i);
+});
 
 test('credit client sends exact CSRF-bound request envelopes', async () => {
   const calls = [];

@@ -60,7 +60,7 @@ import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
 import { createConsoleRestapNetworkApi } from './console-restap-network-api.js';
 import { createMissionApi } from './missions/api.js';
 import { createSwarmDraftRetryState } from './missions/swarm-invitation-create-key.js';
-import { bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState } from './console-credit.js';
+import { CONSOLE_CREDIT_ACCOUNT_BINDING_VERSION, bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState, deriveConsoleCreditAccount } from './console-credit.js';
 import { bindMissionBoard } from './missions/mission-board.js';
 import { bindMissionEditor } from './missions/mission-editor.js';
 import { SWARM_LAUNCH_DEFAULT_ECONOMICS, bindSwarmLaunchpad, deriveSwarmLaunchDraftFromInvitation, normalizeSwarmLaunchExecutionReviewForm, normalizeSwarmLaunchRequestForm, serializeSwarmLaunchRequest, validateSwarmLaunchExecutionPreview } from './missions/swarm-launchpad.js';
@@ -2105,8 +2105,12 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const challenge = await activeConsoleCreditApi.challenge({ tokenId: context.tokenId, csrfToken: context.csrfToken, signal: controller.signal });
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
-      const account = String(state.looperAgentWallet?.account ?? '').toLowerCase();
-      if (!/^0x[0-9a-f]{40}$/u.test(account) || account !== String(challenge.account ?? '').toLowerCase()) throw new Error('Credifi challenge account does not match the selected Looper.');
+      const account = deriveConsoleCreditAccount(context.tokenId);
+      if (account !== String(challenge.account ?? '').toLowerCase()) {
+        const error = new Error('Credifi challenge account does not match the selected Looper.');
+        error.code = CONSOLE_CREDIT_ACCOUNT_BINDING_VERSION;
+        throw error;
+      }
       const signed = await activeWalletClient.signMessage(challenge.message);
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
       await activeConsoleCreditApi.verify({ tokenId: context.tokenId, signature: signed.signature, csrfToken: context.csrfToken, signal: controller.signal });

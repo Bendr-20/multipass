@@ -6,6 +6,7 @@ import test from 'node:test';
 import { bindConsoleAvatarFallbacks, captureConsoleInteractionState, createApp, getConsoleMessageIdentity, restoreConsoleInteractionState } from '../src/app.js';
 import * as appModule from '../src/app.js';
 import { HelixaResolverError } from '../src/live-helixa-resolver.js';
+import { deriveConsoleCreditAccount } from '../src/console-credit.js';
 import { createMultipassConsoleSnapshot, renderMultipassConsole } from '../src/multipass-console.js';
 import { isSafeMultipassSharePath } from '../src/save-panel.js';
 
@@ -8500,7 +8501,7 @@ test('Swarm invitation state cannot cross a wallet session boundary', async () =
 test('Console credit keeps login, vouch, broad permission, quote, and borrow as separate owner actions', async () => {
   const root = setupDom('https://helixa.xyz/multipass/console');
   const owner = '0x27E3286c2c1783F67d06f2ff4e3ab41f8e1C91Ea';
-  const account = '0x9999999999999999999999999999999999999999';
+  const account = deriveConsoleCreditAccount('617');
   const calls = [];
   let loggedIn = false;
   let accepted = false;
