@@ -268,6 +268,38 @@ test('quote term derivation rejects past or non-increasing payment dates', async
   }
 });
 
+test('quote schedule accepts bounded installment amount variants only when they reconcile exactly', async () => {
+  for (const installment of [
+    { dueDate: '2026-11-20T22:30:00.000Z', payment: 5.01 },
+    { dueDate: '2026-11-20T22:30:00.000Z', principal: 5, interest: 0.01 },
+    { dueDate: '2026-11-20T22:30:00.000Z', totalAmount: 5.01, principalAmount: 5, interestAmount: 0.01 },
+    { dueDate: '2026-11-20T22:30:00.000Z', amount: { total: 5.01 } },
+  ]) {
+    const payload = quote(); delete payload.loan.loanTerms; payload.paymentSchedule = [installment];
+    const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+    const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+    await login(service);
+    const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+    assert.equal(preview.quote.paymentSchedule[0].amount, 5.01);
+  }
+});
+
+test('quote schedule rejects conflicting amount representations and implausible unit drift', async () => {
+  for (const installment of [
+    { dueDate: '2026-11-20T22:30:00.000Z', amount: 5.01, totalAmount: 5.02 },
+    { dueDate: '2026-11-20T22:30:00.000Z', amount: 5_010_000 },
+  ]) {
+    const payload = quote(); delete payload.loan.loanTerms; delete payload.loan.totalRepayment; payload.paymentSchedule = [installment];
+    const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+    const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+    await login(service);
+    await assert.rejects(
+      () => service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 }),
+      error => ['invalid_response', 'quote_schedule_mismatch'].includes(error.code),
+    );
+  }
+});
+
 test('quote and borrow are separate and loan creation reuses the reviewed unexpired quote exactly once', async () => {
   const fixture = createFetchFixture({ authorization: true }); fixture.setCommitmentStatus('accepted');
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });

@@ -350,7 +350,13 @@ export function createConsoleCreditService({
       const rawQuote = await credifi(active, '/api/v2/loans/preview-schedule', {
         method: 'POST', body: { amount: normalizedAmount }, headers: marketHeaders(selectedMarket),
       });
-      const normalizedQuote = normalizeQuote(rawQuote, { amount: normalizedAmount, maxAprPercent: aprLimit, nowMs: clock() });
+      let normalizedQuote;
+      try {
+        normalizedQuote = normalizeQuote(rawQuote, { amount: normalizedAmount, maxAprPercent: aprLimit, nowMs: clock() });
+      } catch (error) {
+        console.warn({ event: 'credifi_quote_schema_rejected', code: error?.code ?? 'unknown', shape: describeQuoteShape(rawQuote) });
+        throw error;
+      }
       const quoteSha256 = sha256(canonicalJson(normalizedQuote));
       quotes.set(key + ':' + normalizedQuote.quoteId, {
         sessionKey: key, account: expected.account, tokenId: expected.tokenId, commitmentId: commitment.id, market: selectedMarket, amount: normalizedAmount,
@@ -768,7 +774,7 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   if (principalMicro !== expectedPrincipalMicro || netProceedsMicro !== expectedPrincipalMicro) throw new ConsoleCreditError('quote_amount_mismatch', 'Credifi quote principal or proceeds do not match the request.', { status: 422 });
   const paymentSchedule = value.paymentSchedule.map((item) => {
     if (!isObject(item)) throw upstreamInvalid('Credifi quote payment schedule');
-    return { dueDate: canonicalTimestamp(item.dueDate, 'quote payment due date'), amount: finiteNonnegativeNumber(item.amount, 'quote payment amount') };
+    return { dueDate: canonicalTimestamp(item.dueDate, 'quote payment due date'), amount: normalizeSchedulePaymentAmount(item) };
   });
   const dueTimes = paymentSchedule.map((item) => Date.parse(item.dueDate));
   if (dueTimes[0] <= nowMs || dueTimes.some((time, index) => index > 0 && time <= dueTimes[index - 1])) throw upstreamInvalid('Credifi quote payment schedule');
@@ -784,8 +790,41 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   const totalRepayment = value.loan.totalRepayment == null
     ? scheduledMicro / 1_000_000
     : finiteNonnegativeNumber(value.loan.totalRepayment, 'quote total repayment');
-  if (installments !== paymentSchedule.length || scheduledMicro !== moneyToMicro(totalRepayment, 'quote total repayment')) throw new ConsoleCreditError('quote_schedule_mismatch', 'Credifi quote schedule does not match its total repayment.', { status: 422 });
+  const maximumInterestMicro = Math.ceil(expectedPrincipalMicro * (maxAprPercent / 100) * (termDays / 365) * 2) + installments * 10_000;
+  if (installments !== paymentSchedule.length || scheduledMicro !== moneyToMicro(totalRepayment, 'quote total repayment')
+    || scheduledMicro < expectedPrincipalMicro || scheduledMicro > expectedPrincipalMicro + maximumInterestMicro) {
+    throw new ConsoleCreditError('quote_schedule_mismatch', 'Credifi quote schedule does not match its principal, APR, term, and total repayment.', { status: 422 });
+  }
   return { quoteId, quoteExpiresAt, fee: { feeMicro, principalMicro, netProceedsMicro }, loan: { amount: quotedAmount, interestRate, totalRepayment, loanTerms: { termDays, repaymentType } }, paymentSchedule, scheduleInfo: { installments } };
+}
+
+function normalizeSchedulePaymentAmount(item) {
+  const direct = [
+    item.amount, item.payment, item.paymentAmount, item.total, item.totalAmount,
+    item.totalPayment, item.totalDue, item.amountDue, item.repaymentAmount, item.installmentAmount,
+    ...(isObject(item.amount) ? [item.amount.total, item.amount.payment, item.amount.value] : []),
+  ].filter((value) => value != null && !isObject(value)).map((value) => moneyToMicro(value, 'quote payment amount'));
+  const componentPairs = [
+    ['principal', 'interest'], ['principalAmount', 'interestAmount'], ['principalPayment', 'interestPayment'], ['principalDue', 'interestDue'],
+  ];
+  for (const [principalKey, interestKey] of componentPairs) {
+    if (item[principalKey] != null && item[interestKey] != null) {
+      direct.push(moneyToMicro(item[principalKey], 'quote payment principal') + moneyToMicro(item[interestKey], 'quote payment interest'));
+    }
+  }
+  if (direct.length === 0 || direct.some((amount) => amount !== direct[0])) throw upstreamInvalid('Credifi quote payment amount');
+  return direct[0] / 1_000_000;
+}
+
+function describeQuoteShape(value) {
+  const describe = (entry) => isObject(entry)
+    ? Object.fromEntries(Object.keys(entry).sort().slice(0, 32).map((key) => [key, Array.isArray(entry[key]) ? 'array' : entry[key] === null ? 'null' : typeof entry[key]]))
+    : typeof entry;
+  return {
+    quote: describe(value), loan: describe(value?.loan), loanTerms: describe(value?.loan?.loanTerms), fee: describe(value?.fee),
+    scheduleInfo: describe(value?.scheduleInfo), paymentCount: Array.isArray(value?.paymentSchedule) ? value.paymentSchedule.length : null,
+    firstPayment: describe(value?.paymentSchedule?.[0]),
+  };
 }
 
 function marketHeaders(market) { return { 'x-chain-id': String(market.chainId), 'x-market-id': market.marketId }; }
