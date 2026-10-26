@@ -63,10 +63,10 @@ export const CREDIFI_OWNER_OPT_IN_MAX_TRANSFER_SCAN_BLOCKS = 20;
 // A complete dual-provider proof performs paced finalized-head, runtime, policy,
 // owner, controller, and latest-authority reads. At 250 ms between RPC starts the
 // integrity phase has a measured floor above 6 seconds, so 5 seconds guaranteed
-// false negatives for otherwise valid Loopers. Seven seconds keeps the complete
+// false negatives for otherwise valid Loopers. Fifteen seconds keeps the complete
 // browser gate below its request lifetime without weakening the two-provider or
 // exact-block requirements; a slow provider fails visibly instead of hanging.
-export const CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS = 7_000;
+export const CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS = 15_000;
 
 export function createCredifiOwnerOptInProviders({ publicClients } = {}) {
   const clients = publicClients ?? createLoopersPublicClients({

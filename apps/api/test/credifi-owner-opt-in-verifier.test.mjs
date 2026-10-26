@@ -59,7 +59,7 @@ function verifier({ integrity = { eligible: true, status: 'ready', proof: proof(
 
 test('exports an opt-in-specific verifier with enough time for the paced dual-provider proof', () => {
   assert.equal(typeof credifi.createCredifiOwnerOptInVerifier, 'function');
-  assert.equal(credifi.CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS, 7_000);
+  assert.equal(credifi.CREDIFI_OWNER_OPT_IN_VERIFICATION_TIMEOUT_MS, 15_000);
 });
 
 test('reports transient provider failures as retryable instead of owner mismatches', async () => {
