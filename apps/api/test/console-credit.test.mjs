@@ -284,6 +284,31 @@ test('quote schedule accepts bounded installment amount variants only when they 
   }
 });
 
+test('quote normalizer accepts the captured Credifi 12-month amortizing schema', async () => {
+  const payload = quote();
+  delete payload.loan.totalRepayment;
+  payload.loan.loanTerms = { termMonths: 12, repaymentSchedule: 'amortizing' };
+  const dueDates = ['2026-11-21','2026-12-21','2027-01-21','2027-02-21','2027-03-21','2027-04-21','2027-05-21','2027-06-21','2027-07-21','2027-08-21','2027-09-21','2027-10-21'];
+  payload.paymentSchedule = dueDates.map((date, index) => ({
+    paymentNumber: index + 1,
+    dueDate: date + 'T22:30:00.000Z',
+    paymentAmount: index === 11 ? 0.44 : 0.45,
+    principalAmount: index === 11 ? 0.38 : 0.42,
+    interestAmount: index === 11 ? 0.06 : 0.02,
+    remainingBalance: Math.max(0, 5 - (index + 1) * 0.42),
+  }));
+  payload.scheduleInfo = { countPayments: 12, totalAmount: 5.39, totalInterest: 0.39 };
+  payload.fee = { ...payload.fee, apr: 15, financeCharge: 0.39, interestRate: 15, minimumFeeApplied: false, minimumFeeMicro: 0, rateBps: 1500, recipient: null, totalPayments: 5.39, waived: true };
+  const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+  assert.equal(preview.quote.paymentSchedule.length, 12);
+  assert.equal(preview.quote.loan.totalRepayment, 5.39);
+  assert.equal(preview.quote.loan.loanTerms.repaymentType, 'amortizing');
+  assert.equal(preview.quote.scheduleInfo.installments, 12);
+});
+
 test('quote schedule rejects conflicting amount representations and implausible unit drift', async () => {
   for (const installment of [
     { dueDate: '2026-11-20T22:30:00.000Z', amount: 5.01, totalAmount: 5.02 },

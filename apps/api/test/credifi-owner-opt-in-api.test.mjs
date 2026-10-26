@@ -85,6 +85,30 @@ test('Credifi pilot GET accepts explicit Origin or browser same-origin Referer m
   assert.equal(result.body.status, 'eligible');
 });
 
+test('completed opt-in status loads from durable consent without repeating live owner proof', async () => {
+  let verifierCalls = 0;
+  let statusCalls = 0;
+  const stored = {
+    tokenId: TOKEN_ID, eligible: true, optedIn: true, created: false,
+    cohortVersion: 'cohort-v1', amountUsd: '50.00', canonicalAccount: deriveReleasedLooperAccount(TOKEN_ID),
+    consentedAt: '2026-10-24T02:00:00.000Z',
+  };
+  const api = createApi({
+    service: {
+      getStoredStatus: ({ tokenId, wallet }) => tokenId === TOKEN_ID && wallet.toLowerCase() === OWNER ? stored : null,
+      getStatus: () => { statusCalls += 1; throw new Error('live status should not run'); },
+    },
+    verifier: { verify: async () => { verifierCalls += 1; throw new Error('live proof should not run'); } },
+  });
+  const session = await consoleSession(api);
+  const result = await request(api, '/api/multipass/console/credifi-pilot/opt-in?tokenId=11', { headers: { cookie: session.cookie } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.status, 'opted_in');
+  assert.equal(result.body.consented_at, stored.consentedAt);
+  assert.equal(verifierCalls, 0);
+  assert.equal(statusCalls, 0);
+});
+
 test('Credifi pilot POST requires CSRF and an exact consent-only schema', async () => {
   let writes = 0;
   const api = createApi({ service: { optIn: () => { writes += 1; return { tokenId: TOKEN_ID, eligible: true, optedIn: true, created: true, cohortVersion: 'cohort-v1', amountUsd: '50.00', canonicalAccount: deriveReleasedLooperAccount(TOKEN_ID), consentedAt: '2026-10-24T02:00:00.000Z' }; } } });

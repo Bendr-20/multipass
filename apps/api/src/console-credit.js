@@ -779,14 +779,19 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   const dueTimes = paymentSchedule.map((item) => Date.parse(item.dueDate));
   if (dueTimes[0] <= nowMs || dueTimes.some((time, index) => index > 0 && time <= dueTimes[index - 1])) throw upstreamInvalid('Credifi quote payment schedule');
   const derivedTermDays = Math.ceil((dueTimes.at(-1) - nowMs) / 86_400_000);
+  const statedTermMonths = value.loan.loanTerms?.termMonths == null ? null : boundedInteger(value.loan.loanTerms.termMonths, 'quote term months', 1, 120);
+  if (statedTermMonths != null && Math.abs(derivedTermDays - statedTermMonths * 30.4375) > 45) throw upstreamInvalid('Credifi quote term');
   const termDays = value.loan.loanTerms?.termDays == null
     ? boundedInteger(derivedTermDays, 'quote term days', 1, 3_650)
     : boundedInteger(value.loan.loanTerms.termDays, 'quote term days', 1, 3_650);
-  const repaymentType = value.loan.loanTerms?.repaymentType == null
-    ? 'scheduled'
-    : boundedText(value.loan.loanTerms.repaymentType, 'quote repayment type', 1, 32);
-  const installments = value.scheduleInfo?.installments == null ? paymentSchedule.length : boundedInteger(value.scheduleInfo.installments, 'quote installments', 1, 100);
+  const statedRepaymentType = value.loan.loanTerms?.repaymentType ?? value.loan.loanTerms?.repaymentSchedule;
+  const repaymentType = statedRepaymentType == null ? 'scheduled' : boundedText(statedRepaymentType, 'quote repayment type', 1, 32);
+  const statedInstallments = value.scheduleInfo?.installments ?? value.scheduleInfo?.countPayments;
+  const installments = statedInstallments == null ? paymentSchedule.length : boundedInteger(statedInstallments, 'quote installments', 1, 100);
   const scheduledMicro = paymentSchedule.reduce((total, item) => total + moneyToMicro(item.amount, 'quote payment amount'), 0);
+  for (const redundantTotal of [value.scheduleInfo?.totalAmount, value.fee?.totalPayments].filter((entry) => entry != null)) {
+    if (Math.abs(moneyToMicro(redundantTotal, 'quote schedule total') - scheduledMicro) > installments * 20_000) throw new ConsoleCreditError('quote_schedule_mismatch', 'Credifi quote totals do not match its payment schedule.', { status: 422 });
+  }
   const totalRepayment = value.loan.totalRepayment == null
     ? scheduledMicro / 1_000_000
     : finiteNonnegativeNumber(value.loan.totalRepayment, 'quote total repayment');
@@ -804,16 +809,19 @@ function normalizeSchedulePaymentAmount(item) {
     item.totalPayment, item.totalDue, item.amountDue, item.repaymentAmount, item.installmentAmount,
     ...(isObject(item.amount) ? [item.amount.total, item.amount.payment, item.amount.value] : []),
   ].filter((value) => value != null && !isObject(value)).map((value) => moneyToMicro(value, 'quote payment amount'));
-  const componentPairs = [
+  const components = [];
+  for (const [principalKey, interestKey] of [
     ['principal', 'interest'], ['principalAmount', 'interestAmount'], ['principalPayment', 'interestPayment'], ['principalDue', 'interestDue'],
-  ];
-  for (const [principalKey, interestKey] of componentPairs) {
+  ]) {
     if (item[principalKey] != null && item[interestKey] != null) {
-      direct.push(moneyToMicro(item[principalKey], 'quote payment principal') + moneyToMicro(item[interestKey], 'quote payment interest'));
+      components.push(moneyToMicro(item[principalKey], 'quote payment principal') + moneyToMicro(item[interestKey], 'quote payment interest'));
     }
   }
-  if (direct.length === 0 || direct.some((amount) => amount !== direct[0])) throw upstreamInvalid('Credifi quote payment amount');
-  return direct[0] / 1_000_000;
+  if (direct.length === 0 && components.length === 0) throw upstreamInvalid('Credifi quote payment amount');
+  if (direct.some((amount) => amount !== direct[0])) throw upstreamInvalid('Credifi quote payment amount');
+  const selected = direct[0] ?? components[0];
+  if (components.some((amount) => Math.abs(amount - selected) > 20_000)) throw upstreamInvalid('Credifi quote payment amount');
+  return selected / 1_000_000;
 }
 
 function describeQuoteShape(value) {

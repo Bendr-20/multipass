@@ -71,6 +71,16 @@ test('opt-in persists the full consent binding and is idempotent for the same ow
   store.close();
 });
 
+test('stored status is an immediate consent lookup and never performs custody I/O', async () => {
+  let custodyChecks = 0;
+  const store = createCredifiOwnerOptInStore({ custodyVerifier: { async verifyCustodyEpoch() { custodyChecks += 1; throw new Error('must not run'); } } });
+  await store.optIn({ identity: identity() });
+  assert.equal(store.getStoredStatus({ tokenId: '11', wallet: OWNER }).optedIn, true);
+  assert.equal(store.getStoredStatus({ tokenId: '11', wallet: NEW_OWNER }), null);
+  assert.equal(custodyChecks, 0);
+  store.close();
+});
+
 test('an A to B to A transfer permanently invalidates the old epoch and requires re-consent', async () => {
   let timestamp = 0;
   let checks = 0;

@@ -299,6 +299,19 @@ export function createCredifiOwnerOptInStore({ databasePath = ':memory:', now = 
   }
 
   return Object.freeze({
+    getStoredStatus({ tokenId, wallet } = {}) {
+      assertOpen();
+      tokenId = normalizeVerifierTokenId(tokenId);
+      wallet = normalizeWallet(wallet);
+      if (!COHORT.has(tokenId)) throw new CredifiOwnerOptInError('credifi_pilot_not_eligible', 'This Looper is not in the prepared Credifi pilot cohort.', { status: 403 });
+      const row = selectConsent.get(tokenId, wallet, CREDIFI_PILOT_COHORT_VERSION);
+      if (!row || row.invalidated_at !== null) return null;
+      if (String(row.canonical_account).toLowerCase() !== deriveReleasedLooperAccount(tokenId).toLowerCase() || !/^[1-9]\d*$/u.test(String(row.erc8004_agent_id))) {
+        throw new CredifiOwnerOptInError('credifi_opt_in_binding_changed', 'Stored Credifi consent no longer matches the released identity.', { status: 409 });
+      }
+      return projectRow(row, false);
+    },
+
     async getStatus({ identity } = {}) {
       assertOpen();
       const subject = normalizeAuthorizedSubject(identity);

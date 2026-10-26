@@ -1264,6 +1264,8 @@ async function handleCredifiOwnerOptInStatus(request, url, context) {
     throw new ApiInputError('credifi_opt_in_invalid_schema', 'Credifi pilot status requires exactly one tokenId query parameter.');
   }
   const tokenId = normalizeCredifiTokenId(url.searchParams.get('tokenId'));
+  const stored = context.credifiOwnerOptInService.getStoredStatus?.({ tokenId, wallet: session.wallet }) ?? null;
+  if (stored?.optedIn === true) return jsonResponse(projectCredifiOwnerOptIn(stored), 200, { 'cache-control': 'no-store' });
   const identity = await authorizeCredifiOwnerOptIn({ tokenId, wallet: session.wallet, context });
   const result = await context.credifiOwnerOptInService.getStatus({ identity });
   return jsonResponse(projectCredifiOwnerOptIn(result), 200, { 'cache-control': 'no-store' });
