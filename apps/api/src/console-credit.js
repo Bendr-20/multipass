@@ -22,6 +22,9 @@ const MAX_UINT256 = (1n << 256n) - 1n;
 const EVC_ABI = Object.freeze([{
   type: 'function', name: 'setOperator', stateMutability: 'nonpayable',
   inputs: [{ name: 'accountPrefix', type: 'bytes19' }, { name: 'operator', type: 'address' }, { name: 'operatorBitField', type: 'uint256' }], outputs: [],
+}, {
+  type: 'function', name: 'getOperator', stateMutability: 'view',
+  inputs: [{ name: 'addressPrefix', type: 'bytes19' }, { name: 'operator', type: 'address' }], outputs: [{ type: 'uint256' }],
 }]);
 const EXECUTE_ABI = Object.freeze([{
   type: 'function', name: 'execute', stateMutability: 'payable',
@@ -191,6 +194,29 @@ export function createConsoleCreditService({
     return selected;
   }
 
+  async function reconcileMarketAuthorization({ expected, state, market }) {
+    const authKey = market.chainId + '-' + market.vaultId;
+    const authorization = state.flags.evcAuthorizations[authKey];
+    if (!authorization) throw new ConsoleCreditError('authorization_unavailable', 'Credifi did not return authorization status for this market.', { status: 409 });
+    if (authorization.isAuthorized) return { authorization, validated: null };
+    if (!authorization.txnData) throw new ConsoleCreditError('authorization_unavailable', 'Credifi did not return an authorization transaction.', { status: 409 });
+    const validated = validateAuthorization({ account: expected.account, market, txnData: authorization.txnData, chains: state.chains });
+    let operatorBitField;
+    try {
+      operatorBitField = await repaymentClient.readContract({
+        address: getAddress(validated.evc), abi: EVC_ABI, functionName: 'getOperator',
+        args: [validated.accountPrefix, getAddress(validated.operator)],
+      });
+    } catch (error) {
+      throw new ConsoleCreditError('authorization_state_unavailable', 'Live EVC authorization state is temporarily unavailable. Retry before opening the wallet.', { status: 503, cause: error });
+    }
+    if (operatorBitField === MAX_UINT256) {
+      state.flags.evcAuthorizations[authKey] = { isAuthorized: true };
+      return { authorization: state.flags.evcAuthorizations[authKey], validated };
+    }
+    return { authorization, validated };
+  }
+
   return Object.freeze({
     async getGate({ identity } = {}) { return gate(identity); },
 
@@ -269,12 +295,8 @@ export function createConsoleCreditService({
       const state = await readBorrowerState(active);
       const commitment = findCommitment(state, commitmentId, ['accepted', 'active']);
       const selectedMarket = findMarket(state, commitment);
-      const authKey = selectedMarket.chainId + '-' + selectedMarket.vaultId;
-      const authorization = state.flags.evcAuthorizations[authKey];
-      if (!authorization) throw new ConsoleCreditError('authorization_unavailable', 'Credifi did not return authorization status for this market.', { status: 409 });
+      const { authorization, validated } = await reconcileMarketAuthorization({ expected, state, market: selectedMarket });
       if (authorization.isAuthorized) return { schema_version: '0.1.0', required: false, market: selectedMarket };
-      if (!authorization.txnData) throw new ConsoleCreditError('authorization_unavailable', 'Credifi did not return an authorization transaction.', { status: 409 });
-      const validated = validateAuthorization({ account: expected.account, market: selectedMarket, txnData: authorization.txnData, chains: state.chains });
       const outerData = encodeFunctionData({ abi: EXECUTE_ABI, functionName: 'execute', args: [validated.evc, 0n, validated.data, 0] });
       const preparedAt = clock();
       return {
@@ -323,6 +345,7 @@ export function createConsoleCreditService({
       const selectedMarket = findMarket(state, commitment);
       const normalizedAmount = normalizeDollarAmount(amount);
       const aprLimit = normalizeAprLimit(maxAprPercent);
+      await reconcileMarketAuthorization({ expected, state, market: selectedMarket });
       assertBorrowerEligible({ expected, state, commitment, market: selectedMarket, amount: normalizedAmount, requireAuthorization: true });
       const rawQuote = await credifi(active, '/api/v2/loans/preview-schedule', {
         method: 'POST', body: { amount: normalizedAmount }, headers: marketHeaders(selectedMarket),
@@ -357,6 +380,7 @@ export function createConsoleCreditService({
         const commitment = findCommitment(state, record.commitmentId, ['accepted', 'active']);
         selectedMarket = findMarket(state, commitment);
         if (!sameMarket(selectedMarket, record.market)) throw new ConsoleCreditError('market_changed', 'The vouch market changed. Request a fresh quote.', { status: 409 });
+        await reconcileMarketAuthorization({ expected, state, market: selectedMarket });
         assertBorrowerEligible({ expected, state, commitment, market: selectedMarket, amount: record.amount, requireAuthorization: true });
       } catch (error) {
         record.status = 'reviewed';

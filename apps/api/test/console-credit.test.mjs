@@ -88,6 +88,16 @@ function createFetchFixture({ score = 42, authorization = false, challengeMessag
 
 function json(value, status = 200) { return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } }); }
 
+function evcClient(operatorBitField = 0n) {
+  return { async readContract({ address, functionName, args }) {
+    assert.equal(address.toLowerCase(), EVC);
+    assert.equal(functionName, 'getOperator');
+    assert.deepEqual(args.map(String), [ACCOUNT.slice(0, 40), ADAPTOR]);
+    if (operatorBitField instanceof Error) throw operatorBitField;
+    return operatorBitField;
+  } };
+}
+
 async function login(service) {
   const challenge = await service.requestLoginChallenge({ sessionKey: 'session-1', identity: identity() });
   assert.equal(challenge.account, ACCOUNT);
@@ -185,7 +195,7 @@ test('vouch acceptance validates the offered commitment and rereads accepted sta
 
 test('EVC preparation validates live config and wraps the broad permission through the Looper account', async () => {
   const fixture = createFetchFixture(); fixture.setCommitmentStatus('accepted');
-  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, publicClient: evcClient(0n), now: () => Date.parse('2026-10-21T22:30:00.000Z') });
   await login(service);
   const prepared = await service.prepareAuthorization({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1' });
   assert.equal(prepared.required, true);
@@ -198,6 +208,27 @@ test('EVC preparation validates live config and wraps the broad permission throu
   assert.equal(decoded.args[1], 0n);
   assert.equal(decoded.args[2], TXN_DATA);
   assert.equal(decoded.args[3], 0);
+});
+
+test('stale Credifi flags cannot request a duplicate EVC grant or block quote preview', async () => {
+  const fixture = createFetchFixture(); fixture.setCommitmentStatus('accepted');
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, publicClient: evcClient(MAX_UINT256), now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const prepared = await service.prepareAuthorization({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1' });
+  assert.equal(prepared.required, false);
+  assert.equal(prepared.transaction, undefined);
+  const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+  assert.equal(preview.quote.quoteId, 'quote-1');
+});
+
+test('authorization preparation fails closed when live EVC state is unavailable', async () => {
+  const fixture = createFetchFixture(); fixture.setCommitmentStatus('accepted');
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, publicClient: evcClient(new Error('rpc unavailable')), now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  await assert.rejects(
+    () => service.prepareAuthorization({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1' }),
+    error => error.code === 'authorization_state_unavailable' && error.status === 503,
+  );
 });
 
 test('quote and borrow are separate and loan creation reuses the reviewed unexpired quote exactly once', async () => {
