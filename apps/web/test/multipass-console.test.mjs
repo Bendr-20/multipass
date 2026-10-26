@@ -189,7 +189,7 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
         account: '0x9999999999999999999999999999999999999999',
         legacyAccount: '0x8888888888888888888888888888888888888888',
         nativeWei: '1250000000000000000',
-        tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }],
+        tokens: [{ contract: '0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3', symbol: 'CRED', decimals: 18, balanceBaseUnits: '2500000000000000000' }, { contract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6, balanceBaseUnits: '50000000' }],
         refreshedAt: '2026-09-21T23:59:00.000Z',
         policyStatus: 'owner-only',
         policyRecoveryAllowed: true,
@@ -209,12 +209,13 @@ test('selected Looper renders its active wallet as a dedicated Console workspace
   assert.match(panel.textContent, /Looper wallet/i);
   assert.match(panel.textContent, /1\.25 ETH/);
   assert.match(panel.textContent, /2\.5 CRED/);
+  assert.match(panel.textContent, /50 USDC/);
   assert.equal(panel.querySelector('.console-looper-wallet-status')?.textContent, 'Owner controlled');
   assert.equal(panel.querySelector('.console-looper-wallet-primary-balance')?.textContent, '1.25 ETH');
   const hero = panel.querySelector('.console-looper-wallet-hero');
   assert.ok(hero);
   assert.match(hero.textContent, /Available balance/i);
-  assert.equal(panel.querySelectorAll('.console-looper-wallet-asset-row').length, 2);
+  assert.equal(panel.querySelectorAll('.console-looper-wallet-asset-row').length, 3);
   assert.match(panel.querySelector('.console-looper-wallet-asset-row')?.textContent ?? '', /ETH/i);
   assert.equal(panel.querySelector('[data-wallet-action="send"]')?.open, false);
   assert.equal(panel.querySelector('[data-wallet-action="receive"]')?.open, false);

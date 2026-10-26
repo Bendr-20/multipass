@@ -28,6 +28,11 @@ export const CONFIGURED_TOKENS = Object.freeze([
     symbol: 'CRED',
     decimals: 18,
   }),
+  Object.freeze({
+    address: getAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'),
+    symbol: 'USDC',
+    decimals: 6,
+  }),
 ]);
 
 export const REGISTRY_ABI = Object.freeze([

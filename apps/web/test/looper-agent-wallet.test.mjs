@@ -8,6 +8,7 @@ import {
   ACCOUNT_POLICY_ABI,
   ACCOUNT_SALT,
   BASE_CHAIN_ID,
+  CONFIGURED_TOKENS,
   ERC20_ABI,
   ERC6551_REGISTRY,
   LEGACY_ACCOUNT_IMPLEMENTATION,
@@ -36,6 +37,13 @@ const IMPLEMENTATION = '0x1111111111111111111111111111111111111111';
 const OWNER = '0x2222222222222222222222222222222222222222';
 const RECIPIENT = '0x3333333333333333333333333333333333333333';
 const TOKEN = '0x4444444444444444444444444444444444444444';
+
+test('Looper wallet tracks canonical Base CRED and USDC with exact decimals', () => {
+  assert.deepEqual(CONFIGURED_TOKENS.map(({ address, symbol, decimals }) => ({ address, symbol, decimals })), [
+    { address: getAddress('0xAB3f23c2ABcB4E12Cc8B593C218A7ba64Ed17Ba3'), symbol: 'CRED', decimals: 18 },
+    { address: getAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'), symbol: 'USDC', decimals: 6 },
+  ]);
+});
 
 test('generic Looper account derivation and owner-scoped operation keys are deterministic', () => {
   assert.equal(normalizeTokenId('1'), 1n);

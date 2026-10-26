@@ -380,12 +380,12 @@ test('anchored Base reader verifies configuration, ownership, account runtime an
   assert.equal(result.policyModuleCodehashMatches, true);
   assert.equal(result.state, '7');
   assert.equal(result.nativeWei, '1000');
-  assert.deepEqual(result.tokens, [{
-    contract: CONFIGURED_TOKENS[0].address,
-    symbol: CONFIGURED_TOKENS[0].symbol,
-    decimals: CONFIGURED_TOKENS[0].decimals,
+  assert.deepEqual(result.tokens, CONFIGURED_TOKENS.map((token) => ({
+    contract: token.address,
+    symbol: token.symbol,
+    decimals: token.decimals,
     balanceBaseUnits: '25',
-  }]);
+  })));
   const stateReads = calls.filter((call) => ['eth_call', 'eth_getCode', 'eth_getBalance'].includes(call.method));
   assert.ok(stateReads.length > 0);
   assert.equal(stateReads.every((call) => {
