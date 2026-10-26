@@ -766,12 +766,19 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   const netProceedsMicro = safeNonnegativeInteger(value.fee.netProceedsMicro, 'quote netProceedsMicro');
   const expectedPrincipalMicro = moneyToMicro(amount, 'quote principal');
   if (principalMicro !== expectedPrincipalMicro || netProceedsMicro !== expectedPrincipalMicro) throw new ConsoleCreditError('quote_amount_mismatch', 'Credifi quote principal or proceeds do not match the request.', { status: 422 });
-  const termDays = boundedInteger(value.loan.loanTerms?.termDays, 'quote term days', 1, 3_650);
-  const repaymentType = boundedText(value.loan.loanTerms?.repaymentType, 'quote repayment type', 1, 32);
   const paymentSchedule = value.paymentSchedule.map((item) => {
     if (!isObject(item)) throw upstreamInvalid('Credifi quote payment schedule');
     return { dueDate: canonicalTimestamp(item.dueDate, 'quote payment due date'), amount: finiteNonnegativeNumber(item.amount, 'quote payment amount') };
   });
+  const dueTimes = paymentSchedule.map((item) => Date.parse(item.dueDate));
+  if (dueTimes[0] <= nowMs || dueTimes.some((time, index) => index > 0 && time <= dueTimes[index - 1])) throw upstreamInvalid('Credifi quote payment schedule');
+  const derivedTermDays = Math.ceil((dueTimes.at(-1) - nowMs) / 86_400_000);
+  const termDays = value.loan.loanTerms?.termDays == null
+    ? boundedInteger(derivedTermDays, 'quote term days', 1, 3_650)
+    : boundedInteger(value.loan.loanTerms.termDays, 'quote term days', 1, 3_650);
+  const repaymentType = value.loan.loanTerms?.repaymentType == null
+    ? 'scheduled'
+    : boundedText(value.loan.loanTerms.repaymentType, 'quote repayment type', 1, 32);
   const installments = value.scheduleInfo?.installments == null ? paymentSchedule.length : boundedInteger(value.scheduleInfo.installments, 'quote installments', 1, 100);
   const scheduledMicro = paymentSchedule.reduce((total, item) => total + moneyToMicro(item.amount, 'quote payment amount'), 0);
   const totalRepayment = value.loan.totalRepayment == null

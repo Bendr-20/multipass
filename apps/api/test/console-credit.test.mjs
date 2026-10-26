@@ -241,6 +241,33 @@ test('quote total repayment is derived from the validated schedule when Credifi 
   assert.deepEqual(preview.quote.paymentSchedule, [{ dueDate: '2026-11-20T22:30:00.000Z', amount: 5.01 }]);
 });
 
+test('quote terms are derived from the validated future schedule when Credifi omits loanTerms', async () => {
+  const payload = quote(); delete payload.loan.loanTerms;
+  const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+  assert.deepEqual(preview.quote.loan.loanTerms, { termDays: 30, repaymentType: 'scheduled' });
+});
+
+test('quote term derivation rejects past or non-increasing payment dates', async () => {
+  for (const dates of [
+    ['2026-10-20T22:30:00.000Z'],
+    ['2026-11-20T22:30:00.000Z', '2026-11-20T22:30:00.000Z'],
+  ]) {
+    const payload = quote(); delete payload.loan.loanTerms;
+    payload.paymentSchedule = dates.map((dueDate, index) => ({ dueDate, amount: index === 0 ? 5.01 : 0 }));
+    payload.scheduleInfo.installments = dates.length;
+    const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+    const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+    await login(service);
+    await assert.rejects(
+      () => service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 }),
+      error => error.code === 'invalid_response',
+    );
+  }
+});
+
 test('quote and borrow are separate and loan creation reuses the reviewed unexpired quote exactly once', async () => {
   const fixture = createFetchFixture({ authorization: true }); fixture.setCommitmentStatus('accepted');
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
