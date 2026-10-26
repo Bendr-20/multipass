@@ -231,6 +231,16 @@ test('authorization preparation fails closed when live EVC state is unavailable'
   );
 });
 
+test('quote total repayment is derived from the validated schedule when Credifi omits the redundant field', async () => {
+  const payload = quote(); delete payload.loan.totalRepayment;
+  const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus("accepted");
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+  assert.equal(preview.quote.loan.totalRepayment, 5.01);
+  assert.deepEqual(preview.quote.paymentSchedule, [{ dueDate: '2026-11-20T22:30:00.000Z', amount: 5.01 }]);
+});
+
 test('quote and borrow are separate and loan creation reuses the reviewed unexpired quote exactly once', async () => {
   const fixture = createFetchFixture({ authorization: true }); fixture.setCommitmentStatus('accepted');
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });

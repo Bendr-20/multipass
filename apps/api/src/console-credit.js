@@ -752,7 +752,7 @@ function assertBorrowerEligible({ expected, state, commitment, market, amount, r
 }
 
 function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
-  if (!isObject(value) || !isObject(value.loan) || !isObject(value.fee) || !Array.isArray(value.paymentSchedule) || value.paymentSchedule.length > 100) throw upstreamInvalid('Credifi quote');
+  if (!isObject(value) || !isObject(value.loan) || !isObject(value.fee) || !Array.isArray(value.paymentSchedule) || value.paymentSchedule.length === 0 || value.paymentSchedule.length > 100) throw upstreamInvalid('Credifi quote');
   const quoteId = boundedId(value.quoteId, 'quote ID');
   const quoteExpiresAt = canonicalTimestamp(value.quoteExpiresAt, 'quote expiry');
   if (Date.parse(quoteExpiresAt) <= nowMs) throw new ConsoleCreditError('quote_expired', 'Credifi returned an expired quote.', { status: 409 });
@@ -766,7 +766,6 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   const netProceedsMicro = safeNonnegativeInteger(value.fee.netProceedsMicro, 'quote netProceedsMicro');
   const expectedPrincipalMicro = moneyToMicro(amount, 'quote principal');
   if (principalMicro !== expectedPrincipalMicro || netProceedsMicro !== expectedPrincipalMicro) throw new ConsoleCreditError('quote_amount_mismatch', 'Credifi quote principal or proceeds do not match the request.', { status: 422 });
-  const totalRepayment = finiteNonnegativeNumber(value.loan.totalRepayment, 'quote total repayment');
   const termDays = boundedInteger(value.loan.loanTerms?.termDays, 'quote term days', 1, 3_650);
   const repaymentType = boundedText(value.loan.loanTerms?.repaymentType, 'quote repayment type', 1, 32);
   const paymentSchedule = value.paymentSchedule.map((item) => {
@@ -775,6 +774,9 @@ function normalizeQuote(value, { amount, maxAprPercent, nowMs }) {
   });
   const installments = value.scheduleInfo?.installments == null ? paymentSchedule.length : boundedInteger(value.scheduleInfo.installments, 'quote installments', 1, 100);
   const scheduledMicro = paymentSchedule.reduce((total, item) => total + moneyToMicro(item.amount, 'quote payment amount'), 0);
+  const totalRepayment = value.loan.totalRepayment == null
+    ? scheduledMicro / 1_000_000
+    : finiteNonnegativeNumber(value.loan.totalRepayment, 'quote total repayment');
   if (installments !== paymentSchedule.length || scheduledMicro !== moneyToMicro(totalRepayment, 'quote total repayment')) throw new ConsoleCreditError('quote_schedule_mismatch', 'Credifi quote schedule does not match its total repayment.', { status: 422 });
   return { quoteId, quoteExpiresAt, fee: { feeMicro, principalMicro, netProceedsMicro }, loan: { amount: quotedAmount, interestRate, totalRepayment, loanTerms: { termDays, repaymentType } }, paymentSchedule, scheduleInfo: { installments } };
 }
