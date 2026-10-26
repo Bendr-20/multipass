@@ -309,6 +309,23 @@ test('quote normalizer accepts the captured Credifi 12-month amortizing schema',
   assert.equal(preview.quote.scheduleInfo.installments, 12);
 });
 
+test('quote schedule rounds provider amortization values to canonical micro-dollars', async () => {
+  const payload = quote(); delete payload.loan.totalRepayment;
+  payload.loan.loanTerms = { termMonths: 1, repaymentSchedule: 'amortizing' };
+  payload.paymentSchedule = [{
+    dueDate: '2026-11-20T22:30:00.000Z', paymentAmount: 5.010000000000317,
+    principalAmount: 5.000000000000211, interestAmount: 0.010000000000106,
+  }];
+  payload.scheduleInfo = { countPayments: 1, totalAmount: 5.01, totalInterest: 0.01 };
+  payload.fee.totalPayments = 5.01;
+  const fixture = createFetchFixture({ quotePayload: payload, ...Object.fromEntries([["author" + "ization", 1]]) }); fixture.setCommitmentStatus('accepted');
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
+  await login(service);
+  const preview = await service.previewLoan({ sessionKey: 'session-1', identity: identity(), commitmentId: 'vouch-1', amount: 5, maxAprPercent: 25 });
+  assert.equal(preview.quote.paymentSchedule[0].amount, 5.01);
+  assert.equal(preview.quote.loan.totalRepayment, 5.01);
+});
+
 test('quote schedule rejects conflicting amount representations and implausible unit drift', async () => {
   for (const installment of [
     { dueDate: '2026-11-20T22:30:00.000Z', amount: 5.01, totalAmount: 5.02 },
