@@ -196,14 +196,14 @@ function renderLoan(loan, credit, busy, discoveryOnly) {
   const summary = '<div class="console-credit-loan-summary"><span class="console-credit-loan-label">' + (repayable ? 'Amount due' : 'Loan') + '</span><strong>' + (repayable ? formatUsd(amountDue) : escapeHtml(loan.id)) + '</strong><span>' + escapeHtml(dueCopy) + '</span><small>Loan ' + escapeHtml(loan.id) + ' · ' + escapeHtml(loan.status) + (loan.disbursement?.transactionHash ? ' · Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : '') + '</small></div>';
   if (!repayable) return '<article class="console-credit-row">' + summary + '<span class="console-credit-state">' + (closed ? 'Closed' : 'Repayment unavailable') + '</span></article>';
   return '<article class="console-credit-loan console-credit-loan-active">' + summary
-    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend · includes 1¢ live-interest buffer</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? recommendedRepaymentCap(loan.remainingBalance)) + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Review repayment</button></form>'
+    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Payment amount (USDC)</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? recommendedRepaymentAmount(loan.remainingBalance)) + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Review payment</button></form>'
     + (plan ? renderRepaymentReview(plan, busy) : '') + '<button class="console-credit-refresh-repayment" type="button" data-action="refresh-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '" ' + (busy ? 'disabled' : '') + '>Check repayment status</button></article>';
 }
 
-function recommendedRepaymentCap(value) {
+function recommendedRepaymentAmount(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return '';
-  const baseUnits = BigInt(Math.ceil(amount * 1_000_000)) + 10_000n;
+  const baseUnits = BigInt(Math.ceil(Math.min(amount, 5) * 1_000_000));
   return formatBaseUnits(baseUnits.toString(), 6);
 }
 
@@ -262,13 +262,13 @@ function downloadRepaymentReminder(button) {
 function formatCalendarUtc(value) { return value.toISOString().replaceAll(/[-:]/gu, '').replace(/\.\d{3}Z$/u, 'Z'); }
 function renderRepaymentReview(plan, busy) {
   const debt = formatBaseUnits(plan.currentDebtBaseUnits, plan.token?.decimals ?? 6);
-  const cap = formatBaseUnits(plan.maxSpendBaseUnits, plan.token?.decimals ?? 6);
+  const payment = formatBaseUnits(plan.repaymentAmountBaseUnits ?? plan.maxSpendBaseUnits, plan.token?.decimals ?? 6);
   const copy = plan.action === 'reset-allowance'
-    ? 'Reset the existing USDC allowance to zero before setting the new finite cap.'
+    ? 'Reset the existing USDC allowance to zero before approving this exact payment.'
     : plan.action === 'set-allowance'
-      ? 'Approve exactly ' + cap + ' USDC for the reviewed Credifi adaptor.'
-      : 'Pay the live debt, currently ' + debt + ' USDC, bounded by the ' + cap + ' USDC allowance.';
-  const label = plan.action === 'reset-allowance' ? 'Reset USDC allowance' : plan.action === 'set-allowance' ? 'Approve finite USDC cap' : 'Repay loan';
+      ? 'Approve exactly ' + payment + ' USDC for this payment through the reviewed Credifi adaptor.'
+      : 'Pay exactly ' + payment + ' USDC toward the live ' + debt + ' USDC balance.';
+  const label = plan.action === 'reset-allowance' ? 'Reset USDC allowance' : plan.action === 'set-allowance' ? 'Approve ' + payment + ' USDC' : 'Pay ' + payment + ' USDC';
   return '<div class="console-credit-repayment"><strong>' + escapeHtml(label) + '</strong><p>' + escapeHtml(copy) + '</p><small>Each step is prepared from live Base state and requires its own wallet confirmation.</small><label class="console-credit-confirm"><input type="checkbox" data-repayment-confirm required><span>I reviewed this exact ' + escapeHtml(plan.action) + ' action.</span></label><button type="button" data-action="submit-console-credit-repayment" ' + (busy ? 'disabled' : '') + '>' + escapeHtml(label) + ' in wallet</button></div>';
 }
 

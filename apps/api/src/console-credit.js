@@ -420,27 +420,27 @@ export function createConsoleCreditService({
       const market = findRepaymentMarket(state, loan);
       const config = resolveRepaymentConfig(state.chains, market, loan);
       const live = await readRepaymentState(repaymentClient, config, loan, expected.account);
-      const maxSpend = parseRepaymentCap(maxSpendTokens, config.decimals);
+      const repaymentAmount = parseRepaymentAmount(maxSpendTokens, config.decimals);
       if (live.currentDebt === 0n) throw new ConsoleCreditError('loan_already_repaid', 'This loan has no live debt.', { status: 409 });
-      if (live.currentDebt > maxSpend) {
-        throw new ConsoleCreditError('repayment_cap_too_low', 'The live payoff exceeds the approved USDC spend cap.', {
-          status: 409, details: { currentDebtBaseUnits: live.currentDebt.toString(), maxSpendBaseUnits: maxSpend.toString(), decimals: config.decimals },
+      if (repaymentAmount > live.currentDebt) {
+        throw new ConsoleCreditError('repayment_amount_too_high', 'The payment amount exceeds the live loan balance.', {
+          status: 409, details: { currentDebtBaseUnits: live.currentDebt.toString(), repaymentAmountBaseUnits: repaymentAmount.toString(), decimals: config.decimals },
         });
       }
-      const action = live.allowance > 0n && live.allowance !== maxSpend
+      const action = live.allowance > 0n && live.allowance !== repaymentAmount
         ? 'reset-allowance'
-        : live.allowance !== maxSpend ? 'set-allowance' : 'repay';
+        : live.allowance !== repaymentAmount ? 'set-allowance' : 'repay';
       const inner = action === 'reset-allowance'
         ? { to: config.tokenAddress, data: encodeFunctionData({ abi: ERC20_REPAYMENT_ABI, functionName: 'approve', args: [config.adaptorAddress, 0n] }) }
         : action === 'set-allowance'
-          ? { to: config.tokenAddress, data: encodeFunctionData({ abi: ERC20_REPAYMENT_ABI, functionName: 'approve', args: [config.adaptorAddress, maxSpend] }) }
-          : { to: config.loanContractAddress, data: encodeFunctionData({ abi: CREDIFI1155_ABI, functionName: 'makeLoanPayment', args: [expected.account, BigInt(loan.disbursement.blockchainLoanId), MAX_UINT256] }) };
+          ? { to: config.tokenAddress, data: encodeFunctionData({ abi: ERC20_REPAYMENT_ABI, functionName: 'approve', args: [config.adaptorAddress, repaymentAmount] }) }
+          : { to: config.loanContractAddress, data: encodeFunctionData({ abi: CREDIFI1155_ABI, functionName: 'makeLoanPayment', args: [expected.account, BigInt(loan.disbursement.blockchainLoanId), repaymentAmount] }) };
       const outerData = encodeFunctionData({ abi: EXECUTE_ABI, functionName: 'execute', args: [inner.to, 0n, inner.data, 0] });
       const preparedAt = clock();
       return {
         schema_version: '0.1.0', loanId: id, action, chainId: BASE_CHAIN_ID, token: { symbol: 'USDC', address: config.tokenAddress, decimals: config.decimals },
         adaptorAddress: config.adaptorAddress, loanContractAddress: config.loanContractAddress, blockchainLoanId: loan.disbursement.blockchainLoanId,
-        currentDebtBaseUnits: live.currentDebt.toString(), allowanceBaseUnits: live.allowance.toString(), maxSpendBaseUnits: maxSpend.toString(),
+        currentDebtBaseUnits: live.currentDebt.toString(), allowanceBaseUnits: live.allowance.toString(), repaymentAmountBaseUnits: repaymentAmount.toString(), maxSpendBaseUnits: repaymentAmount.toString(),
         preparedAt: new Date(preparedAt).toISOString(), expiresAt: new Date(preparedAt + AUTHORIZATION_REVIEW_TTL_MS).toISOString(),
         transaction: { chainId: BASE_CHAIN_ID, from: expected.owner, to: expected.account, value: '0', data: outerData },
       };
@@ -553,11 +553,11 @@ async function readRepaymentState(client, config, loan, account) {
   return { currentDebt, allowance: BigInt(allowance) };
 }
 
-function parseRepaymentCap(value, decimals) {
+function parseRepaymentAmount(value, decimals) {
   const text = String(value ?? '').trim();
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u.test(text)) throw new ConsoleCreditError('invalid_repayment_cap', 'Enter a positive USDC spend cap with at most six decimals.');
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u.test(text)) throw new ConsoleCreditError('invalid_repayment_amount', 'Enter a positive USDC payment amount with at most six decimals.');
   const amount = parseUnits(text, decimals);
-  if (amount <= 0n || amount > 1_000_000n * (10n ** BigInt(decimals))) throw new ConsoleCreditError('invalid_repayment_cap', 'Repayment cap is outside the supported range.');
+  if (amount <= 0n || amount > 1_000_000n * (10n ** BigInt(decimals))) throw new ConsoleCreditError('invalid_repayment_amount', 'Payment amount is outside the supported range.');
   return amount;
 }
 

@@ -173,12 +173,12 @@ test('repayment remains available when new borrowing is discovery-locked', async
     if (functionName === 'credifi1155') return LOAN_CONTRACT;
     if (functionName === 'asset') return USDC;
     if (functionName === 'decimals') return 6;
-    if (functionName === 'allowance') return 5_100_000n;
+    if (functionName === 'allowance') return 5_000_000n;
     throw new Error('Unexpected read ' + functionName);
   } };
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], discoveryOnly: true, fetchImpl: fixture.fetchImpl, publicClient, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
   await login(service);
-  const prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.1' });
+  const prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5' });
   assert.equal(prepared.action, 'repay');
   const refreshed = await service.refreshRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1' });
   assert.equal(refreshed.loan.id, 'loan-1');
@@ -358,7 +358,7 @@ test('quote and borrow are separate and loan creation reuses the reviewed unexpi
 });
 
 
-test('repayment prepares one reviewed wallet action at a time with a finite USDC cap', async () => {
+test('repayment prepares an exact partial payment one reviewed wallet action at a time', async () => {
   const loan = { id: 'loan-1', status: 'active', amount: 5, remainingBalance: 5.01, marketId: market().marketId, disbursement: { chainId: 8453, marketId: market().marketId, loanOwner: ACCOUNT, blockchainLoanId: '7', tokenAddress: USDC, transactionHash: '0x' + 'a'.repeat(64) }, payments: [] };
   const fixture = createFetchFixture({ authorization: true, loans: [loan] });
   let allowance = 1n;
@@ -375,26 +375,27 @@ test('repayment prepares one reviewed wallet action at a time with a finite USDC
   const service = createConsoleCreditService({ allowedTokenIds: ['2431'], fetchImpl: fixture.fetchImpl, publicClient, now: () => Date.parse('2026-10-21T22:30:00.000Z') });
   await login(service);
 
-  let prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  let prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5' });
   assert.equal(prepared.action, 'reset-allowance');
   let outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
   let inner = decodeFunctionData({ abi: ERC20_ABI, data: outer.args[2] });
   assert.deepEqual(inner.args, [ADAPTOR, 0n]);
 
   allowance = 0n;
-  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5' });
   assert.equal(prepared.action, 'set-allowance');
   outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
   inner = decodeFunctionData({ abi: ERC20_ABI, data: outer.args[2] });
-  assert.deepEqual(inner.args, [ADAPTOR, 5_010_000n]);
+  assert.deepEqual(inner.args, [ADAPTOR, 5_000_000n]);
 
-  allowance = 5_010_000n;
-  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5.01' });
+  allowance = 5_000_000n;
+  prepared = await service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5' });
   assert.equal(prepared.action, 'repay');
   outer = decodeFunctionData({ abi: EXECUTE_ABI, data: prepared.transaction.data });
   inner = decodeFunctionData({ abi: PAYMENT_ABI, data: outer.args[2] });
   assert.equal(inner.args[0].toLowerCase(), ACCOUNT);
-  assert.deepEqual(inner.args.slice(1), [7n, MAX_UINT256]);
+  assert.deepEqual(inner.args.slice(1), [7n, 5_000_000n]);
+  assert.equal(prepared.repaymentAmountBaseUnits, '5000000');
   const refreshed = await service.refreshRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1' });
   assert.equal(refreshed.loan.id, 'loan-1');
   assert.equal(fixture.calls.filter((call) => call.key === 'POST /api/chain/indexer').length, 1);
