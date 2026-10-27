@@ -109,6 +109,7 @@ export function parseServerOptions(argv = [], env = process.env) {
     loopersCredConcurrency: parseBoundedPositiveInteger(env.MULTIPASS_LOOPER_CRED_CONCURRENCY, DEFAULT_LOOPER_CRED_CONCURRENCY, 'MULTIPASS_LOOPER_CRED_CONCURRENCY', 16),
     consoleCreditEnabled: parseStrictBoolean(env.MULTIPASS_CREDIT_ENABLED, 'MULTIPASS_CREDIT_ENABLED') ?? false,
     consoleCreditDiscoveryOnly: parseStrictBoolean(env.MULTIPASS_CREDIT_DISCOVERY_ONLY, 'MULTIPASS_CREDIT_DISCOVERY_ONLY') ?? false,
+    consoleCreditRepaymentEnabled: parseStrictBoolean(env.MULTIPASS_CREDIT_REPAYMENT_ENABLED, 'MULTIPASS_CREDIT_REPAYMENT_ENABLED') ?? false,
     consoleCreditAllowedLoopers: parseCanonicalTokenIdList(env.MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS, 'MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS'),
     consoleCreditApiBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_CREDIFI_API_BASE_URL, 'MULTIPASS_CREDIFI_API_BASE_URL') ?? DEFAULT_CREDIFI_API_BASE_URL,
     consoleCreditCredBaseUrl: normalizeOptionalBaseUrl(env.MULTIPASS_CREDIT_CRED_BASE_URL, 'MULTIPASS_CREDIT_CRED_BASE_URL') ?? DEFAULT_LOOPER_CREDIT_CRED_BASE_URL,
@@ -323,6 +324,7 @@ export async function startServer(options = {}) {
       minCredScore: parsed.consoleCreditMinCred,
       allowedTokenIds: parsed.consoleCreditAllowedLoopers,
       discoveryOnly: parsed.consoleCreditDiscoveryOnly,
+      repaymentEnabled: parsed.consoleCreditRepaymentEnabled,
       requestTimeoutMs: parsed.consoleCreditTimeoutMs,
     })
     : null);

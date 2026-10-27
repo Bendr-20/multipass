@@ -57,6 +57,7 @@ test('parseServerOptions returns safe defaults', () => {
     loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
     consoleCreditDiscoveryOnly: false,
+    consoleCreditRepaymentEnabled: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -136,6 +137,7 @@ test('CLI flags override environment values', () => {
       loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
     consoleCreditDiscoveryOnly: false,
+    consoleCreditRepaymentEnabled: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -215,6 +217,7 @@ test('parseServerOptions accepts claim management security env', () => {
     loopersCredConcurrency: 4,
     consoleCreditEnabled: false,
     consoleCreditDiscoveryOnly: false,
+    consoleCreditRepaymentEnabled: false,
     consoleCreditAllowedLoopers: [],
     consoleCreditApiBaseUrl: 'https://backend.credi.fi',
     consoleCreditCredBaseUrl: 'https://helixa.xyz',
@@ -282,6 +285,7 @@ test('parseServerOptions keeps Console credit disabled by default and bounds the
   assert.equal(parseServerOptions([], {}).consoleCreditEnabled, false);
   const options = parseServerOptions([], {
     MULTIPASS_CREDIT_ENABLED: 'true',
+    MULTIPASS_CREDIT_REPAYMENT_ENABLED: 'true',
     MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS: '2431, 3802,2431',
     MULTIPASS_CREDIFI_API_BASE_URL: 'https://backend.credi.fi',
     MULTIPASS_CREDIT_CRED_BASE_URL: 'https://helixa.xyz',
@@ -289,6 +293,7 @@ test('parseServerOptions keeps Console credit disabled by default and bounds the
     MULTIPASS_CREDIT_TIMEOUT_MS: '7000',
   });
   assert.equal(options.consoleCreditEnabled, true);
+  assert.equal(options.consoleCreditRepaymentEnabled, true);
   assert.deepEqual(options.consoleCreditAllowedLoopers, ['2431', '3802']);
   assert.equal(options.consoleCreditApiBaseUrl, 'https://backend.credi.fi');
   assert.equal(options.consoleCreditCredBaseUrl, 'https://helixa.xyz');
@@ -296,6 +301,7 @@ test('parseServerOptions keeps Console credit disabled by default and bounds the
   assert.equal(options.consoleCreditTimeoutMs, 7000);
   assert.throws(() => parseServerOptions([], { MULTIPASS_CREDIT_MIN_CRED: '101' }), /MULTIPASS_CREDIT_MIN_CRED/);
   assert.throws(() => parseServerOptions([], { MULTIPASS_CREDIT_ENABLED: 'yes' }), /MULTIPASS_CREDIT_ENABLED/);
+  assert.throws(() => parseServerOptions([], { MULTIPASS_CREDIT_REPAYMENT_ENABLED: 'yes' }), /MULTIPASS_CREDIT_REPAYMENT_ENABLED/);
   assert.throws(() => parseServerOptions([], { MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS: '02431' }), /MULTIPASS_CREDIT_ALLOWED_TOKEN_IDS/);
 });
 

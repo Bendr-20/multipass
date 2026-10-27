@@ -165,6 +165,13 @@ test('offer-discovery mode authenticates and reads vouches while blocking every 
   assert.equal(fixture.calls.length, readsBefore);
 });
 
+test('repayment fails closed before provider access when the wallet warning safety gate is paused', async () => {
+  const fixture = createFetchFixture();
+  const service = createConsoleCreditService({ allowedTokenIds: ['2431'], repaymentEnabled: false, fetchImpl: fixture.fetchImpl });
+  await assert.rejects(() => service.prepareRepayment({ sessionKey: 'session-1', identity: identity(), loanId: 'loan-1', maxSpendTokens: '5' }), error => error.code === 'repayment_safety_pause' && error.status === 503);
+  assert.equal(fixture.calls.length, 0);
+});
+
 test('repayment remains available when new borrowing is discovery-locked', async () => {
   const loan = { id: 'loan-1', status: 'active', amount: 5, remainingBalance: 5.01, marketId: market().marketId, disbursement: { chainId: 8453, marketId: market().marketId, loanOwner: ACCOUNT, blockchainLoanId: '7', tokenAddress: USDC, transactionHash: '0x' + 'a'.repeat(64) }, payments: [] };
   const fixture = createFetchFixture({ loans: [loan] });

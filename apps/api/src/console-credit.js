@@ -77,6 +77,7 @@ export function createConsoleCreditService({
   minCredScore = DEFAULT_LOOPER_CREDIT_MIN_CRED,
   allowedTokenIds,
   discoveryOnly = false,
+  repaymentEnabled = true,
   publicClient,
   rpcUrls = DEFAULT_BASE_RPC_URLS,
   now = () => Date.now(),
@@ -409,6 +410,7 @@ export function createConsoleCreditService({
 
     async prepareRepayment({ sessionKey, identity, loanId, maxSpendTokens } = {}) {
       const { key, subject: expected } = keyFor(sessionKey, identity);
+      if (repaymentEnabled !== true) throw new ConsoleCreditError('repayment_safety_pause', 'Repayment is temporarily paused while a wallet security warning is investigated.', { status: 503 });
       await gate(expected);
       const active = requireSession(key, expected);
       const state = await readBorrowerState(active);
