@@ -91,6 +91,30 @@ test('credit workspace separates finite allowance and payoff confirmations', () 
   assert.match(html, /Repay loan in wallet/u);
 });
 
+test('active loans put a repayment reminder and due action before borrowing controls', () => {
+  const loan = {
+    id: 'loan-20', status: 'active', amount: 5, remainingBalance: 5.01,
+    disbursement: { blockchainLoanId: '20', transactionHash: '0x' + 'a'.repeat(64) },
+    payments: [{ status: 'scheduled', dueDate: '2026-11-20T23:00:00.000Z', amount: 5.01 }],
+  };
+  const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: '20', overview: { ...OVERVIEW, loans: [loan] } }, { tokenId: '20' });
+  assert.match(html, /Repayment reminder/u);
+  assert.match(html, /\$5\.01 due/u);
+  assert.match(html, /Nov(?:ember)? 20/u);
+  assert.match(html, /data-action="focus-console-credit-repayment"/u);
+  assert.match(html, /data-action="add-console-credit-repayment-reminder"/u);
+  assert.match(html, />Repay now/u);
+  assert.ok(html.indexOf('Repayment reminder') < html.indexOf('Sponsor vouches'));
+});
+
+test('active loans stay visibly overdue-safe when Credifi omits a due date', () => {
+  const loan = { id: 'loan-20', status: 'active', amount: 5, remainingBalance: 5.01, disbursement: { blockchainLoanId: '20' }, payments: [] };
+  const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: '20', overview: { ...OVERVIEW, loans: [loan] } }, { tokenId: '20' });
+  assert.match(html, /Repayment is outstanding/u);
+  assert.match(html, /Repay now/u);
+  assert.doesNotMatch(html, /data-action="add-console-credit-repayment-reminder"/u);
+});
+
 test('credit workspace states no direct application was submitted when no vouch exists', () => {
   const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: TOKEN_ID, overview: { ...OVERVIEW, commitments: [] } }, { tokenId: TOKEN_ID });
   assert.match(html, /does not expose a public application endpoint/u);

@@ -12356,6 +12356,26 @@ h1 {
 .console-credit-quote header span { color: var(--credit-muted); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .console-credit-metrics strong { color: var(--credit-text); font-size: clamp(24px, 3vw, 34px); letter-spacing: -0.035em; line-height: 1; }
 .console-credit-metrics small { color: var(--credit-muted); font-size: 11px; }
+.console-credit-repayment-reminder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: clamp(17px, 2.5vw, 24px);
+  border: 2px solid rgba(242, 200, 121, 0.78);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(242, 200, 121, 0.22), rgba(109, 39, 27, 0.24) 72%), #16130d;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+}
+.console-credit-repayment-reminder > div:first-child { display: grid; gap: 6px; }
+.console-credit-repayment-reminder span { color: #f2c879; font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+.console-credit-repayment-reminder strong { color: #fff8e9; font-size: clamp(24px, 4vw, 38px); letter-spacing: -.035em; line-height: 1.05; }
+.console-credit-repayment-reminder p { max-width: 48rem; margin: 0; color: #e5d9c3; line-height: 1.5; }
+.console-credit-reminder-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 9px; }
+.console-credit-reminder-actions button:first-child { border-color: #f2c879; background: #f2c879; color: #171109; }
+.console-credit-reminder-actions button:first-child:hover:not(:disabled) { background: #ffe0a4; color: #171109; }
+.console-credit-repayment-section { border-color: rgba(242, 200, 121, 0.42); }
+
 .console-credit-list,
 .console-credit-authorization,
 .console-credit-quote { display: grid; gap: 13px; }
@@ -12374,6 +12394,15 @@ h1 {
 .console-credit-row span { overflow-wrap: anywhere; color: #d8e3df; }
 .console-credit-row small { color: var(--credit-muted); }
 .console-credit-loan { display: grid; gap: 13px; padding: 15px; border: 1px solid var(--credit-line); border-radius: 13px; background: rgba(255,255,255,.025); }
+.console-credit-loan-active { border-color: rgba(242, 200, 121, 0.55); background: linear-gradient(145deg, rgba(242, 200, 121, 0.11), transparent 64%), rgba(255,255,255,.025); }
+.console-credit-loan-summary { display: grid; gap: 4px; }
+.console-credit-loan-summary .console-credit-loan-label { color: #f2c879; font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.console-credit-loan-summary > strong { color: #fff8e9; font-size: clamp(27px, 4vw, 38px); letter-spacing: -.035em; line-height: 1.05; }
+.console-credit-loan-summary > span:not(.console-credit-loan-label) { color: #f3dfb7; font-weight: 800; }
+.console-credit-loan-summary small { color: var(--credit-muted); }
+.console-credit-loan-active .console-credit-form button[type="submit"] { border-color: var(--credit-mint); background: var(--credit-mint); color: #07110f; }
+.console-credit-refresh-repayment { justify-self: start; }
+
 .console-credit-loan > div:first-child { display: grid; gap: 4px; }
 .console-credit-loan > div:first-child strong { color: var(--credit-text); }
 .console-credit-loan > div:first-child span { color: #d8e3df; }
@@ -12424,7 +12453,9 @@ h1 {
 .console-credit-confirm input[type="checkbox"] { flex: 0 0 20px; width: 20px; min-width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: var(--credit-mint); }
 @media (max-width: 760px) {
   .console-credit-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .console-credit-header, .console-credit-section > header, .console-credit-quote > header, .console-credit-row { flex-direction: column; }
+  .console-credit-header, .console-credit-section > header, .console-credit-quote > header, .console-credit-row, .console-credit-repayment-reminder { align-items: stretch; flex-direction: column; }
+  .console-credit-reminder-actions { width: 100%; }
+  .console-credit-reminder-actions button { flex: 1 1 12rem; }
   .console-credit-form { grid-template-columns: 1fr; }
   .console-credit-authorization dl, .console-credit-quote dl { grid-template-columns: 1fr; }
   .console-credit-workspace button { width: 100%; }

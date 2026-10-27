@@ -109,25 +109,27 @@ function renderOverview(credit, { commitments, loans, context, busy, discoveryOn
   const cred = overview.cred ?? {};
   const accepted = commitments.filter((entry) => ['accepted', 'active'].includes(entry.status));
   const offered = commitments.filter((entry) => entry.status === 'offered');
+  const openLoans = loans.filter((loan) => !isClosedLoan(loan));
+  const orderedLoans = [...openLoans, ...loans.filter((loan) => isClosedLoan(loan))];
   return `
     <div class="console-credit-metrics">
       <article><span>CRED</span><strong>${escapeHtml(String(cred.score ?? 'Unavailable'))}</strong><small>${escapeHtml(cred.tier ?? '')}</small></article>
       <article><span>Available credit</span><strong>${formatMicro(overview.balance?.credit?.availableCredit)}</strong><small>USDC</small></article>
       <article><span>Minimum loan</span><strong>${formatUsd(overview.flags?.minimumLoanAmount)}</strong><small>Credifi account rule</small></article>
-      <article><span>Open loans</span><strong>${loans.filter((loan) => !['completed', 'repaid', 'closed'].includes(String(loan.status).toLowerCase())).length}</strong><small>Provider state</small></article>
+      <article><span>Open loans</span><strong>${openLoans.length}</strong><small>Provider state</small></article>
     </div>
+    ${renderRepaymentReminder(openLoans)}
+    <section class="console-credit-section console-credit-repayment-section" id="console-credit-repayment"><header><div><span>${openLoans.length ? 'Repayment' : 'Account'}</span><h3>${openLoans.length ? 'Repay active loans' : 'Loans and repayment'}</h3></div><small>${openLoans.length ? 'Repayment stays visible until Credifi reports the loan closed.' : 'No repayment is currently due.'}</small></header>
+      ${orderedLoans.length ? '<div class="console-credit-list">' + orderedLoans.map((loan) => renderLoan(loan, credit, busy, discoveryOnly)).join('') + '</div>' : '<div class="console-credit-empty"><strong>No loans</strong><p>No Credifi loans are recorded for this Looper account.</p></div>'}
+    </section>
     ${overview.flags?.blockBorrowReason ? '<p class="console-credit-error">Borrowing blocked: ' + escapeHtml(overview.flags.blockBorrowReason) + '</p>' : ''}
     <section class="console-credit-section"><header><div><span>Step 1</span><h3>Sponsor vouches</h3></div><small>Accepting a vouch does not grant permission or borrow funds.</small></header>
       ${offered.length === 0 && accepted.length === 0 ? '<div class="console-credit-empty"><strong>No sponsor offer yet</strong><p>Credifi does not expose a public application endpoint. This private beta starts when an approved sponsor issues a vouch for this Looper.</p></div>' : ''}
       <div class="console-credit-list">${commitments.map((item) => renderCommitment(item, busy, discoveryOnly)).join('')}</div>
     </section>
     ${accepted.length && !discoveryOnly ? renderBorrowFlow(credit, accepted, context, busy) : ''}
-    <section class="console-credit-section"><header><div><span>Account</span><h3>Loans and repayment status</h3></div><small>Refresh after repayment so Credifi state and future provider attestations stay current.</small></header>
-      ${loans.length ? '<div class="console-credit-list">' + loans.map((loan) => renderLoan(loan, credit, busy, discoveryOnly)).join('') + '</div>' : '<div class="console-credit-empty"><strong>No loans</strong><p>No Credifi loans are recorded for this Looper account.</p></div>'}
-    </section>
   `;
 }
-
 function renderCommitment(item, busy, discoveryOnly = false) {
   const offered = item.status === 'offered';
   const state = discoveryOnly
@@ -177,16 +179,72 @@ function renderQuote(record, busy) {
 }
 
 function renderLoan(loan, credit, busy, discoveryOnly) {
-  const closed = ['completed', 'repaid', 'closed', 'defaulted', 'cancelled'].includes(String(loan.status ?? '').toLowerCase());
+  const closed = isClosedLoan(loan);
   const repayable = !closed && Boolean(loan.disbursement?.blockchainLoanId);
   const plan = credit.repayment?.loanId === loan.id ? credit.repayment : null;
-  const summary = '<div><strong>' + escapeHtml(loan.id) + '</strong><span>' + escapeHtml(loan.status) + (loan.amount == null ? '' : ' · ' + formatUsd(loan.amount)) + (loan.remainingBalance == null ? '' : ' · ' + formatUsd(loan.remainingBalance) + ' recorded balance') + '</span><small>' + (loan.disbursement?.transactionHash ? 'Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : 'Provider record') + '</small></div>';
+  const nextPayment = findNextPayment(loan);
+  const amountDue = nextPayment?.amount ?? loan.remainingBalance;
+  const dueCopy = nextPayment?.dueAt ? 'Due ' + formatDueDate(nextPayment.dueAt) : 'Repayment is outstanding';
+  const summary = '<div class="console-credit-loan-summary"><span class="console-credit-loan-label">' + (repayable ? 'Amount due' : 'Loan') + '</span><strong>' + (repayable ? formatUsd(amountDue) : escapeHtml(loan.id)) + '</strong><span>' + escapeHtml(dueCopy) + '</span><small>Loan ' + escapeHtml(loan.id) + ' · ' + escapeHtml(loan.status) + (loan.disbursement?.transactionHash ? ' · Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : '') + '</small></div>';
   if (!repayable) return '<article class="console-credit-row">' + summary + '<span class="console-credit-state">' + (closed ? 'Closed' : 'Repayment unavailable') + '</span></article>';
-  return '<article class="console-credit-loan">' + summary
-    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? loan.remainingBalance ?? '') + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Review repayment</button></form>'
-    + (plan ? renderRepaymentReview(plan, busy) : '') + '<button type="button" data-action="refresh-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '" ' + (busy ? 'disabled' : '') + '>Refresh repayment status</button></article>';
+  return '<article class="console-credit-loan console-credit-loan-active">' + summary
+    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? loan.remainingBalance ?? '') + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Repay now</button></form>'
+    + (plan ? renderRepaymentReview(plan, busy) : '') + '<button class="console-credit-refresh-repayment" type="button" data-action="refresh-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '" ' + (busy ? 'disabled' : '') + '>Check repayment status</button></article>';
 }
 
+function isClosedLoan(loan) {
+  return ['completed', 'repaid', 'closed', 'defaulted', 'cancelled'].includes(String(loan?.status ?? '').toLowerCase());
+}
+
+function findNextPayment(loan) {
+  const payments = Array.isArray(loan?.payments) ? loan.payments : [];
+  return payments.map((payment) => {
+    const status = String(payment?.status ?? '').toLowerCase();
+    if (['paid', 'completed', 'settled', 'cancelled'].includes(status)) return null;
+    const dueAt = payment?.dueDate ?? payment?.due_at ?? payment?.dueAt ?? payment?.paymentDueDate ?? payment?.scheduledAt ?? null;
+    const time = Date.parse(String(dueAt ?? ''));
+    if (!Number.isFinite(time)) return null;
+    const amount = [payment?.amount, payment?.amountDue, payment?.totalAmount].map(Number).find(Number.isFinite);
+    return { dueAt: new Date(time).toISOString(), time, amount: amount ?? loan.remainingBalance };
+  }).filter(Boolean).sort((left, right) => left.time - right.time)[0] ?? null;
+}
+
+function renderRepaymentReminder(openLoans) {
+  if (!openLoans.length) return '';
+  const reminders = openLoans.map((loan) => ({ loan, payment: findNextPayment(loan) }));
+  reminders.sort((left, right) => (left.payment?.time ?? Number.MAX_SAFE_INTEGER) - (right.payment?.time ?? Number.MAX_SAFE_INTEGER));
+  const selected = reminders[0];
+  const amount = selected.payment?.amount ?? selected.loan.remainingBalance;
+  const headline = selected.payment?.dueAt ? formatUsd(amount) + ' due ' + formatDueDate(selected.payment.dueAt) : 'Repayment is outstanding';
+  const calendarButton = selected.payment?.dueAt ? '<button type="button" data-action="add-console-credit-repayment-reminder" data-loan-id="' + escapeAttribute(selected.loan.id) + '" data-due-at="' + escapeAttribute(selected.payment.dueAt) + '" data-amount="' + escapeAttribute(amount) + '">Add calendar reminder</button>' : '';
+  return '<aside class="console-credit-repayment-reminder" role="alert"><div><span>Repayment reminder</span><strong>' + escapeHtml(headline) + '</strong><p>Keep enough USDC in the Looper account. Repayment remains available even when new borrowing is locked.</p></div><div class="console-credit-reminder-actions"><button type="button" data-action="focus-console-credit-repayment">View repayment</button>' + calendarButton + '</div></aside>';
+}
+
+function formatDueDate(value) {
+  const time = Date.parse(String(value ?? ''));
+  if (!Number.isFinite(time)) return 'date unavailable';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(time));
+}
+
+function downloadRepaymentReminder(button) {
+  const dueTime = Date.parse(String(button?.dataset?.dueAt ?? ''));
+  if (!Number.isFinite(dueTime)) return;
+  const loanId = String(button.dataset.loanId ?? 'loan').replaceAll(/[^a-zA-Z0-9_-]/gu, '-');
+  const amount = String(button.dataset.amount ?? '');
+  const start = formatCalendarUtc(new Date(dueTime));
+  const end = formatCalendarUtc(new Date(dueTime + 30 * 60 * 1000));
+  const created = formatCalendarUtc(new Date());
+  const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Multipass//Credifi repayment//EN', 'BEGIN:VEVENT', 'UID:credifi-' + loanId + '-' + dueTime + '@helixa.xyz', 'DTSTAMP:' + created, 'DTSTART:' + start, 'DTEND:' + end, 'SUMMARY:Repay Credifi loan ' + loanId, 'DESCRIPTION:Repay ' + amount + ' USDC from the Looper account in Multipass Console.', 'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', 'DESCRIPTION:Credifi repayment due tomorrow', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+  const view = button.ownerDocument?.defaultView;
+  if (!view?.Blob || typeof view.URL?.createObjectURL !== 'function') return;
+  const url = view.URL.createObjectURL(new view.Blob([body], { type: 'text/calendar;charset=utf-8' }));
+  const link = button.ownerDocument.createElement('a');
+  link.href = url; link.download = 'credifi-' + loanId + '-repayment.ics'; link.hidden = true;
+  button.ownerDocument.body.append(link); link.click(); link.remove();
+  view.setTimeout(() => view.URL.revokeObjectURL(url), 0);
+}
+
+function formatCalendarUtc(value) { return value.toISOString().replaceAll(/[-:]/gu, '').replace(/\.\d{3}Z$/u, 'Z'); }
 function renderRepaymentReview(plan, busy) {
   const debt = formatBaseUnits(plan.currentDebtBaseUnits, plan.token?.decimals ?? 6);
   const cap = formatBaseUnits(plan.maxSpendBaseUnits, plan.token?.decimals ?? 6);
@@ -218,6 +276,8 @@ export function bindConsoleCredit(root, handlers = {}) {
   root.querySelectorAll('[data-action="prepare-console-credit-repayment"]').forEach((form) => form.addEventListener('submit', (event) => { event.preventDefault(); const data = createFormData(event.currentTarget); handlers.prepareRepayment?.({ loanId: event.currentTarget.dataset.loanId, maxSpendTokens: data.get('maxSpendTokens') }); }));
   root.querySelector('[data-action="submit-console-credit-repayment"]')?.addEventListener('click', () => handlers.submitRepayment?.({ confirmed: root.querySelector('[data-repayment-confirm]')?.checked === true }));
   root.querySelectorAll('[data-action="refresh-console-credit-repayment"]').forEach((button) => button.addEventListener('click', () => handlers.refreshRepayment?.(button.dataset.loanId)));
+  root.querySelector('[data-action="focus-console-credit-repayment"]')?.addEventListener('click', () => { const section = root.querySelector('#console-credit-repayment'); section?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); section?.querySelector('input, button')?.focus?.(); });
+  root.querySelector('[data-action="add-console-credit-repayment-reminder"]')?.addEventListener('click', (event) => downloadRepaymentReminder(event.currentTarget));
 }
 
 function createFormData(form) { const FormDataConstructor = form?.ownerDocument?.defaultView?.FormData ?? globalThis.FormData; return new FormDataConstructor(form); }
