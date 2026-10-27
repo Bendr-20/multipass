@@ -8592,10 +8592,22 @@ test('Console repayment requires review, wallet confirmation, mined success, and
   const calls = [];
   let repaid = false;
   let debtReads = 0;
+  let capRejected = false;
   const loan = () => ({ id: 'loan-1', status: repaid ? 'repaid' : 'active', amount: 5, remainingBalance: repaid ? 0 : 5.01, marketId: 'base-usdc-2500:stable-12', disbursement: { chainId: 8453, marketId: 'base-usdc-2500:stable-12', loanOwner: account, blockchainLoanId: '7', tokenAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', transactionHash: '0x' + 'a'.repeat(64) }, payments: [] });
   const consoleCreditApi = {
     async overview() { return { account, cred: { score: 42, tier: 'Marginal', minimumScore: 40 }, flags: { minimumLoanAmount: 5, loanTwoFactorRequired: false, evcAuthorizations: {} }, markets: [], commitments: [], balance: { credit: { availableCredit: 0 } }, loans: [loan()] }; },
-    async prepareRepayment(input) { calls.push(['prepareRepayment', input]); debtReads += 1; return { schema_version: '0.1.0', loanId: 'loan-1', action: 'repay', chainId: 8453, token: { symbol: 'USDC', address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', decimals: 6 }, adaptorAddress: '0x2222222222222222222222222222222222222222', loanContractAddress: '0x4444444444444444444444444444444444444444', blockchainLoanId: '7', currentDebtBaseUnits: String(5_010_000 + debtReads), allowanceBaseUnits: '5100000', maxSpendBaseUnits: '5100000', expiresAt: new Date(Date.now() + 120_000).toISOString(), transaction: { chainId: 8453, from: owner.toLowerCase(), to: account, value: '0', data: '0x1234' } }; },
+    async prepareRepayment(input) {
+      calls.push(['prepareRepayment', input]);
+      if (!capRejected) {
+        capRejected = true;
+        const error = new Error('The live payoff exceeds the approved USDC spend cap.');
+        error.code = 'repayment_cap_too_low';
+        error.details = { currentDebtBaseUnits: '5120000', maxSpendBaseUnits: '5020000', decimals: 6 };
+        throw error;
+      }
+      debtReads += 1;
+      return { schema_version: '0.1.0', loanId: 'loan-1', action: 'repay', chainId: 8453, token: { symbol: 'USDC', address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', decimals: 6 }, adaptorAddress: '0x2222222222222222222222222222222222222222', loanContractAddress: '0x4444444444444444444444444444444444444444', blockchainLoanId: '7', currentDebtBaseUnits: String(5_120_000 + debtReads), allowanceBaseUnits: '5130000', maxSpendBaseUnits: '5130000', expiresAt: new Date(Date.now() + 120_000).toISOString(), transaction: { chainId: 8453, from: owner.toLowerCase(), to: account, value: '0', data: '0x1234' } };
+    },
     async refreshRepayment(input) { calls.push(['refreshRepayment', input]); repaid = true; return { loan: loan() }; },
   };
   const walletState = { mode: 'active', canTransact: true, tokenId: '617', owner, account, nativeWei: '0', tokens: [], activation: { state: 'idle' }, send: { state: 'idle' }, policy: { state: 'idle' } };
@@ -8613,10 +8625,11 @@ test('Console repayment requires review, wallet confirmation, mined success, and
   await app.start(); await flushAsyncEvents(30);
   root.querySelector('[data-console-view="credit"]')?.click(); await flushAsyncEvents(20);
   const form = root.querySelector('[data-action="prepare-console-credit-repayment"]');
-  form.elements.namedItem('maxSpendTokens').value = '5.1';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await flushAsyncEvents(20);
-  assert.match(root.textContent, /Pay the live debt, currently 5\.010001 USDC/u);
+  assert.match(root.textContent, /Live payoff loaded with a 1¢ interest buffer/u);
+  assert.match(root.textContent, /Pay the live debt, currently 5\.120001 USDC/u);
+  assert.deepEqual(calls.filter(([name]) => name === 'prepareRepayment').slice(0, 2).map(([, input]) => input.maxSpendTokens), ['5.02', '5.13']);
   root.querySelector('[data-repayment-confirm]').checked = true;
   root.querySelector('[data-action="submit-console-credit-repayment"]')?.click();
   await flushAsyncEvents(40);

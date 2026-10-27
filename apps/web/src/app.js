@@ -60,7 +60,7 @@ import { resolveConsoleOwnerProfile } from './console-owner-profile.js';
 import { createConsoleRestapNetworkApi } from './console-restap-network-api.js';
 import { createMissionApi } from './missions/api.js';
 import { createSwarmDraftRetryState } from './missions/swarm-invitation-create-key.js';
-import { CONSOLE_CREDIT_ACCOUNT_BINDING_VERSION, bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState, deriveConsoleCreditAccount } from './console-credit.js';
+import { CONSOLE_CREDIT_ACCOUNT_BINDING_VERSION, bindConsoleCredit, createConsoleCreditApi, createInitialConsoleCreditState, deriveConsoleCreditAccount, getLiveRepaymentRetryCap } from './console-credit.js';
 import { bindMissionBoard } from './missions/mission-board.js';
 import { bindMissionEditor } from './missions/mission-editor.js';
 import { SWARM_LAUNCH_DEFAULT_ECONOMICS, bindSwarmLaunchpad, deriveSwarmLaunchDraftFromInvitation, normalizeSwarmLaunchExecutionReviewForm, normalizeSwarmLaunchRequestForm, serializeSwarmLaunchRequest, validateSwarmLaunchExecutionPreview } from './missions/swarm-launchpad.js';
@@ -2250,12 +2250,21 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
 
   async function prepareConsoleCreditRepayment({ loanId, maxSpendTokens }) {
     const context = createConsoleCreditContext();
-    const normalizedCap = String(maxSpendTokens ?? '').trim();
+    let normalizedCap = String(maxSpendTokens ?? '').trim();
     const controller = beginConsoleCreditOperation('repaying', { repayment: null });
     try {
-      const prepared = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: String(loanId), maxSpendTokens: normalizedCap, csrfToken: context.csrfToken, signal: controller.signal });
+      let usedLivePayoff = false;
+      let prepared;
+      try {
+        prepared = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: String(loanId), maxSpendTokens: normalizedCap, csrfToken: context.csrfToken, signal: controller.signal });
+      } catch (error) {
+        const liveCap = getLiveRepaymentRetryCap(error);
+        if (!liveCap) throw error;
+        normalizedCap = liveCap; usedLivePayoff = true;
+        prepared = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: String(loanId), maxSpendTokens: normalizedCap, csrfToken: context.csrfToken, signal: controller.signal });
+      }
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
-      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...prepared, maxSpendTokens: normalizedCap }, error: null, notice: 'Live repayment step prepared. Review it before opening the wallet.' } };
+      state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...prepared, maxSpendTokens: normalizedCap }, error: null, notice: usedLivePayoff ? 'Live payoff loaded with a 1¢ interest buffer. Review the updated maximum before opening the wallet.' : 'Live repayment step prepared. Review it before opening the wallet.' } };
       render(root, state, handlers);
     } catch (error) { failConsoleCredit(error, context); }
     finally { if (consoleCreditAbortController === controller) consoleCreditAbortController = null; }
@@ -2271,7 +2280,18 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     }
     const controller = beginConsoleCreditOperation('repaying', { repayment: reviewed });
     try {
-      const fresh = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: reviewed.loanId, maxSpendTokens: reviewed.maxSpendTokens, csrfToken: context.csrfToken, signal: controller.signal });
+      let fresh;
+      try {
+        fresh = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: reviewed.loanId, maxSpendTokens: reviewed.maxSpendTokens, csrfToken: context.csrfToken, signal: controller.signal });
+      } catch (error) {
+        const liveCap = getLiveRepaymentRetryCap(error);
+        if (!liveCap) throw error;
+        const updated = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: reviewed.loanId, maxSpendTokens: liveCap, csrfToken: context.csrfToken, signal: controller.signal });
+        if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
+        state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...updated, maxSpendTokens: liveCap }, error: null, notice: 'The live payoff increased. Review the updated maximum before signing.' } };
+        render(root, state, handlers);
+        return;
+      }
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
       // Accrued debt is informational and changes continuously; the finite cap and exact transaction define the approved authority.
       const fingerprint = (plan) => JSON.stringify({ loanId: plan.loanId, action: plan.action, token: plan.token, adaptorAddress: plan.adaptorAddress, loanContractAddress: plan.loanContractAddress, blockchainLoanId: plan.blockchainLoanId, allowanceBaseUnits: plan.allowanceBaseUnits, maxSpendBaseUnits: plan.maxSpendBaseUnits, transaction: plan.transaction });

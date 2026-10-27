@@ -55,6 +55,14 @@ export function deriveConsoleCreditAccount(tokenId) {
   return deriveLooperAccount({ implementation: RELEASED_ACCOUNT_IMPLEMENTATION, tokenId }).toLowerCase();
 }
 
+export function getLiveRepaymentRetryCap(error) {
+  if (error?.code !== 'repayment_cap_too_low') return null;
+  const decimals = Number(error?.details?.decimals);
+  const debtText = String(error?.details?.currentDebtBaseUnits ?? '');
+  if (!Number.isInteger(decimals) || decimals !== 6 || !/^[1-9]\d*$/u.test(debtText)) return null;
+  return formatBaseUnits(BigInt(debtText) + 10_000n, decimals);
+}
+
 export function createInitialConsoleCreditState(tokenId = null) {
   return Object.freeze({
     status: 'idle', selectedTokenId: tokenId == null ? null : String(tokenId), overview: null,
