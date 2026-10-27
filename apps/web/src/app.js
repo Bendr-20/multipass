@@ -2273,7 +2273,8 @@ export function createApp({ root, loadDemo, loadLiveDemo, saveMultipass = defaul
     try {
       const fresh = await activeConsoleCreditApi.prepareRepayment({ tokenId: context.tokenId, loanId: reviewed.loanId, maxSpendTokens: reviewed.maxSpendTokens, csrfToken: context.csrfToken, signal: controller.signal });
       if (!isCurrentConsoleCreditContext(context) || controller.signal.aborted) return;
-      const fingerprint = (plan) => JSON.stringify({ loanId: plan.loanId, action: plan.action, token: plan.token, adaptorAddress: plan.adaptorAddress, loanContractAddress: plan.loanContractAddress, blockchainLoanId: plan.blockchainLoanId, currentDebtBaseUnits: plan.currentDebtBaseUnits, allowanceBaseUnits: plan.allowanceBaseUnits, maxSpendBaseUnits: plan.maxSpendBaseUnits, transaction: plan.transaction });
+      // Accrued debt is informational and changes continuously; the finite cap and exact transaction define the approved authority.
+      const fingerprint = (plan) => JSON.stringify({ loanId: plan.loanId, action: plan.action, token: plan.token, adaptorAddress: plan.adaptorAddress, loanContractAddress: plan.loanContractAddress, blockchainLoanId: plan.blockchainLoanId, allowanceBaseUnits: plan.allowanceBaseUnits, maxSpendBaseUnits: plan.maxSpendBaseUnits, transaction: plan.transaction });
       if (fingerprint(fresh) !== fingerprint(reviewed)) {
         state = { ...state, consoleCredit: { ...state.consoleCredit, status: 'ready', repayment: { ...fresh, maxSpendTokens: reviewed.maxSpendTokens }, error: null, notice: 'Repayment state changed. Review the refreshed step before signing.' } };
         render(root, state, handlers);

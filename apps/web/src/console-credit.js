@@ -188,8 +188,15 @@ function renderLoan(loan, credit, busy, discoveryOnly) {
   const summary = '<div class="console-credit-loan-summary"><span class="console-credit-loan-label">' + (repayable ? 'Amount due' : 'Loan') + '</span><strong>' + (repayable ? formatUsd(amountDue) : escapeHtml(loan.id)) + '</strong><span>' + escapeHtml(dueCopy) + '</span><small>Loan ' + escapeHtml(loan.id) + ' · ' + escapeHtml(loan.status) + (loan.disbursement?.transactionHash ? ' · Base tx ' + escapeHtml(shortAddress(loan.disbursement.transactionHash)) : '') + '</small></div>';
   if (!repayable) return '<article class="console-credit-row">' + summary + '<span class="console-credit-state">' + (closed ? 'Closed' : 'Repayment unavailable') + '</span></article>';
   return '<article class="console-credit-loan console-credit-loan-active">' + summary
-    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? loan.remainingBalance ?? '') + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Repay now</button></form>'
+    + '<form class="console-credit-form" data-action="prepare-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '"><label><span>Maximum USDC spend · includes 1¢ live-interest buffer</span><input name="maxSpendTokens" inputmode="decimal" value="' + escapeAttribute(plan?.maxSpendTokens ?? recommendedRepaymentCap(loan.remainingBalance)) + '" required></label><button type="submit" ' + (busy ? 'disabled' : '') + '>Review repayment</button></form>'
     + (plan ? renderRepaymentReview(plan, busy) : '') + '<button class="console-credit-refresh-repayment" type="button" data-action="refresh-console-credit-repayment" data-loan-id="' + escapeAttribute(loan.id) + '" ' + (busy ? 'disabled' : '') + '>Check repayment status</button></article>';
+}
+
+function recommendedRepaymentCap(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '';
+  const baseUnits = BigInt(Math.ceil(amount * 1_000_000)) + 10_000n;
+  return formatBaseUnits(baseUnits.toString(), 6);
 }
 
 function isClosedLoan(loan) {

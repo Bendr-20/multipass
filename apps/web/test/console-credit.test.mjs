@@ -91,6 +91,13 @@ test('credit workspace separates finite allowance and payoff confirmations', () 
   assert.match(html, /Repay loan in wallet/u);
 });
 
+test('active repayment defaults to a visible finite interest buffer above the provider snapshot', () => {
+  const loan = { id: 'loan-20', status: 'active', amount: 50, remainingBalance: 50.001768, disbursement: { blockchainLoanId: '20' }, payments: [] };
+  const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: '20', overview: { ...OVERVIEW, loans: [loan] } }, { tokenId: '20' });
+  assert.match(html, /Maximum USDC spend · includes 1¢ live-interest buffer/u);
+  assert.match(html, /value="50\.011768"/u);
+});
+
 test('active loans put a repayment reminder and due action before borrowing controls', () => {
   const loan = {
     id: 'loan-20', status: 'active', amount: 5, remainingBalance: 5.01,
@@ -103,7 +110,7 @@ test('active loans put a repayment reminder and due action before borrowing cont
   assert.match(html, /Nov(?:ember)? 20/u);
   assert.match(html, /data-action="focus-console-credit-repayment"/u);
   assert.match(html, /data-action="add-console-credit-repayment-reminder"/u);
-  assert.match(html, />Repay now/u);
+  assert.match(html, />Review repayment/u);
   assert.ok(html.indexOf('Repayment reminder') < html.indexOf('Sponsor vouches'));
 });
 
@@ -111,7 +118,7 @@ test('active loans stay visibly overdue-safe when Credifi omits a due date', () 
   const loan = { id: 'loan-20', status: 'active', amount: 5, remainingBalance: 5.01, disbursement: { blockchainLoanId: '20' }, payments: [] };
   const html = renderConsoleCreditPanel({ status: 'ready', selectedTokenId: '20', overview: { ...OVERVIEW, loans: [loan] } }, { tokenId: '20' });
   assert.match(html, /Repayment is outstanding/u);
-  assert.match(html, /Repay now/u);
+  assert.match(html, /Review repayment/u);
   assert.doesNotMatch(html, /data-action="add-console-credit-repayment-reminder"/u);
 });
 
